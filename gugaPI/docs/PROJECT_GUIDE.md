@@ -1,0 +1,231 @@
+# gugaPI 项目框架与驱动规范
+
+本文档用于约束这块自研 MSPM0G3519 开发板的比赛代码结构。目标是：新硬件能快速接入，比赛题目逻辑不和底层驱动混在一起，现场调试时能快速定位问题。
+
+## 一、总体分层
+
+```text
+gugaPI/
+  app/          比赛题目相关逻辑
+  board/        自研开发板的硬件定义和板级初始化
+  drivers/      独立设备驱动
+  services/     时间、调度、日志、错误处理等系统服务
+  algorithm/    PID、滤波、控制算法等纯逻辑
+  config/       功能开关和调试配置
+  docs/         项目文档
+```
+
+分层依赖方向固定为：
+
+```text
+app -> services / algorithm / drivers -> board -> SysConfig / DriverLib
+```
+
+禁止反向依赖。尤其是 `drivers/` 不应该包含 `app/` 的头文件。
+
+## 二、启动流程
+
+入口在 `empty_cpp.cpp`：
+
+```text
+SYSCFG_DL_init()
+Fault_Init()
+Scheduler_Init()
+Time_Init()
+Board_Init()
+Log_Init()
+App_Init()
+while (1) {
+    Scheduler_Run()
+    App_Run()
+}
+```
+
+`SYSCFG_DL_init()` 由 SysConfig 生成，负责时钟、电源、引脚复用和外设基础初始化。不要手改 `Debug/ti_msp_dl_config.c` 或 `Debug/ti_msp_dl_config.h`。
+
+## 三、目录职责
+
+### app/
+
+只放比赛题目逻辑，例如状态机、任务组合、策略控制、模式切换。`app` 可以调用驱动和算法，但不要直接写寄存器。
+
+### board/
+
+描述“这块板子有什么”：
+
+- 引脚归属
+- 外设实例归属
+- 板级初始化
+- 电源使能、默认电平、硬件版本差异
+
+驱动不能私自写死引脚。引脚和总线信息应从 `board/` 通过配置结构传入驱动。
+
+### drivers/
+
+每个硬件设备一个独立目录。推荐结构：
+
+```text
+drivers/oled/
+  oled.h
+  oled.cpp
+```
+
+驱动只解决设备本身的问题，例如 OLED 显示、编码器计数、IMU 读取、电机 PWM 输出。
+
+### services/
+
+系统通用能力：
+
+- `time`：1 ms 系统时间戳和延时
+- `scheduler`：无 RTOS 协作式任务调度
+- `log`：串口日志接口，目前默认关闭
+- `fault`：统一错误码和严重错误处理
+
+### algorithm/
+
+放不依赖硬件的算法，例如 PID、滤波、路径规划、姿态解算。算法层不应该包含 `ti_msp_dl_config.h`。
+
+### config/
+
+放功能开关和调试开关。比赛现场需要快速裁剪功能时，优先改这里。
+
+## 四、任务调度规范
+
+当前使用 1 ms SysTick 和协作式调度器，不引入 RTOS。
+
+推荐任务周期：
+
+```text
+1 ms    按键扫描、编码器采样
+5 ms    电机闭环、快速控制
+10 ms   传感器读取、姿态更新
+50 ms   屏幕刷新
+100 ms  串口遥测、状态上报
+```
+
+任务函数要求：
+
+- 不要长时间阻塞。
+- 不要在任务里死等外设。
+- 慢外设必须有超时。
+- 任务之间通过状态结构或环形缓冲区通信。
+- 中断里只做清标志、读写缓冲区、置位 flag。
+
+## 五、驱动代码要求
+
+### 1. 文件结构
+
+每个驱动至少包含：
+
+```text
+xxx.h       公开接口、配置结构、状态结构
+xxx.cpp     私有实现、寄存器操作、协议细节
+```
+
+复杂驱动可以继续拆分：
+
+```text
+xxx_protocol.cpp
+xxx_registers.h
+xxx_port.cpp
+```
+
+### 2. 接口命名
+
+推荐统一使用：
+
+```text
+XXX_Init()
+XXX_Deinit()
+XXX_Update()
+XXX_Read()
+XXX_Write()
+XXX_IsReady()
+XXX_GetStatus()
+```
+
+初始化必须返回 `DriverStatus`，不要只返回 `void`。
+
+### 3. 配置方式
+
+驱动不得写死板级资源。推荐：
+
+```cpp
+struct XxxConfig {
+    /* GPIO port, pin, timer instance, I2C instance, timeout, etc. */
+};
+
+struct XxxContext {
+    const XxxConfig *config;
+    bool initialized;
+};
+```
+
+由 `board/` 或 `app/` 创建配置，再传给 `XXX_Init()`。
+
+### 4. 错误和超时
+
+所有访问外设的驱动必须考虑：
+
+- 参数为空
+- 未初始化
+- 总线忙
+- 设备无响应
+- 超时
+- 数据校验失败
+
+统一使用 `drivers/common/driver_status.h` 中的 `DriverStatus`。严重错误再上报到 `services::Fault_Set()`。
+
+### 5. 中断要求
+
+中断函数必须短：
+
+- 清中断标志
+- 读/写硬件 FIFO
+- 放入 ring buffer
+- 设置状态标志
+
+禁止在中断里做复杂算法、格式化打印、长延时、等待 I2C/SPI/UART 完成。
+
+### 6. 阻塞要求
+
+驱动允许提供阻塞式接口，但必须有超时参数或内部超时。推荐同时提供非阻塞 `Update()` 风格接口，方便接入调度器。
+
+### 7. 日志要求
+
+驱动内部不要大量打印。调试信息通过 `services/log` 输出，并受 `FEATURE_ENABLE_LOG` 控制。
+
+### 8. SysConfig 要求
+
+新增 UART、I2C、SPI、PWM、ADC、GPIO 等外设时，优先在 `empty_cpp.syscfg` 中配置，让 SysConfig 生成初始化代码。自己的驱动只调用生成的宏和 DriverLib API。
+
+不要手改这些生成文件：
+
+```text
+Debug/ti_msp_dl_config.c
+Debug/ti_msp_dl_config.h
+Debug/device_linker.cmd
+Debug/device.opt
+```
+
+## 六、新增一个硬件设备的流程
+
+1. 在 `empty_cpp.syscfg` 中添加外设和引脚。
+2. 在 `board/board_pins.h` 或新的板级配置文件中登记资源归属。
+3. 在 `drivers/<device>/` 中新增驱动。
+4. 用 `Config` 结构把板级资源传入驱动。
+5. 在 `app/App_Init()` 或专门的设备初始化函数中调用驱动初始化。
+6. 如果需要周期运行，把 `XXX_Update()` 注册进 `Scheduler_AddTask()`。
+7. 失败时返回 `DriverStatus`，必要时调用 `Fault_Set()`。
+
+## 七、构建注意事项
+
+CCS Theia 会根据工程源码重新生成 `Debug/` 下的 makefile。新增 `.cpp` 文件后，建议执行一次 Clean Build。
+
+命令行环境中 `make` 当前不在 PATH，但本机存在：
+
+```text
+C:\ti\ccs2100\ccs\utils\bin\gmake.exe
+```
+
+不要为了让命令行构建通过而手工维护 `Debug/*.mk`，这些文件属于 CCS 生成产物。

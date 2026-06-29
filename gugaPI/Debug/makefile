@@ -13,6 +13,15 @@ ORDERED_OBJS += \
 "./empty_cpp.o" \
 "./ti_msp_dl_config.o" \
 "./startup_mspm0g351x_ticlang.o" \
+"./algorithm/filter.o" \
+"./algorithm/pid.o" \
+"./app/app_main.o" \
+"./board/board.o" \
+"./drivers/template/template_driver.o" \
+"./services/fault.o" \
+"./services/log.o" \
+"./services/scheduler.o" \
+"./services/time.o" \
 $(GEN_CMDS__FLAG) \
 -Wl,-ldevice.cmd.genlibs \
 -Wl,-llibc.a \
@@ -25,7 +34,17 @@ RMDIR := RMDIR /S/Q
 # All of the sources participating in the build are defined here
 -include sources.mk
 -include subdir_vars.mk
+-include algorithm/subdir_vars.mk
+-include app/subdir_vars.mk
+-include board/subdir_vars.mk
+-include drivers/template/subdir_vars.mk
+-include services/subdir_vars.mk
 -include subdir_rules.mk
+-include algorithm/subdir_rules.mk
+-include app/subdir_rules.mk
+-include board/subdir_rules.mk
+-include drivers/template/subdir_rules.mk
+-include services/subdir_rules.mk
 -include objects.mk
 
 ifneq ($(MAKECMDGOALS),clean)
@@ -136,9 +155,9 @@ gugaPI.out: $(OBJS) $(GEN_CMDS)
 # Other Targets
 clean:
 	-$(RM) $(GEN_MISC_FILES__QUOTED)$(GEN_FILES__QUOTED)$(EXE_OUTPUTS__QUOTED)
-	-$(RM) "empty_cpp.o" "ti_msp_dl_config.o" "startup_mspm0g351x_ticlang.o" 
+	-$(RM) "empty_cpp.o" "ti_msp_dl_config.o" "startup_mspm0g351x_ticlang.o" "algorithm\filter.o" "algorithm\pid.o" "app\app_main.o" "board\board.o" "drivers\template\template_driver.o" "services\fault.o" "services\log.o" "services\scheduler.o" "services\time.o" 
 	-$(RM) "ti_msp_dl_config.d" "startup_mspm0g351x_ticlang.d" 
-	-$(RM) "empty_cpp.d" 
+	-$(RM) "empty_cpp.d" "algorithm\filter.d" "algorithm\pid.d" "app\app_main.d" "board\board.d" "drivers\template\template_driver.d" "services\fault.d" "services\log.d" "services\scheduler.d" "services\time.d" 
 	-@echo ' '
 
 .PHONY: all clean dependents

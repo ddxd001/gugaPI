@@ -32,10 +32,27 @@
 
 #include "ti_msp_dl_config.h"
 
+#include "app/app_main.h"
+#include "board/board.h"
+#include "services/fault.h"
+#include "services/log.h"
+#include "services/scheduler.h"
+#include "services/time.h"
+
 int main(void)
 {
     SYSCFG_DL_init();
 
+    services::Fault_Init();
+    services::Scheduler_Init();
+    services::Time_Init();
+    board::Board_Init();
+    services::Log_Init();
+    app::App_Init();
+    board::Board_LateInit();
+
     while (1) {
+        services::Scheduler_Run();
+        app::App_Run();
     }
 }

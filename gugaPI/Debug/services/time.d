@@ -1,6 +1,7 @@
 # FIXED
 
-empty_cpp.o: ../empty_cpp.cpp \
+services/time.o: ../services/time.cpp \
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/services/time.h \
  ti_msp_dl_config.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/msp/msp.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/DeviceFamily.h \
@@ -84,11 +85,8 @@ empty_cpp.o: ../empty_cpp.cpp \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_vref.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_wwdt.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_interrupt.h \
- C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h \
- ../app/app_main.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/app/app_state.h \
- ../board/board.h ../services/fault.h ../services/log.h \
- ../services/scheduler.h ../services/time.h
+ C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h
+C:/Users/DdXd/workspace_ccstheia/gugaPI/services/time.h:
 ti_msp_dl_config.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/msp/msp.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/DeviceFamily.h:
@@ -173,10 +171,3 @@ C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_vref.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_wwdt.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_interrupt.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h:
-../app/app_main.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/app/app_state.h:
-../board/board.h:
-../services/fault.h:
-../services/log.h:
-../services/scheduler.h:
-../services/time.h:

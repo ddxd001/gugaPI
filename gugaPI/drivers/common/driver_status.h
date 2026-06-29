@@ -1,0 +1,18 @@
+#ifndef DRIVERS_COMMON_DRIVER_STATUS_H_
+#define DRIVERS_COMMON_DRIVER_STATUS_H_
+
+namespace drivers {
+
+enum DriverStatus {
+    DRIVER_OK = 0,
+    DRIVER_ERROR,
+    DRIVER_ERROR_INVALID_ARG,
+    DRIVER_ERROR_NOT_INITIALIZED,
+    DRIVER_ERROR_TIMEOUT,
+    DRIVER_ERROR_BUSY,
+    DRIVER_ERROR_UNSUPPORTED
+};
+
+} /* namespace drivers */
+
+#endif /* DRIVERS_COMMON_DRIVER_STATUS_H_ */

@@ -1,30 +1,25 @@
-## Example Summary
+# gugaPI
 
-Empty C++ project using DriverLib.
-This example shows a basic empty project using DriverLib with just main C++ file
-and SysConfig initialization.
+这是用于自研 MSPM0G3519 单片机开发板的全国大学生电子设计大赛代码工程。
 
-## Peripherals, Pin Functions, MCU Pins, Launchpad Pins
-| Peripheral | Function | Pin | Launchpad Pin |
-| --- | --- | --- | --- |
-| BOARD | Debug Clock | PA20 | J19_16 |
-| BOARD | Debug Data In Out | PA19 | J19_14 |
+工程基于 TI CCS Theia、MSPM0 SDK、SysConfig、DriverLib 和 TI Clang。底层初始化仍由 SysConfig 生成，业务代码按比赛扩展需求划分为 `app`、`board`、`drivers`、`services`、`algorithm` 和 `config`。
 
-### Device Migration Recommendations
-This project was developed for a superset device included in the MSPM0 LaunchPad. Please
-visit the [CCS User's Guide](https://software-dl.ti.com/msp430/esd/MSPM0-SDK/latest/docs/english/tools/ccs_ide_guide/doc_guide/doc_guide-srcs/ccs_ide_guide.html#sysconfig-project-migration)
-for information about migrating to other MSPM0 devices.
+## 当前目标
 
-### Low-Power Recommendations
-TI recommends to terminate unused pins by setting the corresponding functions to
-GPIO and configure the pins to output low or input with internal
-pullup/pulldown resistor.
+- 芯片：MSPM0G3519
+- 工程类型：NoRTOS C++
+- 调试器：XDS110
+- SysConfig 文件：`empty_cpp.syscfg`
+- 程序入口：`empty_cpp.cpp`
 
-SysConfig allows developers to easily configure unused pins by selecting **Board**→**Configure Unused Pins**.
+## 文档
 
-For more information about jumper configuration to achieve low-power using the
-MSPM0 LaunchPad, please visit the LP-MSPM0G3519 User's Guide.
+项目框架、目录职责、任务调度方式和驱动代码要求见：
 
-## Example Usage
+```text
+docs/PROJECT_GUIDE.md
+```
 
-Compile, load and run the example.
+## 重要约定
+
+不要手改 `Debug/ti_msp_dl_config.c` 和 `Debug/ti_msp_dl_config.h`。新增外设时先改 `empty_cpp.syscfg`，再在 `drivers/` 中写设备驱动。
