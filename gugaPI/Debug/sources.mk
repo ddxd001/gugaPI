@@ -122,6 +122,7 @@ SUBDIRS := \
 algorithm \
 app \
 board \
+drivers/button \
 drivers/buzzer \
 drivers/fm24cl64b \
 drivers/led \

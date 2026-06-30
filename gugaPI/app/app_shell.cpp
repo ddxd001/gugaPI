@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "board/board_buzzer.h"
+#include "board/board_button.h"
 #include "board/board_config.h"
 #include "board/board_fram.h"
 #include "board/board_led.h"
@@ -247,6 +248,44 @@ void BuzzerCommand(int argc, const char * const argv[])
     services::Shell_WriteLine("usage: buzzer on|off");
 }
 
+void ButtonCommand(int argc, const char * const argv[])
+{
+#if FEATURE_ENABLE_BUTTONS
+    if (argc != 1) {
+        services::Shell_WriteLine("usage: button");
+        return;
+    }
+
+    for (uint32_t i = 0U; i < (uint32_t) board::BOARD_BUTTON_COUNT; i++) {
+        const board::BoardButtonId id = (board::BoardButtonId) i;
+        bool raw_pressed = false;
+        const drivers::DriverStatus status = board::Board_ButtonReadRaw(
+            id,
+            &raw_pressed);
+
+        services::Shell_WriteString(board::Board_ButtonGetName(id));
+        services::Shell_WriteString(" raw=");
+        if (status == drivers::DRIVER_OK) {
+            services::Shell_WriteString(raw_pressed ? "pressed" : "released");
+        } else {
+            services::Shell_WriteString(DriverStatusText(status));
+        }
+
+        services::Shell_WriteString(" debounced=");
+        services::Shell_WriteString(
+            board::Board_ButtonIsPressed(id) ? "pressed" : "released");
+        services::Shell_WriteString(" press_event=");
+        services::Shell_WriteUInt32(board::Board_ButtonWasPressed(id) ? 1U : 0U);
+        services::Shell_WriteString(" release_event=");
+        services::Shell_WriteUInt32(board::Board_ButtonWasReleased(id) ? 1U : 0U);
+        services::Shell_WriteString("\r\n");
+    }
+#else
+    (void) argc;
+    (void) argv;
+    services::Shell_WriteLine("button: disabled");
+#endif
+}
 void FramCommand(int argc, const char * const argv[])
 {
 #if FEATURE_ENABLE_FRAM
@@ -421,6 +460,11 @@ void AppShell_RegisterCommands(void)
     (void) services::Shell_RegisterCommand("buzzer",
                                            "Control buzzer: buzzer on|off",
                                            BuzzerCommand);
+#if FEATURE_ENABLE_BUTTONS
+    (void) services::Shell_RegisterCommand("button",
+                                           "Show button states",
+                                           ButtonCommand);
+#endif
 #if FEATURE_ENABLE_FRAM
     (void) services::Shell_RegisterCommand(
         "fram",

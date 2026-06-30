@@ -1,8 +1,11 @@
 #include "app/app_main.h"
 
+#include "board/board_button.h"
+
 #include "board/board_buzzer.h"
 #include "board/board_led.h"
 #include "config/feature_config.h"
+#include "drivers/common/driver_status.h"
 #include "services/debug_uart.h"
 #include "services/fault.h"
 #include "services/scheduler.h"
@@ -135,6 +138,17 @@ void App_DebugUartCounterTask(void)
 }
 #endif
 
+#if FEATURE_ENABLE_BUTTONS
+const uint32_t BUTTON_SCAN_PERIOD_MS = 5U;
+
+void App_ButtonScanTask(void)
+{
+    if (board::Board_ButtonsUpdate(services::Time_Millis()) !=
+        drivers::DRIVER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+}
+#endif
 } /* namespace */
 
 namespace app {
@@ -148,6 +162,15 @@ void App_Init(void)
 {
     g_appState.mode = APP_MODE_RUNNING;
     g_appState.uptime_ms = 0U;
+#if FEATURE_ENABLE_BUTTONS
+    if (services::Scheduler_AddTask("buttons",
+                                    App_ButtonScanTask,
+                                    BUTTON_SCAN_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
 
 
 #if FEATURE_ENABLE_STATUS_LED && FEATURE_ENABLE_LED_TEST

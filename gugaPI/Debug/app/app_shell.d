@@ -4,6 +4,7 @@ app/app_shell.o: ../app/app_shell.cpp \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/app/app_shell.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_buzzer.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h \
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_button.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_config.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_fram.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h \
@@ -96,6 +97,7 @@ app/app_shell.o: ../app/app_shell.cpp \
 C:/Users/DdXd/workspace_ccstheia/gugaPI/app/app_shell.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_buzzer.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h:
+C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_button.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_config.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_fram.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h:

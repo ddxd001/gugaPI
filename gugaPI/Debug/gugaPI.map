@@ -1,18 +1,18 @@
 ******************************************************************************
             TI ARM Clang Linker PC v5.1.1                      
 ******************************************************************************
->> Linked Tue Jun 30 17:17:06 2026
+>> Linked Tue Jun 30 17:38:15 2026
 
 OUTPUT FILE NAME:   <gugaPI.out>
-ENTRY POINT SYMBOL: "_c_int00_noargs"  address: 00002395
+ENTRY POINT SYMBOL: "_c_int00_noargs"  address: 00002851
 
 
 MEMORY CONFIGURATION
 
          name            origin    length      used     unused   attr    fill
 ----------------------  --------  ---------  --------  --------  ----  --------
-  FLASH                 00000000   00080000  00002b20  0007d4e0  R  X
-  SRAM_BANK0            20200000   00010000  000003c3  0000fc3d  RW X
+  FLASH                 00000000   00080000  000031b0  0007ce50  R  X
+  SRAM_BANK0            20200000   00010000  000003f3  0000fc0d  RW X
   SRAM_BANK1            20210000   00010000  00000000  00010000  RW X
   BCR_CONFIG            41c00000   000000ff  00000000  000000ff  R   
   BSL_CONFIG            41c00100   00000080  00000000  00000080  R   
@@ -23,14 +23,14 @@ SEGMENT ALLOCATION MAP
 
 run origin  load origin   length   init length attrs members
 ----------  ----------- ---------- ----------- ----- -------
-00000000    00000000    00002b20   00002b20    r-x
+00000000    00000000    000031b0   000031b0    r-x
   00000000    00000000    000000c0   000000c0    r-- .intvecs
-  000000c0    000000c0    000025e0   000025e0    r-x .text
-  000026a0    000026a0    00000450   00000450    r-- .rodata
-  00002af0    00002af0    00000030   00000030    r-- .cinit
-20200000    20200000    000002c3   00000000    rw-
-  20200000    20200000    000001e3   00000000    rw- .data
-  202001e3    202001e3    000000e0   00000000    rw- .bss
+  000000c0    000000c0    00002ba0   00002ba0    r-x .text
+  00002c60    00002c60    00000520   00000520    r-- .rodata
+  00003180    00003180    00000030   00000030    r-- .cinit
+20200000    20200000    000002f3   00000000    rw-
+  20200000    20200000    00000213   00000000    rw- .data
+  20200213    20200213    000000e0   00000000    rw- .bss
 2020ff00    2020ff00    00000100   00000000    rw-
   2020ff00    2020ff00    00000100   00000000    rw- .stack
 
@@ -43,232 +43,267 @@ section   page    origin      length       input sections
 .intvecs   0    00000000    000000c0     
                   00000000    000000c0     startup_mspm0g351x_ticlang.o (.intvecs)
 
-.text      0    000000c0    000025e0     
+.text      0    000000c0    00002ba0     
                   000000c0    00000430     app_shell.o (.text._ZN3app12_GLOBAL__N_111FramCommandEiPKPKc)
                   000004f0    00000410     shell.o (.text._ZN8services12_GLOBAL__N_113HandleLineEndEv)
-                  00000900    00000224     fm24cl64b.o (.text._ZN7drivers14Fm24cl64b_ReadEPNS_16Fm24cl64bContextEtPht)
-                  00000b24    000001e0     fm24cl64b.o (.text._ZN7drivers20Fm24cl64b_RecoverBusEPNS_16Fm24cl64bContextE)
-                  00000d04    000001d0     fm24cl64b.o (.text._ZN7drivers15Fm24cl64b_WriteEPNS_16Fm24cl64bContextEtPKht)
-                  00000ed4    000001b0     scheduler.o (.text._ZN8services13Scheduler_RunEv)
-                  00001084    00000140     debug_uart.o (.text._ZN8services21DebugUart_WriteUInt32Ej)
-                  000011c4    000000e0     app_shell.o (.text._ZN3app12_GLOBAL__N_110LedCommandEiPKPKc)
-                  000012a4    000000e0     app_shell.o (.text._ZN3app12_GLOBAL__N_113BuzzerCommandEiPKPKc)
-                  00001384    000000c8     shell.o (.text._ZN8services10Shell_InitEv)
-                  0000144c    000000b0     app_shell.o (.text._ZN3app12_GLOBAL__N_110WriteHex32Ej)
-                  000014fc    000000b0     scheduler.o (.text._ZN8services14Scheduler_InitEv)
-                  000015ac    000000ac     app_shell.o (.text._ZN3app12_GLOBAL__N_110PwmCommandEiPKPKc)
-                  00001658    000000a4     fm24cl64b.o (.text._ZN7drivers18Fm24cl64b_SelfTestEPNS_16Fm24cl64bContextEt)
-                  000016fc    000000a4     shell.o (.text._ZN8services21Shell_RegisterCommandEPKcS1_PFviPKS1_E)
-                  000017a0    000000a0     app_shell.o (.text._ZN3app25AppShell_RegisterCommandsEv)
-                  00001840    0000009c     app_shell.o (.text._ZN3app12_GLOBAL__N_111ParseUint32EPKcjPj)
-                  000018dc    0000009a     libc.a : memcpy16.S.obj (.text:memcpy)
-                  00001976    00000002     startup_mspm0g351x_ticlang.o (.text.Default_Handler)
-                  00001978    00000094     shell.o (.text._ZN8services13Shell_ProcessEv)
-                  00001a0c    00000088     ti_msp_dl_config.o (.text.SYSCFG_DL_DEBUG_UART_init)
-                  00001a94    0000007c     libc.a : copy_decompress_lzss.c.obj (.text:decompress:lzss)
-                  00001b10    0000006c     debug_uart.o (.text.UART5_IRQHandler)
-                  00001b7c    0000006c     debug_uart.o (.text._ZN8services21DebugUart_WriteStringEPKc)
-                  00001be8    00000064     app_shell.o (.text._ZN3app12_GLOBAL__N_110WriteHex16Et)
-                  00001c4c    00000064     fm24cl64b.o (.text._ZN7drivers14Fm24cl64b_InitEPNS_16Fm24cl64bContextEPKNS_15Fm24cl64bConfigE)
-                  00001cb0    00000060     ti_msp_dl_config.o (.text.SYSCFG_DL_GPIO_init)
-                  00001d10    0000005e     driverlib.a : dl_i2c.o (.text.DL_I2C_fillControllerTXFIFO)
-                  00001d6e    00000002     board.o (.text._ZN5board14Board_LateInitEv)
-                  00001d70    00000054     ti_msp_dl_config.o (.text.SYSCFG_DL_FRAM_I2C_init)
-                  00001dc4    00000054     debug_uart.o (.text._ZN8services14DebugUart_InitEv)
-                  00001e18    00000052     empty_cpp.o (.text.main)
-                  00001e6a    00000002     log.o (.text._ZN8services8Log_InitEv)
-                  00001e6c    00000048     driverlib.a : dl_uart.o (.text.DL_UART_init)
-                  00001eb4    00000048     ti_msp_dl_config.o (.text.SYSCFG_DL_initPower)
-                  00001efc    00000048     board_fram.o (.text._ZN5board22Board_FramGetBusStatusEPjPbS1_)
-                  00001f44    00000048     debug_uart.o (.text._ZN8services18DebugUart_ReadByteEPh)
-                  00001f8c    00000044     fm24cl64b.o (.text._ZN7drivers22Fm24cl64b_GetBusStatusEPNS_16Fm24cl64bContextEPNS_18Fm24cl64bBusStatusE)
-                  00001fd0    00000040     app_shell.o (.text._ZN3app12_GLOBAL__N_114PrintFramUsageEv)
-                  00002010    00000040     app_shell.o (.text._ZN3app12_GLOBAL__N_114VersionCommandEiPKPKc)
-                  00002050    00000040     libclang_rt.builtins.a : aeabi_uidivmod.S.obj (.text)
-                  00002090    0000003c     driverlib.a : dl_i2c.o (.text.DL_I2C_flushControllerTXFIFO)
-                  000020cc    0000003c     app_shell.o (.text._ZN3app12_GLOBAL__N_19WriteHex8Eh)
-                  00002108    0000003c     libc.a : autoinit.c.obj (.text:__TI_auto_init_nobinit_nopinit)
-                  00002144    00000038     buzzer.o (.text._ZN7drivers11Buzzer_InitEPNS_13BuzzerContextEPKNS_12BuzzerConfigE)
-                  0000217c    00000038     led.o (.text._ZN7drivers8Led_InitEPNS_10LedContextEPKNS_9LedConfigE)
-                  000021b4    00000038     time.o (.text._ZN8services9Time_InitEv)
-                  000021ec    00000030     driverlib.a : dl_i2c.o (.text.DL_I2C_flushControllerRXFIFO)
-                  0000221c    00000030                 : dl_uart.o (.text.DL_UART_transmitDataBlocking)
-                  0000224c    00000030     ti_msp_dl_config.o (.text.SYSCFG_DL_SYSCTL_init)
-                  0000227c    00000030     app_shell.o (.text._ZN3app12_GLOBAL__N_115WriteStatusLineEPKcN7drivers12DriverStatusE)
-                  000022ac    00000030     buzzer.o (.text._ZN7drivers10Buzzer_OffEPNS_13BuzzerContextE)
-                  000022dc    00000030     led.o (.text._ZN7drivers6Led_OnEPNS_10LedContextE)
-                  0000230c    00000030     led.o (.text._ZN7drivers7Led_OffEPNS_10LedContextE)
-                  0000233c    00000030     buzzer.o (.text._ZN7drivers9Buzzer_OnEPNS_13BuzzerContextE)
-                  0000236c    00000028     app_shell.o (.text._ZN3app12_GLOBAL__N_112ResetCommandEiPKPKc)
-                  00002394    00000028     libc.a : boot_cortex_m.c.obj (.text:_c_int00_noargs)
-                  000023bc    00000026     driverlib.a : dl_i2c.o (.text.DL_I2C_setClockConfig)
-                  000023e2    00000002     libclang_rt.builtins.a : aeabi_div0.c.obj (.text.__aeabi_idiv0)
-                  000023e4    0000001c     app_main.o (.text._ZN3app7App_RunEv)
-                  00002400    0000001c     fm24cl64b.o (.text._ZN7drivers17Fm24cl64b_IsReadyEPKNS_16Fm24cl64bContextE)
-                  0000241c    0000001c     debug_uart.o (.text._ZN8services19DebugUart_WriteCharEc)
-                  00002438    00000018     ti_msp_dl_config.o (.text.SYSCFG_DL_init)
-                  00002450    00000016     led.o (.text._ZN7drivers11Led_IsReadyEPKNS_10LedContextE)
-                  00002466    00000016     buzzer.o (.text._ZN7drivers14Buzzer_IsReadyEPKNS_13BuzzerContextE)
-                  0000247c    00000016     libc.a : copy_zero_init.c.obj (.text:decompress:ZI:__TI_zero_init_nomemset)
-                  00002492    00000002     --HOLE-- [fill = 0]
-                  00002494    00000014     board_fram.o (.text._ZN5board14Board_FramInitEv)
-                  000024a8    00000014     board_fram.o (.text._ZN5board14Board_FramReadEtPht)
-                  000024bc    00000014     board_buzzer.o (.text._ZN5board16Board_BuzzerInitEv)
-                  000024d0    00000014     board_fram.o (.text._ZN5board18Board_FramReadByteEtPh)
-                  000024e4    00000014     board_fram.o (.text._ZN5board18Board_FramSelfTestEv)
-                  000024f8    00000014     board_fram.o (.text._ZN5board19Board_FramWriteByteEth)
-                  0000250c    00000014     board_led.o (.text._ZN5board19Board_StatusLedInitEv)
-                  00002520    00000014     fm24cl64b.o (.text._ZN7drivers19Fm24cl64b_WriteByteEPNS_16Fm24cl64bContextEth)
-                  00002534    00000014     shell.o (.text._ZN8services15Shell_WriteLineEPKc)
-                  00002548    00000012     driverlib.a : dl_uart.o (.text.DL_UART_setClockConfig)
-                  0000255a    00000012     libc.a : copy_decompress_none.c.obj (.text:decompress:none)
-                  0000256c    00000010     time.o (.text.SysTick_Handler)
-                  0000257c    00000010     app_shell.o (.text._ZN3app12_GLOBAL__N_110AdcCommandEiPKPKc)
-                  0000258c    00000010     app_main.o (.text._ZN3app8App_InitEv)
-                  0000259c    00000010     board.o (.text._ZN5board10Board_InitEv)
-                  000025ac    00000010     board_buzzer.o (.text._ZN5board14Board_BuzzerOnEv)
-                  000025bc    00000010     board_buzzer.o (.text._ZN5board15Board_BuzzerOffEv)
-                  000025cc    00000010     board_fram.o (.text._ZN5board17Board_FramIsReadyEv)
-                  000025dc    00000010     board_led.o (.text._ZN5board17Board_StatusLedOnEv)
-                  000025ec    00000010     board_led.o (.text._ZN5board18Board_StatusLedOffEv)
-                  000025fc    00000010     board_buzzer.o (.text._ZN5board19Board_BuzzerIsReadyEv)
-                  0000260c    00000010     board_fram.o (.text._ZN5board20Board_FramRecoverBusEv)
-                  0000261c    00000010     board_led.o (.text._ZN5board22Board_StatusLedIsReadyEv)
-                  0000262c    0000000c     fault.o (.text._ZN8services10Fault_InitEv)
-                  00002638    0000000c     time.o (.text._ZN8services11Time_MillisEv)
-                  00002644    0000000c     debug_uart.o (.text._ZN8services17DebugUart_IsReadyEv)
-                  00002650    0000000c     fault.o (.text._ZN8services9Fault_GetEv)
-                  0000265c    0000000a     driverlib.a : dl_common.o (.text.DL_Common_delayCycles)
-                  00002666    0000000a     fm24cl64b.o (.text._ZN7drivers18Fm24cl64b_ReadByteEPNS_16Fm24cl64bContextEtPh)
-                  00002670    00000008     shell.o (.text._ZN8services17Shell_WriteStringEPKc)
-                  00002678    00000008     shell.o (.text._ZN8services17Shell_WriteUInt32Ej)
-                  00002680    00000008     libclang_rt.builtins.a : aeabi_memcpy.S.obj (.text)
-                  00002688    00000006     board_fram.o (.text._ZN5board23Board_FramCapacityBytesEv)
-                  0000268e    00000006     libc.a : exit.c.obj (.text:abort)
-                  00002694    00000004     libsysbm.a : hostexit.c.obj (.text.HOSTexit)
-                  00002698    00000004     startup_mspm0g351x_ticlang.o (.text.Reset_Handler)
-                  0000269c    00000004     libc.a : pre_init.c.obj (.text._system_pre_init)
+                  00000900    00000230     app_shell.o (.text._ZN3app12_GLOBAL__N_113ButtonCommandEiPKPKc)
+                  00000b30    00000224     fm24cl64b.o (.text._ZN7drivers14Fm24cl64b_ReadEPNS_16Fm24cl64bContextEtPht)
+                  00000d54    000001e0     fm24cl64b.o (.text._ZN7drivers20Fm24cl64b_RecoverBusEPNS_16Fm24cl64bContextE)
+                  00000f34    000001d0     fm24cl64b.o (.text._ZN7drivers15Fm24cl64b_WriteEPNS_16Fm24cl64bContextEtPKht)
+                  00001104    000001b0     scheduler.o (.text._ZN8services13Scheduler_RunEv)
+                  000012b4    00000140     debug_uart.o (.text._ZN8services21DebugUart_WriteUInt32Ej)
+                  000013f4    000000e0     app_shell.o (.text._ZN3app12_GLOBAL__N_110LedCommandEiPKPKc)
+                  000014d4    000000e0     app_shell.o (.text._ZN3app12_GLOBAL__N_113BuzzerCommandEiPKPKc)
+                  000015b4    000000e0     scheduler.o (.text._ZN8services17Scheduler_AddTaskEPKcPFvvEjjPh)
+                  00001694    000000c8     shell.o (.text._ZN8services10Shell_InitEv)
+                  0000175c    000000b4     app_shell.o (.text._ZN3app25AppShell_RegisterCommandsEv)
+                  00001810    000000b0     app_shell.o (.text._ZN3app12_GLOBAL__N_110WriteHex32Ej)
+                  000018c0    000000b0     scheduler.o (.text._ZN8services14Scheduler_InitEv)
+                  00001970    000000ac     app_shell.o (.text._ZN3app12_GLOBAL__N_110PwmCommandEiPKPKc)
+                  00001a1c    000000a4     fm24cl64b.o (.text._ZN7drivers18Fm24cl64b_SelfTestEPNS_16Fm24cl64bContextEt)
+                  00001ac0    000000a4     shell.o (.text._ZN8services21Shell_RegisterCommandEPKcS1_PFviPKS1_E)
+                  00001b64    0000009c     app_shell.o (.text._ZN3app12_GLOBAL__N_111ParseUint32EPKcjPj)
+                  00001c00    0000009a     libc.a : memcpy16.S.obj (.text:memcpy)
+                  00001c9a    00000002     startup_mspm0g351x_ticlang.o (.text.Default_Handler)
+                  00001c9c    00000094     shell.o (.text._ZN8services13Shell_ProcessEv)
+                  00001d30    00000088     ti_msp_dl_config.o (.text.SYSCFG_DL_DEBUG_UART_init)
+                  00001db8    00000080     ti_msp_dl_config.o (.text.SYSCFG_DL_GPIO_init)
+                  00001e38    0000007c     libc.a : copy_decompress_lzss.c.obj (.text:decompress:lzss)
+                  00001eb4    0000006c     debug_uart.o (.text.UART5_IRQHandler)
+                  00001f20    0000006c     debug_uart.o (.text._ZN8services21DebugUart_WriteStringEPKc)
+                  00001f8c    00000064     app_shell.o (.text._ZN3app12_GLOBAL__N_110WriteHex16Et)
+                  00001ff0    00000064     fm24cl64b.o (.text._ZN7drivers14Fm24cl64b_InitEPNS_16Fm24cl64bContextEPKNS_15Fm24cl64bConfigE)
+                  00002054    0000005e     driverlib.a : dl_i2c.o (.text.DL_I2C_fillControllerTXFIFO)
+                  000020b2    0000005e     button.o (.text._ZN7drivers13Button_UpdateEPNS_13ButtonContextEj)
+                  00002110    00000054     ti_msp_dl_config.o (.text.SYSCFG_DL_FRAM_I2C_init)
+                  00002164    00000054     debug_uart.o (.text._ZN8services14DebugUart_InitEv)
+                  000021b8    00000052     empty_cpp.o (.text.main)
+                  0000220a    00000002     board.o (.text._ZN5board14Board_LateInitEv)
+                  0000220c    00000048     driverlib.a : dl_uart.o (.text.DL_UART_init)
+                  00002254    00000048     ti_msp_dl_config.o (.text.SYSCFG_DL_initPower)
+                  0000229c    00000048     board_fram.o (.text._ZN5board22Board_FramGetBusStatusEPjPbS1_)
+                  000022e4    00000048     debug_uart.o (.text._ZN8services18DebugUart_ReadByteEPh)
+                  0000232c    00000044     fm24cl64b.o (.text._ZN7drivers22Fm24cl64b_GetBusStatusEPNS_16Fm24cl64bContextEPNS_18Fm24cl64bBusStatusE)
+                  00002370    00000040     app_shell.o (.text._ZN3app12_GLOBAL__N_114PrintFramUsageEv)
+                  000023b0    00000040     app_shell.o (.text._ZN3app12_GLOBAL__N_114VersionCommandEiPKPKc)
+                  000023f0    00000040     libclang_rt.builtins.a : aeabi_uidivmod.S.obj (.text)
+                  00002430    0000003e     button.o (.text._ZN7drivers11Button_InitEPNS_13ButtonContextEPKNS_12ButtonConfigE)
+                  0000246e    00000002     log.o (.text._ZN8services8Log_InitEv)
+                  00002470    0000003c     driverlib.a : dl_i2c.o (.text.DL_I2C_flushControllerTXFIFO)
+                  000024ac    0000003c     app_shell.o (.text._ZN3app12_GLOBAL__N_19WriteHex8Eh)
+                  000024e8    0000003c     board_button.o (.text._ZN5board17Board_ButtonsInitEv)
+                  00002524    0000003c     libc.a : autoinit.c.obj (.text:__TI_auto_init_nobinit_nopinit)
+                  00002560    00000038     buzzer.o (.text._ZN7drivers11Buzzer_InitEPNS_13BuzzerContextEPKNS_12BuzzerConfigE)
+                  00002598    00000038     button.o (.text._ZN7drivers14Button_ReadRawEPNS_13ButtonContextEPb)
+                  000025d0    00000038     led.o (.text._ZN7drivers8Led_InitEPNS_10LedContextEPKNS_9LedConfigE)
+                  00002608    00000038     time.o (.text._ZN8services9Time_InitEv)
+                  00002640    00000034     app_main.o (.text._ZN3app8App_InitEv)
+                  00002674    00000034     board_button.o (.text._ZN5board19Board_ButtonsUpdateEj)
+                  000026a8    00000030     driverlib.a : dl_i2c.o (.text.DL_I2C_flushControllerRXFIFO)
+                  000026d8    00000030                 : dl_uart.o (.text.DL_UART_transmitDataBlocking)
+                  00002708    00000030     ti_msp_dl_config.o (.text.SYSCFG_DL_SYSCTL_init)
+                  00002738    00000030     app_shell.o (.text._ZN3app12_GLOBAL__N_115WriteStatusLineEPKcN7drivers12DriverStatusE)
+                  00002768    00000030     buzzer.o (.text._ZN7drivers10Buzzer_OffEPNS_13BuzzerContextE)
+                  00002798    00000030     led.o (.text._ZN7drivers6Led_OnEPNS_10LedContextE)
+                  000027c8    00000030     led.o (.text._ZN7drivers7Led_OffEPNS_10LedContextE)
+                  000027f8    00000030     buzzer.o (.text._ZN7drivers9Buzzer_OnEPNS_13BuzzerContextE)
+                  00002828    00000028     app_shell.o (.text._ZN3app12_GLOBAL__N_112ResetCommandEiPKPKc)
+                  00002850    00000028     libc.a : boot_cortex_m.c.obj (.text:_c_int00_noargs)
+                  00002878    00000026     driverlib.a : dl_i2c.o (.text.DL_I2C_setClockConfig)
+                  0000289e    00000022     button.o (.text._ZN7drivers17Button_WasPressedEPNS_13ButtonContextE)
+                  000028c0    00000022     button.o (.text._ZN7drivers18Button_WasReleasedEPNS_13ButtonContextE)
+                  000028e2    00000002     libclang_rt.builtins.a : aeabi_div0.c.obj (.text.__aeabi_idiv0)
+                  000028e4    0000001c     app_main.o (.text._ZN3app7App_RunEv)
+                  00002900    0000001c     board_button.o (.text._ZN5board19Board_ButtonReadRawENS_13BoardButtonIdEPb)
+                  0000291c    0000001c     board_button.o (.text._ZN5board21Board_ButtonIsPressedENS_13BoardButtonIdE)
+                  00002938    0000001c     board_button.o (.text._ZN5board22Board_ButtonWasPressedENS_13BoardButtonIdE)
+                  00002954    0000001c     board_button.o (.text._ZN5board23Board_ButtonWasReleasedENS_13BoardButtonIdE)
+                  00002970    0000001c     fm24cl64b.o (.text._ZN7drivers17Fm24cl64b_IsReadyEPKNS_16Fm24cl64bContextE)
+                  0000298c    0000001c     debug_uart.o (.text._ZN8services19DebugUart_WriteCharEc)
+                  000029a8    0000001a     button.o (.text._ZN7drivers16Button_IsPressedEPKNS_13ButtonContextE)
+                  000029c2    00000018     ti_msp_dl_config.o (.text.SYSCFG_DL_init)
+                  000029da    00000002     --HOLE-- [fill = 0]
+                  000029dc    00000018     board_button.o (.text._ZN5board19Board_ButtonGetNameENS_13BoardButtonIdE)
+                  000029f4    00000016     app_main.o (.text._ZN12_GLOBAL__N_118App_ButtonScanTaskEv)
+                  00002a0a    00000016     led.o (.text._ZN7drivers11Led_IsReadyEPKNS_10LedContextE)
+                  00002a20    00000016     buzzer.o (.text._ZN7drivers14Buzzer_IsReadyEPKNS_13BuzzerContextE)
+                  00002a36    00000016     libc.a : copy_zero_init.c.obj (.text:decompress:ZI:__TI_zero_init_nomemset)
+                  00002a4c    00000014     board.o (.text._ZN5board10Board_InitEv)
+                  00002a60    00000014     board_fram.o (.text._ZN5board14Board_FramInitEv)
+                  00002a74    00000014     board_fram.o (.text._ZN5board14Board_FramReadEtPht)
+                  00002a88    00000014     board_buzzer.o (.text._ZN5board16Board_BuzzerInitEv)
+                  00002a9c    00000014     board_fram.o (.text._ZN5board18Board_FramReadByteEtPh)
+                  00002ab0    00000014     board_fram.o (.text._ZN5board18Board_FramSelfTestEv)
+                  00002ac4    00000014     board_fram.o (.text._ZN5board19Board_FramWriteByteEth)
+                  00002ad8    00000014     board_led.o (.text._ZN5board19Board_StatusLedInitEv)
+                  00002aec    00000014     fm24cl64b.o (.text._ZN7drivers19Fm24cl64b_WriteByteEPNS_16Fm24cl64bContextEth)
+                  00002b00    00000014     shell.o (.text._ZN8services15Shell_WriteLineEPKc)
+                  00002b14    00000012     driverlib.a : dl_uart.o (.text.DL_UART_setClockConfig)
+                  00002b26    00000012     libc.a : copy_decompress_none.c.obj (.text:decompress:none)
+                  00002b38    00000010     time.o (.text.SysTick_Handler)
+                  00002b48    00000010     app_shell.o (.text._ZN3app12_GLOBAL__N_110AdcCommandEiPKPKc)
+                  00002b58    00000010     board_buzzer.o (.text._ZN5board14Board_BuzzerOnEv)
+                  00002b68    00000010     board_buzzer.o (.text._ZN5board15Board_BuzzerOffEv)
+                  00002b78    00000010     board_fram.o (.text._ZN5board17Board_FramIsReadyEv)
+                  00002b88    00000010     board_led.o (.text._ZN5board17Board_StatusLedOnEv)
+                  00002b98    00000010     board_led.o (.text._ZN5board18Board_StatusLedOffEv)
+                  00002ba8    00000010     board_buzzer.o (.text._ZN5board19Board_BuzzerIsReadyEv)
+                  00002bb8    00000010     board_fram.o (.text._ZN5board20Board_FramRecoverBusEv)
+                  00002bc8    00000010     board_led.o (.text._ZN5board22Board_StatusLedIsReadyEv)
+                  00002bd8    00000010     fault.o (.text._ZN8services9Fault_SetENS_9FaultCodeE)
+                  00002be8    0000000c     fault.o (.text._ZN8services10Fault_InitEv)
+                  00002bf4    0000000c     time.o (.text._ZN8services11Time_MillisEv)
+                  00002c00    0000000c     debug_uart.o (.text._ZN8services17DebugUart_IsReadyEv)
+                  00002c0c    0000000c     fault.o (.text._ZN8services9Fault_GetEv)
+                  00002c18    0000000a     driverlib.a : dl_common.o (.text.DL_Common_delayCycles)
+                  00002c22    0000000a     fm24cl64b.o (.text._ZN7drivers18Fm24cl64b_ReadByteEPNS_16Fm24cl64bContextEtPh)
+                  00002c2c    00000008     shell.o (.text._ZN8services17Shell_WriteStringEPKc)
+                  00002c34    00000008     shell.o (.text._ZN8services17Shell_WriteUInt32Ej)
+                  00002c3c    00000008     libclang_rt.builtins.a : aeabi_memcpy.S.obj (.text)
+                  00002c44    00000006     board_fram.o (.text._ZN5board23Board_FramCapacityBytesEv)
+                  00002c4a    00000006     libc.a : exit.c.obj (.text:abort)
+                  00002c50    00000004     libsysbm.a : hostexit.c.obj (.text.HOSTexit)
+                  00002c54    00000004     startup_mspm0g351x_ticlang.o (.text.Reset_Handler)
+                  00002c58    00000004     libc.a : pre_init.c.obj (.text._system_pre_init)
+                  00002c5c    00000004     --HOLE-- [fill = 0]
 
-.cinit     0    00002af0    00000030     
-                  00002af0    0000000c     (__TI_handler_table)
-                  00002afc    00000009     (.cinit..data.load) [load image, compression = lzss]
-                  00002b05    00000003     --HOLE-- [fill = 0]
-                  00002b08    00000008     (.cinit..bss.load) [load image, compression = zero_init]
-                  00002b10    00000010     (__TI_cinit_table)
+.cinit     0    00003180    00000030     
+                  00003180    0000000c     (__TI_handler_table)
+                  0000318c    00000009     (.cinit..data.load) [load image, compression = lzss]
+                  00003195    00000003     --HOLE-- [fill = 0]
+                  00003198    00000008     (.cinit..bss.load) [load image, compression = zero_init]
+                  000031a0    00000010     (__TI_cinit_table)
 
-.rodata    0    000026a0    00000450     
-                  000026a0    00000045     app_shell.o (.rodata.str1.8602760754867183125.1)
-                  000026e5    00000003     shell.o (.rodata.str1.10427229796524742636.1)
-                  000026e8    0000002c     board_fram.o (.rodata._ZN5boardL12g_framConfigE)
-                  00002714    00000026     shell.o (.rodata.str1.6901712316327456926.1)
-                  0000273a    00000020     app_shell.o (.rodata.str1.14384267027075031912.1)
-                  0000275a    0000001f     app_shell.o (.rodata.str1.2292235750072059597.1)
-                  00002779    0000001f     app_shell.o (.rodata.str1.871335262082007188.1)
-                  00002798    0000001e     app_shell.o (.rodata.str1.10091040128680290456.1)
-                  000027b6    0000001e     app_shell.o (.rodata.str1.15434941628325917383.1)
-                  000027d4    0000001d     app_shell.o (.rodata.str1.14205965562906606532.1)
-                  000027f1    00000003     app_shell.o (.rodata.str1.1223882822645374465.1)
-                  000027f4    0000001c     app_shell.o (.rodata..Lswitch.table._ZN3app12_GLOBAL__N_115WriteStatusLineEPKcN7drivers12DriverStatusE)
-                  00002810    0000001c     app_shell.o (.rodata.str1.8150600325345066189.1)
-                  0000282c    0000001b     app_shell.o (.rodata.str1.8730301986016609910.1)
-                  00002847    00000017     shell.o (.rodata.str1.5680428239841774557.1)
-                  0000285e    00000015     app_shell.o (.rodata.str1.2354522874658768371.1)
-                  00002873    00000015     app_shell.o (.rodata.str1.9708937098353321336.1)
-                  00002888    00000012     app_shell.o (.rodata.str1.15885433143163248817.1)
-                  0000289a    00000012     app_shell.o (.rodata.str1.5716603645884478871.1)
-                  000028ac    00000012     shell.o (.rodata.str1.8246939600463437344.1)
-                  000028be    00000012     app_shell.o (.rodata.str1.8674441817985872181.1)
-                  000028d0    00000012     app_shell.o (.rodata.str1.9307362830757344490.1)
-                  000028e2    00000011     app_shell.o (.rodata.str1.11922244342622017285.1)
-                  000028f3    00000010     app_shell.o (.rodata.str1.13245102848535749030.1)
-                  00002903    00000010     app_shell.o (.rodata.str1.9376739677351878210.1)
-                  00002913    0000000f     app_shell.o (.rodata.str1.11327417708772392390.1)
-                  00002922    0000000f     app_shell.o (.rodata.str1.13324323091560154661.1)
-                  00002931    0000000f     app_shell.o (.rodata.str1.1418877803505809098.1)
-                  00002940    0000000f     app_shell.o (.rodata.str1.444886150797460539.1)
-                  0000294f    0000000e     app_shell.o (.rodata.str1.10256891727475852015.1)
-                  0000295d    0000000e     app_shell.o (.rodata.str1.17029008240216598945.1)
-                  0000296b    0000000e     app_shell.o (.rodata.str1.2027963614161212499.1)
-                  00002979    0000000e     app_shell.o (.rodata.str1.795459456749244188.1)
-                  00002987    0000000d     app_shell.o (.rodata.str1.13305312957799781956.1)
-                  00002994    0000000d     app_shell.o (.rodata.str1.7078129644076030331.1)
-                  000029a1    00000003     shell.o (.rodata.str1.4282230880151502975.1)
-                  000029a4    0000000c     board_buzzer.o (.rodata._ZN5boardL14g_buzzerConfigE)
-                  000029b0    0000000c     board_led.o (.rodata._ZN5boardL17g_statusLedConfigE)
-                  000029bc    0000000c     app_shell.o (.rodata.str1.10218881960771275491.1)
-                  000029c8    0000000c     app_shell.o (.rodata.str1.16556295950709461880.1)
-                  000029d4    0000000c     app_shell.o (.rodata.str1.3134304214227531536.1)
-                  000029e0    0000000c     app_shell.o (.rodata.str1.3587876751327453651.1)
-                  000029ec    0000000c     app_shell.o (.rodata.str1.5909738732761903070.1)
-                  000029f8    0000000b     app_shell.o (.rodata.str1.2029421846019890511.1)
-                  00002a03    0000000b     app_shell.o (.rodata.str1.7212684690809077353.1)
-                  00002a0e    0000000a     ti_msp_dl_config.o (.rodata.gDEBUG_UARTConfig)
-                  00002a18    0000000a     shell.o (.rodata.str1.17922515892264497723.1)
-                  00002a22    0000000a     app_shell.o (.rodata.str1.7207923708610531365.1)
-                  00002a2c    00000008     app_shell.o (.rodata.str1.11335294061225285764.1)
-                  00002a34    00000008     app_shell.o (.rodata.str1.13993368087264210023.1)
-                  00002a3c    00000008     app_shell.o (.rodata.str1.18057142085415363861.1)
-                  00002a44    00000008     app_shell.o (.rodata.str1.6725838405751831500.1)
-                  00002a4c    00000008     app_shell.o (.rodata.str1.9018689912544847403.1)
-                  00002a54    00000007     app_shell.o (.rodata.str1.1222417806814152126.1)
-                  00002a5b    00000007     app_shell.o (.rodata.str1.14445045882516821416.1)
-                  00002a62    00000007     app_shell.o (.rodata.str1.14683574465395229248.1)
-                  00002a69    00000007     app_shell.o (.rodata.str1.27965927919619260.1)
-                  00002a70    00000007     app_shell.o (.rodata.str1.5407661000085889072.1)
-                  00002a77    00000007     app_shell.o (.rodata.str1.97227345183721019.1)
-                  00002a7e    00000006     app_shell.o (.rodata.str1.11627215746227218045.1)
-                  00002a84    00000006     app_shell.o (.rodata.str1.13626453309717720227.1)
-                  00002a8a    00000006     app_shell.o (.rodata.str1.17082220688523197928.1)
-                  00002a90    00000006     app_shell.o (.rodata.str1.3590894685082263268.1)
-                  00002a96    00000006     app_shell.o (.rodata.str1.5549424804698209806.1)
-                  00002a9c    00000006     app_shell.o (.rodata.str1.587364518894469847.1)
-                  00002aa2    00000005     app_shell.o (.rodata.str1.11774507841365577078.1)
-                  00002aa7    00000005     app_shell.o (.rodata.str1.11903828385650032657.1)
-                  00002aac    00000005     app_shell.o (.rodata.str1.16330407060470052804.1)
-                  00002ab1    00000005     shell.o (.rodata.str1.17405053739148516019.1)
-                  00002ab6    00000005     app_shell.o (.rodata.str1.7950140236767125311.1)
-                  00002abb    00000004     app_shell.o (.rodata.str1.13029328624899454496.1)
-                  00002abf    00000004     app_shell.o (.rodata.str1.13640432584226954899.1)
-                  00002ac3    00000004     app_shell.o (.rodata.str1.3688985272902551570.1)
-                  00002ac7    00000004     app_shell.o (.rodata.str1.4465400818469226320.1)
-                  00002acb    00000004     app_shell.o (.rodata.str1.6351667589775284342.1)
-                  00002acf    00000004     shell.o (.rodata.str1.7348818734176781284.1)
-                  00002ad3    00000004     shell.o (.rodata.str1.8954516873856363469.1)
-                  00002ad7    00000003     app_shell.o (.rodata.str1.6219487071531100932.1)
-                  00002ada    00000003     app_shell.o (.rodata.str1.6951946783319408118.1)
-                  00002add    00000003     shell.o (.rodata.str1.8508895379925972626.1)
-                  00002ae0    00000002     ti_msp_dl_config.o (.rodata.gDEBUG_UARTClockConfig)
-                  00002ae2    00000002     ti_msp_dl_config.o (.rodata.gFRAM_I2CClockConfig)
-                  00002ae4    00000002     app_shell.o (.rodata.str1.10665909939688505188.1)
-                  00002ae6    00000002     app_shell.o (.rodata.str1.2942266741242204019.1)
-                  00002ae8    00000002     app_shell.o (.rodata.str1.5376205643164354286.1)
-                  00002aea    00000002     app_shell.o (.rodata.str1.9210286441137644766.1)
-                  00002aec    00000004     --HOLE-- [fill = 0]
+.rodata    0    00002c60    00000520     
+                  00002c60    00000045     app_shell.o (.rodata.str1.2354522874658768371.1)
+                  00002ca5    00000003     shell.o (.rodata.str1.10427229796524742636.1)
+                  00002ca8    00000030     board_button.o (.rodata._ZN5board12_GLOBAL__N_115g_buttonConfigsE)
+                  00002cd8    0000002c     board_fram.o (.rodata._ZN5boardL12g_framConfigE)
+                  00002d04    00000026     shell.o (.rodata.str1.6901712316327456926.1)
+                  00002d2a    00000020     app_shell.o (.rodata.str1.9210286441137644766.1)
+                  00002d4a    0000001f     app_shell.o (.rodata.str1.16458884249986146812.1)
+                  00002d69    0000001f     app_shell.o (.rodata.str1.871335262082007188.1)
+                  00002d88    0000001e     app_shell.o (.rodata.str1.14678420154468417691.1)
+                  00002da6    0000001e     app_shell.o (.rodata.str1.15434941628325917383.1)
+                  00002dc4    0000001d     app_shell.o (.rodata.str1.14205965562906606532.1)
+                  00002de1    00000003     app_shell.o (.rodata.str1.11627215746227218045.1)
+                  00002de4    0000001c     app_shell.o (.rodata..Lswitch.table._ZN3app12_GLOBAL__N_115WriteStatusLineEPKcN7drivers12DriverStatusE)
+                  00002e00    0000001c     app_shell.o (.rodata.str1.3030045481369325523.1)
+                  00002e1c    0000001b     app_shell.o (.rodata.str1.13643216153024045165.1)
+                  00002e37    00000017     shell.o (.rodata.str1.5680428239841774557.1)
+                  00002e4e    00000015     app_shell.o (.rodata.str1.14384267027075031912.1)
+                  00002e63    00000015     app_shell.o (.rodata.str1.7207923708610531365.1)
+                  00002e78    00000013     app_shell.o (.rodata.str1.8602760754867183125.1)
+                  00002e8b    00000012     app_shell.o (.rodata.str1.1223882822645374465.1)
+                  00002e9d    00000012     app_shell.o (.rodata.str1.17876943342118536213.1)
+                  00002eaf    00000012     app_shell.o (.rodata.str1.2029421846019890511.1)
+                  00002ec1    00000012     shell.o (.rodata.str1.8246939600463437344.1)
+                  00002ed3    00000012     app_shell.o (.rodata.str1.9167415978045996327.1)
+                  00002ee5    00000011     app_shell.o (.rodata.str1.795459456749244188.1)
+                  00002ef6    00000010     app_shell.o (.rodata.str1.11903828385650032657.1)
+                  00002f06    00000010     app_shell.o (.rodata.str1.2942266741242204019.1)
+                  00002f16    00000010     app_shell.o (.rodata.str1.7078129644076030331.1)
+                  00002f26    0000000f     app_shell.o (.rodata.str1.1222417806814152126.1)
+                  00002f35    0000000f     app_shell.o (.rodata.str1.13507390935846511250.1)
+                  00002f44    0000000f     app_shell.o (.rodata.str1.1418877803505809098.1)
+                  00002f53    0000000f     app_shell.o (.rodata.str1.8674441817985872181.1)
+                  00002f62    0000000e     app_shell.o (.rodata.str1.10091040128680290456.1)
+                  00002f70    0000000e     app_shell.o (.rodata.str1.10256891727475852015.1)
+                  00002f7e    0000000e     app_shell.o (.rodata.str1.10665909939688505188.1)
+                  00002f8c    0000000e     app_shell.o (.rodata.str1.13324323091560154661.1)
+                  00002f9a    0000000e     app_shell.o (.rodata.str1.18221696243336245540.1)
+                  00002fa8    0000000e     app_shell.o (.rodata.str1.97227345183721019.1)
+                  00002fb6    0000000d     app_shell.o (.rodata.str1.18057142085415363861.1)
+                  00002fc3    0000000d     app_shell.o (.rodata.str1.444886150797460539.1)
+                  00002fd0    0000000c     board_button.o (.rodata..Lswitch.table._ZN5board19Board_ButtonGetNameENS_13BoardButtonIdE)
+                  00002fdc    0000000c     board_buzzer.o (.rodata._ZN5boardL14g_buzzerConfigE)
+                  00002fe8    0000000c     board_led.o (.rodata._ZN5boardL17g_statusLedConfigE)
+                  00002ff4    0000000c     app_shell.o (.rodata.str1.13626453309717720227.1)
+                  00003000    0000000c     app_shell.o (.rodata.str1.17082220688523197928.1)
+                  0000300c    0000000c     app_shell.o (.rodata.str1.3587876751327453651.1)
+                  00003018    0000000c     app_shell.o (.rodata.str1.5376205643164354286.1)
+                  00003024    0000000c     app_shell.o (.rodata.str1.9144633642026494361.1)
+                  00003030    0000000c     app_shell.o (.rodata.str1.9376739677351878210.1)
+                  0000303c    0000000b     app_shell.o (.rodata.str1.13993368087264210023.1)
+                  00003047    0000000b     app_shell.o (.rodata.str1.6951946783319408118.1)
+                  00003052    0000000a     ti_msp_dl_config.o (.rodata.gDEBUG_UARTConfig)
+                  0000305c    0000000a     app_shell.o (.rodata.str1.13245102848535749030.1)
+                  00003066    0000000a     shell.o (.rodata.str1.17922515892264497723.1)
+                  00003070    00000009     app_shell.o (.rodata.str1.11922244342622017285.1)
+                  00003079    00000008     board_button.o (.rodata.str1.10963450802004053816.1)
+                  00003081    00000008     app_shell.o (.rodata.str1.11335294061225285764.1)
+                  00003089    00000008     app_shell.o (.rodata.str1.17029008240216598945.1)
+                  00003091    00000008     board_button.o (.rodata.str1.17681505947258605906.1)
+                  00003099    00000008     board_button.o (.rodata.str1.18240515884718476655.1)
+                  000030a1    00000008     app_main.o (.rodata.str1.1839410120130765391.1)
+                  000030a9    00000008     app_shell.o (.rodata.str1.2027963614161212499.1)
+                  000030b1    00000008     app_shell.o (.rodata.str1.3590894685082263268.1)
+                  000030b9    00000008     app_shell.o (.rodata.str1.5909738732761903070.1)
+                  000030c1    00000008     board_button.o (.rodata.str1.5952028417427413650.1)
+                  000030c9    00000008     app_shell.o (.rodata.str1.9307362830757344490.1)
+                  000030d1    00000007     app_shell.o (.rodata.str1.11774507841365577078.1)
+                  000030d8    00000007     app_shell.o (.rodata.str1.13305312957799781956.1)
+                  000030df    00000007     app_shell.o (.rodata.str1.27965927919619260.1)
+                  000030e6    00000007     app_shell.o (.rodata.str1.6351667589775284342.1)
+                  000030ed    00000007     app_shell.o (.rodata.str1.7212684690809077353.1)
+                  000030f4    00000007     app_shell.o (.rodata.str1.8150600325345066189.1)
+                  000030fb    00000007     app_shell.o (.rodata.str1.9018689912544847403.1)
+                  00003102    00000006     app_shell.o (.rodata.str1.11327417708772392390.1)
+                  00003108    00000006     app_shell.o (.rodata.str1.16330407060470052804.1)
+                  0000310e    00000006     app_shell.o (.rodata.str1.16556295950709461880.1)
+                  00003114    00000006     app_shell.o (.rodata.str1.5407661000085889072.1)
+                  0000311a    00000006     app_shell.o (.rodata.str1.587364518894469847.1)
+                  00003120    00000006     app_shell.o (.rodata.str1.6725838405751831500.1)
+                  00003126    00000006     app_shell.o (.rodata.str1.8730301986016609910.1)
+                  0000312c    00000005     app_shell.o (.rodata.str1.13640432584226954899.1)
+                  00003131    00000005     shell.o (.rodata.str1.17405053739148516019.1)
+                  00003136    00000005     app_shell.o (.rodata.str1.3134304214227531536.1)
+                  0000313b    00000005     app_shell.o (.rodata.str1.5549424804698209806.1)
+                  00003140    00000005     app_shell.o (.rodata.str1.6219487071531100932.1)
+                  00003145    00000004     app_shell.o (.rodata.str1.13029328624899454496.1)
+                  00003149    00000004     app_shell.o (.rodata.str1.14445045882516821416.1)
+                  0000314d    00000004     app_shell.o (.rodata.str1.15885433143163248817.1)
+                  00003151    00000004     app_shell.o (.rodata.str1.3688985272902551570.1)
+                  00003155    00000004     shell.o (.rodata.str1.7348818734176781284.1)
+                  00003159    00000004     shell.o (.rodata.str1.8954516873856363469.1)
+                  0000315d    00000004     app_shell.o (.rodata.str1.9708937098353321336.1)
+                  00003161    00000003     shell.o (.rodata.str1.4282230880151502975.1)
+                  00003164    00000003     app_shell.o (.rodata.str1.4465400818469226320.1)
+                  00003167    00000003     app_shell.o (.rodata.str1.5716603645884478871.1)
+                  0000316a    00000003     shell.o (.rodata.str1.8508895379925972626.1)
+                  0000316d    00000002     ti_msp_dl_config.o (.rodata.gDEBUG_UARTClockConfig)
+                  0000316f    00000002     ti_msp_dl_config.o (.rodata.gFRAM_I2CClockConfig)
+                  00003171    00000002     app_shell.o (.rodata.str1.10218881960771275491.1)
+                  00003173    00000002     app_shell.o (.rodata.str1.14683574465395229248.1)
+                  00003175    00000002     app_shell.o (.rodata.str1.2292235750072059597.1)
+                  00003177    00000002     app_shell.o (.rodata.str1.7950140236767125311.1)
+                  00003179    00000007     --HOLE-- [fill = 0]
 
 .init_array 
 *          0    00000000    00000000     UNINITIALIZED
 
 .binit     0    00000000    00000000     
 
-.data      0    20200000    000001e3     UNINITIALIZED
+.data      0    20200000    00000213     UNINITIALIZED
                   20200000    000000f0     scheduler.o (.data._ZN8servicesL7g_tasksE)
                   202000f0    000000c0     shell.o (.data._ZN8services12_GLOBAL__N_110g_commandsE)
-                  202001b0    00000008     app_main.o (.data._ZN3appL10g_appStateE)
-                  202001b8    00000008     board_fram.o (.data._ZN5boardL13g_framContextE)
-                  202001c0    00000008     board_buzzer.o (.data._ZN5boardL15g_buzzerContextE)
-                  202001c8    00000008     board_led.o (.data._ZN5boardL18g_statusLedContextE)
-                  202001d0    00000004     shell.o (.data._ZN8services12_GLOBAL__N_112g_lineLengthE)
-                  202001d4    00000004     debug_uart.o (.data._ZN8services12_GLOBAL__N_116g_rxDroppedCountE)
-                  202001d8    00000004     time.o (.data._ZN8servicesL8g_millisE)
-                  202001dc    00000002     debug_uart.o (.data._ZN8services12_GLOBAL__N_18g_rxHeadE)
-                  202001de    00000002     debug_uart.o (.data._ZN8services12_GLOBAL__N_18g_rxTailE)
-                  202001e0    00000001     shell.o (.data._ZN8services12_GLOBAL__N_114g_ignoreNextLfE)
-                  202001e1    00000001     debug_uart.o (.data._ZN8services12_GLOBAL__N_116g_debugUartReadyE)
-                  202001e2    00000001     fault.o (.data._ZN8servicesL11g_faultCodeE)
+                  202001b0    00000030     board_button.o (.data._ZN5board12_GLOBAL__N_116g_buttonContextsE)
+                  202001e0    00000008     app_main.o (.data._ZN3appL10g_appStateE)
+                  202001e8    00000008     board_fram.o (.data._ZN5boardL13g_framContextE)
+                  202001f0    00000008     board_buzzer.o (.data._ZN5boardL15g_buzzerContextE)
+                  202001f8    00000008     board_led.o (.data._ZN5boardL18g_statusLedContextE)
+                  20200200    00000004     shell.o (.data._ZN8services12_GLOBAL__N_112g_lineLengthE)
+                  20200204    00000004     debug_uart.o (.data._ZN8services12_GLOBAL__N_116g_rxDroppedCountE)
+                  20200208    00000004     time.o (.data._ZN8servicesL8g_millisE)
+                  2020020c    00000002     debug_uart.o (.data._ZN8services12_GLOBAL__N_18g_rxHeadE)
+                  2020020e    00000002     debug_uart.o (.data._ZN8services12_GLOBAL__N_18g_rxTailE)
+                  20200210    00000001     shell.o (.data._ZN8services12_GLOBAL__N_114g_ignoreNextLfE)
+                  20200211    00000001     debug_uart.o (.data._ZN8services12_GLOBAL__N_116g_debugUartReadyE)
+                  20200212    00000001     fault.o (.data._ZN8servicesL11g_faultCodeE)
 
-.bss       0    202001e3    000000e0     UNINITIALIZED
-                  202001e3    00000080     debug_uart.o (.bss._ZN8services12_GLOBAL__N_110g_rxBufferE)
-                  20200263    00000060     shell.o (.bss._ZN8services12_GLOBAL__N_112g_lineBufferE)
+.bss       0    20200213    000000e0     UNINITIALIZED
+                  20200213    00000080     debug_uart.o (.bss._ZN8services12_GLOBAL__N_110g_rxBufferE)
+                  20200293    00000060     shell.o (.bss._ZN8services12_GLOBAL__N_112g_lineBufferE)
 
 .stack     0    2020ff00    00000100     UNINITIALIZED
                   2020ff00    00000004     libc.a : boot_cortex_m.c.obj (.stack)
@@ -282,101 +317,107 @@ __llvm_prf_bits
 
 MODULE SUMMARY
 
-       Module                         code   ro data   rw data
-       ------                         ----   -------   -------
+       Module                         code    ro data   rw data
+       ------                         ----    -------   -------
     .\
-       ti_msp_dl_config.o             460    14        0      
-       startup_mspm0g351x_ticlang.o   6      192       0      
-       empty_cpp.o                    82     0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         548    206       0      
-                                                              
+       ti_msp_dl_config.o             492     14        0      
+       startup_mspm0g351x_ticlang.o   6       192       0      
+       empty_cpp.o                    82      0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         580     206       0      
+                                                               
     .\app\
-       app_shell.o                    2576   907       0      
-       app_main.o                     44     0         8      
-    +--+------------------------------+------+---------+---------+
-       Total:                         2620   907       8      
-                                                              
+       app_shell.o                    3156    1012      0      
+       app_main.o                     102     8         8      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         3258    1020      8      
+                                                               
     .\board\
-       board_fram.o                   210    44        8      
-       board_buzzer.o                 68     12        8      
-       board_led.o                    68     12        8      
-       board.o                        18     0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         364    68        24     
-                                                              
+       board_button.o                 248     92        48     
+       board_fram.o                   210     44        8      
+       board_buzzer.o                 68      12        8      
+       board_led.o                    68      12        8      
+       board.o                        22      0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         616     160       72     
+                                                               
+    .\drivers\button\
+       button.o                       306     0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         306     0         0      
+                                                               
     .\drivers\buzzer\
-       buzzer.o                       174    0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         174    0         0      
-                                                              
+       buzzer.o                       174     0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         174     0         0      
+                                                               
     .\drivers\fm24cl64b\
-       fm24cl64b.o                    1882   0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         1882   0         0      
-                                                              
+       fm24cl64b.o                    1882    0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         1882    0         0      
+                                                               
     .\drivers\led\
-       led.o                          174    0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         174    0         0      
-                                                              
+       led.o                          174     0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         174     0         0      
+                                                               
     .\services\
-       shell.o                        1588   111       293    
-       debug_uart.o                   732    0         137    
-       scheduler.o                    608    0         240    
-       time.o                         84     0         4      
-       fault.o                        24     0         1      
-       log.o                          2      0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         3038   111       675    
-                                                              
+       shell.o                        1588    111       293    
+       scheduler.o                    832     0         240    
+       debug_uart.o                   732     0         137    
+       time.o                         84      0         4      
+       fault.o                        40      0         1      
+       log.o                          2       0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         3278    111       675    
+                                                               
     C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/lib/ticlang/m0p/mspm0gx51x/driverlib.a
-       dl_i2c.o                       240    0         0      
-       dl_uart.o                      138    0         0      
-       dl_common.o                    10     0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         388    0         0      
-                                                              
+       dl_i2c.o                       240     0         0      
+       dl_uart.o                      138     0         0      
+       dl_common.o                    10      0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         388     0         0      
+                                                               
     C:\ti\ccs2100\ccs\tools\compiler\ti-cgt-armllvm_5.1.1.LTS\lib\armv6m-ti-none-eabi/c/libc.a
-       memcpy16.S.obj                 154    0         0      
-       copy_decompress_lzss.c.obj     124    0         0      
-       autoinit.c.obj                 60     0         0      
-       boot_cortex_m.c.obj            40     0         0      
-       copy_zero_init.c.obj           22     0         0      
-       copy_decompress_none.c.obj     18     0         0      
-       exit.c.obj                     6      0         0      
-       pre_init.c.obj                 4      0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         428    0         0      
-                                                              
+       memcpy16.S.obj                 154     0         0      
+       copy_decompress_lzss.c.obj     124     0         0      
+       autoinit.c.obj                 60      0         0      
+       boot_cortex_m.c.obj            40      0         0      
+       copy_zero_init.c.obj           22      0         0      
+       copy_decompress_none.c.obj     18      0         0      
+       exit.c.obj                     6       0         0      
+       pre_init.c.obj                 4       0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         428     0         0      
+                                                               
     C:\ti\ccs2100\ccs\tools\compiler\ti-cgt-armllvm_5.1.1.LTS\lib\armv6m-ti-none-eabi/c/libsysbm.a
-       hostexit.c.obj                 4      0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         4      0         0      
-                                                              
+       hostexit.c.obj                 4       0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         4       0         0      
+                                                               
     C:\ti\ccs2100\ccs\tools\compiler\ti-cgt-armllvm_5.1.1.LTS\lib\armv6m-ti-none-eabi/libclang_rt.builtins.a
-       aeabi_uidivmod.S.obj           64     0         0      
-       aeabi_memcpy.S.obj             8      0         0      
-       aeabi_div0.c.obj               2      0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         74     0         0      
-                                                              
-       Stack:                         0      0         256    
-       Linker Generated:              0      45        0      
-    +--+------------------------------+------+---------+---------+
-       Grand Total:                   9694   1337      963    
+       aeabi_uidivmod.S.obj           64      0         0      
+       aeabi_memcpy.S.obj             8       0         0      
+       aeabi_div0.c.obj               2       0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         74      0         0      
+                                                               
+       Stack:                         0       0         256    
+       Linker Generated:              0       45        0      
+    +--+------------------------------+-------+---------+---------+
+       Grand Total:                   11162   1542      1011   
 
 
 LINKER GENERATED COPY TABLES
 
-__TI_cinit_table @ 00002b10 records: 2, size/record: 8, table size: 16
-	.data: load addr=00002afc, load size=00000009 bytes, run addr=20200000, run size=000001e3 bytes, compression=lzss
-	.bss: load addr=00002b08, load size=00000008 bytes, run addr=202001e3, run size=000000e0 bytes, compression=zero_init
+__TI_cinit_table @ 000031a0 records: 2, size/record: 8, table size: 16
+	.data: load addr=0000318c, load size=00000009 bytes, run addr=20200000, run size=00000213 bytes, compression=lzss
+	.bss: load addr=00003198, load size=00000008 bytes, run addr=20200213, run size=000000e0 bytes, compression=zero_init
 
 
 LINKER GENERATED HANDLER TABLE
 
-__TI_handler_table @ 00002af0 records: 3, size/record: 4, table size: 12
+__TI_handler_table @ 00003180 records: 3, size/record: 4, table size: 12
 	index: 0, handler: __TI_decompress_lzss
 	index: 1, handler: __TI_decompress_none
 	index: 2, handler: __TI_zero_init
@@ -386,119 +427,134 @@ GLOBAL SYMBOLS: SORTED ALPHABETICALLY BY Name
 
 address   name                                                                                
 -------   ----                                                                                
-00001977  ADC0_IRQHandler                                                                     
-00001977  ADC1_IRQHandler                                                                     
-00001977  AESADV_IRQHandler                                                                   
-00002694  C$$EXIT                                                                             
-00001977  CANFD0_IRQHandler                                                                   
-00001977  CANFD1_IRQHandler                                                                   
-00001977  DAC0_IRQHandler                                                                     
-0000265d  DL_Common_delayCycles                                                               
-00001d11  DL_I2C_fillControllerTXFIFO                                                         
-000021ed  DL_I2C_flushControllerRXFIFO                                                        
-00002091  DL_I2C_flushControllerTXFIFO                                                        
-000023bd  DL_I2C_setClockConfig                                                               
-00001e6d  DL_UART_init                                                                        
-00002549  DL_UART_setClockConfig                                                              
-0000221d  DL_UART_transmitDataBlocking                                                        
-00001977  DMA_IRQHandler                                                                      
-00001977  Default_Handler                                                                     
-00001977  GROUP0_IRQHandler                                                                   
-00001977  GROUP1_IRQHandler                                                                   
-00002695  HOSTexit                                                                            
-00001977  HardFault_Handler                                                                   
-00001977  I2C0_IRQHandler                                                                     
-00001977  I2C1_IRQHandler                                                                     
-00001977  I2C2_IRQHandler                                                                     
-00001977  LFSS_IRQHandler                                                                     
-00001977  NMI_Handler                                                                         
-00001977  PendSV_Handler                                                                      
-00002699  Reset_Handler                                                                       
-00001977  SPI0_IRQHandler                                                                     
-00001977  SPI1_IRQHandler                                                                     
-00001977  SPI2_IRQHandler                                                                     
-00001977  SVC_Handler                                                                         
-00001a0d  SYSCFG_DL_DEBUG_UART_init                                                           
-00001d71  SYSCFG_DL_FRAM_I2C_init                                                             
-00001cb1  SYSCFG_DL_GPIO_init                                                                 
-0000224d  SYSCFG_DL_SYSCTL_init                                                               
-00002439  SYSCFG_DL_init                                                                      
-00001eb5  SYSCFG_DL_initPower                                                                 
-0000256d  SysTick_Handler                                                                     
-00001977  TIMA0_IRQHandler                                                                    
-00001977  TIMA1_IRQHandler                                                                    
-00001977  TIMG0_IRQHandler                                                                    
-00001977  TIMG12_IRQHandler                                                                   
-00001977  TIMG14_IRQHandler                                                                   
-00001977  TIMG6_IRQHandler                                                                    
-00001977  TIMG7_IRQHandler                                                                    
-00001977  TIMG8_IRQHandler                                                                    
-00001977  TIMG9_IRQHandler                                                                    
-00001977  UART0_IRQHandler                                                                    
-00001977  UART1_IRQHandler                                                                    
-00001977  UART3_IRQHandler                                                                    
-00001977  UART4_IRQHandler                                                                    
-00001b11  UART5_IRQHandler                                                                    
-00001977  UART6_IRQHandler                                                                    
-00001977  UART7_IRQHandler                                                                    
-000017a1  _ZN3app25AppShell_RegisterCommandsEv                                                
-000023e5  _ZN3app7App_RunEv                                                                   
-0000258d  _ZN3app8App_InitEv                                                                  
-0000259d  _ZN5board10Board_InitEv                                                             
-000025ad  _ZN5board14Board_BuzzerOnEv                                                         
-00002495  _ZN5board14Board_FramInitEv                                                         
-000024a9  _ZN5board14Board_FramReadEtPht                                                      
-00001d6f  _ZN5board14Board_LateInitEv                                                         
-000025bd  _ZN5board15Board_BuzzerOffEv                                                        
-000024bd  _ZN5board16Board_BuzzerInitEv                                                       
-000025cd  _ZN5board17Board_FramIsReadyEv                                                      
-000025dd  _ZN5board17Board_StatusLedOnEv                                                      
-000024d1  _ZN5board18Board_FramReadByteEtPh                                                   
-000024e5  _ZN5board18Board_FramSelfTestEv                                                     
-000025ed  _ZN5board18Board_StatusLedOffEv                                                     
-000025fd  _ZN5board19Board_BuzzerIsReadyEv                                                    
-000024f9  _ZN5board19Board_FramWriteByteEth                                                   
-0000250d  _ZN5board19Board_StatusLedInitEv                                                    
-0000260d  _ZN5board20Board_FramRecoverBusEv                                                   
-00001efd  _ZN5board22Board_FramGetBusStatusEPjPbS1_                                           
-0000261d  _ZN5board22Board_StatusLedIsReadyEv                                                 
-00002689  _ZN5board23Board_FramCapacityBytesEv                                                
-000022ad  _ZN7drivers10Buzzer_OffEPNS_13BuzzerContextE                                        
-00002145  _ZN7drivers11Buzzer_InitEPNS_13BuzzerContextEPKNS_12BuzzerConfigE                   
-00002451  _ZN7drivers11Led_IsReadyEPKNS_10LedContextE                                         
-00002467  _ZN7drivers14Buzzer_IsReadyEPKNS_13BuzzerContextE                                   
-00001c4d  _ZN7drivers14Fm24cl64b_InitEPNS_16Fm24cl64bContextEPKNS_15Fm24cl64bConfigE          
-00000901  _ZN7drivers14Fm24cl64b_ReadEPNS_16Fm24cl64bContextEtPht                             
-00000d05  _ZN7drivers15Fm24cl64b_WriteEPNS_16Fm24cl64bContextEtPKht                           
-00002401  _ZN7drivers17Fm24cl64b_IsReadyEPKNS_16Fm24cl64bContextE                             
-00002667  _ZN7drivers18Fm24cl64b_ReadByteEPNS_16Fm24cl64bContextEtPh                          
-00001659  _ZN7drivers18Fm24cl64b_SelfTestEPNS_16Fm24cl64bContextEt                            
-00002521  _ZN7drivers19Fm24cl64b_WriteByteEPNS_16Fm24cl64bContextEth                          
-00000b25  _ZN7drivers20Fm24cl64b_RecoverBusEPNS_16Fm24cl64bContextE                           
-00001f8d  _ZN7drivers22Fm24cl64b_GetBusStatusEPNS_16Fm24cl64bContextEPNS_18Fm24cl64bBusStatusE
-000022dd  _ZN7drivers6Led_OnEPNS_10LedContextE                                                
-0000230d  _ZN7drivers7Led_OffEPNS_10LedContextE                                               
-0000217d  _ZN7drivers8Led_InitEPNS_10LedContextEPKNS_9LedConfigE                              
-0000233d  _ZN7drivers9Buzzer_OnEPNS_13BuzzerContextE                                          
-0000262d  _ZN8services10Fault_InitEv                                                          
-00001385  _ZN8services10Shell_InitEv                                                          
-00002639  _ZN8services11Time_MillisEv                                                         
-00000ed5  _ZN8services13Scheduler_RunEv                                                       
-00001979  _ZN8services13Shell_ProcessEv                                                       
-00001dc5  _ZN8services14DebugUart_InitEv                                                      
-000014fd  _ZN8services14Scheduler_InitEv                                                      
-00002535  _ZN8services15Shell_WriteLineEPKc                                                   
-00002645  _ZN8services17DebugUart_IsReadyEv                                                   
-00002671  _ZN8services17Shell_WriteStringEPKc                                                 
-00002679  _ZN8services17Shell_WriteUInt32Ej                                                   
-00001f45  _ZN8services18DebugUart_ReadByteEPh                                                 
-0000241d  _ZN8services19DebugUart_WriteCharEc                                                 
-00001b7d  _ZN8services21DebugUart_WriteStringEPKc                                             
-00001085  _ZN8services21DebugUart_WriteUInt32Ej                                               
-000016fd  _ZN8services21Shell_RegisterCommandEPKcS1_PFviPKS1_E                                
-00001e6b  _ZN8services8Log_InitEv                                                             
-00002651  _ZN8services9Fault_GetEv                                                            
-000021b5  _ZN8services9Time_InitEv                                                            
+00001c9b  ADC0_IRQHandler                                                                     
+00001c9b  ADC1_IRQHandler                                                                     
+00001c9b  AESADV_IRQHandler                                                                   
+00002c50  C$$EXIT                                                                             
+00001c9b  CANFD0_IRQHandler                                                                   
+00001c9b  CANFD1_IRQHandler                                                                   
+00001c9b  DAC0_IRQHandler                                                                     
+00002c19  DL_Common_delayCycles                                                               
+00002055  DL_I2C_fillControllerTXFIFO                                                         
+000026a9  DL_I2C_flushControllerRXFIFO                                                        
+00002471  DL_I2C_flushControllerTXFIFO                                                        
+00002879  DL_I2C_setClockConfig                                                               
+0000220d  DL_UART_init                                                                        
+00002b15  DL_UART_setClockConfig                                                              
+000026d9  DL_UART_transmitDataBlocking                                                        
+00001c9b  DMA_IRQHandler                                                                      
+00001c9b  Default_Handler                                                                     
+00001c9b  GROUP0_IRQHandler                                                                   
+00001c9b  GROUP1_IRQHandler                                                                   
+00002c51  HOSTexit                                                                            
+00001c9b  HardFault_Handler                                                                   
+00001c9b  I2C0_IRQHandler                                                                     
+00001c9b  I2C1_IRQHandler                                                                     
+00001c9b  I2C2_IRQHandler                                                                     
+00001c9b  LFSS_IRQHandler                                                                     
+00001c9b  NMI_Handler                                                                         
+00001c9b  PendSV_Handler                                                                      
+00002c55  Reset_Handler                                                                       
+00001c9b  SPI0_IRQHandler                                                                     
+00001c9b  SPI1_IRQHandler                                                                     
+00001c9b  SPI2_IRQHandler                                                                     
+00001c9b  SVC_Handler                                                                         
+00001d31  SYSCFG_DL_DEBUG_UART_init                                                           
+00002111  SYSCFG_DL_FRAM_I2C_init                                                             
+00001db9  SYSCFG_DL_GPIO_init                                                                 
+00002709  SYSCFG_DL_SYSCTL_init                                                               
+000029c3  SYSCFG_DL_init                                                                      
+00002255  SYSCFG_DL_initPower                                                                 
+00002b39  SysTick_Handler                                                                     
+00001c9b  TIMA0_IRQHandler                                                                    
+00001c9b  TIMA1_IRQHandler                                                                    
+00001c9b  TIMG0_IRQHandler                                                                    
+00001c9b  TIMG12_IRQHandler                                                                   
+00001c9b  TIMG14_IRQHandler                                                                   
+00001c9b  TIMG6_IRQHandler                                                                    
+00001c9b  TIMG7_IRQHandler                                                                    
+00001c9b  TIMG8_IRQHandler                                                                    
+00001c9b  TIMG9_IRQHandler                                                                    
+00001c9b  UART0_IRQHandler                                                                    
+00001c9b  UART1_IRQHandler                                                                    
+00001c9b  UART3_IRQHandler                                                                    
+00001c9b  UART4_IRQHandler                                                                    
+00001eb5  UART5_IRQHandler                                                                    
+00001c9b  UART6_IRQHandler                                                                    
+00001c9b  UART7_IRQHandler                                                                    
+0000175d  _ZN3app25AppShell_RegisterCommandsEv                                                
+000028e5  _ZN3app7App_RunEv                                                                   
+00002641  _ZN3app8App_InitEv                                                                  
+00002a4d  _ZN5board10Board_InitEv                                                             
+00002b59  _ZN5board14Board_BuzzerOnEv                                                         
+00002a61  _ZN5board14Board_FramInitEv                                                         
+00002a75  _ZN5board14Board_FramReadEtPht                                                      
+0000220b  _ZN5board14Board_LateInitEv                                                         
+00002b69  _ZN5board15Board_BuzzerOffEv                                                        
+00002a89  _ZN5board16Board_BuzzerInitEv                                                       
+000024e9  _ZN5board17Board_ButtonsInitEv                                                      
+00002b79  _ZN5board17Board_FramIsReadyEv                                                      
+00002b89  _ZN5board17Board_StatusLedOnEv                                                      
+00002a9d  _ZN5board18Board_FramReadByteEtPh                                                   
+00002ab1  _ZN5board18Board_FramSelfTestEv                                                     
+00002b99  _ZN5board18Board_StatusLedOffEv                                                     
+000029dd  _ZN5board19Board_ButtonGetNameENS_13BoardButtonIdE                                  
+00002901  _ZN5board19Board_ButtonReadRawENS_13BoardButtonIdEPb                                
+00002675  _ZN5board19Board_ButtonsUpdateEj                                                    
+00002ba9  _ZN5board19Board_BuzzerIsReadyEv                                                    
+00002ac5  _ZN5board19Board_FramWriteByteEth                                                   
+00002ad9  _ZN5board19Board_StatusLedInitEv                                                    
+00002bb9  _ZN5board20Board_FramRecoverBusEv                                                   
+0000291d  _ZN5board21Board_ButtonIsPressedENS_13BoardButtonIdE                                
+00002939  _ZN5board22Board_ButtonWasPressedENS_13BoardButtonIdE                               
+0000229d  _ZN5board22Board_FramGetBusStatusEPjPbS1_                                           
+00002bc9  _ZN5board22Board_StatusLedIsReadyEv                                                 
+00002955  _ZN5board23Board_ButtonWasReleasedENS_13BoardButtonIdE                              
+00002c45  _ZN5board23Board_FramCapacityBytesEv                                                
+00002769  _ZN7drivers10Buzzer_OffEPNS_13BuzzerContextE                                        
+00002431  _ZN7drivers11Button_InitEPNS_13ButtonContextEPKNS_12ButtonConfigE                   
+00002561  _ZN7drivers11Buzzer_InitEPNS_13BuzzerContextEPKNS_12BuzzerConfigE                   
+00002a0b  _ZN7drivers11Led_IsReadyEPKNS_10LedContextE                                         
+000020b3  _ZN7drivers13Button_UpdateEPNS_13ButtonContextEj                                    
+00002599  _ZN7drivers14Button_ReadRawEPNS_13ButtonContextEPb                                  
+00002a21  _ZN7drivers14Buzzer_IsReadyEPKNS_13BuzzerContextE                                   
+00001ff1  _ZN7drivers14Fm24cl64b_InitEPNS_16Fm24cl64bContextEPKNS_15Fm24cl64bConfigE          
+00000b31  _ZN7drivers14Fm24cl64b_ReadEPNS_16Fm24cl64bContextEtPht                             
+00000f35  _ZN7drivers15Fm24cl64b_WriteEPNS_16Fm24cl64bContextEtPKht                           
+000029a9  _ZN7drivers16Button_IsPressedEPKNS_13ButtonContextE                                 
+0000289f  _ZN7drivers17Button_WasPressedEPNS_13ButtonContextE                                 
+00002971  _ZN7drivers17Fm24cl64b_IsReadyEPKNS_16Fm24cl64bContextE                             
+000028c1  _ZN7drivers18Button_WasReleasedEPNS_13ButtonContextE                                
+00002c23  _ZN7drivers18Fm24cl64b_ReadByteEPNS_16Fm24cl64bContextEtPh                          
+00001a1d  _ZN7drivers18Fm24cl64b_SelfTestEPNS_16Fm24cl64bContextEt                            
+00002aed  _ZN7drivers19Fm24cl64b_WriteByteEPNS_16Fm24cl64bContextEth                          
+00000d55  _ZN7drivers20Fm24cl64b_RecoverBusEPNS_16Fm24cl64bContextE                           
+0000232d  _ZN7drivers22Fm24cl64b_GetBusStatusEPNS_16Fm24cl64bContextEPNS_18Fm24cl64bBusStatusE
+00002799  _ZN7drivers6Led_OnEPNS_10LedContextE                                                
+000027c9  _ZN7drivers7Led_OffEPNS_10LedContextE                                               
+000025d1  _ZN7drivers8Led_InitEPNS_10LedContextEPKNS_9LedConfigE                              
+000027f9  _ZN7drivers9Buzzer_OnEPNS_13BuzzerContextE                                          
+00002be9  _ZN8services10Fault_InitEv                                                          
+00001695  _ZN8services10Shell_InitEv                                                          
+00002bf5  _ZN8services11Time_MillisEv                                                         
+00001105  _ZN8services13Scheduler_RunEv                                                       
+00001c9d  _ZN8services13Shell_ProcessEv                                                       
+00002165  _ZN8services14DebugUart_InitEv                                                      
+000018c1  _ZN8services14Scheduler_InitEv                                                      
+00002b01  _ZN8services15Shell_WriteLineEPKc                                                   
+00002c01  _ZN8services17DebugUart_IsReadyEv                                                   
+000015b5  _ZN8services17Scheduler_AddTaskEPKcPFvvEjjPh                                        
+00002c2d  _ZN8services17Shell_WriteStringEPKc                                                 
+00002c35  _ZN8services17Shell_WriteUInt32Ej                                                   
+000022e5  _ZN8services18DebugUart_ReadByteEPh                                                 
+0000298d  _ZN8services19DebugUart_WriteCharEc                                                 
+00001f21  _ZN8services21DebugUart_WriteStringEPKc                                             
+000012b5  _ZN8services21DebugUart_WriteUInt32Ej                                               
+00001ac1  _ZN8services21Shell_RegisterCommandEPKcS1_PFviPKS1_E                                
+0000246f  _ZN8services8Log_InitEv                                                             
+00002c0d  _ZN8services9Fault_GetEv                                                            
+00002bd9  _ZN8services9Fault_SetENS_9FaultCodeE                                               
+00002609  _ZN8services9Time_InitEv                                                            
 20210000  __STACK_END                                                                         
 00000100  __STACK_SIZE                                                                        
 00000000  __TI_ATRegion0_region_sz                                                            
@@ -510,25 +566,25 @@ address   name
 00000000  __TI_ATRegion2_region_sz                                                            
 00000000  __TI_ATRegion2_src_addr                                                             
 00000000  __TI_ATRegion2_trg_addr                                                             
-00002b10  __TI_CINIT_Base                                                                     
-00002b20  __TI_CINIT_Limit                                                                    
-00002b20  __TI_CINIT_Warm                                                                     
-00002af0  __TI_Handler_Table_Base                                                             
-00002afc  __TI_Handler_Table_Limit                                                            
-00002109  __TI_auto_init_nobinit_nopinit                                                      
-00001a95  __TI_decompress_lzss                                                                
-0000255b  __TI_decompress_none                                                                
+000031a0  __TI_CINIT_Base                                                                     
+000031b0  __TI_CINIT_Limit                                                                    
+000031b0  __TI_CINIT_Warm                                                                     
+00003180  __TI_Handler_Table_Base                                                             
+0000318c  __TI_Handler_Table_Limit                                                            
+00002525  __TI_auto_init_nobinit_nopinit                                                      
+00001e39  __TI_decompress_lzss                                                                
+00002b27  __TI_decompress_none                                                                
 ffffffff  __TI_pprof_out_hndl                                                                 
 ffffffff  __TI_prof_data_size                                                                 
 ffffffff  __TI_prof_data_start                                                                
 00000000  __TI_static_base__                                                                  
-0000247d  __TI_zero_init_nomemset                                                             
-000023e3  __aeabi_idiv0                                                                       
-00002681  __aeabi_memcpy                                                                      
-00002681  __aeabi_memcpy4                                                                     
-00002681  __aeabi_memcpy8                                                                     
-00002051  __aeabi_uidiv                                                                       
-00002051  __aeabi_uidivmod                                                                    
+00002a37  __TI_zero_init_nomemset                                                             
+000028e3  __aeabi_idiv0                                                                       
+00002c3d  __aeabi_memcpy                                                                      
+00002c3d  __aeabi_memcpy4                                                                     
+00002c3d  __aeabi_memcpy8                                                                     
+000023f1  __aeabi_uidiv                                                                       
+000023f1  __aeabi_uidivmod                                                                    
 ffffffff  __binit__                                                                           
 UNDEFED   __mpu_init                                                                          
 2020ff00  __stack                                                                             
@@ -536,14 +592,14 @@ UNDEFED   __mpu_init
 20200000  __start___llvm_prf_cnts                                                             
 20200000  __stop___llvm_prf_bits                                                              
 20200000  __stop___llvm_prf_cnts                                                              
-00002395  _c_int00_noargs                                                                     
+00002851  _c_int00_noargs                                                                     
 UNDEFED   _system_post_cinit                                                                  
-0000269d  _system_pre_init                                                                    
-0000268f  abort                                                                               
+00002c59  _system_pre_init                                                                    
+00002c4b  abort                                                                               
 ffffffff  binit                                                                               
 00000000  interruptVectors                                                                    
-00001e19  main                                                                                
-000018dd  memcpy                                                                              
+000021b9  main                                                                                
+00001c01  memcpy                                                                              
 
 
 GLOBAL SYMBOLS: SORTED BY Symbol Address 
@@ -562,139 +618,154 @@ address   name
 00000000  __TI_static_base__                                                                  
 00000000  interruptVectors                                                                    
 00000100  __STACK_SIZE                                                                        
-00000901  _ZN7drivers14Fm24cl64b_ReadEPNS_16Fm24cl64bContextEtPht                             
-00000b25  _ZN7drivers20Fm24cl64b_RecoverBusEPNS_16Fm24cl64bContextE                           
-00000d05  _ZN7drivers15Fm24cl64b_WriteEPNS_16Fm24cl64bContextEtPKht                           
-00000ed5  _ZN8services13Scheduler_RunEv                                                       
-00001085  _ZN8services21DebugUart_WriteUInt32Ej                                               
-00001385  _ZN8services10Shell_InitEv                                                          
-000014fd  _ZN8services14Scheduler_InitEv                                                      
-00001659  _ZN7drivers18Fm24cl64b_SelfTestEPNS_16Fm24cl64bContextEt                            
-000016fd  _ZN8services21Shell_RegisterCommandEPKcS1_PFviPKS1_E                                
-000017a1  _ZN3app25AppShell_RegisterCommandsEv                                                
-000018dd  memcpy                                                                              
-00001977  ADC0_IRQHandler                                                                     
-00001977  ADC1_IRQHandler                                                                     
-00001977  AESADV_IRQHandler                                                                   
-00001977  CANFD0_IRQHandler                                                                   
-00001977  CANFD1_IRQHandler                                                                   
-00001977  DAC0_IRQHandler                                                                     
-00001977  DMA_IRQHandler                                                                      
-00001977  Default_Handler                                                                     
-00001977  GROUP0_IRQHandler                                                                   
-00001977  GROUP1_IRQHandler                                                                   
-00001977  HardFault_Handler                                                                   
-00001977  I2C0_IRQHandler                                                                     
-00001977  I2C1_IRQHandler                                                                     
-00001977  I2C2_IRQHandler                                                                     
-00001977  LFSS_IRQHandler                                                                     
-00001977  NMI_Handler                                                                         
-00001977  PendSV_Handler                                                                      
-00001977  SPI0_IRQHandler                                                                     
-00001977  SPI1_IRQHandler                                                                     
-00001977  SPI2_IRQHandler                                                                     
-00001977  SVC_Handler                                                                         
-00001977  TIMA0_IRQHandler                                                                    
-00001977  TIMA1_IRQHandler                                                                    
-00001977  TIMG0_IRQHandler                                                                    
-00001977  TIMG12_IRQHandler                                                                   
-00001977  TIMG14_IRQHandler                                                                   
-00001977  TIMG6_IRQHandler                                                                    
-00001977  TIMG7_IRQHandler                                                                    
-00001977  TIMG8_IRQHandler                                                                    
-00001977  TIMG9_IRQHandler                                                                    
-00001977  UART0_IRQHandler                                                                    
-00001977  UART1_IRQHandler                                                                    
-00001977  UART3_IRQHandler                                                                    
-00001977  UART4_IRQHandler                                                                    
-00001977  UART6_IRQHandler                                                                    
-00001977  UART7_IRQHandler                                                                    
-00001979  _ZN8services13Shell_ProcessEv                                                       
-00001a0d  SYSCFG_DL_DEBUG_UART_init                                                           
-00001a95  __TI_decompress_lzss                                                                
-00001b11  UART5_IRQHandler                                                                    
-00001b7d  _ZN8services21DebugUart_WriteStringEPKc                                             
-00001c4d  _ZN7drivers14Fm24cl64b_InitEPNS_16Fm24cl64bContextEPKNS_15Fm24cl64bConfigE          
-00001cb1  SYSCFG_DL_GPIO_init                                                                 
-00001d11  DL_I2C_fillControllerTXFIFO                                                         
-00001d6f  _ZN5board14Board_LateInitEv                                                         
-00001d71  SYSCFG_DL_FRAM_I2C_init                                                             
-00001dc5  _ZN8services14DebugUart_InitEv                                                      
-00001e19  main                                                                                
-00001e6b  _ZN8services8Log_InitEv                                                             
-00001e6d  DL_UART_init                                                                        
-00001eb5  SYSCFG_DL_initPower                                                                 
-00001efd  _ZN5board22Board_FramGetBusStatusEPjPbS1_                                           
-00001f45  _ZN8services18DebugUart_ReadByteEPh                                                 
-00001f8d  _ZN7drivers22Fm24cl64b_GetBusStatusEPNS_16Fm24cl64bContextEPNS_18Fm24cl64bBusStatusE
-00002051  __aeabi_uidiv                                                                       
-00002051  __aeabi_uidivmod                                                                    
-00002091  DL_I2C_flushControllerTXFIFO                                                        
-00002109  __TI_auto_init_nobinit_nopinit                                                      
-00002145  _ZN7drivers11Buzzer_InitEPNS_13BuzzerContextEPKNS_12BuzzerConfigE                   
-0000217d  _ZN7drivers8Led_InitEPNS_10LedContextEPKNS_9LedConfigE                              
-000021b5  _ZN8services9Time_InitEv                                                            
-000021ed  DL_I2C_flushControllerRXFIFO                                                        
-0000221d  DL_UART_transmitDataBlocking                                                        
-0000224d  SYSCFG_DL_SYSCTL_init                                                               
-000022ad  _ZN7drivers10Buzzer_OffEPNS_13BuzzerContextE                                        
-000022dd  _ZN7drivers6Led_OnEPNS_10LedContextE                                                
-0000230d  _ZN7drivers7Led_OffEPNS_10LedContextE                                               
-0000233d  _ZN7drivers9Buzzer_OnEPNS_13BuzzerContextE                                          
-00002395  _c_int00_noargs                                                                     
-000023bd  DL_I2C_setClockConfig                                                               
-000023e3  __aeabi_idiv0                                                                       
-000023e5  _ZN3app7App_RunEv                                                                   
-00002401  _ZN7drivers17Fm24cl64b_IsReadyEPKNS_16Fm24cl64bContextE                             
-0000241d  _ZN8services19DebugUart_WriteCharEc                                                 
-00002439  SYSCFG_DL_init                                                                      
-00002451  _ZN7drivers11Led_IsReadyEPKNS_10LedContextE                                         
-00002467  _ZN7drivers14Buzzer_IsReadyEPKNS_13BuzzerContextE                                   
-0000247d  __TI_zero_init_nomemset                                                             
-00002495  _ZN5board14Board_FramInitEv                                                         
-000024a9  _ZN5board14Board_FramReadEtPht                                                      
-000024bd  _ZN5board16Board_BuzzerInitEv                                                       
-000024d1  _ZN5board18Board_FramReadByteEtPh                                                   
-000024e5  _ZN5board18Board_FramSelfTestEv                                                     
-000024f9  _ZN5board19Board_FramWriteByteEth                                                   
-0000250d  _ZN5board19Board_StatusLedInitEv                                                    
-00002521  _ZN7drivers19Fm24cl64b_WriteByteEPNS_16Fm24cl64bContextEth                          
-00002535  _ZN8services15Shell_WriteLineEPKc                                                   
-00002549  DL_UART_setClockConfig                                                              
-0000255b  __TI_decompress_none                                                                
-0000256d  SysTick_Handler                                                                     
-0000258d  _ZN3app8App_InitEv                                                                  
-0000259d  _ZN5board10Board_InitEv                                                             
-000025ad  _ZN5board14Board_BuzzerOnEv                                                         
-000025bd  _ZN5board15Board_BuzzerOffEv                                                        
-000025cd  _ZN5board17Board_FramIsReadyEv                                                      
-000025dd  _ZN5board17Board_StatusLedOnEv                                                      
-000025ed  _ZN5board18Board_StatusLedOffEv                                                     
-000025fd  _ZN5board19Board_BuzzerIsReadyEv                                                    
-0000260d  _ZN5board20Board_FramRecoverBusEv                                                   
-0000261d  _ZN5board22Board_StatusLedIsReadyEv                                                 
-0000262d  _ZN8services10Fault_InitEv                                                          
-00002639  _ZN8services11Time_MillisEv                                                         
-00002645  _ZN8services17DebugUart_IsReadyEv                                                   
-00002651  _ZN8services9Fault_GetEv                                                            
-0000265d  DL_Common_delayCycles                                                               
-00002667  _ZN7drivers18Fm24cl64b_ReadByteEPNS_16Fm24cl64bContextEtPh                          
-00002671  _ZN8services17Shell_WriteStringEPKc                                                 
-00002679  _ZN8services17Shell_WriteUInt32Ej                                                   
-00002681  __aeabi_memcpy                                                                      
-00002681  __aeabi_memcpy4                                                                     
-00002681  __aeabi_memcpy8                                                                     
-00002689  _ZN5board23Board_FramCapacityBytesEv                                                
-0000268f  abort                                                                               
-00002694  C$$EXIT                                                                             
-00002695  HOSTexit                                                                            
-00002699  Reset_Handler                                                                       
-0000269d  _system_pre_init                                                                    
-00002af0  __TI_Handler_Table_Base                                                             
-00002afc  __TI_Handler_Table_Limit                                                            
-00002b10  __TI_CINIT_Base                                                                     
-00002b20  __TI_CINIT_Limit                                                                    
-00002b20  __TI_CINIT_Warm                                                                     
+00000b31  _ZN7drivers14Fm24cl64b_ReadEPNS_16Fm24cl64bContextEtPht                             
+00000d55  _ZN7drivers20Fm24cl64b_RecoverBusEPNS_16Fm24cl64bContextE                           
+00000f35  _ZN7drivers15Fm24cl64b_WriteEPNS_16Fm24cl64bContextEtPKht                           
+00001105  _ZN8services13Scheduler_RunEv                                                       
+000012b5  _ZN8services21DebugUart_WriteUInt32Ej                                               
+000015b5  _ZN8services17Scheduler_AddTaskEPKcPFvvEjjPh                                        
+00001695  _ZN8services10Shell_InitEv                                                          
+0000175d  _ZN3app25AppShell_RegisterCommandsEv                                                
+000018c1  _ZN8services14Scheduler_InitEv                                                      
+00001a1d  _ZN7drivers18Fm24cl64b_SelfTestEPNS_16Fm24cl64bContextEt                            
+00001ac1  _ZN8services21Shell_RegisterCommandEPKcS1_PFviPKS1_E                                
+00001c01  memcpy                                                                              
+00001c9b  ADC0_IRQHandler                                                                     
+00001c9b  ADC1_IRQHandler                                                                     
+00001c9b  AESADV_IRQHandler                                                                   
+00001c9b  CANFD0_IRQHandler                                                                   
+00001c9b  CANFD1_IRQHandler                                                                   
+00001c9b  DAC0_IRQHandler                                                                     
+00001c9b  DMA_IRQHandler                                                                      
+00001c9b  Default_Handler                                                                     
+00001c9b  GROUP0_IRQHandler                                                                   
+00001c9b  GROUP1_IRQHandler                                                                   
+00001c9b  HardFault_Handler                                                                   
+00001c9b  I2C0_IRQHandler                                                                     
+00001c9b  I2C1_IRQHandler                                                                     
+00001c9b  I2C2_IRQHandler                                                                     
+00001c9b  LFSS_IRQHandler                                                                     
+00001c9b  NMI_Handler                                                                         
+00001c9b  PendSV_Handler                                                                      
+00001c9b  SPI0_IRQHandler                                                                     
+00001c9b  SPI1_IRQHandler                                                                     
+00001c9b  SPI2_IRQHandler                                                                     
+00001c9b  SVC_Handler                                                                         
+00001c9b  TIMA0_IRQHandler                                                                    
+00001c9b  TIMA1_IRQHandler                                                                    
+00001c9b  TIMG0_IRQHandler                                                                    
+00001c9b  TIMG12_IRQHandler                                                                   
+00001c9b  TIMG14_IRQHandler                                                                   
+00001c9b  TIMG6_IRQHandler                                                                    
+00001c9b  TIMG7_IRQHandler                                                                    
+00001c9b  TIMG8_IRQHandler                                                                    
+00001c9b  TIMG9_IRQHandler                                                                    
+00001c9b  UART0_IRQHandler                                                                    
+00001c9b  UART1_IRQHandler                                                                    
+00001c9b  UART3_IRQHandler                                                                    
+00001c9b  UART4_IRQHandler                                                                    
+00001c9b  UART6_IRQHandler                                                                    
+00001c9b  UART7_IRQHandler                                                                    
+00001c9d  _ZN8services13Shell_ProcessEv                                                       
+00001d31  SYSCFG_DL_DEBUG_UART_init                                                           
+00001db9  SYSCFG_DL_GPIO_init                                                                 
+00001e39  __TI_decompress_lzss                                                                
+00001eb5  UART5_IRQHandler                                                                    
+00001f21  _ZN8services21DebugUart_WriteStringEPKc                                             
+00001ff1  _ZN7drivers14Fm24cl64b_InitEPNS_16Fm24cl64bContextEPKNS_15Fm24cl64bConfigE          
+00002055  DL_I2C_fillControllerTXFIFO                                                         
+000020b3  _ZN7drivers13Button_UpdateEPNS_13ButtonContextEj                                    
+00002111  SYSCFG_DL_FRAM_I2C_init                                                             
+00002165  _ZN8services14DebugUart_InitEv                                                      
+000021b9  main                                                                                
+0000220b  _ZN5board14Board_LateInitEv                                                         
+0000220d  DL_UART_init                                                                        
+00002255  SYSCFG_DL_initPower                                                                 
+0000229d  _ZN5board22Board_FramGetBusStatusEPjPbS1_                                           
+000022e5  _ZN8services18DebugUart_ReadByteEPh                                                 
+0000232d  _ZN7drivers22Fm24cl64b_GetBusStatusEPNS_16Fm24cl64bContextEPNS_18Fm24cl64bBusStatusE
+000023f1  __aeabi_uidiv                                                                       
+000023f1  __aeabi_uidivmod                                                                    
+00002431  _ZN7drivers11Button_InitEPNS_13ButtonContextEPKNS_12ButtonConfigE                   
+0000246f  _ZN8services8Log_InitEv                                                             
+00002471  DL_I2C_flushControllerTXFIFO                                                        
+000024e9  _ZN5board17Board_ButtonsInitEv                                                      
+00002525  __TI_auto_init_nobinit_nopinit                                                      
+00002561  _ZN7drivers11Buzzer_InitEPNS_13BuzzerContextEPKNS_12BuzzerConfigE                   
+00002599  _ZN7drivers14Button_ReadRawEPNS_13ButtonContextEPb                                  
+000025d1  _ZN7drivers8Led_InitEPNS_10LedContextEPKNS_9LedConfigE                              
+00002609  _ZN8services9Time_InitEv                                                            
+00002641  _ZN3app8App_InitEv                                                                  
+00002675  _ZN5board19Board_ButtonsUpdateEj                                                    
+000026a9  DL_I2C_flushControllerRXFIFO                                                        
+000026d9  DL_UART_transmitDataBlocking                                                        
+00002709  SYSCFG_DL_SYSCTL_init                                                               
+00002769  _ZN7drivers10Buzzer_OffEPNS_13BuzzerContextE                                        
+00002799  _ZN7drivers6Led_OnEPNS_10LedContextE                                                
+000027c9  _ZN7drivers7Led_OffEPNS_10LedContextE                                               
+000027f9  _ZN7drivers9Buzzer_OnEPNS_13BuzzerContextE                                          
+00002851  _c_int00_noargs                                                                     
+00002879  DL_I2C_setClockConfig                                                               
+0000289f  _ZN7drivers17Button_WasPressedEPNS_13ButtonContextE                                 
+000028c1  _ZN7drivers18Button_WasReleasedEPNS_13ButtonContextE                                
+000028e3  __aeabi_idiv0                                                                       
+000028e5  _ZN3app7App_RunEv                                                                   
+00002901  _ZN5board19Board_ButtonReadRawENS_13BoardButtonIdEPb                                
+0000291d  _ZN5board21Board_ButtonIsPressedENS_13BoardButtonIdE                                
+00002939  _ZN5board22Board_ButtonWasPressedENS_13BoardButtonIdE                               
+00002955  _ZN5board23Board_ButtonWasReleasedENS_13BoardButtonIdE                              
+00002971  _ZN7drivers17Fm24cl64b_IsReadyEPKNS_16Fm24cl64bContextE                             
+0000298d  _ZN8services19DebugUart_WriteCharEc                                                 
+000029a9  _ZN7drivers16Button_IsPressedEPKNS_13ButtonContextE                                 
+000029c3  SYSCFG_DL_init                                                                      
+000029dd  _ZN5board19Board_ButtonGetNameENS_13BoardButtonIdE                                  
+00002a0b  _ZN7drivers11Led_IsReadyEPKNS_10LedContextE                                         
+00002a21  _ZN7drivers14Buzzer_IsReadyEPKNS_13BuzzerContextE                                   
+00002a37  __TI_zero_init_nomemset                                                             
+00002a4d  _ZN5board10Board_InitEv                                                             
+00002a61  _ZN5board14Board_FramInitEv                                                         
+00002a75  _ZN5board14Board_FramReadEtPht                                                      
+00002a89  _ZN5board16Board_BuzzerInitEv                                                       
+00002a9d  _ZN5board18Board_FramReadByteEtPh                                                   
+00002ab1  _ZN5board18Board_FramSelfTestEv                                                     
+00002ac5  _ZN5board19Board_FramWriteByteEth                                                   
+00002ad9  _ZN5board19Board_StatusLedInitEv                                                    
+00002aed  _ZN7drivers19Fm24cl64b_WriteByteEPNS_16Fm24cl64bContextEth                          
+00002b01  _ZN8services15Shell_WriteLineEPKc                                                   
+00002b15  DL_UART_setClockConfig                                                              
+00002b27  __TI_decompress_none                                                                
+00002b39  SysTick_Handler                                                                     
+00002b59  _ZN5board14Board_BuzzerOnEv                                                         
+00002b69  _ZN5board15Board_BuzzerOffEv                                                        
+00002b79  _ZN5board17Board_FramIsReadyEv                                                      
+00002b89  _ZN5board17Board_StatusLedOnEv                                                      
+00002b99  _ZN5board18Board_StatusLedOffEv                                                     
+00002ba9  _ZN5board19Board_BuzzerIsReadyEv                                                    
+00002bb9  _ZN5board20Board_FramRecoverBusEv                                                   
+00002bc9  _ZN5board22Board_StatusLedIsReadyEv                                                 
+00002bd9  _ZN8services9Fault_SetENS_9FaultCodeE                                               
+00002be9  _ZN8services10Fault_InitEv                                                          
+00002bf5  _ZN8services11Time_MillisEv                                                         
+00002c01  _ZN8services17DebugUart_IsReadyEv                                                   
+00002c0d  _ZN8services9Fault_GetEv                                                            
+00002c19  DL_Common_delayCycles                                                               
+00002c23  _ZN7drivers18Fm24cl64b_ReadByteEPNS_16Fm24cl64bContextEtPh                          
+00002c2d  _ZN8services17Shell_WriteStringEPKc                                                 
+00002c35  _ZN8services17Shell_WriteUInt32Ej                                                   
+00002c3d  __aeabi_memcpy                                                                      
+00002c3d  __aeabi_memcpy4                                                                     
+00002c3d  __aeabi_memcpy8                                                                     
+00002c45  _ZN5board23Board_FramCapacityBytesEv                                                
+00002c4b  abort                                                                               
+00002c50  C$$EXIT                                                                             
+00002c51  HOSTexit                                                                            
+00002c55  Reset_Handler                                                                       
+00002c59  _system_pre_init                                                                    
+00003180  __TI_Handler_Table_Base                                                             
+0000318c  __TI_Handler_Table_Limit                                                            
+000031a0  __TI_CINIT_Base                                                                     
+000031b0  __TI_CINIT_Limit                                                                    
+000031b0  __TI_CINIT_Warm                                                                     
 20200000  __start___llvm_prf_bits                                                             
 20200000  __start___llvm_prf_cnts                                                             
 20200000  __stop___llvm_prf_bits                                                              
@@ -709,4 +780,4 @@ ffffffff  binit
 UNDEFED   __mpu_init                                                                          
 UNDEFED   _system_post_cinit                                                                  
 
-[158 symbols]
+[173 symbols]

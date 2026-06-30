@@ -17,6 +17,7 @@
 #define FEATURE_ENABLE_LED_TEST          (0U)
 #define FEATURE_ENABLE_BUZZER            (1U)
 #define FEATURE_ENABLE_BUZZER_TEST       (0U)
+#define FEATURE_ENABLE_BUTTONS           (1U)
 #define FEATURE_ENABLE_FRAM              (1U)
 #define FEATURE_ENABLE_OLED              (0U)
 #define FEATURE_ENABLE_IMU               (0U)

@@ -1,5 +1,7 @@
 #include "board/board.h"
 
+#include "board/board_button.h"
+
 #include "board/board_buzzer.h"
 #include "board/board_config.h"
 #include "board/board_fram.h"
@@ -22,6 +24,10 @@ void Board_Init(void)
 
 #if FEATURE_ENABLE_BUZZER
     (void) Board_BuzzerInit();
+#endif
+
+#if FEATURE_ENABLE_BUTTONS
+    (void) Board_ButtonsInit();
 #endif
 
 #if FEATURE_ENABLE_FRAM

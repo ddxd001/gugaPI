@@ -127,6 +127,21 @@ extern "C" {
 /* Defines for BUZZER: GPIOA.12 with pinCMx 34 on package pin 51 */
 #define GPIO_BUZZER_BUZZER_PIN                                  (DL_GPIO_PIN_12)
 #define GPIO_BUZZER_BUZZER_IOMUX                                 (IOMUX_PINCM34)
+/* Port definition for Pin Group GPIO_BUTTON_C */
+#define GPIO_BUTTON_C_PORT                                               (GPIOC)
+
+/* Defines for BUTTON1: GPIOC.9 with pinCMx 87 on package pin 81 */
+#define GPIO_BUTTON_C_BUTTON1_PIN                                (DL_GPIO_PIN_9)
+#define GPIO_BUTTON_C_BUTTON1_IOMUX                              (IOMUX_PINCM87)
+/* Port definition for Pin Group GPIO_BUTTON_B */
+#define GPIO_BUTTON_B_PORT                                               (GPIOB)
+
+/* Defines for BUTTON2: GPIOB.20 with pinCMx 48 on package pin 82 */
+#define GPIO_BUTTON_B_BUTTON2_PIN                               (DL_GPIO_PIN_20)
+#define GPIO_BUTTON_B_BUTTON2_IOMUX                              (IOMUX_PINCM48)
+/* Defines for BUTTON3: GPIOB.23 with pinCMx 51 on package pin 85 */
+#define GPIO_BUTTON_B_BUTTON3_PIN                               (DL_GPIO_PIN_23)
+#define GPIO_BUTTON_B_BUTTON3_IOMUX                              (IOMUX_PINCM51)
 
 
 /* clang-format on */
