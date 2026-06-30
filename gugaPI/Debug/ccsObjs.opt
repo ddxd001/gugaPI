@@ -10,6 +10,7 @@
 "./drivers/buzzer/buzzer.o"
 "./drivers/led/led.o"
 "./drivers/template/template_driver.o"
+"./services/debug_uart.o"
 "./services/fault.o"
 "./services/log.o"
 "./services/scheduler.o"

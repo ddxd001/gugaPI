@@ -78,6 +78,26 @@ extern "C" {
 
 
 
+/* Defines for DEBUG_UART */
+#define DEBUG_UART_INST                                                    UART5
+#define DEBUG_UART_INST_FREQUENCY                                       32000000
+#define DEBUG_UART_INST_IRQHandler                              UART5_IRQHandler
+#define DEBUG_UART_INST_INT_IRQN                                  UART5_INT_IRQn
+#define GPIO_DEBUG_UART_RX_PORT                                            GPIOA
+#define GPIO_DEBUG_UART_TX_PORT                                            GPIOA
+#define GPIO_DEBUG_UART_RX_PIN                                     DL_GPIO_PIN_0
+#define GPIO_DEBUG_UART_TX_PIN                                     DL_GPIO_PIN_1
+#define GPIO_DEBUG_UART_IOMUX_RX                                  (IOMUX_PINCM1)
+#define GPIO_DEBUG_UART_IOMUX_TX                                  (IOMUX_PINCM2)
+#define GPIO_DEBUG_UART_IOMUX_RX_FUNC                   IOMUX_PINCM1_PF_UART5_RX
+#define GPIO_DEBUG_UART_IOMUX_TX_FUNC                   IOMUX_PINCM2_PF_UART5_TX
+#define DEBUG_UART_BAUD_RATE                                            (115200)
+#define DEBUG_UART_IBRD_32_MHZ_115200_BAUD                                  (17)
+#define DEBUG_UART_FBRD_32_MHZ_115200_BAUD                                  (23)
+
+
+
+
 
 /* Port definition for Pin Group GPIO_LEDS */
 #define GPIO_LEDS_PORT                                                   (GPIOB)
@@ -99,8 +119,11 @@ void SYSCFG_DL_init(void);
 void SYSCFG_DL_initPower(void);
 void SYSCFG_DL_GPIO_init(void);
 void SYSCFG_DL_SYSCTL_init(void);
+void SYSCFG_DL_DEBUG_UART_init(void);
 
 
+bool SYSCFG_DL_saveConfiguration(void);
+bool SYSCFG_DL_restoreConfiguration(void);
 
 #ifdef __cplusplus
 }
