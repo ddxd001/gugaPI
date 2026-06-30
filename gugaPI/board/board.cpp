@@ -2,6 +2,7 @@
 
 #include "board/board_buzzer.h"
 #include "board/board_config.h"
+#include "board/board_fram.h"
 #include "board/board_led.h"
 #include "board/board_pins.h"
 #include "config/feature_config.h"
@@ -21,6 +22,10 @@ void Board_Init(void)
 
 #if FEATURE_ENABLE_BUZZER
     (void) Board_BuzzerInit();
+#endif
+
+#if FEATURE_ENABLE_FRAM
+    (void) Board_FramInit();
 #endif
 }
 

@@ -4,12 +4,17 @@
 
 #include "board/board_buzzer.h"
 #include "board/board_config.h"
+#include "board/board_fram.h"
 #include "board/board_led.h"
+#include "config/feature_config.h"
+#include "drivers/common/driver_status.h"
 #include "services/shell.h"
 #include "ti_msp_dl_config.h"
 
 namespace app {
 namespace {
+
+static const uint16_t kFramShellMaxReadBytes = 32U;
 
 bool StrEqual(const char *left, const char *right)
 {
@@ -28,28 +33,142 @@ bool StrEqual(const char *left, const char *right)
     return (*left == '\0') && (*right == '\0');
 }
 
-bool ParsePercent(const char *text, uint8_t *outValue)
+bool ParseUint32(const char *text, uint32_t maxValue, uint32_t *outValue)
 {
     uint32_t value = 0U;
+    uint32_t base = 10U;
 
     if ((text == 0) || (outValue == 0) || (*text == '\0')) {
         return false;
     }
 
+    if ((text[0] == '0') && ((text[1] == 'x') || (text[1] == 'X'))) {
+        base = 16U;
+        text += 2;
+        if (*text == '\0') {
+            return false;
+        }
+    }
+
     while (*text != '\0') {
-        if ((*text < '0') || (*text > '9')) {
+        uint32_t digit = 0U;
+
+        if ((*text >= '0') && (*text <= '9')) {
+            digit = (uint32_t) (*text - '0');
+        } else if ((*text >= 'a') && (*text <= 'f')) {
+            digit = 10U + (uint32_t) (*text - 'a');
+        } else if ((*text >= 'A') && (*text <= 'F')) {
+            digit = 10U + (uint32_t) (*text - 'A');
+        } else {
             return false;
         }
 
-        value = (value * 10U) + (uint32_t) (*text - '0');
-        if (value > 100U) {
+        if (digit >= base) {
             return false;
         }
+
+        if (value > ((maxValue - digit) / base)) {
+            return false;
+        }
+
+        value = (value * base) + digit;
         text++;
+    }
+
+    *outValue = value;
+    return true;
+}
+
+bool ParsePercent(const char *text, uint8_t *outValue)
+{
+    uint32_t value = 0U;
+
+    if ((outValue == 0) || (!ParseUint32(text, 100U, &value))) {
+        return false;
     }
 
     *outValue = (uint8_t) value;
     return true;
+}
+
+char HexDigit(uint8_t value)
+{
+    value &= 0x0FU;
+    return (value < 10U) ? (char) ('0' + value) :
+                           (char) ('A' + (value - 10U));
+}
+
+void WriteHex8(uint8_t value)
+{
+    char text[5] = { '0', 'x', '0', '0', '\0' };
+
+    text[2] = HexDigit((uint8_t) (value >> 4U));
+    text[3] = HexDigit(value);
+    services::Shell_WriteString(text);
+}
+
+void WriteHex16(uint16_t value)
+{
+    char text[7] = { '0', 'x', '0', '0', '0', '0', '\0' };
+
+    text[2] = HexDigit((uint8_t) (value >> 12U));
+    text[3] = HexDigit((uint8_t) (value >> 8U));
+    text[4] = HexDigit((uint8_t) (value >> 4U));
+    text[5] = HexDigit((uint8_t) value);
+    services::Shell_WriteString(text);
+}
+
+void WriteHex32(uint32_t value)
+{
+    char text[11] = {
+        '0', 'x', '0', '0', '0', '0', '0', '0', '0', '0', '\0'
+    };
+
+    for (uint8_t i = 0U; i < 8U; i++) {
+        const uint8_t shift = (uint8_t) ((7U - i) * 4U);
+        text[2U + i] = HexDigit((uint8_t) (value >> shift));
+    }
+
+    services::Shell_WriteString(text);
+}
+
+const char *DriverStatusText(drivers::DriverStatus status)
+{
+    switch (status) {
+        case drivers::DRIVER_OK:
+            return "ok";
+        case drivers::DRIVER_ERROR:
+            return "error";
+        case drivers::DRIVER_ERROR_INVALID_ARG:
+            return "invalid-arg";
+        case drivers::DRIVER_ERROR_NOT_INITIALIZED:
+            return "not-initialized";
+        case drivers::DRIVER_ERROR_TIMEOUT:
+            return "timeout";
+        case drivers::DRIVER_ERROR_BUSY:
+            return "busy";
+        case drivers::DRIVER_ERROR_UNSUPPORTED:
+            return "unsupported";
+        default:
+            return "unknown";
+    }
+}
+
+void WriteStatusLine(const char *prefix, drivers::DriverStatus status)
+{
+    services::Shell_WriteString(prefix);
+    services::Shell_WriteString(DriverStatusText(status));
+    services::Shell_WriteString("\r\n");
+}
+
+void PrintFramUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  fram status");
+    services::Shell_WriteLine("  fram recover");
+    services::Shell_WriteLine("  fram test");
+    services::Shell_WriteLine("  fram read <addr> <len 1..32>");
+    services::Shell_WriteLine("  fram write <addr> <byte>");
 }
 
 void VersionCommand(int argc, const char * const argv[])
@@ -128,6 +247,142 @@ void BuzzerCommand(int argc, const char * const argv[])
     services::Shell_WriteLine("usage: buzzer on|off");
 }
 
+void FramCommand(int argc, const char * const argv[])
+{
+#if FEATURE_ENABLE_FRAM
+    uint32_t address = 0U;
+    uint32_t length = 0U;
+    uint32_t byte_value = 0U;
+    uint8_t data[kFramShellMaxReadBytes];
+    const uint32_t capacity = board::Board_FramCapacityBytes();
+
+    if ((argc < 2) || (!board::Board_FramIsReady())) {
+        if (argc < 2) {
+            PrintFramUsage();
+        } else {
+            services::Shell_WriteLine("fram: not ready");
+        }
+        return;
+    }
+
+    if (StrEqual(argv[1], "recover")) {
+        if (argc != 2) {
+            PrintFramUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = board::Board_FramRecoverBus();
+        WriteStatusLine("fram recover: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        uint32_t controller_status = 0U;
+        bool scl_high = false;
+        bool sda_high = false;
+
+        if (argc != 2) {
+            PrintFramUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = board::Board_FramGetBusStatus(
+            &controller_status,
+            &scl_high,
+            &sda_high);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("fram status: ", status);
+            return;
+        }
+
+        services::Shell_WriteString("fram bus status=");
+        WriteHex32(controller_status);
+        services::Shell_WriteString(" scl=");
+        services::Shell_WriteString(scl_high ? "H" : "L");
+        services::Shell_WriteString(" sda=");
+        services::Shell_WriteString(sda_high ? "H" : "L");
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "test")) {
+        if (argc != 2) {
+            PrintFramUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = board::Board_FramSelfTest();
+        WriteStatusLine("fram test: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "read")) {
+        if ((argc != 4) ||
+            (!ParseUint32(argv[2], capacity - 1U, &address)) ||
+            (!ParseUint32(argv[3], kFramShellMaxReadBytes, &length)) ||
+            (length == 0U) || ((address + length) > capacity)) {
+            PrintFramUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = board::Board_FramRead(
+            (uint16_t) address,
+            data,
+            (uint16_t) length);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("fram read: ", status);
+            return;
+        }
+
+        services::Shell_WriteString("fram ");
+        WriteHex16((uint16_t) address);
+        services::Shell_WriteString(":");
+        for (uint16_t i = 0U; i < (uint16_t) length; i++) {
+            services::Shell_WriteString(" ");
+            WriteHex8(data[i]);
+        }
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "write")) {
+        if ((argc != 4) ||
+            (!ParseUint32(argv[2], capacity - 1U, &address)) ||
+            (!ParseUint32(argv[3], 0xFFU, &byte_value))) {
+            PrintFramUsage();
+            return;
+        }
+
+        drivers::DriverStatus status = board::Board_FramWriteByte(
+            (uint16_t) address,
+            (uint8_t) byte_value);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("fram write: ", status);
+            return;
+        }
+
+        status = board::Board_FramReadByte((uint16_t) address, data);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("fram verify: ", status);
+            return;
+        }
+
+        services::Shell_WriteString("fram write ok ");
+        WriteHex16((uint16_t) address);
+        services::Shell_WriteString(" = ");
+        WriteHex8(data[0]);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    PrintFramUsage();
+#else
+    (void) argc;
+    (void) argv;
+    services::Shell_WriteLine("fram: disabled");
+#endif
+}
+
 void AdcCommand(int argc, const char * const argv[])
 {
     (void) argc;
@@ -166,6 +421,12 @@ void AppShell_RegisterCommands(void)
     (void) services::Shell_RegisterCommand("buzzer",
                                            "Control buzzer: buzzer on|off",
                                            BuzzerCommand);
+#if FEATURE_ENABLE_FRAM
+    (void) services::Shell_RegisterCommand(
+        "fram",
+        "FRAM: fram status|recover|test|read <addr> <len>|write <addr> <byte>",
+        FramCommand);
+#endif
     (void) services::Shell_RegisterCommand("adc",
                                            "Read ADC placeholder",
                                            AdcCommand);

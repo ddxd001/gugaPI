@@ -15,3 +15,10 @@ drivers/encoder/
 驱动只负责设备本身，不直接包含 `app/`。引脚、总线实例、片选线等板级信息放在 `board/`，由 `Config` 结构传给驱动。
 
 新增驱动时可以参考 `drivers/template/` 的写法。
+当前已接入的独立驱动包括：
+
+```text
+drivers/led/          PB6 低电平点亮状态 LED
+drivers/buzzer/       PA12 高电平响有源蜂鸣器
+drivers/fm24cl64b/    FM24CL64B-GTR I2C FRAM
+```

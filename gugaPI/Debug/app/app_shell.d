@@ -5,7 +5,9 @@ app/app_shell.o: ../app/app_shell.cpp \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_buzzer.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_config.h \
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_fram.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h \
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/services/shell.h \
  ti_msp_dl_config.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/msp/msp.h \
@@ -95,7 +97,9 @@ C:/Users/DdXd/workspace_ccstheia/gugaPI/app/app_shell.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_buzzer.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_config.h:
+C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_fram.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h:
+C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/services/shell.h:
 ti_msp_dl_config.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/msp/msp.h:

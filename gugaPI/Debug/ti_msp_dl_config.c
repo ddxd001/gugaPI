@@ -50,6 +50,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_GPIO_init();
     /* Module-Specific Initializations*/
     SYSCFG_DL_SYSCTL_init();
+    SYSCFG_DL_FRAM_I2C_init();
     SYSCFG_DL_DEBUG_UART_init();
 }
 
@@ -60,17 +61,30 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_GPIO_reset(GPIOA);
     DL_GPIO_reset(GPIOB);
     DL_GPIO_reset(GPIOC);
+    DL_I2C_reset(FRAM_I2C_INST);
     DL_UART_Main_reset(DEBUG_UART_INST);
 
     DL_GPIO_enablePower(GPIOA);
     DL_GPIO_enablePower(GPIOB);
     DL_GPIO_enablePower(GPIOC);
+    DL_I2C_enablePower(FRAM_I2C_INST);
     DL_UART_Main_enablePower(DEBUG_UART_INST);
     delay_cycles(POWER_STARTUP_DELAY);
 }
 
 SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
 {
+
+    DL_GPIO_initPeripheralInputFunctionFeatures(GPIO_FRAM_I2C_IOMUX_SDA,
+        GPIO_FRAM_I2C_IOMUX_SDA_FUNC, DL_GPIO_INVERSION_DISABLE,
+        DL_GPIO_RESISTOR_NONE, DL_GPIO_HYSTERESIS_DISABLE,
+        DL_GPIO_WAKEUP_DISABLE);
+    DL_GPIO_initPeripheralInputFunctionFeatures(GPIO_FRAM_I2C_IOMUX_SCL,
+        GPIO_FRAM_I2C_IOMUX_SCL_FUNC, DL_GPIO_INVERSION_DISABLE,
+        DL_GPIO_RESISTOR_NONE, DL_GPIO_HYSTERESIS_DISABLE,
+        DL_GPIO_WAKEUP_DISABLE);
+    DL_GPIO_enableHiZ(GPIO_FRAM_I2C_IOMUX_SDA);
+    DL_GPIO_enableHiZ(GPIO_FRAM_I2C_IOMUX_SCL);
 
     DL_GPIO_initPeripheralOutputFunction(
         GPIO_DEBUG_UART_IOMUX_TX, GPIO_DEBUG_UART_IOMUX_TX_FUNC);
@@ -104,6 +118,32 @@ SYSCONFIG_WEAK void SYSCFG_DL_SYSCTL_init(void)
 
 }
 
+
+static const DL_I2C_ClockConfig gFRAM_I2CClockConfig = {
+    .clockSel = DL_I2C_CLOCK_BUSCLK,
+    .divideRatio = DL_I2C_CLOCK_DIVIDE_1,
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_FRAM_I2C_init(void) {
+
+    DL_I2C_setClockConfig(FRAM_I2C_INST,
+        (DL_I2C_ClockConfig *) &gFRAM_I2CClockConfig);
+    DL_I2C_disableAnalogGlitchFilter(FRAM_I2C_INST);
+
+    /* Configure Controller Mode */
+    DL_I2C_resetControllerTransfer(FRAM_I2C_INST);
+    /* Set frequency to 400000 Hz*/
+    DL_I2C_setTimerPeriod(FRAM_I2C_INST, 7);
+    DL_I2C_setControllerTXFIFOThreshold(FRAM_I2C_INST, DL_I2C_TX_FIFO_LEVEL_EMPTY);
+    DL_I2C_setControllerRXFIFOThreshold(FRAM_I2C_INST, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
+    DL_I2C_enableControllerClockStretching(FRAM_I2C_INST);
+
+
+    /* Enable module */
+    DL_I2C_enableController(FRAM_I2C_INST);
+
+
+}
 
 static const DL_UART_Main_ClockConfig gDEBUG_UARTClockConfig = {
     .clockSel    = DL_UART_MAIN_CLOCK_BUSCLK,

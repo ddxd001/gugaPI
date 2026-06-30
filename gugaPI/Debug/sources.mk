@@ -123,6 +123,7 @@ algorithm \
 app \
 board \
 drivers/buzzer \
+drivers/fm24cl64b \
 drivers/led \
 drivers/template \
 services \

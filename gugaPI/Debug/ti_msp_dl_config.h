@@ -78,6 +78,22 @@ extern "C" {
 
 
 
+
+/* Defines for FRAM_I2C */
+#define FRAM_I2C_INST                                                       I2C2
+#define FRAM_I2C_INST_IRQHandler                                 I2C2_IRQHandler
+#define FRAM_I2C_INST_INT_IRQN                                     I2C2_INT_IRQn
+#define FRAM_I2C_BUS_SPEED_HZ                                             400000
+#define GPIO_FRAM_I2C_SDA_PORT                                             GPIOC
+#define GPIO_FRAM_I2C_SDA_PIN                                      DL_GPIO_PIN_3
+#define GPIO_FRAM_I2C_IOMUX_SDA                                  (IOMUX_PINCM77)
+#define GPIO_FRAM_I2C_IOMUX_SDA_FUNC                   IOMUX_PINCM77_PF_I2C2_SDA
+#define GPIO_FRAM_I2C_SCL_PORT                                             GPIOC
+#define GPIO_FRAM_I2C_SCL_PIN                                      DL_GPIO_PIN_2
+#define GPIO_FRAM_I2C_IOMUX_SCL                                  (IOMUX_PINCM76)
+#define GPIO_FRAM_I2C_IOMUX_SCL_FUNC                   IOMUX_PINCM76_PF_I2C2_SCL
+
+
 /* Defines for DEBUG_UART */
 #define DEBUG_UART_INST                                                    UART5
 #define DEBUG_UART_INST_FREQUENCY                                       32000000
@@ -119,6 +135,7 @@ void SYSCFG_DL_init(void);
 void SYSCFG_DL_initPower(void);
 void SYSCFG_DL_GPIO_init(void);
 void SYSCFG_DL_SYSCTL_init(void);
+void SYSCFG_DL_FRAM_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
 
 
