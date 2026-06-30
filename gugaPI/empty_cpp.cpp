@@ -33,10 +33,13 @@
 #include "ti_msp_dl_config.h"
 
 #include "app/app_main.h"
+#include "app/app_shell.h"
 #include "board/board.h"
+#include "services/debug_uart.h"
 #include "services/fault.h"
 #include "services/log.h"
 #include "services/scheduler.h"
+#include "services/shell.h"
 #include "services/time.h"
 
 int main(void)
@@ -47,12 +50,16 @@ int main(void)
     services::Scheduler_Init();
     services::Time_Init();
     board::Board_Init();
+    services::DebugUart_Init();
     services::Log_Init();
+    services::Shell_Init();
+    app::AppShell_RegisterCommands();
     app::App_Init();
     board::Board_LateInit();
 
     while (1) {
         services::Scheduler_Run();
         app::App_Run();
+        services::Shell_Process();
     }
 }

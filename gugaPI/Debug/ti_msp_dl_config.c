@@ -133,6 +133,10 @@ SYSCONFIG_WEAK void SYSCFG_DL_DEBUG_UART_init(void)
     DL_UART_Main_setBaudRateDivisor(DEBUG_UART_INST, DEBUG_UART_IBRD_32_MHZ_115200_BAUD, DEBUG_UART_FBRD_32_MHZ_115200_BAUD);
 
 
+    /* Configure Interrupts */
+    DL_UART_Main_enableInterrupt(DEBUG_UART_INST,
+                                 DL_UART_MAIN_INTERRUPT_RX);
+
     /* Configure FIFOs */
     DL_UART_Main_enableFIFOs(DEBUG_UART_INST);
     DL_UART_Main_setRXFIFOThreshold(DEBUG_UART_INST, DL_UART_RX_FIFO_LEVEL_ONE_ENTRY);

@@ -10,6 +10,7 @@ CPP_SRCS += \
 ../services/fault.cpp \
 ../services/log.cpp \
 ../services/scheduler.cpp \
+../services/shell.cpp \
 ../services/time.cpp 
 
 OBJS += \
@@ -17,6 +18,7 @@ OBJS += \
 ./services/fault.o \
 ./services/log.o \
 ./services/scheduler.o \
+./services/shell.o \
 ./services/time.o 
 
 CPP_DEPS += \
@@ -24,6 +26,7 @@ CPP_DEPS += \
 ./services/fault.d \
 ./services/log.d \
 ./services/scheduler.d \
+./services/shell.d \
 ./services/time.d 
 
 OBJS__QUOTED += \
@@ -31,6 +34,7 @@ OBJS__QUOTED += \
 "services\fault.o" \
 "services\log.o" \
 "services\scheduler.o" \
+"services\shell.o" \
 "services\time.o" 
 
 CPP_DEPS__QUOTED += \
@@ -38,6 +42,7 @@ CPP_DEPS__QUOTED += \
 "services\fault.d" \
 "services\log.d" \
 "services\scheduler.d" \
+"services\shell.d" \
 "services\time.d" 
 
 CPP_SRCS__QUOTED += \
@@ -45,6 +50,7 @@ CPP_SRCS__QUOTED += \
 "../services/fault.cpp" \
 "../services/log.cpp" \
 "../services/scheduler.cpp" \
+"../services/shell.cpp" \
 "../services/time.cpp" 
 
 

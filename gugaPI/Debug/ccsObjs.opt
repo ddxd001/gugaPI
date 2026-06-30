@@ -4,6 +4,7 @@
 "./algorithm/filter.o"
 "./algorithm/pid.o"
 "./app/app_main.o"
+"./app/app_shell.o"
 "./board/board.o"
 "./board/board_buzzer.o"
 "./board/board_led.o"
@@ -14,6 +15,7 @@
 "./services/fault.o"
 "./services/log.o"
 "./services/scheduler.o"
+"./services/shell.o"
 "./services/time.o"
 -l"./device_linker.cmd"
 -ldevice.cmd.genlibs

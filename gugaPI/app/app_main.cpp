@@ -149,9 +149,6 @@ void App_Init(void)
     g_appState.mode = APP_MODE_RUNNING;
     g_appState.uptime_ms = 0U;
 
-#if FEATURE_ENABLE_DEBUG_UART
-    services::DebugUart_Init();
-#endif
 
 #if FEATURE_ENABLE_STATUS_LED && FEATURE_ENABLE_LED_TEST
     if (services::Scheduler_AddTask("status_led_test",
