@@ -22,6 +22,7 @@ device.opt: build-2064007586
 device.cmd.genlibs: build-2064007586
 ti_msp_dl_config.c: build-2064007586
 ti_msp_dl_config.h: build-2064007586
+Event.dot: build-2064007586
 
 %.o: ./%.c $(GEN_OPTS) | $(GEN_FILES) $(GEN_MISC_FILES)
 	@echo 'Arm Compiler - building file: "$<"'

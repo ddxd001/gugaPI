@@ -229,3 +229,25 @@ C:\ti\ccs2100\ccs\utils\bin\gmake.exe
 ```
 
 不要为了让命令行构建通过而手工维护 `Debug/*.mk`，这些文件属于 CCS 生成产物。
+## 八、当前板级资源
+
+### 状态 LED
+
+- 引脚：PB6
+- 电平：低电平点亮，高电平熄灭
+- SysConfig 分组：`GPIO_LEDS.STATUS_LED`
+- 板级接口：`board/board_led.h`
+- 驱动实现：`drivers/led/`
+- 当前测试程序：`app` 中注册 `status_led_test` 任务，每 500 ms 翻转一次 LED
+
+PB6 的初始输出配置为 `SET`，所以上电初始化后 LED 默认熄灭。
+### 有源蜂鸣器
+
+- 引脚：PA12
+- 电平：高电平响，低电平停
+- SysConfig 分组：`GPIO_BUZZER.BUZZER`
+- 板级接口：`board/board_buzzer.h`
+- 驱动实现：`drivers/buzzer/`
+- 当前测试程序：`app` 中注册 `buzzer_test_on` 和 `buzzer_test_off` 两个任务，响 200 ms，停 800 ms
+
+PA12 的初始输出配置为 `CLEARED`，所以上电初始化后蜂鸣器默认不响。

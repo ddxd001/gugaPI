@@ -1,7 +1,10 @@
 #include "board/board.h"
 
+#include "board/board_buzzer.h"
 #include "board/board_config.h"
+#include "board/board_led.h"
 #include "board/board_pins.h"
+#include "config/feature_config.h"
 
 namespace board {
 
@@ -12,6 +15,13 @@ void Board_Init(void)
      * Put custom board bring-up here: power rails, enables, default GPIO
      * states, and board-level self checks.
      */
+#if FEATURE_ENABLE_STATUS_LED
+    (void) Board_StatusLedInit();
+#endif
+
+#if FEATURE_ENABLE_BUZZER
+    (void) Board_BuzzerInit();
+#endif
 }
 
 void Board_LateInit(void)

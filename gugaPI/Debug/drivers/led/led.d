@@ -1,12 +1,8 @@
 # FIXED
 
-board/board.o: ../board/board.cpp \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_buzzer.h \
+drivers/led/led.o: ../drivers/led/led.cpp \
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/led/led.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_config.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_pins.h \
  ti_msp_dl_config.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/msp/msp.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/DeviceFamily.h \
@@ -90,14 +86,9 @@ board/board.o: ../board/board.cpp \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_vref.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_wwdt.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_interrupt.h \
- C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_buzzer.h:
+ C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h
+C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/led/led.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_config.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_pins.h:
 ti_msp_dl_config.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/msp/msp.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/DeviceFamily.h:
@@ -182,4 +173,3 @@ C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_vref.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_wwdt.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_interrupt.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h:

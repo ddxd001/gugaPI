@@ -10,6 +10,10 @@
 
 #define FEATURE_ENABLE_LOG              (0U)
 #define FEATURE_ENABLE_SHELL            (0U)
+#define FEATURE_ENABLE_STATUS_LED       (1U)
+#define FEATURE_ENABLE_LED_TEST         (1U)
+#define FEATURE_ENABLE_BUZZER           (1U)
+#define FEATURE_ENABLE_BUZZER_TEST      (1U)
 #define FEATURE_ENABLE_OLED             (0U)
 #define FEATURE_ENABLE_IMU              (0U)
 #define FEATURE_ENABLE_MOTOR            (0U)

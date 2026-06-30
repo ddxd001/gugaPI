@@ -78,12 +78,28 @@ extern "C" {
 
 
 
+
+/* Port definition for Pin Group GPIO_LEDS */
+#define GPIO_LEDS_PORT                                                   (GPIOB)
+
+/* Defines for STATUS_LED: GPIOB.6 with pinCMx 23 on package pin 40 */
+#define GPIO_LEDS_STATUS_LED_PIN                                 (DL_GPIO_PIN_6)
+#define GPIO_LEDS_STATUS_LED_IOMUX                               (IOMUX_PINCM23)
+/* Port definition for Pin Group GPIO_BUZZER */
+#define GPIO_BUZZER_PORT                                                 (GPIOA)
+
+/* Defines for BUZZER: GPIOA.12 with pinCMx 34 on package pin 51 */
+#define GPIO_BUZZER_BUZZER_PIN                                  (DL_GPIO_PIN_12)
+#define GPIO_BUZZER_BUZZER_IOMUX                                 (IOMUX_PINCM34)
+
+
 /* clang-format on */
 
 void SYSCFG_DL_init(void);
 void SYSCFG_DL_initPower(void);
 void SYSCFG_DL_GPIO_init(void);
 void SYSCFG_DL_SYSCTL_init(void);
+
 
 
 #ifdef __cplusplus

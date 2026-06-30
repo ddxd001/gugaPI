@@ -37,7 +37,8 @@ OBJS += \
 
 GEN_MISC_FILES += \
 ./device.cmd.genlibs \
-./ti_msp_dl_config.h 
+./ti_msp_dl_config.h \
+./Event.dot 
 
 CPP_DEPS += \
 ./empty_cpp.d 
@@ -49,7 +50,8 @@ OBJS__QUOTED += \
 
 GEN_MISC_FILES__QUOTED += \
 "device.cmd.genlibs" \
-"ti_msp_dl_config.h" 
+"ti_msp_dl_config.h" \
+"Event.dot" 
 
 C_DEPS__QUOTED += \
 "ti_msp_dl_config.d" \

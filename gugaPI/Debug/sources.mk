@@ -122,6 +122,8 @@ SUBDIRS := \
 algorithm \
 app \
 board \
+drivers/buzzer \
+drivers/led \
 drivers/template \
 services \
 
