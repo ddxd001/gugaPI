@@ -4,13 +4,9 @@
 #include "ti_msp_dl_config.h"
 
 /*
- * Central pin ownership table for the custom development board.
- *
- * Rules:
- * 1. Reserve debug/programming pins here.
- * 2. Add board-level aliases for new hardware here.
- * 3. Let SysConfig generate the final peripheral pin mux code.
- * 4. Do not hard-code board pins inside driver modules.
+ * 自定义板级引脚归属表。
+ * 新外设先在这里增加板级别名，再由 SysConfig 生成最终的引脚复用代码，
+ * 避免驱动层硬编码具体板子的管脚。
  */
 
 #define BOARD_PIN_SWDIO_PORT            GPIOA
@@ -37,6 +33,18 @@
 #define BOARD_BUTTON3_PIN               GPIO_BUTTON_B_BUTTON3_PIN
 #define BOARD_BUTTON_ACTIVE_LOW         (1U)
 #define BOARD_BUTTON_DEBOUNCE_MS        (20U)
+
+/* LoRa 串口透传：芯片封装 20 脚 PB0/UART0_TX 接 LoRa RX，21 脚 PB1/UART0_RX 接 LoRa TX。 */
+#define BOARD_LORA_UART_INST            LORA_UART_INST
+#define BOARD_LORA_UART_IRQN            LORA_UART_INST_INT_IRQN
+#define BOARD_LORA_TX_PORT              GPIO_LORA_UART_TX_PORT
+#define BOARD_LORA_TX_PIN               GPIO_LORA_UART_TX_PIN
+#define BOARD_LORA_RX_PORT              GPIO_LORA_UART_RX_PORT
+#define BOARD_LORA_RX_PIN               GPIO_LORA_UART_RX_PIN
+#define BOARD_LORA_BAUDRATE             (115200U)
+#define BOARD_LORA_RX_BUFFER_SIZE       (256U)
+#define BOARD_LORA_TX_TIMEOUT_ITERATIONS (100000U)
+
 #define BOARD_FRAM_I2C_INST             FRAM_I2C_INST
 #define BOARD_FRAM_I2C_SCL_PORT         GPIO_FRAM_I2C_SCL_PORT
 #define BOARD_FRAM_I2C_SCL_PIN          GPIO_FRAM_I2C_SCL_PIN
@@ -49,5 +57,22 @@
 #define BOARD_FRAM_I2C_ADDRESS          (0x50U)
 #define BOARD_FRAM_TIMEOUT_ITERATIONS   (100000U)
 #define BOARD_FRAM_SELF_TEST_ADDRESS    (0x1FF0U)
+
+/* INA219：芯片封装 34 脚为 PA11/SCL，33 脚为 PA10/SDA，采样电阻 5mR。 */
+#define BOARD_INA219_I2C_INST           INA219_I2C_INST
+#define BOARD_INA219_I2C_SCL_PORT       GPIO_INA219_I2C_SCL_PORT
+#define BOARD_INA219_I2C_SCL_PIN        GPIO_INA219_I2C_SCL_PIN
+#define BOARD_INA219_I2C_SCL_IOMUX      GPIO_INA219_I2C_IOMUX_SCL
+#define BOARD_INA219_I2C_SCL_IOMUX_FUNC GPIO_INA219_I2C_IOMUX_SCL_FUNC
+#define BOARD_INA219_I2C_SDA_PORT       GPIO_INA219_I2C_SDA_PORT
+#define BOARD_INA219_I2C_SDA_PIN        GPIO_INA219_I2C_SDA_PIN
+#define BOARD_INA219_I2C_SDA_IOMUX      GPIO_INA219_I2C_IOMUX_SDA
+#define BOARD_INA219_I2C_SDA_IOMUX_FUNC GPIO_INA219_I2C_IOMUX_SDA_FUNC
+#define BOARD_INA219_I2C_ADDRESS        (0x40U)
+#define BOARD_INA219_TIMEOUT_ITERATIONS (100000U)
+#define BOARD_INA219_SHUNT_MILLIOHMS    (5U)
+#define BOARD_INA219_CURRENT_LSB_UA     (200U)
+/* 当前板子 IN+/IN- 方向与期望读数相反，软件取反后 shell 显示为正电流。 */
+#define BOARD_INA219_INVERT_CURRENT     (1U)
 
 #endif /* BOARD_BOARD_PINS_H_ */

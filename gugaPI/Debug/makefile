@@ -21,11 +21,15 @@ ORDERED_OBJS += \
 "./board/board_button.o" \
 "./board/board_buzzer.o" \
 "./board/board_fram.o" \
+"./board/board_ina219.o" \
 "./board/board_led.o" \
+"./board/board_lora.o" \
 "./drivers/button/button.o" \
 "./drivers/buzzer/buzzer.o" \
 "./drivers/fm24cl64b/fm24cl64b.o" \
+"./drivers/ina219/ina219.o" \
 "./drivers/led/led.o" \
+"./drivers/lora/lora.o" \
 "./drivers/template/template_driver.o" \
 "./services/debug_uart.o" \
 "./services/fault.o" \
@@ -51,7 +55,9 @@ RMDIR := RMDIR /S/Q
 -include drivers/button/subdir_vars.mk
 -include drivers/buzzer/subdir_vars.mk
 -include drivers/fm24cl64b/subdir_vars.mk
+-include drivers/ina219/subdir_vars.mk
 -include drivers/led/subdir_vars.mk
+-include drivers/lora/subdir_vars.mk
 -include drivers/template/subdir_vars.mk
 -include services/subdir_vars.mk
 -include subdir_rules.mk
@@ -61,7 +67,9 @@ RMDIR := RMDIR /S/Q
 -include drivers/button/subdir_rules.mk
 -include drivers/buzzer/subdir_rules.mk
 -include drivers/fm24cl64b/subdir_rules.mk
+-include drivers/ina219/subdir_rules.mk
 -include drivers/led/subdir_rules.mk
+-include drivers/lora/subdir_rules.mk
 -include drivers/template/subdir_rules.mk
 -include services/subdir_rules.mk
 -include objects.mk
@@ -174,9 +182,9 @@ gugaPI.out: $(OBJS) $(GEN_CMDS)
 # Other Targets
 clean:
 	-$(RM) $(GEN_MISC_FILES__QUOTED)$(GEN_FILES__QUOTED)$(EXE_OUTPUTS__QUOTED)
-	-$(RM) "empty_cpp.o" "ti_msp_dl_config.o" "startup_mspm0g351x_ticlang.o" "algorithm\filter.o" "algorithm\pid.o" "app\app_main.o" "app\app_shell.o" "board\board.o" "board\board_button.o" "board\board_buzzer.o" "board\board_fram.o" "board\board_led.o" "drivers\button\button.o" "drivers\buzzer\buzzer.o" "drivers\fm24cl64b\fm24cl64b.o" "drivers\led\led.o" "drivers\template\template_driver.o" "services\debug_uart.o" "services\fault.o" "services\log.o" "services\scheduler.o" "services\shell.o" "services\time.o" 
+	-$(RM) "empty_cpp.o" "ti_msp_dl_config.o" "startup_mspm0g351x_ticlang.o" "algorithm\filter.o" "algorithm\pid.o" "app\app_main.o" "app\app_shell.o" "board\board.o" "board\board_button.o" "board\board_buzzer.o" "board\board_fram.o" "board\board_ina219.o" "board\board_led.o" "board\board_lora.o" "drivers\button\button.o" "drivers\buzzer\buzzer.o" "drivers\fm24cl64b\fm24cl64b.o" "drivers\ina219\ina219.o" "drivers\led\led.o" "drivers\lora\lora.o" "drivers\template\template_driver.o" "services\debug_uart.o" "services\fault.o" "services\log.o" "services\scheduler.o" "services\shell.o" "services\time.o" 
 	-$(RM) "ti_msp_dl_config.d" "startup_mspm0g351x_ticlang.d" 
-	-$(RM) "empty_cpp.d" "algorithm\filter.d" "algorithm\pid.d" "app\app_main.d" "app\app_shell.d" "board\board.d" "board\board_button.d" "board\board_buzzer.d" "board\board_fram.d" "board\board_led.d" "drivers\button\button.d" "drivers\buzzer\buzzer.d" "drivers\fm24cl64b\fm24cl64b.d" "drivers\led\led.d" "drivers\template\template_driver.d" "services\debug_uart.d" "services\fault.d" "services\log.d" "services\scheduler.d" "services\shell.d" "services\time.d" 
+	-$(RM) "empty_cpp.d" "algorithm\filter.d" "algorithm\pid.d" "app\app_main.d" "app\app_shell.d" "board\board.d" "board\board_button.d" "board\board_buzzer.d" "board\board_fram.d" "board\board_ina219.d" "board\board_led.d" "board\board_lora.d" "drivers\button\button.d" "drivers\buzzer\buzzer.d" "drivers\fm24cl64b\fm24cl64b.d" "drivers\ina219\ina219.d" "drivers\led\led.d" "drivers\lora\lora.d" "drivers\template\template_driver.d" "services\debug_uart.d" "services\fault.d" "services\log.d" "services\scheduler.d" "services\shell.d" "services\time.d" 
 	-@echo ' '
 
 .PHONY: all clean dependents

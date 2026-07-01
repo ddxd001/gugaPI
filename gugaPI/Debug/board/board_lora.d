@@ -1,14 +1,9 @@
 # FIXED
 
-app/app_shell.o: ../app/app_shell.cpp \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/app/app_shell.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_buzzer.h \
+board/board_lora.o: ../board/board_lora.cpp \
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_lora.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_button.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_config.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_fram.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_ina219.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/ina219/ina219.h \
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_pins.h \
  ti_msp_dl_config.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/msp/msp.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/DeviceFamily.h \
@@ -93,18 +88,10 @@ app/app_shell.o: ../app/app_shell.cpp \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_wwdt.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_interrupt.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_lora.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/services/shell.h
-C:/Users/DdXd/workspace_ccstheia/gugaPI/app/app_shell.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_buzzer.h:
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/lora/lora.h
+C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_lora.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_button.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_config.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_fram.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_ina219.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/ina219/ina219.h:
+C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_pins.h:
 ti_msp_dl_config.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/msp/msp.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/DeviceFamily.h:
@@ -189,7 +176,4 @@ C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_vref.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_wwdt.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_interrupt.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_lora.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/services/shell.h:
+C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/lora/lora.h:

@@ -93,6 +93,20 @@ extern "C" {
 #define GPIO_FRAM_I2C_IOMUX_SCL                                  (IOMUX_PINCM76)
 #define GPIO_FRAM_I2C_IOMUX_SCL_FUNC                   IOMUX_PINCM76_PF_I2C2_SCL
 
+/* Defines for INA219_I2C */
+#define INA219_I2C_INST                                                     I2C1
+#define INA219_I2C_INST_IRQHandler                               I2C1_IRQHandler
+#define INA219_I2C_INST_INT_IRQN                                   I2C1_INT_IRQn
+#define INA219_I2C_BUS_SPEED_HZ                                           100000
+#define GPIO_INA219_I2C_SDA_PORT                                           GPIOA
+#define GPIO_INA219_I2C_SDA_PIN                                   DL_GPIO_PIN_10
+#define GPIO_INA219_I2C_IOMUX_SDA                                (IOMUX_PINCM21)
+#define GPIO_INA219_I2C_IOMUX_SDA_FUNC                 IOMUX_PINCM21_PF_I2C1_SDA
+#define GPIO_INA219_I2C_SCL_PORT                                           GPIOA
+#define GPIO_INA219_I2C_SCL_PIN                                   DL_GPIO_PIN_11
+#define GPIO_INA219_I2C_IOMUX_SCL                                (IOMUX_PINCM22)
+#define GPIO_INA219_I2C_IOMUX_SCL_FUNC                 IOMUX_PINCM22_PF_I2C1_SCL
+
 
 /* Defines for DEBUG_UART */
 #define DEBUG_UART_INST                                                    UART5
@@ -110,6 +124,22 @@ extern "C" {
 #define DEBUG_UART_BAUD_RATE                                            (115200)
 #define DEBUG_UART_IBRD_32_MHZ_115200_BAUD                                  (17)
 #define DEBUG_UART_FBRD_32_MHZ_115200_BAUD                                  (23)
+/* Defines for LORA_UART */
+#define LORA_UART_INST                                                     UART0
+#define LORA_UART_INST_FREQUENCY                                        32000000
+#define LORA_UART_INST_IRQHandler                               UART0_IRQHandler
+#define LORA_UART_INST_INT_IRQN                                   UART0_INT_IRQn
+#define GPIO_LORA_UART_RX_PORT                                             GPIOB
+#define GPIO_LORA_UART_TX_PORT                                             GPIOB
+#define GPIO_LORA_UART_RX_PIN                                      DL_GPIO_PIN_1
+#define GPIO_LORA_UART_TX_PIN                                      DL_GPIO_PIN_0
+#define GPIO_LORA_UART_IOMUX_RX                                  (IOMUX_PINCM13)
+#define GPIO_LORA_UART_IOMUX_TX                                  (IOMUX_PINCM12)
+#define GPIO_LORA_UART_IOMUX_RX_FUNC                   IOMUX_PINCM13_PF_UART0_RX
+#define GPIO_LORA_UART_IOMUX_TX_FUNC                   IOMUX_PINCM12_PF_UART0_TX
+#define LORA_UART_BAUD_RATE                                             (115200)
+#define LORA_UART_IBRD_32_MHZ_115200_BAUD                                   (17)
+#define LORA_UART_FBRD_32_MHZ_115200_BAUD                                   (23)
 
 
 
@@ -151,7 +181,9 @@ void SYSCFG_DL_initPower(void);
 void SYSCFG_DL_GPIO_init(void);
 void SYSCFG_DL_SYSCTL_init(void);
 void SYSCFG_DL_FRAM_I2C_init(void);
+void SYSCFG_DL_INA219_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
+void SYSCFG_DL_LORA_UART_init(void);
 
 
 bool SYSCFG_DL_saveConfiguration(void);
