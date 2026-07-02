@@ -8,7 +8,7 @@
 
 namespace {
 
-constexpr bool kEnableBootSpinTest = true;
+constexpr bool kEnableBootSpinTest = false;
 constexpr uint32_t kBootSpinStepMs = 1000;
 constexpr uint32_t kBootSpinBrakeMs = 1000;
 constexpr uint8_t kBootSpinStepPercent = 20;

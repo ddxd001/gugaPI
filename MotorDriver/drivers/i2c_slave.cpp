@@ -37,6 +37,7 @@ void I2cSlave_init(MotorRegisterMap* registers, uint8_t address)
     g_registers = registers;
 
 #if defined(I2C_TARGET_INST)
+    DL_I2C_disableTarget(I2C_TARGET_INST);
     DL_I2C_disableTargetOwnAddress(I2C_TARGET_INST);
     DL_I2C_setTargetOwnAddress(I2C_TARGET_INST, address);
     DL_I2C_enableTargetOwnAddress(I2C_TARGET_INST);
@@ -49,6 +50,7 @@ void I2cSlave_init(MotorRegisterMap* registers, uint8_t address)
         DL_I2C_INTERRUPT_TARGET_RXFIFO_TRIGGER |
         DL_I2C_INTERRUPT_TARGET_TXFIFO_TRIGGER);
     NVIC_EnableIRQ(I2C_TARGET_INST_INT_IRQN);
+    DL_I2C_enableTarget(I2C_TARGET_INST);
 #else
     (void) address;
 #endif
