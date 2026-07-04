@@ -278,6 +278,14 @@ imu pins wiggle
 imu pins wiggle 100000
 ```
 
+### `imu spi burst [bytes] [byte]`
+
+使用真正的 SPI0 外设选中 ICM-45686，并连续发送固定字节，便于示波器稳定触发 SCLK/PICO/POCI。
+```text
+imu spi burst
+imu spi burst 100000 0xAA
+```
+
 ### `imu lis whoami`
 
 读取 LIS3MDLTR `WHO_AM_I` 寄存器。

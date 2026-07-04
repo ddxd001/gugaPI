@@ -87,6 +87,14 @@ drivers::DriverStatus ReadRegisterWithCommand(uint8_t command, uint8_t *value)
     return TransferByte(0x00U, value);
 }
 
+void DrainRxFifo(void)
+{
+    uint8_t ignored = 0U;
+
+    while (DL_SPI_receiveDataCheck8(BOARD_IMU_SPI_INST, &ignored)) {
+    }
+}
+
 } /* namespace */
 
 drivers::DriverStatus Board_ImuInit(void)
@@ -182,6 +190,46 @@ drivers::DriverStatus Board_ImuWiggleSpiPins(uint32_t loops)
     DL_GPIO_initPeripheralInputFunction(BOARD_IMU_SPI_POCI_IOMUX,
                                         BOARD_IMU_SPI_POCI_IOMUX_FUNC);
 
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus Board_ImuSpiBurstIcm(uint32_t bytes, uint8_t value)
+{
+    if (!g_imuReady) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    if (bytes == 0U) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    DrainRxFifo();
+    SelectIcm45686();
+
+    for (uint32_t i = 0U; i < bytes; i++) {
+        uint32_t timeout = BOARD_IMU_SPI_TIMEOUT_ITERATIONS;
+
+        while (!DL_SPI_transmitDataCheck8(BOARD_IMU_SPI_INST, value)) {
+            if (timeout == 0U) {
+                DeselectAll();
+                return drivers::DRIVER_ERROR_TIMEOUT;
+            }
+            timeout--;
+        }
+
+        DrainRxFifo();
+    }
+
+    uint32_t timeout = BOARD_IMU_SPI_TIMEOUT_ITERATIONS;
+    while (DL_SPI_isBusy(BOARD_IMU_SPI_INST)) {
+        if (timeout == 0U) {
+            DeselectAll();
+            return drivers::DRIVER_ERROR_TIMEOUT;
+        }
+        timeout--;
+    }
+
+    DrainRxFifo();
+    DeselectAll();
     return drivers::DRIVER_OK;
 }
 

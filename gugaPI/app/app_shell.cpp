@@ -26,6 +26,8 @@ static const uint16_t kLoraShellMaxReadBytes = 64U;
 static const uint16_t kMotorShellMaxReadBytes = 64U;
 static const uint32_t kImuPinWiggleDefaultLoops = 20000U;
 static const uint32_t kImuPinWiggleMaxLoops = 1000000U;
+static const uint32_t kImuSpiBurstDefaultBytes = 4096U;
+static const uint32_t kImuSpiBurstMaxBytes = 1000000U;
 static const uint8_t kMotorSof = 0xAAU;
 static const uint8_t kMotorCmdRead = 0x01U;
 static const uint8_t kMotorCmdWrite = 0x02U;
@@ -240,6 +242,7 @@ void PrintImuUsage(void)
     services::Shell_WriteLine("  imu status");
     services::Shell_WriteLine("  imu cs idle|icm|lis|float");
     services::Shell_WriteLine("  imu pins wiggle [loops]");
+    services::Shell_WriteLine("  imu spi burst [bytes] [byte]");
     services::Shell_WriteLine("  imu lis whoami");
     services::Shell_WriteLine("  imu lis reg <addr>");
     services::Shell_WriteLine("  imu icm reg <addr>");
@@ -1109,6 +1112,35 @@ void ImuCommand(int argc, const char * const argv[])
         const drivers::DriverStatus status =
             board::Board_ImuWiggleSpiPins(loops);
         WriteStatusLine("imu pins wiggle: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "spi")) {
+        uint32_t bytes = kImuSpiBurstDefaultBytes;
+        uint32_t byte_value = 0xAAU;
+
+        if ((argc < 3) || (argc > 5)) {
+            PrintImuUsage();
+            return;
+        }
+        if (!StrEqual(argv[2], "burst")) {
+            PrintImuUsage();
+            return;
+        }
+        if ((argc >= 4) &&
+            ((!ParseUint32(argv[3], kImuSpiBurstMaxBytes, &bytes)) ||
+             (bytes == 0U))) {
+            PrintImuUsage();
+            return;
+        }
+        if ((argc == 5) && (!ParseUint32(argv[4], 0xFFU, &byte_value))) {
+            PrintImuUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status =
+            board::Board_ImuSpiBurstIcm(bytes, (uint8_t) byte_value);
+        WriteStatusLine("imu spi burst: ", status);
         return;
     }
 
