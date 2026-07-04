@@ -251,6 +251,52 @@ ina219 reg 0
 ina219 reg 0 0x399F
 ```
 
+## IMU / 磁力计 SPI
+
+ICM-45686 和 LIS3MDLTR 共用 `IMU_SPI`，由 GPIO 手动控制片选：
+
+| 器件 | 片选 | 中断 / 数据就绪 |
+| --- | --- | --- |
+| ICM-45686 | PC7，低电平选中 | INT1 = PC6，INT2/FSYNC = PA31 预留同步 |
+| LIS3MDLTR | PC8，低电平选中 | DRDY = PA22 |
+
+### `imu status`
+
+查看 IMU SPI 片选线和中断线电平。
+```text
+imu status
+```
+
+正常空闲时 `cs_icm` 和 `cs_lis` 应为 `H`。
+
+### `imu lis whoami`
+
+读取 LIS3MDLTR `WHO_AM_I` 寄存器。
+```text
+imu lis whoami
+```
+
+正常应读到：
+```text
+imu lis whoami=0x3D expected=0x3D
+```
+
+### `imu lis reg <addr>`
+
+读取 LIS3MDLTR 单个寄存器。
+```text
+imu lis reg 0x0F
+```
+
+### `imu icm reg <addr>`
+
+按通用 SPI 读格式读取 ICM-45686 单个寄存器。
+```text
+imu icm reg 0x00
+```
+
+ICM-45686 的 `WHO_AM_I` 地址和值需要用最终数据手册确认后再固化为专用命令。
+
 ## 通用 I2C 诊断
 
 当前注册的 I2C 总线：
@@ -621,4 +667,3 @@ adc
 ```text
 pwm 50
 ```
-

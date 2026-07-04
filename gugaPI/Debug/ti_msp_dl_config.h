@@ -160,6 +160,25 @@ extern "C" {
 
 
 
+/* Defines for IMU_SPI */
+#define IMU_SPI_INST                                                       SPI0
+#define IMU_SPI_INST_IRQHandler                                 SPI0_IRQHandler
+#define IMU_SPI_INST_INT_IRQN                                     SPI0_INT_IRQn
+#define GPIO_IMU_SPI_PICO_PORT                                            GPIOB
+#define GPIO_IMU_SPI_PICO_PIN                                    DL_GPIO_PIN_17
+#define GPIO_IMU_SPI_IOMUX_PICO                                 (IOMUX_PINCM43)
+#define GPIO_IMU_SPI_IOMUX_PICO_FUNC                 IOMUX_PINCM43_PF_SPI0_PICO
+#define GPIO_IMU_SPI_POCI_PORT                                            GPIOB
+#define GPIO_IMU_SPI_POCI_PIN                                    DL_GPIO_PIN_19
+#define GPIO_IMU_SPI_IOMUX_POCI                                 (IOMUX_PINCM45)
+#define GPIO_IMU_SPI_IOMUX_POCI_FUNC                 IOMUX_PINCM45_PF_SPI0_POCI
+/* GPIO configuration for IMU_SPI */
+#define GPIO_IMU_SPI_SCLK_PORT                                            GPIOB
+#define GPIO_IMU_SPI_SCLK_PIN                                    DL_GPIO_PIN_18
+#define GPIO_IMU_SPI_IOMUX_SCLK                                 (IOMUX_PINCM44)
+#define GPIO_IMU_SPI_IOMUX_SCLK_FUNC                 IOMUX_PINCM44_PF_SPI0_SCLK
+
+
 
 /* Port definition for Pin Group GPIO_LEDS */
 #define GPIO_LEDS_PORT                                                   (GPIOB)
@@ -188,6 +207,27 @@ extern "C" {
 /* Defines for BUTTON3: GPIOB.23 with pinCMx 51 on package pin 85 */
 #define GPIO_BUTTON_B_BUTTON3_PIN                               (DL_GPIO_PIN_23)
 #define GPIO_BUTTON_B_BUTTON3_IOMUX                              (IOMUX_PINCM51)
+/* Port definition for Pin Group GPIO_IMU_C */
+#define GPIO_IMU_C_PORT                                                  (GPIOC)
+
+/* Defines for ICM45686_INT1: GPIOC.6 with pinCMx 84 on package pin 78 */
+#define GPIO_IMU_C_ICM45686_INT1_PIN                             (DL_GPIO_PIN_6)
+#define GPIO_IMU_C_ICM45686_INT1_IOMUX                           (IOMUX_PINCM84)
+/* Defines for ICM45686_CS: GPIOC.7 with pinCMx 85 on package pin 79 */
+#define GPIO_IMU_C_ICM45686_CS_PIN                               (DL_GPIO_PIN_7)
+#define GPIO_IMU_C_ICM45686_CS_IOMUX                             (IOMUX_PINCM85)
+/* Defines for LIS3MDL_CS: GPIOC.8 with pinCMx 86 on package pin 80 */
+#define GPIO_IMU_C_LIS3MDL_CS_PIN                                (DL_GPIO_PIN_8)
+#define GPIO_IMU_C_LIS3MDL_CS_IOMUX                              (IOMUX_PINCM86)
+/* Port definition for Pin Group GPIO_IMU_A */
+#define GPIO_IMU_A_PORT                                                  (GPIOA)
+
+/* Defines for LIS3MDL_DRDY: GPIOA.22 with pinCMx 47 on package pin 77 */
+#define GPIO_IMU_A_LIS3MDL_DRDY_PIN                             (DL_GPIO_PIN_22)
+#define GPIO_IMU_A_LIS3MDL_DRDY_IOMUX                            (IOMUX_PINCM47)
+/* Defines for ICM45686_INT2_FSYNC: GPIOA.31 with pinCMx 6 on package pin 7 */
+#define GPIO_IMU_A_ICM45686_INT2_FSYNC_PIN                      (DL_GPIO_PIN_31)
+#define GPIO_IMU_A_ICM45686_INT2_FSYNC_IOMUX                      (IOMUX_PINCM6)
 
 
 /* clang-format on */
@@ -201,6 +241,7 @@ void SYSCFG_DL_INA219_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
 void SYSCFG_DL_LORA_UART_init(void);
 void SYSCFG_DL_MOTOR_UART_init(void);
+void SYSCFG_DL_IMU_SPI_init(void);
 
 
 bool SYSCFG_DL_saveConfiguration(void);

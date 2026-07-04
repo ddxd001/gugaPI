@@ -7,6 +7,7 @@
 #include "board/board_config.h"
 #include "board/board_fram.h"
 #include "board/board_ina219.h"
+#include "board/board_imu.h"
 #include "board/board_i2c_bus.h"
 #include "board/board_led.h"
 #include "board/board_lora.h"
@@ -229,6 +230,16 @@ void PrintIna219Usage(void)
     services::Shell_WriteLine("  ina219 read");
     services::Shell_WriteLine("  ina219 raw");
     services::Shell_WriteLine("  ina219 reg <0..5> [value]");
+}
+
+void PrintImuUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  imu status");
+    services::Shell_WriteLine("  imu cs idle|icm|lis|float");
+    services::Shell_WriteLine("  imu lis whoami");
+    services::Shell_WriteLine("  imu lis reg <addr>");
+    services::Shell_WriteLine("  imu icm reg <addr>");
 }
 
 void PrintLoraUsage(void)
@@ -990,6 +1001,154 @@ bool ParseI2cRange(int argc,
     *end = (uint8_t) value;
 
     return true;
+}
+
+void ImuCommand(int argc, const char * const argv[])
+{
+#if FEATURE_ENABLE_IMU
+    uint32_t reg = 0U;
+    uint8_t value = 0U;
+
+    if ((argc < 2) || (!board::Board_ImuIsReady())) {
+        if (argc < 2) {
+            PrintImuUsage();
+        } else {
+            services::Shell_WriteLine("imu: not ready");
+        }
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        board::BoardImuLineStatus lines = {};
+        const drivers::DriverStatus status =
+            board::Board_ImuGetLineStatus(&lines);
+
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("imu status: ", status);
+            return;
+        }
+
+        services::Shell_WriteString("imu cs_icm=");
+        services::Shell_WriteString(lines.icm_cs_high ? "H" : "L");
+        services::Shell_WriteString(" cs_lis=");
+        services::Shell_WriteString(lines.lis_cs_high ? "H" : "L");
+        services::Shell_WriteString(" cs_icm_out=");
+        services::Shell_WriteString(lines.icm_cs_latch_high ? "H" : "L");
+        services::Shell_WriteString(lines.icm_cs_output_enabled ? "/OE" : "/HZ");
+        services::Shell_WriteString(" cs_lis_out=");
+        services::Shell_WriteString(lines.lis_cs_latch_high ? "H" : "L");
+        services::Shell_WriteString(lines.lis_cs_output_enabled ? "/OE" : "/HZ");
+        services::Shell_WriteString(" icm_int1=");
+        services::Shell_WriteString(lines.icm_int1_high ? "H" : "L");
+        services::Shell_WriteString(" icm_int2_fsync=");
+        services::Shell_WriteString(lines.icm_int2_fsync_high ? "H" : "L");
+        services::Shell_WriteString(" lis_drdy=");
+        services::Shell_WriteString(lines.lis_drdy_high ? "H" : "L");
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "cs")) {
+        drivers::DriverStatus status = drivers::DRIVER_ERROR_INVALID_ARG;
+
+        if (argc != 3) {
+            PrintImuUsage();
+            return;
+        }
+
+        if (StrEqual(argv[2], "idle")) {
+            status = board::Board_ImuSetChipSelectDebug(true,
+                                                        true,
+                                                        true,
+                                                        true);
+        } else if (StrEqual(argv[2], "icm")) {
+            status = board::Board_ImuSetChipSelectDebug(true,
+                                                        false,
+                                                        true,
+                                                        true);
+        } else if (StrEqual(argv[2], "lis")) {
+            status = board::Board_ImuSetChipSelectDebug(true,
+                                                        true,
+                                                        true,
+                                                        false);
+        } else if (StrEqual(argv[2], "float")) {
+            status = board::Board_ImuSetChipSelectDebug(false,
+                                                        true,
+                                                        false,
+                                                        true);
+        } else {
+            PrintImuUsage();
+            return;
+        }
+
+        WriteStatusLine("imu cs: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "lis")) {
+        if ((argc == 3) && StrEqual(argv[2], "whoami")) {
+            const drivers::DriverStatus status =
+                board::Board_Lis3mdlReadWhoAmI(&value);
+            if (status != drivers::DRIVER_OK) {
+                WriteStatusLine("imu lis whoami: ", status);
+                return;
+            }
+
+            services::Shell_WriteString("imu lis whoami=");
+            WriteHex8(value);
+            services::Shell_WriteString(" expected=0x3D\r\n");
+            return;
+        }
+
+        if ((argc == 4) && StrEqual(argv[2], "reg") &&
+            ParseUint32(argv[3], 0x3FU, &reg)) {
+            const drivers::DriverStatus status =
+                board::Board_Lis3mdlReadRegister((uint8_t) reg, &value);
+            if (status != drivers::DRIVER_OK) {
+                WriteStatusLine("imu lis reg: ", status);
+                return;
+            }
+
+            services::Shell_WriteString("imu lis reg ");
+            WriteHex8((uint8_t) reg);
+            services::Shell_WriteString(" = ");
+            WriteHex8(value);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        PrintImuUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "icm")) {
+        if ((argc == 4) && StrEqual(argv[2], "reg") &&
+            ParseUint32(argv[3], 0x7FU, &reg)) {
+            const drivers::DriverStatus status =
+                board::Board_Icm45686ReadRegister((uint8_t) reg, &value);
+            if (status != drivers::DRIVER_OK) {
+                WriteStatusLine("imu icm reg: ", status);
+                return;
+            }
+
+            services::Shell_WriteString("imu icm reg ");
+            WriteHex8((uint8_t) reg);
+            services::Shell_WriteString(" = ");
+            WriteHex8(value);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        PrintImuUsage();
+        return;
+    }
+
+    PrintImuUsage();
+#else
+    (void) argc;
+    (void) argv;
+    services::Shell_WriteLine("imu: disabled");
+#endif
 }
 
 void PrintI2cStatus(const drivers::I2cDiagBusConfig *bus)
@@ -2042,6 +2201,12 @@ void AppShell_RegisterCommands(void)
         "ina219",
         "INA219: status|scan|addr|recover|config|read|raw|reg",
         Ina219Command);
+#endif
+#if FEATURE_ENABLE_IMU
+    (void) services::Shell_RegisterCommand(
+        "imu",
+        "IMU SPI: status|lis whoami|lis reg <addr>|icm reg <addr>",
+        ImuCommand);
 #endif
 #if FEATURE_ENABLE_LORA
     (void) services::Shell_RegisterCommand(

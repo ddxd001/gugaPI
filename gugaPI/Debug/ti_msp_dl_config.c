@@ -40,6 +40,8 @@
 
 #include "ti_msp_dl_config.h"
 
+DL_SPI_backupConfig gIMU_SPIBackup;
+
 /*
  *  ======== SYSCFG_DL_init ========
  *  Perform any initialization needed before using any board APIs
@@ -55,9 +57,34 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_DEBUG_UART_init();
     SYSCFG_DL_LORA_UART_init();
     SYSCFG_DL_MOTOR_UART_init();
+    SYSCFG_DL_IMU_SPI_init();
+    /* Ensure backup structures have no valid state */
+
+	gIMU_SPIBackup.backupRdy 	= false;
+
+}
+/*
+ * User should take care to save and restore register configuration in application.
+ * See Retention Configuration section for more details.
+ */
+SYSCONFIG_WEAK bool SYSCFG_DL_saveConfiguration(void)
+{
+    bool retStatus = true;
+
+	retStatus &= DL_SPI_saveConfiguration(IMU_SPI_INST, &gIMU_SPIBackup);
+
+    return retStatus;
 }
 
 
+SYSCONFIG_WEAK bool SYSCFG_DL_restoreConfiguration(void)
+{
+    bool retStatus = true;
+
+	retStatus &= DL_SPI_restoreConfiguration(IMU_SPI_INST, &gIMU_SPIBackup);
+
+    return retStatus;
+}
 
 SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
 {
@@ -69,6 +96,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_UART_Main_reset(DEBUG_UART_INST);
     DL_UART_Main_reset(LORA_UART_INST);
     DL_UART_Main_reset(MOTOR_UART_INST);
+    DL_SPI_reset(IMU_SPI_INST);
 
     DL_GPIO_enablePower(GPIOA);
     DL_GPIO_enablePower(GPIOB);
@@ -78,6 +106,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_UART_Main_enablePower(DEBUG_UART_INST);
     DL_UART_Main_enablePower(LORA_UART_INST);
     DL_UART_Main_enablePower(MOTOR_UART_INST);
+    DL_SPI_enablePower(IMU_SPI_INST);
     delay_cycles(POWER_STARTUP_DELAY);
 }
 
@@ -118,6 +147,13 @@ SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
     DL_GPIO_initPeripheralInputFunction(
         GPIO_MOTOR_UART_IOMUX_RX, GPIO_MOTOR_UART_IOMUX_RX_FUNC);
 
+    DL_GPIO_initPeripheralOutputFunction(
+        GPIO_IMU_SPI_IOMUX_SCLK, GPIO_IMU_SPI_IOMUX_SCLK_FUNC);
+    DL_GPIO_initPeripheralOutputFunction(
+        GPIO_IMU_SPI_IOMUX_PICO, GPIO_IMU_SPI_IOMUX_PICO_FUNC);
+    DL_GPIO_initPeripheralInputFunction(
+        GPIO_IMU_SPI_IOMUX_POCI, GPIO_IMU_SPI_IOMUX_POCI_FUNC);
+
     DL_GPIO_initDigitalOutput(GPIO_LEDS_STATUS_LED_IOMUX);
 
     DL_GPIO_initDigitalOutput(GPIO_BUZZER_BUZZER_IOMUX);
@@ -134,10 +170,30 @@ SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
 		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_PULL_UP,
 		 DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
 
-    DL_GPIO_clearPins(GPIO_BUZZER_PORT, GPIO_BUZZER_BUZZER_PIN);
-    DL_GPIO_enableOutput(GPIO_BUZZER_PORT, GPIO_BUZZER_BUZZER_PIN);
+    DL_GPIO_initDigitalInputFeatures(GPIO_IMU_C_ICM45686_INT1_IOMUX,
+		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
+		 DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+
+    DL_GPIO_initDigitalOutput(GPIO_IMU_C_ICM45686_CS_IOMUX);
+
+    DL_GPIO_initDigitalOutput(GPIO_IMU_C_LIS3MDL_CS_IOMUX);
+
+    DL_GPIO_initDigitalInputFeatures(GPIO_IMU_A_LIS3MDL_DRDY_IOMUX,
+		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
+		 DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+
+    DL_GPIO_initDigitalInputFeatures(GPIO_IMU_A_ICM45686_INT2_FSYNC_IOMUX,
+		 DL_GPIO_INVERSION_DISABLE, DL_GPIO_RESISTOR_NONE,
+		 DL_GPIO_HYSTERESIS_DISABLE, DL_GPIO_WAKEUP_DISABLE);
+
+    DL_GPIO_clearPins(GPIOA, GPIO_BUZZER_BUZZER_PIN);
+    DL_GPIO_enableOutput(GPIOA, GPIO_BUZZER_BUZZER_PIN);
     DL_GPIO_setPins(GPIOB, GPIO_LEDS_STATUS_LED_PIN);
     DL_GPIO_enableOutput(GPIOB, GPIO_LEDS_STATUS_LED_PIN);
+    DL_GPIO_setPins(GPIOC, GPIO_IMU_C_ICM45686_CS_PIN |
+		GPIO_IMU_C_LIS3MDL_CS_PIN);
+    DL_GPIO_enableOutput(GPIOC, GPIO_IMU_C_ICM45686_CS_PIN |
+		GPIO_IMU_C_LIS3MDL_CS_PIN);
 
 }
 
@@ -325,5 +381,37 @@ SYSCONFIG_WEAK void SYSCFG_DL_MOTOR_UART_init(void)
     DL_UART_Main_setTXFIFOThreshold(MOTOR_UART_INST, DL_UART_TX_FIFO_LEVEL_3_4_EMPTY);
 
     DL_UART_Main_enable(MOTOR_UART_INST);
+}
+
+static const DL_SPI_Config gIMU_SPI_config = {
+    .mode        = DL_SPI_MODE_CONTROLLER,
+    .frameFormat = DL_SPI_FRAME_FORMAT_MOTO3_POL1_PHA1,
+    .parity      = DL_SPI_PARITY_NONE,
+    .dataSize    = DL_SPI_DATA_SIZE_8,
+    .bitOrder    = DL_SPI_BIT_ORDER_MSB_FIRST,
+};
+
+static const DL_SPI_ClockConfig gIMU_SPI_clockConfig = {
+    .clockSel    = DL_SPI_CLOCK_BUSCLK,
+    .divideRatio = DL_SPI_CLOCK_DIVIDE_RATIO_1
+};
+
+SYSCONFIG_WEAK void SYSCFG_DL_IMU_SPI_init(void) {
+    DL_SPI_setClockConfig(IMU_SPI_INST, (DL_SPI_ClockConfig *) &gIMU_SPI_clockConfig);
+
+    DL_SPI_init(IMU_SPI_INST, (DL_SPI_Config *) &gIMU_SPI_config);
+
+    /* Configure Controller mode */
+    /*
+     * Set the bit rate clock divider to generate the serial output clock
+     *     outputBitRate = (spiInputClock) / ((1 + SCR) * 2)
+     *     1000000 = (32000000)/((1 + 15) * 2)
+     */
+    DL_SPI_setBitRateSerialClockDivider(IMU_SPI_INST, 15);
+    /* Set RX and TX FIFO threshold levels */
+    DL_SPI_setFIFOThreshold(IMU_SPI_INST, DL_SPI_RX_FIFO_LEVEL_1_2_FULL, DL_SPI_TX_FIFO_LEVEL_1_2_EMPTY);
+
+    /* Enable module */
+    DL_SPI_enable(IMU_SPI_INST);
 }
 

@@ -11,6 +11,7 @@ CPP_SRCS += \
 ../board/board_buzzer.cpp \
 ../board/board_fram.cpp \
 ../board/board_i2c_bus.cpp \
+../board/board_imu.cpp \
 ../board/board_ina219.cpp \
 ../board/board_led.cpp \
 ../board/board_lora.cpp \
@@ -22,6 +23,7 @@ OBJS += \
 ./board/board_buzzer.o \
 ./board/board_fram.o \
 ./board/board_i2c_bus.o \
+./board/board_imu.o \
 ./board/board_ina219.o \
 ./board/board_led.o \
 ./board/board_lora.o \
@@ -33,6 +35,7 @@ CPP_DEPS += \
 ./board/board_buzzer.d \
 ./board/board_fram.d \
 ./board/board_i2c_bus.d \
+./board/board_imu.d \
 ./board/board_ina219.d \
 ./board/board_led.d \
 ./board/board_lora.d \
@@ -44,6 +47,7 @@ OBJS__QUOTED += \
 "board\board_buzzer.o" \
 "board\board_fram.o" \
 "board\board_i2c_bus.o" \
+"board\board_imu.o" \
 "board\board_ina219.o" \
 "board\board_led.o" \
 "board\board_lora.o" \
@@ -55,6 +59,7 @@ CPP_DEPS__QUOTED += \
 "board\board_buzzer.d" \
 "board\board_fram.d" \
 "board\board_i2c_bus.d" \
+"board\board_imu.d" \
 "board\board_ina219.d" \
 "board\board_led.d" \
 "board\board_lora.d" \
@@ -66,6 +71,7 @@ CPP_SRCS__QUOTED += \
 "../board/board_buzzer.cpp" \
 "../board/board_fram.cpp" \
 "../board/board_i2c_bus.cpp" \
+"../board/board_imu.cpp" \
 "../board/board_ina219.cpp" \
 "../board/board_led.cpp" \
 "../board/board_lora.cpp" \

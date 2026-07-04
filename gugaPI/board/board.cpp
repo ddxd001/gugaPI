@@ -6,6 +6,7 @@
 #include "board/board_config.h"
 #include "board/board_fram.h"
 #include "board/board_ina219.h"
+#include "board/board_imu.h"
 #include "board/board_led.h"
 #include "board/board_lora.h"
 #include "board/board_motor_driver.h"
@@ -39,6 +40,10 @@ void Board_Init(void)
 
 #if FEATURE_ENABLE_INA219
     (void) Board_Ina219Init();
+#endif
+
+#if FEATURE_ENABLE_IMU
+    (void) Board_ImuInit();
 #endif
 
 #if FEATURE_ENABLE_LORA

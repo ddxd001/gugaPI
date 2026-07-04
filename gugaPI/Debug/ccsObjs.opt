@@ -10,6 +10,7 @@
 "./board/board_buzzer.o"
 "./board/board_fram.o"
 "./board/board_i2c_bus.o"
+"./board/board_imu.o"
 "./board/board_ina219.o"
 "./board/board_led.o"
 "./board/board_lora.o"

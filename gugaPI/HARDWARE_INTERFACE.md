@@ -28,6 +28,12 @@ PC3 / I2C2_SDA  <------->| FRAM_I2C SDA         |---- FM24CL64B SDA
 PA11 / I2C1_SCL -------->| INA219_I2C SCL       |---- INA219 SCL
 PA10 / I2C1_SDA <------->| INA219_I2C SDA       |---- INA219 SDA
                          |                      |
+PB18 / SPIx_SCLK ------->| IMU_SPI SCLK         |---- ICM-45686 SCLK, LIS3MDLTR SCK
+PB17 / SPIx_PICO ------->| IMU_SPI PICO/MOSI    |---- ICM-45686 SDI, LIS3MDLTR SDI
+PB19 / SPIx_POCI <-------| IMU_SPI POCI/MISO    |---- ICM-45686 SDO, LIS3MDLTR SDO
+PC7              --------| ICM45686_CS          |---- ICM-45686 CS
+PC8              --------| LIS3MDLTR_CS         |---- LIS3MDLTR CS
+                         |                      |
 PB0 / UART0_TX  -------->| LORA_UART TX         |---- LoRa RX
 PB1 / UART0_RX  <--------| LORA_UART RX         |---- LoRa TX
                          |                      |
@@ -176,6 +182,141 @@ INA219 configuration:
 | Current LSB | 200 uA | `BOARD_INA219_CURRENT_LSB_UA` |
 | Current sign | Inverted in firmware | `BOARD_INA219_INVERT_CURRENT = 1` |
 
+## ICM-45686 + LIS3MDLTR Shared SPI Module
+
+Use one MSPM0 SPI peripheral for both sensors. SCLK, PICO/MOSI, and POCI/MISO
+are shared. Each IC must have its own chip-select GPIO, and any interrupt lines
+should be routed to separate MCU GPIOs unless the schematic intentionally wires
+them together.
+
+### Schematic Fill-in Worksheet
+
+Fill this worksheet first. The detailed tables below can then be updated from
+the same information.
+
+| Item | Current Value | Still Needed |
+| --- | --- | --- |
+| MSPM0 SPI instance | SPI0 | SysConfig routes PB17/PB18/PB19 to `IMU_SPI_INST = SPI0` |
+| SPI SCLK MCU pin | PB18 | MCU package pin / schematic net name |
+| SPI PICO / MOSI MCU pin | PB17 | MCU package pin / schematic net name |
+| SPI POCI / MISO MCU pin | PB19 | MCU package pin / schematic net name |
+| ICM-45686 CS MCU pin | PC7 | MCU package pin / schematic net name |
+| LIS3MDLTR CS MCU pin | PC8 | MCU package pin / schematic net name |
+| ICM-45686 INT1 MCU pin | PC6 | Use as data-ready interrupt |
+| ICM-45686 INT2 / FSYNC MCU pin | PA31 | Use as FSYNC sync input / reserved; do not use as INT2 in first driver |
+| LIS3MDLTR DRDY MCU pin | PA22 | Data-ready input |
+| Sensor VDD net and voltage | 3.3V | Regulator net name still TBD |
+| Sensor VDDIO net and voltage | 3.3V | Matches MSPM0 IO domain |
+| CS pull-up resistors | 10k external pull-up to 3.3V | Applies to both CS lines |
+| SPI series resistors | None | No series resistors on SCLK/MOSI/MISO |
+| Sensor module connector | TBD | Connector name or schematic sheet reference |
+| Board axis mapping | Same orientation, +X forward | Confirm +Y/+Z direction before sensor fusion |
+
+### Shared SPI Bus
+
+| Signal | Net Name | MCU Pin | MCU Package Pin | MCU Peripheral | ICM-45686 Pin / Signal | LIS3MDLTR Pin / Signal | Direction | Pull-up / Pull-down | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| IMU_SPI_SCLK | TBD | PB18 | TBD | SPI0_SCLK | SCLK | SCK | MCU output | None | Shared clock |
+| IMU_SPI_PICO / MOSI | TBD | PB17 | TBD | SPI0_PICO / SPI0_MOSI | SDI / MOSI | SDI / MOSI | MCU output | None | Shared controller-to-device data |
+| IMU_SPI_POCI / MISO | TBD | PB19 | TBD | SPI0_POCI / SPI0_MISO | SDO / MISO | SDO / MISO | MCU input | None | Shared device-to-controller data; verify tri-state when CS high |
+| IMU_SPI_GND | GND | GND | N/A | N/A | GND | GND | N/A | N/A | Common ground required |
+
+SPI bus configuration:
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| Enabled | Planned | Enable `FEATURE_ENABLE_IMU` when firmware is added |
+| MCU SPI instance | SPI0 | `IMU_SPI_INST` from SysConfig |
+| Electrical interface | 3.3V CMOS | VDD and VDDIO are both 3.3V |
+| SPI mode | Mode 3 target, CPOL = 1, CPHA = 1 | LIS3MDL requires clock idle high and captures on rising edge; verify ICM-45686 supports same mode |
+| Bit order | MSB first | Required by LIS3MDL SPI protocol |
+| Initial bus speed | 1 MHz | Conservative bring-up value |
+| Max bus speed | 10 MHz until ICM limit is verified | LIS3MDL supports 10 MHz SPI; shared bus limited by slower device |
+| Shared signals | SCLK, PICO/MOSI, POCI/MISO | Do not share CS |
+| Separate signals | CS and INT pins | Assign per device below |
+| SysConfig name | `IMU_SPI` | Suggested board-level instance name |
+| Board wrapper | `board/board_imu.*` | Suggested future board abstraction |
+| Driver folders | `drivers/icm45686/`, `drivers/lis3mdl/` | Suggested future driver layout |
+
+### ICM-45686 Pin Table
+
+| ICM-45686 Signal | Net Name | MCU Pin | MCU Package Pin | MCU Peripheral / GPIO | Direction | Active Level | Pull-up / Pull-down | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SCLK | TBD | PB18 | TBD | IMU_SPI_SCLK | MCU output | N/A | None | Shared SPI clock |
+| SDI / MOSI | TBD | PB17 | TBD | IMU_SPI_PICO / MOSI | MCU output | N/A | None | Shared with LIS3MDLTR |
+| SDO / MISO | TBD | PB19 | TBD | IMU_SPI_POCI / MISO | MCU input | N/A | None | Shared with LIS3MDLTR |
+| nCS / CSB | TBD | PC7 | TBD | GPIO output | MCU output | Low = selected | External 10k pull-up to 3.3V | Keep high during boot until SPI is ready |
+| INT1 | TBD | PC6 | TBD | GPIO input / interrupt | Sensor output | Configurable / TBD | TBD | Configure as data-ready interrupt |
+| INT2 / FSYNC | TBD | PA31 | TBD | GPIO input / timer sync TBD | Sync input / reserved | N/A for first driver | TBD | Same physical ICM-45686 pin; reserve for FSYNC, do not use as INT2 initially |
+| AUX / other | Not connected | Not connected | N/A | Not connected | N/A | N/A | N/A | No other auxiliary pins connected |
+| VDD | 3.3V | N/A | N/A | Power | N/A | N/A | N/A | Sensor core supply |
+| VDDIO | 3.3V | N/A | N/A | Power | N/A | N/A | N/A | SPI IO supply |
+| GND | GND | N/A | N/A | Ground | N/A | N/A | N/A | Common ground |
+
+ICM-45686 configuration:
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| Device | ICM-45686 | 6-axis IMU |
+| Bus | Shared SPI | Same SPI peripheral as LIS3MDLTR |
+| Chip select | PC7 | Dedicated GPIO, not shared |
+| WHO_AM_I / device ID | TBD | Fill from datasheet or bring-up read |
+| SPI read/write command format | TBD | Fill register address bit convention from datasheet |
+| Interrupt use | INT1 on PC6 for data-ready | INT polarity/function is register-configurable; verify from ICM-45686 datasheet during driver work |
+| FSYNC | PA31 reserved for sync input | Same physical pin as INT2; first driver should not use it as INT2 |
+| Reset line | Not connected / TBD | Fill only if schematic has a reset pin connection |
+| Axis orientation | Same as LIS3MDLTR, +X forward | Confirm +Y/+Z direction before sensor fusion |
+
+### LIS3MDLTR Pin Table
+
+| LIS3MDLTR Signal | Net Name | MCU Pin | MCU Package Pin | MCU Peripheral / GPIO | Direction | Active Level | Pull-up / Pull-down | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SCK | TBD | PB18 | TBD | IMU_SPI_SCLK | MCU output | N/A | None | Shared SPI clock |
+| SDI / MOSI | TBD | PB17 | TBD | IMU_SPI_PICO / MOSI | MCU output | N/A | None | Shared with ICM-45686 |
+| SDO / MISO | TBD | PB19 | TBD | IMU_SPI_POCI / MISO | MCU input | N/A | None | Shared with ICM-45686 |
+| CS | TBD | PC8 | TBD | GPIO output | MCU output | Low = selected | External 10k pull-up to 3.3V | Keep high during boot until SPI is ready |
+| DRDY | TBD | PA22 | TBD | GPIO input / interrupt | Sensor output | Active high | TBD | LIS3MDLTR data-ready output |
+| VDD | 3.3V | N/A | N/A | Power | N/A | N/A | N/A | Sensor supply |
+| VDDIO | 3.3V | N/A | N/A | Power | N/A | N/A | N/A | SPI IO supply |
+| GND | GND | N/A | N/A | Ground | N/A | N/A | N/A | Common ground |
+
+LIS3MDLTR configuration:
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| Device | LIS3MDLTR | 3-axis magnetometer |
+| Bus | Shared SPI | Same SPI peripheral as ICM-45686 |
+| Chip select | PC8 | Dedicated GPIO, not shared |
+| WHO_AM_I / device ID | 0x3D at register 0x0F | From LIS3MDL datasheet |
+| SPI read/write command format | bit7 = R/W, bit6 = auto-increment, bit5..0 = register address | Read sets bit7 = 1; multi-byte sets bit6 = 1 |
+| Interrupt use | PA22 as DRDY | Data-ready output, active high |
+| Reset line | Not connected | No reset line specified |
+| Axis orientation | Same as ICM-45686, +X forward | Confirm +Y/+Z direction before sensor fusion |
+
+### Sensor Power And Passive Components
+
+| Item | Net / Value | Applies To | Notes |
+| --- | --- | --- | --- |
+| Sensor VDD | 3.3V | ICM-45686, LIS3MDLTR | Fill regulator net name if needed |
+| Sensor VDDIO | 3.3V | ICM-45686, LIS3MDLTR | Matches MSPM0 SPI IO voltage |
+| Local decoupling | TBD | Both sensors | Fill capacitor values from schematic |
+| ICM-45686 CS pull-up | 10k to 3.3V | ICM-45686 | Keeps device deselected during reset |
+| LIS3MDLTR CS pull-up | 10k to 3.3V | LIS3MDLTR | Keeps device deselected during reset |
+| SPI SCLK series resistor | Not populated | Shared SPI | No series resistor |
+| SPI MOSI series resistor | Not populated | Shared SPI | No series resistor |
+| SPI MISO series resistor | Not populated | Shared SPI | No series resistor |
+| INT pull resistors | TBD / None | Sensor interrupt lines | Fill if external resistors are used |
+
+### Shared SPI Bring-up Rules
+
+| Item | Decision / Action | Notes |
+| --- | --- | --- |
+| Boot CS state | Both CS high | Configure CS GPIOs high before enabling sensor transactions |
+| Transaction rule | Assert exactly one CS at a time | Never select both sensors simultaneously |
+| MISO contention check | Verify inactive device tri-states SDO/MISO | Scope MISO during first bring-up |
+| First firmware speed | 1 MHz | Increase only after WHO_AM_I reads are stable |
+| Sensor orientation | Same orientation, +X forward | Confirm +Y/+Z direction before sensor fusion |
+
 ## Status LED
 
 | Signal | MCU Pin | Package Pin | External Connection | Direction | Active Level | Initial State | Notes |
@@ -220,12 +361,18 @@ INA219 configuration:
 | LORA_UART | UART0 | PB0 | PB1 | 115200 | LoRa module | Raw transparent serial |
 | MOTOR_UART | UART1 | PA8 | PA9 | 115200 | MotorDriver | Binary motor control protocol |
 
+## SPI Bus Summary
+
+| Bus Alias | MCU Instance | SCLK | PICO / MOSI | POCI / MISO | Devices | Chip Selects | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `imu` | SPI0 | PB18 | PB17 | PB19 | ICM-45686, LIS3MDLTR | ICM45686_CS = PC7, LIS3MDLTR_CS = PC8 | Shared SPI bus; separate CS GPIOs |
+
 ## Unused / Reserved Interfaces
 
 | Interface | Current State | Notes |
 | --- | --- | --- |
 | OLED | Disabled | `FEATURE_ENABLE_OLED = 0` |
-| IMU | Disabled | `FEATURE_ENABLE_IMU = 0` |
+| IMU / magnetometer | Planned | ICM-45686 and LIS3MDLTR shared SPI; `FEATURE_ENABLE_IMU = 0` until firmware is added |
 | Local motor control | Disabled | `FEATURE_ENABLE_MOTOR = 0`; current motor control goes through MotorDriver UART |
 | Encoder | Disabled | `FEATURE_ENABLE_ENCODER = 0` |
 | ADC placeholder | No ADC driver registered | Shell command reports placeholder |
@@ -241,6 +388,7 @@ INA219 configuration:
 | Buttons | Pressed buttons read as pressed | `button` |
 | FRAM bus idle | SCL/SDA high, read/write self-test passes | `fram status`, `fram test` |
 | INA219 bus idle | SCL/SDA high, device address responds | `ina219 status`, `ina219 scan` |
+| ICM-45686 + LIS3MDLTR SPI | Both WHO_AM_I reads return expected IDs | TBD after SPI driver and shell command are added |
 | LoRa UART wiring | Module receives TX and gugaPI receives replies | `lora test`, `lora read` |
 | MotorDriver UART wiring | Heartbeat returns OK | `motor ping`, `motor info` |
 
