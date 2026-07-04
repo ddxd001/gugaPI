@@ -13,6 +13,20 @@ static const uint32_t kWiggleDelayCycles = 64U;
 
 static bool g_imuReady = false;
 
+DL_SPI_FRAME_FORMAT SpiModeToFrameFormat(uint8_t mode)
+{
+    switch (mode) {
+        case 0U:
+            return DL_SPI_FRAME_FORMAT_MOTO4_POL0_PHA0;
+        case 1U:
+            return DL_SPI_FRAME_FORMAT_MOTO4_POL0_PHA1;
+        case 2U:
+            return DL_SPI_FRAME_FORMAT_MOTO4_POL1_PHA0;
+        default:
+            return DL_SPI_FRAME_FORMAT_MOTO4_POL1_PHA1;
+    }
+}
+
 void DelaySmall(void)
 {
     for (volatile uint32_t i = 0U; i < kSelectDelayCycles; i++) {
@@ -99,6 +113,10 @@ void DrainRxFifo(void)
 
 drivers::DriverStatus Board_ImuInit(void)
 {
+    DL_SPI_disable(BOARD_IMU_SPI_INST);
+    DL_SPI_setFrameFormat(BOARD_IMU_SPI_INST, SpiModeToFrameFormat(3U));
+    DL_SPI_enable(BOARD_IMU_SPI_INST);
+
     DL_GPIO_setPins(BOARD_IMU_ICM45686_CS_PORT,
                     BOARD_IMU_ICM45686_CS_PIN | BOARD_IMU_LIS3MDL_CS_PIN);
     DL_GPIO_enableOutput(BOARD_IMU_ICM45686_CS_PORT,
@@ -149,6 +167,24 @@ drivers::DriverStatus Board_ImuSetChipSelectDebug(bool icm_output_enable,
         DL_GPIO_disableOutput(BOARD_IMU_LIS3MDL_CS_PORT,
                               BOARD_IMU_LIS3MDL_CS_PIN);
     }
+
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus Board_ImuSetSpiMode(uint8_t mode)
+{
+    if (!g_imuReady) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    if (mode > 3U) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    DeselectAll();
+    DL_SPI_disable(BOARD_IMU_SPI_INST);
+    DL_SPI_setFrameFormat(BOARD_IMU_SPI_INST, SpiModeToFrameFormat(mode));
+    DL_SPI_enable(BOARD_IMU_SPI_INST);
+    DrainRxFifo();
 
     return drivers::DRIVER_OK;
 }

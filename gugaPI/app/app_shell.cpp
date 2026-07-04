@@ -242,6 +242,7 @@ void PrintImuUsage(void)
     services::Shell_WriteLine("  imu status");
     services::Shell_WriteLine("  imu cs idle|icm|lis|float");
     services::Shell_WriteLine("  imu pins wiggle [loops]");
+    services::Shell_WriteLine("  imu spi mode <0..3>");
     services::Shell_WriteLine("  imu spi burst [bytes] [byte]");
     services::Shell_WriteLine("  imu lis whoami");
     services::Shell_WriteLine("  imu lis reg <addr>");
@@ -1118,9 +1119,21 @@ void ImuCommand(int argc, const char * const argv[])
     if (StrEqual(argv[1], "spi")) {
         uint32_t bytes = kImuSpiBurstDefaultBytes;
         uint32_t byte_value = 0xAAU;
+        uint32_t mode = 0U;
 
         if ((argc < 3) || (argc > 5)) {
             PrintImuUsage();
+            return;
+        }
+        if (StrEqual(argv[2], "mode")) {
+            if ((argc != 4) || (!ParseUint32(argv[3], 3U, &mode))) {
+                PrintImuUsage();
+                return;
+            }
+
+            const drivers::DriverStatus status =
+                board::Board_ImuSetSpiMode((uint8_t) mode);
+            WriteStatusLine("imu spi mode: ", status);
             return;
         }
         if (!StrEqual(argv[2], "burst")) {

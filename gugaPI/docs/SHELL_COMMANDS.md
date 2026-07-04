@@ -286,6 +286,16 @@ imu spi burst
 imu spi burst 100000 0xAA
 ```
 
+### `imu spi mode <0..3>`
+
+运行时切换 SPI0 的 4-wire Motorola 模式，用于确认 CPOL/CPHA。
+```text
+imu spi mode 0
+imu spi mode 1
+imu spi mode 2
+imu spi mode 3
+```
+
 ### `imu lis whoami`
 
 读取 LIS3MDLTR `WHO_AM_I` 寄存器。
