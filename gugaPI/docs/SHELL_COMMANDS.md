@@ -296,6 +296,15 @@ imu spi mode 2
 imu spi mode 3
 ```
 
+### `imu spi rx [count] [tx]`
+
+选中 ICM-45686，连续发送固定字节并打印 SPI0 实际收到的字节，用于确认 MISO 输入路径。
+```text
+imu spi rx
+imu spi rx 16 0x00
+imu spi rx 16 0xFF
+```
+
 ### `imu lis whoami`
 
 读取 LIS3MDLTR `WHO_AM_I` 寄存器。

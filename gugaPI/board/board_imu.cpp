@@ -269,6 +269,32 @@ drivers::DriverStatus Board_ImuSpiBurstIcm(uint32_t bytes, uint8_t value)
     return drivers::DRIVER_OK;
 }
 
+drivers::DriverStatus Board_ImuSpiSampleIcm(uint8_t tx,
+                                            uint8_t *rx,
+                                            uint32_t count)
+{
+    if (!g_imuReady) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    if ((rx == 0) || (count == 0U)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    DrainRxFifo();
+    SelectIcm45686();
+
+    for (uint32_t i = 0U; i < count; i++) {
+        const drivers::DriverStatus status = TransferByte(tx, &rx[i]);
+        if (status != drivers::DRIVER_OK) {
+            DeselectAll();
+            return status;
+        }
+    }
+
+    DeselectAll();
+    return drivers::DRIVER_OK;
+}
+
 drivers::DriverStatus Board_ImuGetLineStatus(BoardImuLineStatus *status)
 {
     if (status == 0) {
@@ -312,6 +338,7 @@ drivers::DriverStatus Board_Lis3mdlReadRegister(uint8_t reg, uint8_t *value)
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
 
+    DrainRxFifo();
     SelectLis3mdl();
     const drivers::DriverStatus status = ReadRegisterWithCommand(
         (uint8_t) (kSpiReadMask | kLis3mdlAutoIncrementMask | (reg & 0x3FU)),
@@ -332,6 +359,7 @@ drivers::DriverStatus Board_Icm45686ReadRegister(uint8_t reg, uint8_t *value)
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
 
+    DrainRxFifo();
     SelectIcm45686();
     const drivers::DriverStatus status = ReadRegisterWithCommand(
         (uint8_t) (kSpiReadMask | reg),
