@@ -267,7 +267,8 @@ ICM-45686 和 LIS3MDLTR 共用 `IMU_SPI`，由 GPIO 手动控制片选：
 imu status
 ```
 
-正常空闲时 `cs_icm` 和 `cs_lis` 应为 `H`。
+`cs_icm_out` 和 `cs_lis_out` 表示 MCU 输出锁存和输出使能状态；正常空闲时应为 `H/OE`。
+`cs_icm_in` 和 `cs_lis_in` 是 GPIO 输入缓冲读数，输出脚上不作为片选电压的唯一依据，必要时以万用表或示波器实测为准。
 
 ### `imu lis whoami`
 

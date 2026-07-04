@@ -1,7 +1,7 @@
 ******************************************************************************
             TI ARM Clang Linker PC v5.1.1                      
 ******************************************************************************
->> Linked Sat Jul  4 22:29:52 2026
+>> Linked Sun Jul  5 02:56:37 2026
 
 OUTPUT FILE NAME:   <gugaPI.out>
 ENTRY POINT SYMBOL: "_c_int00_noargs"  address: 0000844d
@@ -11,7 +11,7 @@ MEMORY CONFIGURATION
 
          name            origin    length      used     unused   attr    fill
 ----------------------  --------  ---------  --------  --------  ----  --------
-  FLASH                 00000000   00080000  00009da0  00076260  R  X
+  FLASH                 00000000   00080000  00009db0  00076250  R  X
   SRAM_BANK0            20200000   00010000  00000684  0000f97c  RW X
   SRAM_BANK1            20210000   00010000  00000000  00010000  RW X
   BCR_CONFIG            41c00000   000000ff  00000000  000000ff  R   
@@ -23,11 +23,11 @@ SEGMENT ALLOCATION MAP
 
 run origin  load origin   length   init length attrs members
 ----------  ----------- ---------- ----------- ----- -------
-00000000    00000000    00009da0   00009da0    r-x
+00000000    00000000    00009db0   00009db0    r-x
   00000000    00000000    000000c0   000000c0    r-- .intvecs
   000000c0    000000c0    00008b50   00008b50    r-x .text
-  00008c10    00008c10    00001160   00001160    r-- .rodata
-  00009d70    00009d70    00000030   00000030    r-- .cinit
+  00008c10    00008c10    00001170   00001170    r-- .rodata
+  00009d80    00009d80    00000030   00000030    r-- .cinit
 20200000    20200000    00000584   00000000    rw-
   20200000    20200000    00000308   00000000    rw- .bss
   20200308    20200308    0000027c   00000000    rw- .data
@@ -294,14 +294,14 @@ section   page    origin      length       input sections
                   00008c08    00000004     libc.a : pre_init.c.obj (.text._system_pre_init)
                   00008c0c    00000004     --HOLE-- [fill = 0]
 
-.cinit     0    00009d70    00000030     
-                  00009d70    0000000c     (__TI_handler_table)
-                  00009d7c    00000009     (.cinit..data.load) [load image, compression = lzss]
-                  00009d85    00000003     --HOLE-- [fill = 0]
-                  00009d88    00000008     (.cinit..bss.load) [load image, compression = zero_init]
-                  00009d90    00000010     (__TI_cinit_table)
+.cinit     0    00009d80    00000030     
+                  00009d80    0000000c     (__TI_handler_table)
+                  00009d8c    00000009     (.cinit..data.load) [load image, compression = lzss]
+                  00009d95    00000003     --HOLE-- [fill = 0]
+                  00009d98    00000008     (.cinit..bss.load) [load image, compression = zero_init]
+                  00009da0    00000010     (__TI_cinit_table)
 
-.rodata    0    00008c10    00001160     
+.rodata    0    00008c10    00001170     
                   00008c10    00000100     app_shell.o (.rodata..L.crctable)
                   00008d10    00000058     board_i2c_bus.o (.rodata._ZN5board12_GLOBAL__N_110g_i2cBusesE)
                   00008d68    00000045     app_shell.o (.rodata.str1.2354522874658768371.1)
@@ -390,68 +390,67 @@ section   page    origin      length       input sections
                   0000959a    00000010     app_shell.o (.rodata.str1.9082118575882053516.1)
                   000095aa    00000010     app_shell.o (.rodata.str1.9141388473721648320.1)
                   000095ba    00000010     app_shell.o (.rodata.str1.9244822838137428263.1)
-                  000095ca    0000000f     app_shell.o (.rodata.str1.14031660303973722868.1)
-                  000095d9    0000000f     app_shell.o (.rodata.str1.17269466629117989041.1)
-                  000095e8    0000000f     app_shell.o (.rodata.str1.17876943342118536213.1)
-                  000095f7    0000000f     app_shell.o (.rodata.str1.3134304214227531536.1)
-                  00009606    0000000f     app_shell.o (.rodata.str1.3256265506082810711.1)
-                  00009615    0000000f     app_shell.o (.rodata.str1.3879560646291831357.1)
-                  00009624    0000000f     app_shell.o (.rodata.str1.4392945030196501414.1)
-                  00009633    0000000f     app_shell.o (.rodata.str1.5407661000085889072.1)
-                  00009642    0000000f     app_shell.o (.rodata.str1.7267978533840413714.1)
-                  00009651    0000000f     app_shell.o (.rodata.str1.9051984071380436030.1)
-                  00009660    0000000e     app_shell.o (.rodata.str1.10256891727475852015.1)
-                  0000966e    0000000e     app_shell.o (.rodata.str1.10855919650491312362.1)
-                  0000967c    0000000e     app_shell.o (.rodata.str1.11903828385650032657.1)
-                  0000968a    0000000e     app_shell.o (.rodata.str1.12185306449572332681.1)
-                  00009698    0000000e     app_shell.o (.rodata.str1.14355953386558495977.1)
-                  000096a6    0000000e     app_shell.o (.rodata.str1.15403383602945839188.1)
-                  000096b4    0000000e     app_shell.o (.rodata.str1.15816476343860600217.1)
-                  000096c2    0000000e     app_shell.o (.rodata.str1.16815118733797554419.1)
-                  000096d0    0000000e     app_shell.o (.rodata.str1.16906130264434024515.1)
-                  000096de    0000000e     app_shell.o (.rodata.str1.2900415078221183578.1)
-                  000096ec    0000000e     app_shell.o (.rodata.str1.5557692366192543561.1)
-                  000096fa    0000000e     app_shell.o (.rodata.str1.626618899871332695.1)
-                  00009708    0000000e     app_shell.o (.rodata.str1.6725838405751831500.1)
-                  00009716    0000000e     app_shell.o (.rodata.str1.6756868286634741853.1)
-                  00009724    0000000e     app_shell.o (.rodata.str1.7078129644076030331.1)
-                  00009732    0000000e     app_shell.o (.rodata.str1.7863334761919578676.1)
-                  00009740    0000000e     app_shell.o (.rodata.str1.9167415978045996327.1)
-                  0000974e    0000000d     app_shell.o (.rodata.str1.10761430618072912911.1)
-                  0000975b    0000000d     app_shell.o (.rodata.str1.12824201010631389445.1)
-                  00009768    0000000d     app_shell.o (.rodata.str1.13157479058689081212.1)
-                  00009775    0000000d     app_shell.o (.rodata.str1.13438288695896508174.1)
-                  00009782    0000000d     app_shell.o (.rodata.str1.13993368087264210023.1)
-                  0000978f    0000000d     app_shell.o (.rodata.str1.14008062965805295334.1)
-                  0000979c    0000000d     app_shell.o (.rodata.str1.1420893864952581301.1)
-                  000097a9    0000000d     app_shell.o (.rodata.str1.14241588195389562460.1)
-                  000097b6    0000000d     app_shell.o (.rodata.str1.14623014954758015065.1)
-                  000097c3    0000000d     app_shell.o (.rodata.str1.14678420154468417691.1)
-                  000097d0    0000000d     app_shell.o (.rodata.str1.15409376994933409736.1)
-                  000097dd    0000000d     app_shell.o (.rodata.str1.16835946644515092483.1)
-                  000097ea    0000000d     app_shell.o (.rodata.str1.17563913066770742391.1)
-                  000097f7    0000000d     app_shell.o (.rodata.str1.18076126304851181080.1)
-                  00009804    0000000d     app_shell.o (.rodata.str1.18269279803075602796.1)
-                  00009811    0000000d     app_shell.o (.rodata.str1.2319085888762997156.1)
-                  0000981e    0000000d     app_shell.o (.rodata.str1.2672312858105111990.1)
-                  0000982b    0000000d     app_shell.o (.rodata.str1.3791812099772881164.1)
-                  00009838    0000000d     app_shell.o (.rodata.str1.4203577644585159315.1)
-                  00009845    0000000d     app_shell.o (.rodata.str1.4906473829960206720.1)
-                  00009852    0000000d     app_shell.o (.rodata.str1.5164433326538179767.1)
-                  0000985f    0000000d     app_shell.o (.rodata.str1.5531439754045694522.1)
-                  0000986c    0000000d     app_shell.o (.rodata.str1.5848672442950545206.1)
-                  00009879    0000000d     app_shell.o (.rodata.str1.7612592787831263617.1)
-                  00009886    0000000d     app_shell.o (.rodata.str1.7850322238517394535.1)
-                  00009893    0000000d     app_shell.o (.rodata.str1.8287504627243269121.1)
-                  000098a0    0000000d     app_shell.o (.rodata.str1.9705620893505900.1)
-                  000098ad    00000003     shell.o (.rodata.str1.10427229796524742636.1)
-                  000098b0    0000000c     board_button.o (.rodata..Lswitch.table._ZN5board19Board_ButtonGetNameENS_13BoardButtonIdE)
-                  000098bc    0000000c     board_buzzer.o (.rodata._ZN5boardL14g_buzzerConfigE)
-                  000098c8    0000000c     board_led.o (.rodata._ZN5boardL17g_statusLedConfigE)
-                  000098d4    0000000c     app_shell.o (.rodata.str1.11187590877126870748.1)
-                  000098e0    0000000c     app_shell.o (.rodata.str1.1207053347194752072.1)
-                  000098ec    0000000c     app_shell.o (.rodata.str1.12082892960889789793.1)
-                  000098f8    0000000c     app_shell.o (.rodata.str1.12164603244115374595.1)
+                  000095ca    0000000f     app_shell.o (.rodata.str1.12164603244115374595.1)
+                  000095d9    0000000f     app_shell.o (.rodata.str1.14031660303973722868.1)
+                  000095e8    0000000f     app_shell.o (.rodata.str1.17269466629117989041.1)
+                  000095f7    0000000f     app_shell.o (.rodata.str1.17876943342118536213.1)
+                  00009606    0000000f     app_shell.o (.rodata.str1.3134304214227531536.1)
+                  00009615    0000000f     app_shell.o (.rodata.str1.3256265506082810711.1)
+                  00009624    0000000f     app_shell.o (.rodata.str1.3879560646291831357.1)
+                  00009633    0000000f     app_shell.o (.rodata.str1.4392945030196501414.1)
+                  00009642    0000000f     app_shell.o (.rodata.str1.5407661000085889072.1)
+                  00009651    0000000f     app_shell.o (.rodata.str1.7267978533840413714.1)
+                  00009660    0000000f     app_shell.o (.rodata.str1.9051984071380436030.1)
+                  0000966f    0000000e     app_shell.o (.rodata.str1.10256891727475852015.1)
+                  0000967d    0000000e     app_shell.o (.rodata.str1.10855919650491312362.1)
+                  0000968b    0000000e     app_shell.o (.rodata.str1.11903828385650032657.1)
+                  00009699    0000000e     app_shell.o (.rodata.str1.12185306449572332681.1)
+                  000096a7    0000000e     app_shell.o (.rodata.str1.14355953386558495977.1)
+                  000096b5    0000000e     app_shell.o (.rodata.str1.15403383602945839188.1)
+                  000096c3    0000000e     app_shell.o (.rodata.str1.15816476343860600217.1)
+                  000096d1    0000000e     app_shell.o (.rodata.str1.16815118733797554419.1)
+                  000096df    0000000e     app_shell.o (.rodata.str1.16906130264434024515.1)
+                  000096ed    0000000e     app_shell.o (.rodata.str1.2900415078221183578.1)
+                  000096fb    0000000e     app_shell.o (.rodata.str1.5557692366192543561.1)
+                  00009709    0000000e     app_shell.o (.rodata.str1.626618899871332695.1)
+                  00009717    0000000e     app_shell.o (.rodata.str1.6725838405751831500.1)
+                  00009725    0000000e     app_shell.o (.rodata.str1.6756868286634741853.1)
+                  00009733    0000000e     app_shell.o (.rodata.str1.7078129644076030331.1)
+                  00009741    0000000e     app_shell.o (.rodata.str1.7863334761919578676.1)
+                  0000974f    0000000e     app_shell.o (.rodata.str1.9167415978045996327.1)
+                  0000975d    0000000d     app_shell.o (.rodata.str1.10761430618072912911.1)
+                  0000976a    0000000d     app_shell.o (.rodata.str1.12824201010631389445.1)
+                  00009777    0000000d     app_shell.o (.rodata.str1.13157479058689081212.1)
+                  00009784    0000000d     app_shell.o (.rodata.str1.13438288695896508174.1)
+                  00009791    0000000d     app_shell.o (.rodata.str1.13993368087264210023.1)
+                  0000979e    0000000d     app_shell.o (.rodata.str1.14008062965805295334.1)
+                  000097ab    0000000d     app_shell.o (.rodata.str1.1420893864952581301.1)
+                  000097b8    0000000d     app_shell.o (.rodata.str1.14241588195389562460.1)
+                  000097c5    0000000d     app_shell.o (.rodata.str1.14623014954758015065.1)
+                  000097d2    0000000d     app_shell.o (.rodata.str1.14678420154468417691.1)
+                  000097df    0000000d     app_shell.o (.rodata.str1.15409376994933409736.1)
+                  000097ec    0000000d     app_shell.o (.rodata.str1.16835946644515092483.1)
+                  000097f9    0000000d     app_shell.o (.rodata.str1.17563913066770742391.1)
+                  00009806    0000000d     app_shell.o (.rodata.str1.18076126304851181080.1)
+                  00009813    0000000d     app_shell.o (.rodata.str1.18269279803075602796.1)
+                  00009820    0000000d     app_shell.o (.rodata.str1.2319085888762997156.1)
+                  0000982d    0000000d     app_shell.o (.rodata.str1.2672312858105111990.1)
+                  0000983a    0000000d     app_shell.o (.rodata.str1.3791812099772881164.1)
+                  00009847    0000000d     app_shell.o (.rodata.str1.4203577644585159315.1)
+                  00009854    0000000d     app_shell.o (.rodata.str1.4906473829960206720.1)
+                  00009861    0000000d     app_shell.o (.rodata.str1.5164433326538179767.1)
+                  0000986e    0000000d     app_shell.o (.rodata.str1.5531439754045694522.1)
+                  0000987b    0000000d     app_shell.o (.rodata.str1.5848672442950545206.1)
+                  00009888    0000000d     app_shell.o (.rodata.str1.7612592787831263617.1)
+                  00009895    0000000d     app_shell.o (.rodata.str1.7850322238517394535.1)
+                  000098a2    0000000d     app_shell.o (.rodata.str1.8287504627243269121.1)
+                  000098af    0000000d     app_shell.o (.rodata.str1.9705620893505900.1)
+                  000098bc    0000000c     board_button.o (.rodata..Lswitch.table._ZN5board19Board_ButtonGetNameENS_13BoardButtonIdE)
+                  000098c8    0000000c     board_buzzer.o (.rodata._ZN5boardL14g_buzzerConfigE)
+                  000098d4    0000000c     board_led.o (.rodata._ZN5boardL17g_statusLedConfigE)
+                  000098e0    0000000c     app_shell.o (.rodata.str1.11187590877126870748.1)
+                  000098ec    0000000c     app_shell.o (.rodata.str1.1207053347194752072.1)
+                  000098f8    0000000c     app_shell.o (.rodata.str1.12082892960889789793.1)
                   00009904    0000000c     app_shell.o (.rodata.str1.12681352959443149009.1)
                   00009910    0000000c     app_shell.o (.rodata.str1.13507390935846511250.1)
                   0000991c    0000000c     app_shell.o (.rodata.str1.15536306115837748184.1)
@@ -460,166 +459,167 @@ section   page    origin      length       input sections
                   00009940    0000000c     app_shell.o (.rodata.str1.17414183638713165213.1)
                   0000994c    0000000c     app_shell.o (.rodata.str1.2292235750072059597.1)
                   00009958    0000000c     app_shell.o (.rodata.str1.3590894685082263268.1)
-                  00009964    0000000c     app_shell.o (.rodata.str1.5612542551564952699.1)
-                  00009970    0000000c     app_shell.o (.rodata.str1.5640218363402806195.1)
-                  0000997c    0000000c     app_shell.o (.rodata.str1.6333935326310285001.1)
-                  00009988    0000000c     app_shell.o (.rodata.str1.8150600325345066189.1)
-                  00009994    0000000c     app_shell.o (.rodata.str1.97227345183721019.1)
-                  000099a0    0000000b     app_shell.o (.rodata.str1.11325690732168652611.1)
-                  000099ab    0000000b     app_shell.o (.rodata.str1.12144774989780088692.1)
-                  000099b6    0000000b     app_shell.o (.rodata.str1.14677212197102816015.1)
-                  000099c1    0000000b     app_shell.o (.rodata.str1.16738014180672278497.1)
-                  000099cc    0000000b     app_shell.o (.rodata.str1.1695784342961477721.1)
-                  000099d7    0000000b     app_shell.o (.rodata.str1.17353931100524941225.1)
-                  000099e2    0000000b     app_shell.o (.rodata.str1.17942500811997078001.1)
-                  000099ed    0000000b     app_shell.o (.rodata.str1.18243883703027276797.1)
-                  000099f8    0000000b     app_shell.o (.rodata.str1.3587876751327453651.1)
-                  00009a03    0000000b     app_shell.o (.rodata.str1.4641291215374644332.1)
-                  00009a0e    0000000b     app_shell.o (.rodata.str1.7207923708610531365.1)
-                  00009a19    0000000b     app_shell.o (.rodata.str1.738127925484632372.1)
-                  00009a24    0000000b     app_shell.o (.rodata.str1.9307220092008964426.1)
-                  00009a2f    00000001     --HOLE-- [fill = 0]
-                  00009a30    0000000a     ti_msp_dl_config.o (.rodata.gDEBUG_UARTConfig)
-                  00009a3a    0000000a     ti_msp_dl_config.o (.rodata.gIMU_SPI_config)
-                  00009a44    0000000a     ti_msp_dl_config.o (.rodata.gLORA_UARTConfig)
-                  00009a4e    0000000a     ti_msp_dl_config.o (.rodata.gMOTOR_UARTConfig)
-                  00009a58    0000000a     app_shell.o (.rodata.str1.11208828733426745331.1)
-                  00009a62    0000000a     app_shell.o (.rodata.str1.16330407060470052804.1)
-                  00009a6c    0000000a     app_shell.o (.rodata.str1.16821001261222486393.1)
-                  00009a76    0000000a     shell.o (.rodata.str1.17922515892264497723.1)
-                  00009a80    0000000a     app_shell.o (.rodata.str1.18173995716001367913.1)
-                  00009a8a    0000000a     app_shell.o (.rodata.str1.2128407216864987192.1)
-                  00009a94    0000000a     app_shell.o (.rodata.str1.4190646769514731288.1)
-                  00009a9e    0000000a     app_shell.o (.rodata.str1.5000143241413183010.1)
-                  00009aa8    00000009     app_shell.o (.rodata.str1.13247589138198607459.1)
-                  00009ab1    00000009     app_shell.o (.rodata.str1.1451090849677487530.1)
-                  00009aba    00000009     app_shell.o (.rodata.str1.1642163497366634869.1)
-                  00009ac3    00000009     app_shell.o (.rodata.str1.3892416308557052197.1)
-                  00009acc    00000009     app_shell.o (.rodata.str1.5376205643164354286.1)
-                  00009ad5    00000009     app_shell.o (.rodata.str1.9017255012489828088.1)
-                  00009ade    00000008     app_shell.o (.rodata.str1.10665909939688505188.1)
-                  00009ae6    00000008     board_button.o (.rodata.str1.10963450802004053816.1)
-                  00009aee    00000008     app_shell.o (.rodata.str1.11327417708772392390.1)
-                  00009af6    00000008     app_shell.o (.rodata.str1.11335294061225285764.1)
-                  00009afe    00000008     app_shell.o (.rodata.str1.12583477948311004516.1)
-                  00009b06    00000008     app_shell.o (.rodata.str1.14891418699318862133.1)
-                  00009b0e    00000008     app_shell.o (.rodata.str1.17082220688523197928.1)
-                  00009b16    00000008     board_button.o (.rodata.str1.17681505947258605906.1)
-                  00009b1e    00000008     app_shell.o (.rodata.str1.1818528395550233868.1)
-                  00009b26    00000008     board_button.o (.rodata.str1.18240515884718476655.1)
-                  00009b2e    00000008     app_main.o (.rodata.str1.1839410120130765391.1)
-                  00009b36    00000008     app_shell.o (.rodata.str1.5549424804698209806.1)
-                  00009b3e    00000008     board_button.o (.rodata.str1.5952028417427413650.1)
-                  00009b46    00000008     app_shell.o (.rodata.str1.6213986015100719150.1)
-                  00009b4e    00000008     app_shell.o (.rodata.str1.7493624433185208732.1)
-                  00009b56    00000008     app_shell.o (.rodata.str1.7988978544830785654.1)
-                  00009b5e    00000008     app_shell.o (.rodata.str1.8730301986016609910.1)
-                  00009b66    00000008     app_shell.o (.rodata.str1.8963702969112686911.1)
-                  00009b6e    00000008     app_shell.o (.rodata.str1.9555053908608242801.1)
-                  00009b76    00000007     app_shell.o (.rodata.str1.11774507841365577078.1)
-                  00009b7d    00000007     app_shell.o (.rodata.str1.11836969374611347342.1)
-                  00009b84    00000007     app_shell.o (.rodata.str1.11922244342622017285.1)
-                  00009b8b    00000007     app_shell.o (.rodata.str1.13029328624899454496.1)
-                  00009b92    00000007     app_shell.o (.rodata.str1.15397327130298834941.1)
-                  00009b99    00000007     app_shell.o (.rodata.str1.15706013027452160776.1)
-                  00009ba0    00000007     app_shell.o (.rodata.str1.16227620492999702623.1)
-                  00009ba7    00000007     app_shell.o (.rodata.str1.16800956331689080151.1)
-                  00009bae    00000007     board_i2c_bus.o (.rodata.str1.17771965703026024685.1)
-                  00009bb5    00000007     app_shell.o (.rodata.str1.17796269336985765740.1)
-                  00009bbc    00000007     app_shell.o (.rodata.str1.17894747200582054988.1)
-                  00009bc3    00000007     app_shell.o (.rodata.str1.2029421846019890511.1)
-                  00009bca    00000007     app_shell.o (.rodata.str1.27965927919619260.1)
-                  00009bd1    00000007     app_shell.o (.rodata.str1.2831129786622658843.1)
-                  00009bd8    00000007     app_shell.o (.rodata.str1.2963890733414402023.1)
-                  00009bdf    00000007     app_shell.o (.rodata.str1.931795180867172166.1)
-                  00009be6    00000007     app_shell.o (.rodata.str1.9376739677351878210.1)
-                  00009bed    00000007     app_shell.o (.rodata.str1.9708937098353321336.1)
-                  00009bf4    00000006     app_shell.o (.rodata._ZZN3app12_GLOBAL__N_111LoraCommandEiPKPKcE9kTestData)
-                  00009bfa    00000006     app_shell.o (.rodata._ZZN3app12_GLOBAL__N_112MotorCommandEiPKPKcE9kTestData)
-                  00009c00    00000006     app_shell.o (.rodata.str1.10195084751130023350.1)
-                  00009c06    00000006     app_shell.o (.rodata.str1.10851017352621485976.1)
-                  00009c0c    00000006     app_shell.o (.rodata.str1.13323525510459860336.1)
-                  00009c12    00000006     app_shell.o (.rodata.str1.13643216153024045165.1)
-                  00009c18    00000006     app_shell.o (.rodata.str1.13772462829107236127.1)
-                  00009c1e    00000006     app_shell.o (.rodata.str1.14223157730264656398.1)
-                  00009c24    00000006     app_shell.o (.rodata.str1.15645525071624774828.1)
-                  00009c2a    00000006     app_shell.o (.rodata.str1.15890787717468802715.1)
-                  00009c30    00000006     app_shell.o (.rodata.str1.16079002699872141978.1)
-                  00009c36    00000006     app_shell.o (.rodata.str1.16216038010955657616.1)
-                  00009c3c    00000006     app_shell.o (.rodata.str1.16234102244779358492.1)
-                  00009c42    00000006     app_shell.o (.rodata.str1.16556295950709461880.1)
-                  00009c48    00000006     app_shell.o (.rodata.str1.3345426052653886543.1)
-                  00009c4e    00000006     app_shell.o (.rodata.str1.587364518894469847.1)
-                  00009c54    00000006     app_shell.o (.rodata.str1.5909738732761903070.1)
-                  00009c5a    00000006     app_shell.o (.rodata.str1.6351667589775284342.1)
-                  00009c60    00000006     app_shell.o (.rodata.str1.6951946783319408118.1)
-                  00009c66    00000006     app_shell.o (.rodata.str1.7571154574660953324.1)
-                  00009c6c    00000006     app_shell.o (.rodata.str1.8674441817985872181.1)
-                  00009c72    00000006     app_shell.o (.rodata.str1.906066569443847875.1)
-                  00009c78    00000006     app_shell.o (.rodata.str1.9144633642026494361.1)
-                  00009c7e    00000006     app_shell.o (.rodata.str1.9805525145790407866.1)
-                  00009c84    00000005     app_shell.o (.rodata.str1.10218881960771275491.1)
-                  00009c89    00000005     app_shell.o (.rodata.str1.10673636489446728236.1)
-                  00009c8e    00000005     board_i2c_bus.o (.rodata.str1.11524751692591293752.1)
-                  00009c93    00000005     app_shell.o (.rodata.str1.11627259167888876947.1)
-                  00009c98    00000005     app_shell.o (.rodata.str1.11747346528919543944.1)
-                  00009c9d    00000005     app_shell.o (.rodata.str1.13640432584226954899.1)
-                  00009ca2    00000005     app_shell.o (.rodata.str1.13923183189790686887.1)
-                  00009ca7    00000005     app_shell.o (.rodata.str1.14082473703337987432.1)
-                  00009cac    00000005     app_shell.o (.rodata.str1.1431720735396876446.1)
-                  00009cb1    00000005     app_shell.o (.rodata.str1.15453031427744251291.1)
-                  00009cb6    00000005     app_shell.o (.rodata.str1.15885433143163248817.1)
-                  00009cbb    00000005     shell.o (.rodata.str1.17405053739148516019.1)
-                  00009cc0    00000005     app_shell.o (.rodata.str1.18221696243336245540.1)
-                  00009cc5    00000005     app_shell.o (.rodata.str1.2160470991696560517.1)
-                  00009cca    00000005     app_shell.o (.rodata.str1.4126815238888174570.1)
-                  00009ccf    00000005     app_shell.o (.rodata.str1.4179493015675024832.1)
-                  00009cd4    00000005     app_shell.o (.rodata.str1.5652790780262836254.1)
-                  00009cd9    00000005     app_shell.o (.rodata.str1.6963926815691589692.1)
-                  00009cde    00000005     app_shell.o (.rodata.str1.7212684690809077353.1)
-                  00009ce3    00000005     app_shell.o (.rodata.str1.8934507472916618446.1)
-                  00009ce8    00000004     app_shell.o (.rodata.str1.10756110055158838206.1)
-                  00009cec    00000004     app_shell.o (.rodata.str1.11515932757094173050.1)
-                  00009cf0    00000004     app_shell.o (.rodata.str1.1223882822645374465.1)
-                  00009cf4    00000004     app_shell.o (.rodata.str1.13626453309717720227.1)
-                  00009cf8    00000004     app_shell.o (.rodata.str1.141740382680400416.1)
-                  00009cfc    00000004     app_shell.o (.rodata.str1.14445045882516821416.1)
-                  00009d00    00000004     app_shell.o (.rodata.str1.14639049301600042713.1)
-                  00009d04    00000004     app_shell.o (.rodata.str1.2112829382197544942.1)
-                  00009d08    00000004     app_shell.o (.rodata.str1.2767916714829989116.1)
-                  00009d0c    00000004     app_shell.o (.rodata.str1.3030045481369325523.1)
-                  00009d10    00000004     app_shell.o (.rodata.str1.3688985272902551570.1)
-                  00009d14    00000004     app_shell.o (.rodata.str1.4465400818469226320.1)
-                  00009d18    00000004     app_shell.o (.rodata.str1.4561355912026728236.1)
-                  00009d1c    00000004     app_shell.o (.rodata.str1.5716603645884478871.1)
-                  00009d20    00000004     app_shell.o (.rodata.str1.6410197886599512152.1)
-                  00009d24    00000004     app_shell.o (.rodata.str1.6578158171544725696.1)
-                  00009d28    00000004     shell.o (.rodata.str1.7348818734176781284.1)
-                  00009d2c    00000004     app_shell.o (.rodata.str1.7940456731757887554.1)
-                  00009d30    00000004     app_shell.o (.rodata.str1.8406640635343907673.1)
-                  00009d34    00000004     shell.o (.rodata.str1.8954516873856363469.1)
-                  00009d38    00000003     app_shell.o (.rodata.str1.13245102848535749030.1)
-                  00009d3b    00000003     app_shell.o (.rodata.str1.13442463908107530774.1)
-                  00009d3e    00000003     app_shell.o (.rodata.str1.1418877803505809098.1)
-                  00009d41    00000003     app_shell.o (.rodata.str1.2027963614161212499.1)
-                  00009d44    00000003     app_shell.o (.rodata.str1.2370428100076675559.1)
-                  00009d47    00000003     shell.o (.rodata.str1.4282230880151502975.1)
-                  00009d4a    00000003     app_shell.o (.rodata.str1.638712236475948105.1)
-                  00009d4d    00000003     app_shell.o (.rodata.str1.8035528561561339514.1)
-                  00009d50    00000003     shell.o (.rodata.str1.8508895379925972626.1)
-                  00009d53    00000003     app_shell.o (.rodata.str1.8569159511768566713.1)
-                  00009d56    00000002     ti_msp_dl_config.o (.rodata.gDEBUG_UARTClockConfig)
-                  00009d58    00000002     ti_msp_dl_config.o (.rodata.gFRAM_I2CClockConfig)
-                  00009d5a    00000002     ti_msp_dl_config.o (.rodata.gIMU_SPI_clockConfig)
-                  00009d5c    00000002     ti_msp_dl_config.o (.rodata.gINA219_I2CClockConfig)
-                  00009d5e    00000002     ti_msp_dl_config.o (.rodata.gLORA_UARTClockConfig)
-                  00009d60    00000002     ti_msp_dl_config.o (.rodata.gMOTOR_UARTClockConfig)
-                  00009d62    00000002     app_shell.o (.rodata.str1.10091040128680290456.1)
-                  00009d64    00000002     app_shell.o (.rodata.str1.16458884249986146812.1)
-                  00009d66    00000002     app_shell.o (.rodata.str1.18057142085415363861.1)
-                  00009d68    00000002     app_shell.o (.rodata.str1.8867909630182175989.1)
-                  00009d6a    00000002     app_shell.o (.rodata.str1.9307362830757344490.1)
-                  00009d6c    00000004     --HOLE-- [fill = 0]
+                  00009964    0000000c     app_shell.o (.rodata.str1.3892416308557052197.1)
+                  00009970    0000000c     app_shell.o (.rodata.str1.5612542551564952699.1)
+                  0000997c    0000000c     app_shell.o (.rodata.str1.5640218363402806195.1)
+                  00009988    0000000c     app_shell.o (.rodata.str1.6333935326310285001.1)
+                  00009994    0000000c     app_shell.o (.rodata.str1.8150600325345066189.1)
+                  000099a0    0000000c     app_shell.o (.rodata.str1.97227345183721019.1)
+                  000099ac    0000000b     app_shell.o (.rodata.str1.11325690732168652611.1)
+                  000099b7    0000000b     app_shell.o (.rodata.str1.12144774989780088692.1)
+                  000099c2    0000000b     app_shell.o (.rodata.str1.14677212197102816015.1)
+                  000099cd    0000000b     app_shell.o (.rodata.str1.16738014180672278497.1)
+                  000099d8    0000000b     app_shell.o (.rodata.str1.1695784342961477721.1)
+                  000099e3    0000000b     app_shell.o (.rodata.str1.17353931100524941225.1)
+                  000099ee    0000000b     app_shell.o (.rodata.str1.17942500811997078001.1)
+                  000099f9    0000000b     app_shell.o (.rodata.str1.18243883703027276797.1)
+                  00009a04    0000000b     app_shell.o (.rodata.str1.3587876751327453651.1)
+                  00009a0f    0000000b     app_shell.o (.rodata.str1.4641291215374644332.1)
+                  00009a1a    0000000b     app_shell.o (.rodata.str1.7207923708610531365.1)
+                  00009a25    0000000b     app_shell.o (.rodata.str1.738127925484632372.1)
+                  00009a30    0000000b     app_shell.o (.rodata.str1.9307220092008964426.1)
+                  00009a3b    00000001     --HOLE-- [fill = 0]
+                  00009a3c    0000000a     ti_msp_dl_config.o (.rodata.gDEBUG_UARTConfig)
+                  00009a46    0000000a     ti_msp_dl_config.o (.rodata.gIMU_SPI_config)
+                  00009a50    0000000a     ti_msp_dl_config.o (.rodata.gLORA_UARTConfig)
+                  00009a5a    0000000a     ti_msp_dl_config.o (.rodata.gMOTOR_UARTConfig)
+                  00009a64    0000000a     app_shell.o (.rodata.str1.11208828733426745331.1)
+                  00009a6e    0000000a     app_shell.o (.rodata.str1.16330407060470052804.1)
+                  00009a78    0000000a     app_shell.o (.rodata.str1.16821001261222486393.1)
+                  00009a82    0000000a     shell.o (.rodata.str1.17922515892264497723.1)
+                  00009a8c    0000000a     app_shell.o (.rodata.str1.18173995716001367913.1)
+                  00009a96    0000000a     app_shell.o (.rodata.str1.2128407216864987192.1)
+                  00009aa0    0000000a     app_shell.o (.rodata.str1.4190646769514731288.1)
+                  00009aaa    0000000a     app_shell.o (.rodata.str1.5000143241413183010.1)
+                  00009ab4    00000009     app_shell.o (.rodata.str1.13247589138198607459.1)
+                  00009abd    00000009     app_shell.o (.rodata.str1.1451090849677487530.1)
+                  00009ac6    00000009     app_shell.o (.rodata.str1.1642163497366634869.1)
+                  00009acf    00000009     app_shell.o (.rodata.str1.5376205643164354286.1)
+                  00009ad8    00000009     app_shell.o (.rodata.str1.9017255012489828088.1)
+                  00009ae1    00000008     app_shell.o (.rodata.str1.10665909939688505188.1)
+                  00009ae9    00000008     board_button.o (.rodata.str1.10963450802004053816.1)
+                  00009af1    00000008     app_shell.o (.rodata.str1.11327417708772392390.1)
+                  00009af9    00000008     app_shell.o (.rodata.str1.11335294061225285764.1)
+                  00009b01    00000008     app_shell.o (.rodata.str1.12583477948311004516.1)
+                  00009b09    00000008     app_shell.o (.rodata.str1.14891418699318862133.1)
+                  00009b11    00000008     app_shell.o (.rodata.str1.17082220688523197928.1)
+                  00009b19    00000008     board_button.o (.rodata.str1.17681505947258605906.1)
+                  00009b21    00000008     app_shell.o (.rodata.str1.1818528395550233868.1)
+                  00009b29    00000008     board_button.o (.rodata.str1.18240515884718476655.1)
+                  00009b31    00000008     app_main.o (.rodata.str1.1839410120130765391.1)
+                  00009b39    00000008     app_shell.o (.rodata.str1.5549424804698209806.1)
+                  00009b41    00000008     board_button.o (.rodata.str1.5952028417427413650.1)
+                  00009b49    00000008     app_shell.o (.rodata.str1.6213986015100719150.1)
+                  00009b51    00000008     app_shell.o (.rodata.str1.7493624433185208732.1)
+                  00009b59    00000008     app_shell.o (.rodata.str1.7988978544830785654.1)
+                  00009b61    00000008     app_shell.o (.rodata.str1.8730301986016609910.1)
+                  00009b69    00000008     app_shell.o (.rodata.str1.8963702969112686911.1)
+                  00009b71    00000008     app_shell.o (.rodata.str1.9555053908608242801.1)
+                  00009b79    00000007     app_shell.o (.rodata.str1.11774507841365577078.1)
+                  00009b80    00000007     app_shell.o (.rodata.str1.11836969374611347342.1)
+                  00009b87    00000007     app_shell.o (.rodata.str1.11922244342622017285.1)
+                  00009b8e    00000007     app_shell.o (.rodata.str1.13029328624899454496.1)
+                  00009b95    00000007     app_shell.o (.rodata.str1.15397327130298834941.1)
+                  00009b9c    00000007     app_shell.o (.rodata.str1.15706013027452160776.1)
+                  00009ba3    00000007     app_shell.o (.rodata.str1.16227620492999702623.1)
+                  00009baa    00000007     app_shell.o (.rodata.str1.16800956331689080151.1)
+                  00009bb1    00000007     board_i2c_bus.o (.rodata.str1.17771965703026024685.1)
+                  00009bb8    00000007     app_shell.o (.rodata.str1.17796269336985765740.1)
+                  00009bbf    00000007     app_shell.o (.rodata.str1.17894747200582054988.1)
+                  00009bc6    00000007     app_shell.o (.rodata.str1.2029421846019890511.1)
+                  00009bcd    00000007     app_shell.o (.rodata.str1.27965927919619260.1)
+                  00009bd4    00000007     app_shell.o (.rodata.str1.2831129786622658843.1)
+                  00009bdb    00000007     app_shell.o (.rodata.str1.2963890733414402023.1)
+                  00009be2    00000007     app_shell.o (.rodata.str1.931795180867172166.1)
+                  00009be9    00000007     app_shell.o (.rodata.str1.9376739677351878210.1)
+                  00009bf0    00000007     app_shell.o (.rodata.str1.9708937098353321336.1)
+                  00009bf7    00000006     app_shell.o (.rodata._ZZN3app12_GLOBAL__N_111LoraCommandEiPKPKcE9kTestData)
+                  00009bfd    00000006     app_shell.o (.rodata._ZZN3app12_GLOBAL__N_112MotorCommandEiPKPKcE9kTestData)
+                  00009c03    00000006     app_shell.o (.rodata.str1.10195084751130023350.1)
+                  00009c09    00000006     app_shell.o (.rodata.str1.10851017352621485976.1)
+                  00009c0f    00000006     app_shell.o (.rodata.str1.13323525510459860336.1)
+                  00009c15    00000006     app_shell.o (.rodata.str1.13643216153024045165.1)
+                  00009c1b    00000006     app_shell.o (.rodata.str1.13772462829107236127.1)
+                  00009c21    00000006     app_shell.o (.rodata.str1.14223157730264656398.1)
+                  00009c27    00000006     app_shell.o (.rodata.str1.15645525071624774828.1)
+                  00009c2d    00000006     app_shell.o (.rodata.str1.15890787717468802715.1)
+                  00009c33    00000006     app_shell.o (.rodata.str1.16079002699872141978.1)
+                  00009c39    00000006     app_shell.o (.rodata.str1.16216038010955657616.1)
+                  00009c3f    00000006     app_shell.o (.rodata.str1.16234102244779358492.1)
+                  00009c45    00000006     app_shell.o (.rodata.str1.16556295950709461880.1)
+                  00009c4b    00000006     app_shell.o (.rodata.str1.3345426052653886543.1)
+                  00009c51    00000006     app_shell.o (.rodata.str1.587364518894469847.1)
+                  00009c57    00000006     app_shell.o (.rodata.str1.5909738732761903070.1)
+                  00009c5d    00000006     app_shell.o (.rodata.str1.6351667589775284342.1)
+                  00009c63    00000006     app_shell.o (.rodata.str1.6951946783319408118.1)
+                  00009c69    00000006     app_shell.o (.rodata.str1.7571154574660953324.1)
+                  00009c6f    00000006     app_shell.o (.rodata.str1.8674441817985872181.1)
+                  00009c75    00000006     app_shell.o (.rodata.str1.906066569443847875.1)
+                  00009c7b    00000006     app_shell.o (.rodata.str1.9144633642026494361.1)
+                  00009c81    00000006     app_shell.o (.rodata.str1.9805525145790407866.1)
+                  00009c87    00000005     app_shell.o (.rodata.str1.10218881960771275491.1)
+                  00009c8c    00000005     app_shell.o (.rodata.str1.10673636489446728236.1)
+                  00009c91    00000005     board_i2c_bus.o (.rodata.str1.11524751692591293752.1)
+                  00009c96    00000005     app_shell.o (.rodata.str1.11627259167888876947.1)
+                  00009c9b    00000005     app_shell.o (.rodata.str1.11747346528919543944.1)
+                  00009ca0    00000005     app_shell.o (.rodata.str1.13640432584226954899.1)
+                  00009ca5    00000005     app_shell.o (.rodata.str1.13923183189790686887.1)
+                  00009caa    00000005     app_shell.o (.rodata.str1.14082473703337987432.1)
+                  00009caf    00000005     app_shell.o (.rodata.str1.1431720735396876446.1)
+                  00009cb4    00000005     app_shell.o (.rodata.str1.15453031427744251291.1)
+                  00009cb9    00000005     app_shell.o (.rodata.str1.15885433143163248817.1)
+                  00009cbe    00000005     shell.o (.rodata.str1.17405053739148516019.1)
+                  00009cc3    00000005     app_shell.o (.rodata.str1.18221696243336245540.1)
+                  00009cc8    00000005     app_shell.o (.rodata.str1.2160470991696560517.1)
+                  00009ccd    00000005     app_shell.o (.rodata.str1.4126815238888174570.1)
+                  00009cd2    00000005     app_shell.o (.rodata.str1.4179493015675024832.1)
+                  00009cd7    00000005     app_shell.o (.rodata.str1.5652790780262836254.1)
+                  00009cdc    00000005     app_shell.o (.rodata.str1.6963926815691589692.1)
+                  00009ce1    00000005     app_shell.o (.rodata.str1.7212684690809077353.1)
+                  00009ce6    00000005     app_shell.o (.rodata.str1.8934507472916618446.1)
+                  00009ceb    00000004     app_shell.o (.rodata.str1.10756110055158838206.1)
+                  00009cef    00000004     app_shell.o (.rodata.str1.11515932757094173050.1)
+                  00009cf3    00000004     app_shell.o (.rodata.str1.1223882822645374465.1)
+                  00009cf7    00000004     app_shell.o (.rodata.str1.13626453309717720227.1)
+                  00009cfb    00000004     app_shell.o (.rodata.str1.141740382680400416.1)
+                  00009cff    00000004     app_shell.o (.rodata.str1.14445045882516821416.1)
+                  00009d03    00000004     app_shell.o (.rodata.str1.14639049301600042713.1)
+                  00009d07    00000004     app_shell.o (.rodata.str1.2112829382197544942.1)
+                  00009d0b    00000004     app_shell.o (.rodata.str1.2767916714829989116.1)
+                  00009d0f    00000004     app_shell.o (.rodata.str1.3030045481369325523.1)
+                  00009d13    00000004     app_shell.o (.rodata.str1.3688985272902551570.1)
+                  00009d17    00000004     app_shell.o (.rodata.str1.4465400818469226320.1)
+                  00009d1b    00000004     app_shell.o (.rodata.str1.4561355912026728236.1)
+                  00009d1f    00000004     app_shell.o (.rodata.str1.5716603645884478871.1)
+                  00009d23    00000004     app_shell.o (.rodata.str1.6410197886599512152.1)
+                  00009d27    00000004     app_shell.o (.rodata.str1.6578158171544725696.1)
+                  00009d2b    00000004     shell.o (.rodata.str1.7348818734176781284.1)
+                  00009d2f    00000004     app_shell.o (.rodata.str1.7940456731757887554.1)
+                  00009d33    00000004     app_shell.o (.rodata.str1.8406640635343907673.1)
+                  00009d37    00000004     shell.o (.rodata.str1.8954516873856363469.1)
+                  00009d3b    00000003     shell.o (.rodata.str1.10427229796524742636.1)
+                  00009d3e    00000003     app_shell.o (.rodata.str1.13245102848535749030.1)
+                  00009d41    00000003     app_shell.o (.rodata.str1.13442463908107530774.1)
+                  00009d44    00000003     app_shell.o (.rodata.str1.1418877803505809098.1)
+                  00009d47    00000003     app_shell.o (.rodata.str1.2027963614161212499.1)
+                  00009d4a    00000003     app_shell.o (.rodata.str1.2370428100076675559.1)
+                  00009d4d    00000003     shell.o (.rodata.str1.4282230880151502975.1)
+                  00009d50    00000003     app_shell.o (.rodata.str1.638712236475948105.1)
+                  00009d53    00000003     app_shell.o (.rodata.str1.8035528561561339514.1)
+                  00009d56    00000003     shell.o (.rodata.str1.8508895379925972626.1)
+                  00009d59    00000003     app_shell.o (.rodata.str1.8569159511768566713.1)
+                  00009d5c    00000002     ti_msp_dl_config.o (.rodata.gDEBUG_UARTClockConfig)
+                  00009d5e    00000002     ti_msp_dl_config.o (.rodata.gFRAM_I2CClockConfig)
+                  00009d60    00000002     ti_msp_dl_config.o (.rodata.gIMU_SPI_clockConfig)
+                  00009d62    00000002     ti_msp_dl_config.o (.rodata.gINA219_I2CClockConfig)
+                  00009d64    00000002     ti_msp_dl_config.o (.rodata.gLORA_UARTClockConfig)
+                  00009d66    00000002     ti_msp_dl_config.o (.rodata.gMOTOR_UARTClockConfig)
+                  00009d68    00000002     app_shell.o (.rodata.str1.10091040128680290456.1)
+                  00009d6a    00000002     app_shell.o (.rodata.str1.16458884249986146812.1)
+                  00009d6c    00000002     app_shell.o (.rodata.str1.18057142085415363861.1)
+                  00009d6e    00000002     app_shell.o (.rodata.str1.8867909630182175989.1)
+                  00009d70    00000002     app_shell.o (.rodata.str1.9307362830757344490.1)
+                  00009d72    0000000e     --HOLE-- [fill = 0]
 
 .init_array 
 *          0    00000000    00000000     UNINITIALIZED
@@ -676,10 +676,10 @@ MODULE SUMMARY
        Total:                         1216    244       40     
                                                                
     .\app\
-       app_shell.o                    17880   3907      0      
+       app_shell.o                    17880   3913      0      
        app_main.o                     102     8         8      
     +--+------------------------------+-------+---------+---------+
-       Total:                         17982   3915      8      
+       Total:                         17982   3921      8      
                                                                
     .\board\
        board_imu.o                    1368    0         1      
@@ -782,19 +782,19 @@ MODULE SUMMARY
        Stack:                         0       0         256    
        Linker Generated:              0       45        0      
     +--+------------------------------+-------+---------+---------+
-       Grand Total:                   35646   4679      1668   
+       Grand Total:                   35646   4685      1668   
 
 
 LINKER GENERATED COPY TABLES
 
-__TI_cinit_table @ 00009d90 records: 2, size/record: 8, table size: 16
-	.data: load addr=00009d7c, load size=00000009 bytes, run addr=20200308, run size=0000027c bytes, compression=lzss
-	.bss: load addr=00009d88, load size=00000008 bytes, run addr=20200000, run size=00000308 bytes, compression=zero_init
+__TI_cinit_table @ 00009da0 records: 2, size/record: 8, table size: 16
+	.data: load addr=00009d8c, load size=00000009 bytes, run addr=20200308, run size=0000027c bytes, compression=lzss
+	.bss: load addr=00009d98, load size=00000008 bytes, run addr=20200000, run size=00000308 bytes, compression=zero_init
 
 
 LINKER GENERATED HANDLER TABLE
 
-__TI_handler_table @ 00009d70 records: 3, size/record: 4, table size: 12
+__TI_handler_table @ 00009d80 records: 3, size/record: 4, table size: 12
 	index: 0, handler: __TI_decompress_lzss
 	index: 1, handler: __TI_decompress_none
 	index: 2, handler: __TI_zero_init
@@ -1037,11 +1037,11 @@ address   name
 00000000  __TI_ATRegion2_region_sz                                                                    
 00000000  __TI_ATRegion2_src_addr                                                                     
 00000000  __TI_ATRegion2_trg_addr                                                                     
-00009d90  __TI_CINIT_Base                                                                             
-00009da0  __TI_CINIT_Limit                                                                            
-00009da0  __TI_CINIT_Warm                                                                             
-00009d70  __TI_Handler_Table_Base                                                                     
-00009d7c  __TI_Handler_Table_Limit                                                                    
+00009da0  __TI_CINIT_Base                                                                             
+00009db0  __TI_CINIT_Limit                                                                            
+00009db0  __TI_CINIT_Warm                                                                             
+00009d80  __TI_Handler_Table_Base                                                                     
+00009d8c  __TI_Handler_Table_Limit                                                                    
 00007f31  __TI_auto_init_nobinit_nopinit                                                              
 000071b9  __TI_decompress_lzss                                                                        
 000088f5  __TI_decompress_none                                                                        
@@ -1341,11 +1341,11 @@ address   name
 00008c01  Reset_Handler                                                                               
 00008c05  _ZN5board17Board_I2cBusCountEv                                                              
 00008c09  _system_pre_init                                                                            
-00009d70  __TI_Handler_Table_Base                                                                     
-00009d7c  __TI_Handler_Table_Limit                                                                    
-00009d90  __TI_CINIT_Base                                                                             
-00009da0  __TI_CINIT_Limit                                                                            
-00009da0  __TI_CINIT_Warm                                                                             
+00009d80  __TI_Handler_Table_Base                                                                     
+00009d8c  __TI_Handler_Table_Limit                                                                    
+00009da0  __TI_CINIT_Base                                                                             
+00009db0  __TI_CINIT_Limit                                                                            
+00009db0  __TI_CINIT_Warm                                                                             
 20200000  __start___llvm_prf_bits                                                                     
 20200000  __start___llvm_prf_cnts                                                                     
 20200000  __stop___llvm_prf_bits                                                                      

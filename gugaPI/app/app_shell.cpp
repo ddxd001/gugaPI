@@ -1028,9 +1028,9 @@ void ImuCommand(int argc, const char * const argv[])
             return;
         }
 
-        services::Shell_WriteString("imu cs_icm=");
+        services::Shell_WriteString("imu cs_icm_in=");
         services::Shell_WriteString(lines.icm_cs_high ? "H" : "L");
-        services::Shell_WriteString(" cs_lis=");
+        services::Shell_WriteString(" cs_lis_in=");
         services::Shell_WriteString(lines.lis_cs_high ? "H" : "L");
         services::Shell_WriteString(" cs_icm_out=");
         services::Shell_WriteString(lines.icm_cs_latch_high ? "H" : "L");
