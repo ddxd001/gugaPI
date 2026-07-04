@@ -26,6 +26,7 @@ drivers::DriverStatus Board_ImuSetChipSelectDebug(bool icm_output_enable,
                                                   bool icm_high,
                                                   bool lis_output_enable,
                                                   bool lis_high);
+drivers::DriverStatus Board_ImuWiggleSpiPins(uint32_t loops);
 drivers::DriverStatus Board_ImuGetLineStatus(BoardImuLineStatus *status);
 drivers::DriverStatus Board_Lis3mdlReadRegister(uint8_t reg, uint8_t *value);
 drivers::DriverStatus Board_Lis3mdlReadWhoAmI(uint8_t *value);

@@ -270,6 +270,14 @@ imu status
 `cs_icm_out` 和 `cs_lis_out` 表示 MCU 输出锁存和输出使能状态；正常空闲时应为 `H/OE`。
 `cs_icm_in` 和 `cs_lis_in` 是 GPIO 输入缓冲读数，输出脚上不作为片选电压的唯一依据，必要时以万用表或示波器实测为准。
 
+### `imu pins wiggle [loops]`
+
+临时把 IMU SPI 的 PB18/SCLK、PB17/PICO 和 PB19/POCI 切成 GPIO 输出并翻转，用于示波器确认物理引脚和网络。命令结束后会恢复 SPI 复用。
+```text
+imu pins wiggle
+imu pins wiggle 100000
+```
+
 ### `imu lis whoami`
 
 读取 LIS3MDLTR `WHO_AM_I` 寄存器。

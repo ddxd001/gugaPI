@@ -9,12 +9,19 @@ static const uint8_t kSpiReadMask = 0x80U;
 static const uint8_t kLis3mdlAutoIncrementMask = 0x40U;
 static const uint8_t kLis3mdlWhoAmIRegister = 0x0FU;
 static const uint32_t kSelectDelayCycles = 32U;
+static const uint32_t kWiggleDelayCycles = 64U;
 
 static bool g_imuReady = false;
 
 void DelaySmall(void)
 {
     for (volatile uint32_t i = 0U; i < kSelectDelayCycles; i++) {
+    }
+}
+
+void DelayWiggle(void)
+{
+    for (volatile uint32_t i = 0U; i < kWiggleDelayCycles; i++) {
     }
 }
 
@@ -134,6 +141,46 @@ drivers::DriverStatus Board_ImuSetChipSelectDebug(bool icm_output_enable,
         DL_GPIO_disableOutput(BOARD_IMU_LIS3MDL_CS_PORT,
                               BOARD_IMU_LIS3MDL_CS_PIN);
     }
+
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus Board_ImuWiggleSpiPins(uint32_t loops)
+{
+    if (!g_imuReady) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    if (loops == 0U) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    DeselectAll();
+
+    DL_GPIO_initDigitalOutput(BOARD_IMU_SPI_SCLK_IOMUX);
+    DL_GPIO_initDigitalOutput(BOARD_IMU_SPI_PICO_IOMUX);
+    DL_GPIO_initDigitalOutput(BOARD_IMU_SPI_POCI_IOMUX);
+    DL_GPIO_enableOutput(BOARD_IMU_SPI_SCLK_PORT,
+                         BOARD_IMU_SPI_SCLK_PIN | BOARD_IMU_SPI_PICO_PIN |
+                             BOARD_IMU_SPI_POCI_PIN);
+
+    for (uint32_t i = 0U; i < loops; i++) {
+        DL_GPIO_setPins(BOARD_IMU_SPI_SCLK_PORT,
+                        BOARD_IMU_SPI_SCLK_PIN | BOARD_IMU_SPI_PICO_PIN |
+                            BOARD_IMU_SPI_POCI_PIN);
+        DelayWiggle();
+        DL_GPIO_clearPins(BOARD_IMU_SPI_SCLK_PORT,
+                          BOARD_IMU_SPI_SCLK_PIN | BOARD_IMU_SPI_PICO_PIN |
+                              BOARD_IMU_SPI_POCI_PIN);
+        DelayWiggle();
+    }
+
+    DL_GPIO_disableOutput(BOARD_IMU_SPI_POCI_PORT, BOARD_IMU_SPI_POCI_PIN);
+    DL_GPIO_initPeripheralOutputFunction(BOARD_IMU_SPI_SCLK_IOMUX,
+                                         BOARD_IMU_SPI_SCLK_IOMUX_FUNC);
+    DL_GPIO_initPeripheralOutputFunction(BOARD_IMU_SPI_PICO_IOMUX,
+                                         BOARD_IMU_SPI_PICO_IOMUX_FUNC);
+    DL_GPIO_initPeripheralInputFunction(BOARD_IMU_SPI_POCI_IOMUX,
+                                        BOARD_IMU_SPI_POCI_IOMUX_FUNC);
 
     return drivers::DRIVER_OK;
 }
