@@ -21,6 +21,8 @@ const PWM    = scripting.addModule("/ti/driverlib/PWM", {}, false);
 const PWM1   = PWM.addInstance();
 const PWM2   = PWM.addInstance();
 const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
+const UART   = scripting.addModule("/ti/driverlib/UART", {}, false);
+const UART1  = UART.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
@@ -91,6 +93,17 @@ PWM2.peripheral.$assign         = "TIMG12";
 PWM2.peripheral.ccp1Pin.$assign = "PA25";
 PWM2.PWM_CHANNEL_1.$name        = "PWM_M2_EN_CHANNEL";
 PWM2.PWM_CHANNEL_1.dutyCycle    = 0;
+
+UART1.$name                    = "UART_CONTROL";
+UART1.rxFifoThreshold          = "DL_UART_RX_FIFO_LEVEL_ONE_ENTRY";
+UART1.targetBaudRate           = 115200;
+UART1.enableFIFO               = true;
+UART1.txFifoThreshold          = "DL_UART_TX_FIFO_LEVEL_3_4_EMPTY";
+UART1.enableDMARX              = false;
+UART1.enableDMATX              = false;
+UART1.enabledInterrupts        = ["RX"];
+UART1.peripheral.rxPin.$assign = "PB18";
+UART1.peripheral.txPin.$assign = "PB17";
 
 const Board                       = scripting.addModule("/ti/driverlib/Board", {}, false);
 Board.peripheral.$assign          = "DEBUGSS";

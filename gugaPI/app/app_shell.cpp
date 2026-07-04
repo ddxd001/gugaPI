@@ -7,10 +7,13 @@
 #include "board/board_config.h"
 #include "board/board_fram.h"
 #include "board/board_ina219.h"
+#include "board/board_i2c_bus.h"
 #include "board/board_led.h"
 #include "board/board_lora.h"
+#include "board/board_motor_driver.h"
 #include "config/feature_config.h"
 #include "drivers/common/driver_status.h"
+#include "drivers/i2c_diag/i2c_diag.h"
 #include "services/shell.h"
 #include "ti_msp_dl_config.h"
 
@@ -19,6 +22,26 @@ namespace {
 
 static const uint16_t kFramShellMaxReadBytes = 32U;
 static const uint16_t kLoraShellMaxReadBytes = 64U;
+static const uint16_t kMotorShellMaxReadBytes = 64U;
+static const uint8_t kMotorSof = 0xAAU;
+static const uint8_t kMotorCmdRead = 0x01U;
+static const uint8_t kMotorCmdWrite = 0x02U;
+static const uint8_t kMotorCmdHeartbeat = 0x03U;
+static const uint8_t kMotorResponseFlag = 0x80U;
+static const uint8_t kMotorStatusOk = 0x00U;
+static const uint8_t kMotorMaxPayloadLength = 32U;
+static const uint32_t kMotorResponseWaitIterations = 5000000U;
+
+static const uint8_t kMotorRegDeviceId = 0x00U;
+static const uint8_t kMotorRegM1Mode = 0x10U;
+static const uint8_t kMotorRegM2Mode = 0x20U;
+
+struct MotorProtocolFrame {
+    uint8_t cmd;
+    uint8_t reg;
+    uint8_t length;
+    uint8_t data[kMotorMaxPayloadLength];
+};
 
 bool StrEqual(const char *left, const char *right)
 {
@@ -220,6 +243,185 @@ void PrintLoraUsage(void)
     services::Shell_WriteLine("  lora test");
 }
 
+void PrintMotorUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  motor status");
+    services::Shell_WriteLine("  motor ping");
+    services::Shell_WriteLine("  motor info");
+    services::Shell_WriteLine("  motor reg <addr> <len 1..32>");
+    services::Shell_WriteLine("  motor set <addr> <byte...>");
+    services::Shell_WriteLine("  motor stop");
+    services::Shell_WriteLine("  motor m1|m2 coast|brake");
+    services::Shell_WriteLine("  motor m1|m2 run <duty 0..100> [fwd|rev]");
+    services::Shell_WriteLine("  motor send <text...>");
+    services::Shell_WriteLine("  motor line <text...>");
+    services::Shell_WriteLine("  motor hex <byte...>");
+    services::Shell_WriteLine("  motor read [len 1..64]");
+    services::Shell_WriteLine("  motor clear");
+    services::Shell_WriteLine("  motor test");
+}
+
+uint8_t MotorCrc8Update(uint8_t crc, uint8_t value)
+{
+    crc ^= value;
+    for (uint8_t bit = 0U; bit < 8U; bit++) {
+        if ((crc & 0x80U) != 0U) {
+            crc = (uint8_t) ((crc << 1U) ^ 0x07U);
+        } else {
+            crc = (uint8_t) (crc << 1U);
+        }
+    }
+    return crc;
+}
+
+drivers::DriverStatus MotorSendFrame(uint8_t cmd,
+                                      uint8_t reg,
+                                      const uint8_t *data,
+                                      uint8_t length)
+{
+    if (length > kMotorMaxPayloadLength) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    uint8_t crc = 0U;
+    const uint8_t header[4] = { kMotorSof, cmd, reg, length };
+
+    for (uint8_t i = 0U; i < sizeof(header); i++) {
+        const drivers::DriverStatus status =
+            board::Board_MotorDriverWriteByte(header[i]);
+        if (status != drivers::DRIVER_OK) {
+            return status;
+        }
+        crc = MotorCrc8Update(crc, header[i]);
+    }
+
+    for (uint8_t i = 0U; i < length; i++) {
+        const uint8_t value = (data == 0) ? 0U : data[i];
+        const drivers::DriverStatus status =
+            board::Board_MotorDriverWriteByte(value);
+        if (status != drivers::DRIVER_OK) {
+            return status;
+        }
+        crc = MotorCrc8Update(crc, value);
+    }
+
+    return board::Board_MotorDriverWriteByte(crc);
+}
+
+bool MotorReadByteWait(uint8_t *value, uint32_t wait_iterations)
+{
+    while (wait_iterations > 0U) {
+        if (board::Board_MotorDriverReadByte(value)) {
+            return true;
+        }
+        wait_iterations--;
+    }
+    return false;
+}
+
+drivers::DriverStatus MotorReceiveFrame(MotorProtocolFrame *frame)
+{
+    if (frame == 0) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    uint8_t value = 0U;
+    uint8_t crc = 0U;
+
+    do {
+        if (!MotorReadByteWait(&value, kMotorResponseWaitIterations)) {
+            return drivers::DRIVER_ERROR_TIMEOUT;
+        }
+    } while (value != kMotorSof);
+
+    crc = MotorCrc8Update(0U, value);
+
+    if (!MotorReadByteWait(&frame->cmd, kMotorResponseWaitIterations) ||
+        !MotorReadByteWait(&frame->reg, kMotorResponseWaitIterations) ||
+        !MotorReadByteWait(&frame->length, kMotorResponseWaitIterations)) {
+        return drivers::DRIVER_ERROR_TIMEOUT;
+    }
+
+    crc = MotorCrc8Update(crc, frame->cmd);
+    crc = MotorCrc8Update(crc, frame->reg);
+    crc = MotorCrc8Update(crc, frame->length);
+
+    if (frame->length > kMotorMaxPayloadLength) {
+        return drivers::DRIVER_ERROR;
+    }
+
+    for (uint8_t i = 0U; i < frame->length; i++) {
+        if (!MotorReadByteWait(&frame->data[i], kMotorResponseWaitIterations)) {
+            return drivers::DRIVER_ERROR_TIMEOUT;
+        }
+        crc = MotorCrc8Update(crc, frame->data[i]);
+    }
+
+    uint8_t received_crc = 0U;
+    if (!MotorReadByteWait(&received_crc, kMotorResponseWaitIterations)) {
+        return drivers::DRIVER_ERROR_TIMEOUT;
+    }
+
+    return (crc == received_crc) ? drivers::DRIVER_OK : drivers::DRIVER_ERROR;
+}
+
+drivers::DriverStatus MotorRequest(uint8_t cmd,
+                                   uint8_t reg,
+                                   const uint8_t *data,
+                                   uint8_t length,
+                                   MotorProtocolFrame *response)
+{
+    (void) board::Board_MotorDriverClearRxBuffer();
+
+    drivers::DriverStatus status = MotorSendFrame(cmd, reg, data, length);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    status = MotorReceiveFrame(response);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    const uint8_t expected_cmd = (uint8_t) (cmd | kMotorResponseFlag);
+    if ((response->cmd != expected_cmd) || (response->reg != reg)) {
+        return drivers::DRIVER_ERROR;
+    }
+
+    return drivers::DRIVER_OK;
+}
+
+void PrintMotorFrameData(const char *prefix, const MotorProtocolFrame &frame)
+{
+    services::Shell_WriteString(prefix);
+    services::Shell_WriteString(" cmd=");
+    WriteHex8(frame.cmd);
+    services::Shell_WriteString(" reg=");
+    WriteHex8(frame.reg);
+    services::Shell_WriteString(" len=");
+    services::Shell_WriteUInt32(frame.length);
+    services::Shell_WriteString(" data:");
+    for (uint8_t i = 0U; i < frame.length; i++) {
+        services::Shell_WriteString(" ");
+        WriteHex8(frame.data[i]);
+    }
+    services::Shell_WriteString("\r\n");
+}
+
+
+void PrintI2cUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  i2c list");
+    services::Shell_WriteLine("  i2c status <bus>");
+    services::Shell_WriteLine("  i2c recover <bus>");
+    services::Shell_WriteLine("  i2c scan <bus> [start end]");
+    services::Shell_WriteLine("  i2c probe <bus> <addr>");
+    services::Shell_WriteLine("  i2c read <bus> <addr> <reg8> <len 1..32>");
+    services::Shell_WriteLine("  i2c write <bus> <addr> <reg8> <byte...>");
+    services::Shell_WriteLine("  i2c test <bus> [start end]");
+}
 void VersionCommand(int argc, const char * const argv[])
 {
     (void) argc;
@@ -725,6 +927,359 @@ void Ina219Command(int argc, const char * const argv[])
 #endif
 }
 
+
+const drivers::I2cDiagBusConfig *FindI2cBusOrPrint(const char *name)
+{
+    const drivers::I2cDiagBusConfig *bus = board::Board_I2cBusFind(name);
+
+    if (bus == 0) {
+        services::Shell_WriteString("i2c: unknown bus ");
+        services::Shell_WriteString(name == 0 ? "" : name);
+        services::Shell_WriteString("\r\n");
+        services::Shell_WriteString("i2c buses:");
+        for (uint32_t i = 0U; i < board::Board_I2cBusCount(); i++) {
+            const drivers::I2cDiagBusConfig *item = board::Board_I2cBusGet(i);
+            if (item != 0) {
+                services::Shell_WriteString(" ");
+                services::Shell_WriteString(item->name);
+            }
+        }
+        services::Shell_WriteString("\r\n");
+    }
+
+    return bus;
+}
+
+bool ParseI2cRange(int argc,
+                   const char * const argv[],
+                   uint8_t first_optional_arg,
+                   uint8_t *start,
+                   uint8_t *end)
+{
+    uint32_t value = 0U;
+
+    if ((start == 0) || (end == 0)) {
+        return false;
+    }
+
+    *start = drivers::I2C_DIAG_MIN_7BIT_ADDRESS;
+    *end = drivers::I2C_DIAG_MAX_7BIT_ADDRESS;
+
+    if (argc == first_optional_arg) {
+        return true;
+    }
+
+    if (argc != (first_optional_arg + 2)) {
+        return false;
+    }
+
+    if ((!ParseUint32(argv[first_optional_arg],
+                      drivers::I2C_DIAG_MAX_7BIT_ADDRESS,
+                      &value)) ||
+        (value < drivers::I2C_DIAG_MIN_7BIT_ADDRESS)) {
+        return false;
+    }
+    *start = (uint8_t) value;
+
+    if ((!ParseUint32(argv[first_optional_arg + 1],
+                      drivers::I2C_DIAG_MAX_7BIT_ADDRESS,
+                      &value)) ||
+        (value < *start)) {
+        return false;
+    }
+    *end = (uint8_t) value;
+
+    return true;
+}
+
+void PrintI2cStatus(const drivers::I2cDiagBusConfig *bus)
+{
+    drivers::I2cDiagBusStatus status = { 0U, false, false };
+    const drivers::DriverStatus driver_status = drivers::I2cDiag_GetBusStatus(
+        bus,
+        &status);
+
+    if (driver_status != drivers::DRIVER_OK) {
+        services::Shell_WriteString("i2c ");
+        services::Shell_WriteString(bus->name);
+        services::Shell_WriteString(" status: ");
+        services::Shell_WriteString(DriverStatusText(driver_status));
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    services::Shell_WriteString("i2c ");
+    services::Shell_WriteString(bus->name);
+    services::Shell_WriteString(" status=");
+    WriteHex32(status.controller_status);
+    services::Shell_WriteString(" scl=");
+    services::Shell_WriteString(status.scl_high ? "H" : "L");
+    services::Shell_WriteString(" sda=");
+    services::Shell_WriteString(status.sda_high ? "H" : "L");
+    services::Shell_WriteString("\r\n");
+}
+
+uint32_t I2cScanBus(const drivers::I2cDiagBusConfig *bus,
+                    uint8_t start,
+                    uint8_t end,
+                    bool print_each)
+{
+    uint32_t count = 0U;
+
+    services::Shell_WriteString("i2c ");
+    services::Shell_WriteString(bus->name);
+    services::Shell_WriteString(" scan ");
+    WriteHex8(start);
+    services::Shell_WriteString("..");
+    WriteHex8(end);
+    services::Shell_WriteString("\r\n");
+
+    for (uint8_t address = start; address <= end; address++) {
+        const drivers::DriverStatus status = drivers::I2cDiag_ProbeAddress(
+            bus,
+            address);
+        if (status == drivers::DRIVER_OK) {
+            count++;
+            if (print_each) {
+                services::Shell_WriteString("i2c ");
+                services::Shell_WriteString(bus->name);
+                services::Shell_WriteString(" found ");
+                WriteHex8(address);
+                services::Shell_WriteString("\r\n");
+            }
+        }
+
+        if (address == end) {
+            break;
+        }
+    }
+
+    services::Shell_WriteString("i2c ");
+    services::Shell_WriteString(bus->name);
+    services::Shell_WriteString(" scan count=");
+    services::Shell_WriteUInt32(count);
+    services::Shell_WriteString("\r\n");
+
+    return count;
+}
+
+void I2cCommand(int argc, const char * const argv[])
+{
+    uint32_t value = 0U;
+
+    if (argc < 2) {
+        PrintI2cUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "list")) {
+        if (argc != 2) {
+            PrintI2cUsage();
+            return;
+        }
+
+        services::Shell_WriteString("i2c buses:");
+        for (uint32_t i = 0U; i < board::Board_I2cBusCount(); i++) {
+            const drivers::I2cDiagBusConfig *bus = board::Board_I2cBusGet(i);
+            if (bus != 0) {
+                services::Shell_WriteString(" ");
+                services::Shell_WriteString(bus->name);
+            }
+        }
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (argc < 3) {
+        PrintI2cUsage();
+        return;
+    }
+
+    const drivers::I2cDiagBusConfig *bus = FindI2cBusOrPrint(argv[2]);
+    if (bus == 0) {
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        if (argc != 3) {
+            PrintI2cUsage();
+            return;
+        }
+
+        PrintI2cStatus(bus);
+        return;
+    }
+
+    if (StrEqual(argv[1], "recover")) {
+        if (argc != 3) {
+            PrintI2cUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = drivers::I2cDiag_RecoverBus(bus);
+        services::Shell_WriteString("i2c ");
+        services::Shell_WriteString(bus->name);
+        services::Shell_WriteString(" recover: ");
+        services::Shell_WriteString(DriverStatusText(status));
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "scan")) {
+        uint8_t start = 0U;
+        uint8_t end = 0U;
+
+        if (!ParseI2cRange(argc, argv, 3U, &start, &end)) {
+            PrintI2cUsage();
+            return;
+        }
+
+        (void) I2cScanBus(bus, start, end, true);
+        return;
+    }
+
+    if (StrEqual(argv[1], "probe")) {
+        if ((argc != 4) ||
+            (!ParseUint32(argv[3],
+                          drivers::I2C_DIAG_MAX_7BIT_ADDRESS,
+                          &value)) ||
+            (value < drivers::I2C_DIAG_MIN_7BIT_ADDRESS)) {
+            PrintI2cUsage();
+            return;
+        }
+
+        const uint8_t address = (uint8_t) value;
+        const drivers::DriverStatus status = drivers::I2cDiag_ProbeAddress(
+            bus,
+            address);
+        services::Shell_WriteString("i2c ");
+        services::Shell_WriteString(bus->name);
+        services::Shell_WriteString(" probe ");
+        WriteHex8(address);
+        services::Shell_WriteString(": ");
+        services::Shell_WriteString(DriverStatusText(status));
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "read")) {
+        uint8_t data[drivers::I2C_DIAG_MAX_READ_BYTES];
+        uint32_t address_value = 0U;
+        uint32_t reg_value = 0U;
+        uint32_t length_value = 0U;
+
+        if ((argc != 6) ||
+            (!ParseUint32(argv[3],
+                          drivers::I2C_DIAG_MAX_7BIT_ADDRESS,
+                          &address_value)) ||
+            (address_value < drivers::I2C_DIAG_MIN_7BIT_ADDRESS) ||
+            (!ParseUint32(argv[4], 0xFFU, &reg_value)) ||
+            (!ParseUint32(argv[5],
+                          drivers::I2C_DIAG_MAX_READ_BYTES,
+                          &length_value)) ||
+            (length_value == 0U)) {
+            PrintI2cUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = drivers::I2cDiag_ReadReg8(
+            bus,
+            (uint8_t) address_value,
+            (uint8_t) reg_value,
+            data,
+            (uint16_t) length_value);
+        if (status != drivers::DRIVER_OK) {
+            services::Shell_WriteString("i2c read: ");
+            services::Shell_WriteString(DriverStatusText(status));
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        services::Shell_WriteString("i2c ");
+        services::Shell_WriteString(bus->name);
+        services::Shell_WriteString(" read addr=");
+        WriteHex8((uint8_t) address_value);
+        services::Shell_WriteString(" reg=");
+        WriteHex8((uint8_t) reg_value);
+        services::Shell_WriteString(":");
+        for (uint16_t i = 0U; i < (uint16_t) length_value; i++) {
+            services::Shell_WriteString(" ");
+            WriteHex8(data[i]);
+        }
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "write")) {
+        uint8_t data[drivers::I2C_DIAG_MAX_WRITE_BYTES];
+        uint32_t address_value = 0U;
+        uint32_t reg_value = 0U;
+        const uint16_t length = (uint16_t) (argc - 5);
+
+        if ((argc < 6) ||
+            (length > drivers::I2C_DIAG_MAX_WRITE_BYTES) ||
+            (!ParseUint32(argv[3],
+                          drivers::I2C_DIAG_MAX_7BIT_ADDRESS,
+                          &address_value)) ||
+            (address_value < drivers::I2C_DIAG_MIN_7BIT_ADDRESS) ||
+            (!ParseUint32(argv[4], 0xFFU, &reg_value))) {
+            PrintI2cUsage();
+            return;
+        }
+
+        for (uint16_t i = 0U; i < length; i++) {
+            if (!ParseUint32(argv[5 + i], 0xFFU, &value)) {
+                PrintI2cUsage();
+                return;
+            }
+            data[i] = (uint8_t) value;
+        }
+
+        const drivers::DriverStatus status = drivers::I2cDiag_WriteReg8(
+            bus,
+            (uint8_t) address_value,
+            (uint8_t) reg_value,
+            data,
+            length);
+        services::Shell_WriteString("i2c write: ");
+        services::Shell_WriteString(DriverStatusText(status));
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "test")) {
+        uint8_t start = 0U;
+        uint8_t end = 0U;
+
+        if (!ParseI2cRange(argc, argv, 3U, &start, &end)) {
+            PrintI2cUsage();
+            return;
+        }
+
+        PrintI2cStatus(bus);
+        const drivers::DriverStatus recover_status = drivers::I2cDiag_RecoverBus(
+            bus);
+        services::Shell_WriteString("i2c ");
+        services::Shell_WriteString(bus->name);
+        services::Shell_WriteString(" recover: ");
+        services::Shell_WriteString(DriverStatusText(recover_status));
+        services::Shell_WriteString("\r\n");
+        PrintI2cStatus(bus);
+
+        const uint32_t count = I2cScanBus(bus, start, end, true);
+        services::Shell_WriteString("i2c ");
+        services::Shell_WriteString(bus->name);
+        services::Shell_WriteString(" test: ");
+        services::Shell_WriteString(
+            (recover_status == drivers::DRIVER_OK) ? "pass" : "fail");
+        services::Shell_WriteString(" count=");
+        services::Shell_WriteUInt32(count);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    PrintI2cUsage();
+}
 drivers::DriverStatus LoraWriteArgs(int argc,
                                     const char * const argv[],
                                     bool append_newline,
@@ -952,6 +1507,487 @@ void LoraCommand(int argc, const char * const argv[])
 #endif
 }
 
+drivers::DriverStatus MotorWriteArgs(int argc,
+                                     const char * const argv[],
+                                     bool append_newline,
+                                     uint16_t *bytes_written)
+{
+    uint16_t count = 0U;
+
+    if (bytes_written == 0) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    for (int arg = 2; arg < argc; arg++) {
+        if (arg > 2) {
+            const drivers::DriverStatus status =
+                board::Board_MotorDriverWriteByte((uint8_t) ' ');
+            if (status != drivers::DRIVER_OK) {
+                return status;
+            }
+            count++;
+        }
+
+        const char *cursor = argv[arg];
+        while ((cursor != 0) && (*cursor != '\0')) {
+            const drivers::DriverStatus status =
+                board::Board_MotorDriverWriteByte((uint8_t) *cursor);
+            if (status != drivers::DRIVER_OK) {
+                return status;
+            }
+            count++;
+            cursor++;
+        }
+    }
+
+    if (append_newline) {
+        drivers::DriverStatus status =
+            board::Board_MotorDriverWriteByte((uint8_t) '\r');
+        if (status != drivers::DRIVER_OK) {
+            return status;
+        }
+        status = board::Board_MotorDriverWriteByte((uint8_t) '\n');
+        if (status != drivers::DRIVER_OK) {
+            return status;
+        }
+        count = (uint16_t) (count + 2U);
+    }
+
+    *bytes_written = count;
+    return drivers::DRIVER_OK;
+}
+
+void MotorCommand(int argc, const char * const argv[])
+{
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    uint32_t value = 0U;
+
+    if ((argc < 2) || (!board::Board_MotorDriverIsReady())) {
+        if (argc < 2) {
+            PrintMotorUsage();
+        } else {
+            services::Shell_WriteLine("motor: not ready");
+        }
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        uint32_t uart_status = 0U;
+
+        if (argc != 2) {
+            PrintMotorUsage();
+            return;
+        }
+
+        const drivers::DriverStatus uart_status_result =
+            board::Board_MotorDriverGetControllerStatus(&uart_status);
+
+        services::Shell_WriteString("motor baud=");
+        services::Shell_WriteUInt32(board::Board_MotorDriverGetBaudrate());
+        services::Shell_WriteString(" rx_buf=");
+        services::Shell_WriteUInt32(board::Board_MotorDriverGetRxAvailable());
+        services::Shell_WriteString(" dropped=");
+        services::Shell_WriteUInt32(
+            board::Board_MotorDriverGetRxDroppedCount());
+        services::Shell_WriteString(" uart=");
+        if (uart_status_result == drivers::DRIVER_OK) {
+            WriteHex32(uart_status);
+            services::Shell_WriteString(" busy=");
+            services::Shell_WriteUInt32(
+                ((uart_status & UART_STAT_BUSY_MASK) != 0U) ? 1U : 0U);
+            services::Shell_WriteString(" tx_empty=");
+            services::Shell_WriteUInt32(
+                ((uart_status & UART_STAT_TXFE_MASK) != 0U) ? 1U : 0U);
+            services::Shell_WriteString(" tx_full=");
+            services::Shell_WriteUInt32(
+                ((uart_status & UART_STAT_TXFF_MASK) != 0U) ? 1U : 0U);
+        } else {
+            services::Shell_WriteString(DriverStatusText(uart_status_result));
+        }
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "ping")) {
+        MotorProtocolFrame response = {};
+
+        if (argc != 2) {
+            PrintMotorUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = MotorRequest(
+            kMotorCmdHeartbeat,
+            0U,
+            0,
+            0U,
+            &response);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor ping: ", status);
+            return;
+        }
+
+        const bool ok = (response.length == 1U) &&
+                        (response.data[0] == kMotorStatusOk);
+        services::Shell_WriteString("motor ping: ");
+        services::Shell_WriteString(ok ? "ok" : "error");
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "info")) {
+        MotorProtocolFrame response = {};
+
+        if (argc != 2) {
+            PrintMotorUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = MotorRequest(
+            kMotorCmdRead,
+            kMotorRegDeviceId,
+            0,
+            6U,
+            &response);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor info: ", status);
+            return;
+        }
+        if (response.length != 6U) {
+            services::Shell_WriteLine("motor info: bad-response");
+            return;
+        }
+
+        services::Shell_WriteString("motor id=");
+        WriteHex8(response.data[0]);
+        services::Shell_WriteString(" fw=");
+        services::Shell_WriteUInt32(response.data[1]);
+        services::Shell_WriteString(" status=");
+        WriteHex8(response.data[2]);
+        services::Shell_WriteString(" fault=");
+        WriteHex8(response.data[3]);
+        services::Shell_WriteString(" ctrl=");
+        WriteHex8(response.data[4]);
+        services::Shell_WriteString(" i2c=");
+        WriteHex8(response.data[5]);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "reg")) {
+        MotorProtocolFrame response = {};
+        uint32_t reg = 0U;
+        uint32_t length = 0U;
+
+        if ((argc != 4) ||
+            (!ParseUint32(argv[2], 0xFFU, &reg)) ||
+            (!ParseUint32(argv[3], kMotorMaxPayloadLength, &length)) ||
+            (length == 0U)) {
+            PrintMotorUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = MotorRequest(
+            kMotorCmdRead,
+            (uint8_t) reg,
+            0,
+            (uint8_t) length,
+            &response);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor reg: ", status);
+            return;
+        }
+
+        PrintMotorFrameData("motor reg", response);
+        return;
+    }
+
+    if (StrEqual(argv[1], "set")) {
+        MotorProtocolFrame response = {};
+        uint32_t reg = 0U;
+        uint8_t data[kMotorMaxPayloadLength];
+        uint8_t length = 0U;
+
+        if ((argc < 4) || (argc > 35) ||
+            (!ParseUint32(argv[2], 0xFFU, &reg))) {
+            PrintMotorUsage();
+            return;
+        }
+
+        for (int arg = 3; arg < argc; arg++) {
+            if (!ParseUint32(argv[arg], 0xFFU, &value)) {
+                PrintMotorUsage();
+                return;
+            }
+            data[length] = (uint8_t) value;
+            length++;
+        }
+
+        const drivers::DriverStatus status = MotorRequest(
+            kMotorCmdWrite,
+            (uint8_t) reg,
+            data,
+            length,
+            &response);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor set: ", status);
+            return;
+        }
+
+        const bool ok = (response.length == 1U) &&
+                        (response.data[0] == kMotorStatusOk);
+        services::Shell_WriteString("motor set: ");
+        services::Shell_WriteString(ok ? "ok" : "error");
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "stop")) {
+        MotorProtocolFrame response = {};
+        static const uint8_t kM1Stop[] = { 0U, 0U };
+        static const uint8_t kM2Stop[] = { 0U, 0U };
+
+        if (argc != 2) {
+            PrintMotorUsage();
+            return;
+        }
+
+        drivers::DriverStatus status = MotorRequest(
+            kMotorCmdWrite,
+            kMotorRegM1Mode,
+            kM1Stop,
+            (uint8_t) sizeof(kM1Stop),
+            &response);
+        if ((status == drivers::DRIVER_OK) &&
+            ((response.length != 1U) || (response.data[0] != kMotorStatusOk))) {
+            status = drivers::DRIVER_ERROR;
+        }
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor stop m1: ", status);
+            return;
+        }
+
+        status = MotorRequest(kMotorCmdWrite,
+                              kMotorRegM2Mode,
+                              kM2Stop,
+                              (uint8_t) sizeof(kM2Stop),
+                              &response);
+        if ((status == drivers::DRIVER_OK) &&
+            ((response.length != 1U) || (response.data[0] != kMotorStatusOk))) {
+            status = drivers::DRIVER_ERROR;
+        }
+
+        WriteStatusLine("motor stop: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "m1") || StrEqual(argv[1], "m2")) {
+        MotorProtocolFrame response = {};
+        const bool motor1 = StrEqual(argv[1], "m1");
+        const uint8_t mode_reg = motor1 ? kMotorRegM1Mode : kMotorRegM2Mode;
+        uint8_t data[3] = { 0U, 0U, 0U };
+        uint8_t length = 0U;
+
+        if (argc < 3) {
+            PrintMotorUsage();
+            return;
+        }
+
+        if (StrEqual(argv[2], "coast")) {
+            if (argc != 3) {
+                PrintMotorUsage();
+                return;
+            }
+            data[0] = 0U;
+            data[1] = 0U;
+            length = 2U;
+        } else if (StrEqual(argv[2], "brake")) {
+            if (argc != 3) {
+                PrintMotorUsage();
+                return;
+            }
+            data[0] = 2U;
+            data[1] = 0U;
+            length = 2U;
+        } else if (StrEqual(argv[2], "run")) {
+            uint32_t duty = 0U;
+
+            if ((argc != 4) && (argc != 5)) {
+                PrintMotorUsage();
+                return;
+            }
+            if (!ParseUint32(argv[3], 100U, &duty)) {
+                PrintMotorUsage();
+                return;
+            }
+            data[0] = 1U;
+            data[1] = (uint8_t) duty;
+            data[2] = 0U;
+            if (argc == 5) {
+                if (StrEqual(argv[4], "rev")) {
+                    data[2] = 1U;
+                } else if (!StrEqual(argv[4], "fwd")) {
+                    PrintMotorUsage();
+                    return;
+                }
+            }
+            length = 3U;
+        } else {
+            PrintMotorUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = MotorRequest(
+            kMotorCmdWrite,
+            mode_reg,
+            data,
+            length,
+            &response);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor drive: ", status);
+            return;
+        }
+
+        const bool ok = (response.length == 1U) &&
+                        (response.data[0] == kMotorStatusOk);
+        services::Shell_WriteString("motor ");
+        services::Shell_WriteString(argv[1]);
+        services::Shell_WriteString(": ");
+        services::Shell_WriteString(ok ? "ok" : "error");
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "clear")) {
+        if (argc != 2) {
+            PrintMotorUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status =
+            board::Board_MotorDriverClearRxBuffer();
+        WriteStatusLine("motor clear: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "test")) {
+        static const uint8_t kTestData[] = { 'p', 'i', 'n', 'g', '\r', '\n' };
+
+        if (argc != 2) {
+            PrintMotorUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = board::Board_MotorDriverWrite(
+            kTestData,
+            (uint16_t) sizeof(kTestData));
+        WriteStatusLine("motor test: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "send") || StrEqual(argv[1], "line")) {
+        uint16_t bytes_written = 0U;
+
+        if (argc < 3) {
+            PrintMotorUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = MotorWriteArgs(
+            argc,
+            argv,
+            StrEqual(argv[1], "line"),
+            &bytes_written);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor send: ", status);
+            return;
+        }
+
+        services::Shell_WriteString("motor tx bytes=");
+        services::Shell_WriteUInt32(bytes_written);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "hex")) {
+        uint8_t data[16];
+        uint16_t length = 0U;
+
+        if ((argc < 3) || (argc > 18)) {
+            PrintMotorUsage();
+            return;
+        }
+
+        for (int arg = 2; arg < argc; arg++) {
+            if (!ParseUint32(argv[arg], 0xFFU, &value)) {
+                PrintMotorUsage();
+                return;
+            }
+            data[length] = (uint8_t) value;
+            length++;
+        }
+
+        const drivers::DriverStatus status =
+            board::Board_MotorDriverWrite(data, length);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor hex: ", status);
+            return;
+        }
+
+        services::Shell_WriteString("motor tx bytes=");
+        services::Shell_WriteUInt32(length);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "read")) {
+        uint8_t data[kMotorShellMaxReadBytes];
+        uint16_t length = kMotorShellMaxReadBytes;
+        uint16_t actual = 0U;
+
+        if ((argc != 2) && (argc != 3)) {
+            PrintMotorUsage();
+            return;
+        }
+
+        if (argc == 3) {
+            if ((!ParseUint32(argv[2], kMotorShellMaxReadBytes, &value)) ||
+                (value == 0U)) {
+                PrintMotorUsage();
+                return;
+            }
+            length = (uint16_t) value;
+        }
+
+        while ((actual < length) &&
+               board::Board_MotorDriverReadByte(&data[actual])) {
+            actual++;
+        }
+
+        services::Shell_WriteString("motor rx len=");
+        services::Shell_WriteUInt32(actual);
+        services::Shell_WriteString(" hex:");
+        for (uint16_t i = 0U; i < actual; i++) {
+            services::Shell_WriteString(" ");
+            WriteHex8(data[i]);
+        }
+        services::Shell_WriteString(" ascii:");
+        for (uint16_t i = 0U; i < actual; i++) {
+            services::Shell_WriteChar(IsPrintableAscii(data[i]) ?
+                                      (char) data[i] : '.');
+        }
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    PrintMotorUsage();
+#else
+    (void) argc;
+    (void) argv;
+    services::Shell_WriteLine("motor: disabled");
+#endif
+}
+
 void AdcCommand(int argc, const char * const argv[])
 {
     (void) argc;
@@ -1013,6 +2049,16 @@ void AppShell_RegisterCommands(void)
         "LoRa UART: status|send|line|hex|read|clear|test",
         LoraCommand);
 #endif
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    (void) services::Shell_RegisterCommand(
+        "motor",
+        "Motor UART: status|send|line|hex|read|clear|test",
+        MotorCommand);
+#endif
+    (void) services::Shell_RegisterCommand(
+        "i2c",
+        "I2C diag: list|status|recover|scan|probe|read|write|test",
+        I2cCommand);
     (void) services::Shell_RegisterCommand("adc",
                                            "Read ADC placeholder",
                                            AdcCommand);

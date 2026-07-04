@@ -1,11 +1,11 @@
-{
+﻿{
     "version": "0.2.0",
     "configurations": [
         {
             "name": "CCS Debug",
             "type": "ccs-debug",
             "request": "launch",
-            "targetConfig": "C:\\Users\\DdXd\\workspace_ccstheia\\gugaPI\\targetConfigs\\MSPM0G3519.ccxml"
+            "targetConfig": "C:\\Users\\DdXd\\workspace_ccstheia\\MotorDriver\\targetConfigs\\MSPM0G3519.ccxml"
         },
         {
             "name": "gugaPI",
@@ -14,6 +14,15 @@
             "projectInfo": {
                 "name": "gugaPI",
                 "resourceId": "/gugaPI"
+            }
+        },
+        {
+            "name": "MotorDriver",
+            "type": "ccs-debug",
+            "request": "launch",
+            "projectInfo": {
+                "name": "MotorDriver",
+                "resourceId": "/MotorDriver"
             }
         }
     ]

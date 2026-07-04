@@ -95,6 +95,7 @@ board/board.o: ../board/board.cpp \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_lora.h \
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_motor_driver.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_pins.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board.h:
@@ -191,5 +192,6 @@ C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_interrupt.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_lora.h:
+C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_motor_driver.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_pins.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h:

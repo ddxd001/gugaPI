@@ -3,6 +3,7 @@
 #include "control/motor_control.h"
 #include "drivers/dip_address.h"
 #include "drivers/i2c_slave.h"
+#include "drivers/uart_control.h"
 #include "protocol/motor_protocol.h"
 #include "ti_msp_dl_config.h"
 
@@ -169,6 +170,9 @@ void MotorApp_init(void)
 
     DL_GPIO_setDigitalInternalResistor(GPIO_I2C_TARGET_IOMUX_SCL, DL_GPIO_RESISTOR_PULL_UP);
     DL_GPIO_setDigitalInternalResistor(GPIO_I2C_TARGET_IOMUX_SDA, DL_GPIO_RESISTOR_PULL_UP);
+#if defined(GPIO_UART_CONTROL_IOMUX_RX)
+    DL_GPIO_setDigitalInternalResistor(GPIO_UART_CONTROL_IOMUX_RX, DL_GPIO_RESISTOR_PULL_UP);
+#endif
 
     g_registers.init(i2cAddress);
     if (kEnableBootSpinTest) {
@@ -177,6 +181,7 @@ void MotorApp_init(void)
 
     MotorControl_init();
     I2cSlave_init(&g_registers, i2cAddress);
+    UartControl_init(&g_registers);
 
     SysTick_Config(CPUCLK_FREQ / 1000U);
     g_lastCommandMs = millis();
@@ -186,7 +191,9 @@ void MotorApp_process(void)
 {
     bool timedOut = false;
 
-    if (I2cSlave_consumeWriteActivity()) {
+    UartControl_process();
+
+    if (I2cSlave_consumeWriteActivity() || UartControl_consumeWriteActivity()) {
         g_lastCommandMs = millis();
     }
 

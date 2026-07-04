@@ -33,9 +33,41 @@
 #include "ti_msp_dl_config.h"
 #include "app/motor_app.h"
 
+namespace {
+
+constexpr bool kEnableRawUartEchoTest = false;
+
+void rawUartEchoLoop(void)
+{
+#if defined(UART_CONTROL_INST)
+#if defined(GPIO_UART_CONTROL_IOMUX_RX)
+    DL_GPIO_setDigitalInternalResistor(GPIO_UART_CONTROL_IOMUX_RX, DL_GPIO_RESISTOR_PULL_UP);
+#endif
+
+    while (1) {
+        while (!DL_UART_Main_isRXFIFOEmpty(UART_CONTROL_INST)) {
+            const uint8_t value = DL_UART_Main_receiveData(UART_CONTROL_INST);
+            while (DL_UART_Main_isTXFIFOFull(UART_CONTROL_INST)) {
+            }
+            DL_UART_Main_transmitData(UART_CONTROL_INST, value);
+        }
+    }
+#else
+    while (1) {
+    }
+#endif
+}
+
+}  // namespace
+
 int main(void)
 {
     SYSCFG_DL_init();
+
+    if (kEnableRawUartEchoTest) {
+        rawUartEchoLoop();
+    }
+
     MotorApp_init();
 
     while (1) {

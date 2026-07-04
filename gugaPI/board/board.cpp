@@ -8,6 +8,7 @@
 #include "board/board_ina219.h"
 #include "board/board_led.h"
 #include "board/board_lora.h"
+#include "board/board_motor_driver.h"
 #include "board/board_pins.h"
 #include "config/feature_config.h"
 
@@ -42,6 +43,10 @@ void Board_Init(void)
 
 #if FEATURE_ENABLE_LORA
     (void) Board_LoraInit();
+#endif
+
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    (void) Board_MotorDriverInit();
 #endif
 }
 

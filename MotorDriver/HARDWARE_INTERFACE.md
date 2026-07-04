@@ -37,6 +37,54 @@ I2C address rule:
 | ADDR1 | PA3 | 0 | external 10k pull-up | bit 1 |  |
 | ADDR2 | PA2 | 0 | external 10k pull-up | bit 2 |  |
 
+## UART Control Interface
+
+Fill this section if the motor controller also needs command/control over a serial port.
+
+| Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| UART_TX | PB17 | UART4_TX | Main controller RX / USB-UART RX | MCU output | N/A | 115200 8N1 |
+| UART_RX | PB18 | UART4_RX | Main controller TX / USB-UART TX | MCU input | Internal pull-up | 115200 8N1 |
+| UART_RTS | Not connected | N/A | Not connected | N/A | N/A | Hardware flow control not used |
+| UART_CTS | Not connected | N/A | Not connected | N/A | N/A | Hardware flow control not used |
+| UART_DE | Not connected | N/A | Not connected | N/A | N/A | RS-485 not used |
+| UART_RE | Not connected | N/A | Not connected | N/A | N/A | RS-485 not used |
+| UART_WAKE | Not connected | N/A | Not connected | N/A | N/A | Wake / interrupt line not used |
+
+UART configuration:
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| Enabled | Yes | TX and RX only |
+| Use case | Control | Control / debug log / both |
+| Electrical interface | 3.3V TTL UART | Direct MCU-to-main-controller UART |
+| Baud rate | 115200 | Recommended first bring-up value |
+| Data bits | 8 | Recommended |
+| Parity | None | Recommended |
+| Stop bits | 1 | Recommended |
+| Flow control | None | None / RTS-CTS / RS-485 DE |
+| Protocol framing | Binary register frame | `SOF CMD REG LEN DATA... CRC8` |
+| Shares commands with I2C | Yes | UART writes the same motor register map |
+
+UART frame format:
+
+| Byte Field | Size | Value / Meaning | Notes |
+| --- | --- | --- | --- |
+| SOF | 1 byte | 0xAA | Start of frame |
+| CMD | 1 byte | 0x01 read, 0x02 write, 0x03 heartbeat | Command type |
+| REG | 1 byte | 0x00 - 0xFF | Register address, same as I2C register map |
+| LEN | 1 byte | 0 - 32 | Read length for CMD 0x01, write data length for CMD 0x02 |
+| DATA | 0 - 32 bytes | Payload | Present only for write requests and data responses |
+| CRC8 | 1 byte | CRC-8 poly 0x07, init 0x00 | Covers SOF through DATA |
+
+UART response format:
+
+| Request CMD | Response CMD | Response DATA |
+| --- | --- | --- |
+| 0x01 read | 0x81 | Register bytes |
+| 0x02 write | 0x82 | 0x00 OK, 0x01 error |
+| 0x03 heartbeat | 0x83 | 0x00 OK |
+
 ## DRV8701 Motor 1
 
 | DRV8701 Pin / Signal | MCU Pin | MCU Peripheral | Direction | Active Level | Notes |

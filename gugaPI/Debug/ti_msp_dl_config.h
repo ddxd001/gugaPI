@@ -140,6 +140,22 @@ extern "C" {
 #define LORA_UART_BAUD_RATE                                             (115200)
 #define LORA_UART_IBRD_32_MHZ_115200_BAUD                                   (17)
 #define LORA_UART_FBRD_32_MHZ_115200_BAUD                                   (23)
+/* Defines for MOTOR_UART */
+#define MOTOR_UART_INST                                                    UART1
+#define MOTOR_UART_INST_FREQUENCY                                       32000000
+#define MOTOR_UART_INST_IRQHandler                              UART1_IRQHandler
+#define MOTOR_UART_INST_INT_IRQN                                  UART1_INT_IRQn
+#define GPIO_MOTOR_UART_RX_PORT                                            GPIOA
+#define GPIO_MOTOR_UART_TX_PORT                                            GPIOA
+#define GPIO_MOTOR_UART_RX_PIN                                     DL_GPIO_PIN_9
+#define GPIO_MOTOR_UART_TX_PIN                                     DL_GPIO_PIN_8
+#define GPIO_MOTOR_UART_IOMUX_RX                                 (IOMUX_PINCM20)
+#define GPIO_MOTOR_UART_IOMUX_TX                                 (IOMUX_PINCM19)
+#define GPIO_MOTOR_UART_IOMUX_RX_FUNC                  IOMUX_PINCM20_PF_UART1_RX
+#define GPIO_MOTOR_UART_IOMUX_TX_FUNC                  IOMUX_PINCM19_PF_UART1_TX
+#define MOTOR_UART_BAUD_RATE                                            (115200)
+#define MOTOR_UART_IBRD_32_MHZ_115200_BAUD                                  (17)
+#define MOTOR_UART_FBRD_32_MHZ_115200_BAUD                                  (23)
 
 
 
@@ -184,6 +200,7 @@ void SYSCFG_DL_FRAM_I2C_init(void);
 void SYSCFG_DL_INA219_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
 void SYSCFG_DL_LORA_UART_init(void);
+void SYSCFG_DL_MOTOR_UART_init(void);
 
 
 bool SYSCFG_DL_saveConfiguration(void);

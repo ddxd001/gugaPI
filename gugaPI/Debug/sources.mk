@@ -125,9 +125,11 @@ board \
 drivers/button \
 drivers/buzzer \
 drivers/fm24cl64b \
+drivers/i2c_diag \
 drivers/ina219 \
 drivers/led \
 drivers/lora \
+drivers/motor_driver \
 drivers/template \
 services \
 
