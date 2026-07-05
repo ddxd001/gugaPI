@@ -7,7 +7,7 @@ namespace protocol {
 
 constexpr uint8_t kDeviceId = 0xA5U;
 constexpr uint8_t kFirmwareVersion = 0x01U;
-constexpr uint8_t kRegisterCount = 0x50U;
+constexpr uint8_t kRegisterCount = 0x68U;
 constexpr uint8_t kMaxPayloadLength = 32U;
 
 constexpr uint8_t kSerialSof = 0xAAU;
@@ -88,6 +88,31 @@ enum Register : uint8_t {
     REG_M2_HOLD_COUNT_1 = 0x4DU,
     REG_M2_HOLD_COUNT_2 = 0x4EU,
     REG_M2_HOLD_COUNT_3 = 0x4FU,
+
+    REG_M1_TARGET_POSITION_0 = 0x50U,
+    REG_M1_TARGET_POSITION_1 = 0x51U,
+    REG_M1_TARGET_POSITION_2 = 0x52U,
+    REG_M1_TARGET_POSITION_3 = 0x53U,
+    REG_M2_TARGET_POSITION_0 = 0x54U,
+    REG_M2_TARGET_POSITION_1 = 0x55U,
+    REG_M2_TARGET_POSITION_2 = 0x56U,
+    REG_M2_TARGET_POSITION_3 = 0x57U,
+    REG_M1_POSITION_ERROR_0 = 0x58U,
+    REG_M1_POSITION_ERROR_1 = 0x59U,
+    REG_M1_POSITION_ERROR_2 = 0x5AU,
+    REG_M1_POSITION_ERROR_3 = 0x5BU,
+    REG_M2_POSITION_ERROR_0 = 0x5CU,
+    REG_M2_POSITION_ERROR_1 = 0x5DU,
+    REG_M2_POSITION_ERROR_2 = 0x5EU,
+    REG_M2_POSITION_ERROR_3 = 0x5FU,
+    REG_POSITION_KP_Q4_4 = 0x60U,
+    REG_POSITION_KI_Q4_4 = 0x61U,
+    REG_POSITION_KD_Q4_4 = 0x62U,
+    REG_POSITION_MAX_RPM_0 = 0x63U,
+    REG_POSITION_MAX_RPM_1 = 0x64U,
+    REG_POSITION_TOLERANCE_0 = 0x65U,
+    REG_POSITION_TOLERANCE_1 = 0x66U,
+    REG_POSITION_STATUS = 0x67U,
 };
 
 enum MotorMode : uint8_t {
@@ -95,6 +120,7 @@ enum MotorMode : uint8_t {
     MOTOR_MODE_RUN = 1U,
     MOTOR_MODE_BRAKE = 2U,
     MOTOR_MODE_SPEED = 3U,
+    MOTOR_MODE_POSITION = 4U,
 };
 
 enum MotorDirection : uint8_t {
@@ -120,6 +146,12 @@ enum ControlFlags : uint8_t {
 enum MotorStatusFlags : uint8_t {
     MOTOR_STATUS_ACTIVE = 0x01U,
     MOTOR_STATUS_REVERSE = 0x02U,
+    MOTOR_STATUS_AT_TARGET = 0x04U,
+};
+
+enum PositionStatusFlags : uint8_t {
+    POSITION_STATUS_M1_AT_TARGET = 0x01U,
+    POSITION_STATUS_M2_AT_TARGET = 0x02U,
 };
 
 enum EncoderControlFlags : uint8_t {

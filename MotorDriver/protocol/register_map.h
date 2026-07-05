@@ -32,7 +32,9 @@ public:
     void SetMotorOutputFromControl(bool motor1,
                                    uint8_t duty,
                                    uint8_t direction);
+    void UpdateTargetRpmFromControl(bool motor1, uint16_t rpm);
     void UpdateHoldTarget(bool motor1, int32_t count);
+    void UpdatePositionError(bool motor1, int32_t error);
     uint8_t EncoderControl(void) const;
     void ClearEncoderControl(void);
 
@@ -48,12 +50,22 @@ public:
     uint8_t SpeedMinDuty(void) const;
     uint32_t M1CountsPerRev(void) const;
     uint32_t M2CountsPerRev(void) const;
+    int32_t M1TargetPosition(void) const;
+    int32_t M2TargetPosition(void) const;
+    uint8_t PositionKpQ4_4(void) const;
+    uint8_t PositionKiQ4_4(void) const;
+    uint8_t PositionKdQ4_4(void) const;
+    uint16_t PositionMaxRpm(void) const;
+    uint16_t PositionTolerance(void) const;
 
 private:
     uint16_t LoadUint16(uint8_t reg) const;
     uint32_t LoadUint32(uint8_t reg) const;
+    int32_t LoadInt32(uint8_t reg) const;
+    void StoreUint16(uint8_t reg, uint16_t value);
     void StoreInt16(uint8_t reg, int16_t value);
     void StoreInt32(uint8_t reg, int32_t value);
+    bool PositionAtTarget(bool motor1) const;
     void ClearMotorMotion(uint8_t *target, bool motor1) const;
     void NormalizeControlState(uint8_t *target,
                                uint8_t start_reg,
@@ -61,7 +73,10 @@ private:
     bool ApplyWriteTo(uint8_t *target, uint8_t reg, uint8_t value) const;
     bool IsReadableRange(uint8_t start_reg, uint8_t length) const;
     bool IsControlRegister(uint8_t reg) const;
-    uint8_t MotorStatus(uint8_t mode, uint8_t duty, uint8_t direction) const;
+    uint8_t MotorStatus(bool motor1,
+                        uint8_t mode,
+                        uint8_t duty,
+                        uint8_t direction) const;
 
     uint8_t registers_[kRegisterCount];
     bool timeout_active_;

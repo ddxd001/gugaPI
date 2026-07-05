@@ -33,6 +33,11 @@ void RegisterMap::Init(void)
     registers_[REG_SPEED_KD_Q4_4] = 1U;
     registers_[REG_SPEED_MAX_DUTY] = 30U;
     registers_[REG_SPEED_MIN_DUTY] = 0U;
+    registers_[REG_POSITION_KP_Q4_4] = 160U;
+    registers_[REG_POSITION_KI_Q4_4] = 0U;
+    registers_[REG_POSITION_KD_Q4_4] = 0U;
+    StoreUint16(REG_POSITION_MAX_RPM_0, 100U);
+    StoreUint16(REG_POSITION_TOLERANCE_0, 20U);
     StoreInt32(REG_M1_COUNTS_PER_REV_0, 22400);
     StoreInt32(REG_M2_COUNTS_PER_REV_0, 22400);
 
@@ -128,15 +133,22 @@ void RegisterMap::RefreshStatus(void)
         status = static_cast<uint8_t>(status | STATUS_ENABLED);
     }
 
-    const uint8_t m1_status = MotorStatus(registers_[REG_M1_MODE],
+    const uint8_t m1_status = MotorStatus(true,
+                                          registers_[REG_M1_MODE],
                                           registers_[REG_M1_DUTY],
                                           registers_[REG_M1_DIRECTION]);
-    const uint8_t m2_status = MotorStatus(registers_[REG_M2_MODE],
+    const uint8_t m2_status = MotorStatus(false,
+                                          registers_[REG_M2_MODE],
                                           registers_[REG_M2_DUTY],
                                           registers_[REG_M2_DIRECTION]);
 
     registers_[REG_M1_STATUS] = m1_status;
     registers_[REG_M2_STATUS] = m2_status;
+    registers_[REG_POSITION_STATUS] =
+        static_cast<uint8_t>((PositionAtTarget(true) ?
+                              POSITION_STATUS_M1_AT_TARGET : 0U) |
+                             (PositionAtTarget(false) ?
+                              POSITION_STATUS_M2_AT_TARGET : 0U));
 
     if (enabled && (!timeout_active_) &&
         (((m1_status | m2_status) & MOTOR_STATUS_ACTIVE) != 0U)) {
@@ -196,9 +208,22 @@ void RegisterMap::SetMotorOutputFromControl(bool motor1,
     RefreshStatus();
 }
 
+void RegisterMap::UpdateTargetRpmFromControl(bool motor1, uint16_t rpm)
+{
+    StoreUint16(motor1 ? REG_M1_TARGET_RPM_0 : REG_M2_TARGET_RPM_0, rpm);
+    RefreshStatus();
+}
+
 void RegisterMap::UpdateHoldTarget(bool motor1, int32_t count)
 {
     StoreInt32(motor1 ? REG_M1_HOLD_COUNT_0 : REG_M2_HOLD_COUNT_0, count);
+}
+
+void RegisterMap::UpdatePositionError(bool motor1, int32_t error)
+{
+    StoreInt32(motor1 ? REG_M1_POSITION_ERROR_0 : REG_M2_POSITION_ERROR_0,
+               error);
+    RefreshStatus();
 }
 
 uint8_t RegisterMap::EncoderControl(void) const
@@ -234,6 +259,12 @@ bool RegisterMap::HasActiveCommand(void) const
         return true;
     }
     if (registers_[REG_M2_MODE] == MOTOR_MODE_SPEED) {
+        return true;
+    }
+    if (registers_[REG_M1_MODE] == MOTOR_MODE_POSITION) {
+        return true;
+    }
+    if (registers_[REG_M2_MODE] == MOTOR_MODE_POSITION) {
         return true;
     }
 
@@ -290,6 +321,41 @@ uint32_t RegisterMap::M2CountsPerRev(void) const
     return LoadUint32(REG_M2_COUNTS_PER_REV_0);
 }
 
+int32_t RegisterMap::M1TargetPosition(void) const
+{
+    return LoadInt32(REG_M1_TARGET_POSITION_0);
+}
+
+int32_t RegisterMap::M2TargetPosition(void) const
+{
+    return LoadInt32(REG_M2_TARGET_POSITION_0);
+}
+
+uint8_t RegisterMap::PositionKpQ4_4(void) const
+{
+    return registers_[REG_POSITION_KP_Q4_4];
+}
+
+uint8_t RegisterMap::PositionKiQ4_4(void) const
+{
+    return registers_[REG_POSITION_KI_Q4_4];
+}
+
+uint8_t RegisterMap::PositionKdQ4_4(void) const
+{
+    return registers_[REG_POSITION_KD_Q4_4];
+}
+
+uint16_t RegisterMap::PositionMaxRpm(void) const
+{
+    return LoadUint16(REG_POSITION_MAX_RPM_0);
+}
+
+uint16_t RegisterMap::PositionTolerance(void) const
+{
+    return LoadUint16(REG_POSITION_TOLERANCE_0);
+}
+
 uint16_t RegisterMap::LoadUint16(uint8_t reg) const
 {
     return static_cast<uint16_t>(
@@ -304,6 +370,18 @@ uint32_t RegisterMap::LoadUint32(uint8_t reg) const
         (static_cast<uint32_t>(registers_[static_cast<uint8_t>(reg + 1U)]) << 8U) |
         (static_cast<uint32_t>(registers_[static_cast<uint8_t>(reg + 2U)]) << 16U) |
         (static_cast<uint32_t>(registers_[static_cast<uint8_t>(reg + 3U)]) << 24U));
+}
+
+int32_t RegisterMap::LoadInt32(uint8_t reg) const
+{
+    return static_cast<int32_t>(LoadUint32(reg));
+}
+
+void RegisterMap::StoreUint16(uint8_t reg, uint16_t value)
+{
+    registers_[reg] = static_cast<uint8_t>(value & 0xFFU);
+    registers_[static_cast<uint8_t>(reg + 1U)] =
+        static_cast<uint8_t>((value >> 8U) & 0xFFU);
 }
 
 void RegisterMap::StoreInt16(uint8_t reg, int16_t value)
@@ -326,6 +404,21 @@ void RegisterMap::StoreInt32(uint8_t reg, int32_t value)
         static_cast<uint8_t>((encoded >> 16U) & 0xFFU);
     registers_[static_cast<uint8_t>(reg + 3U)] =
         static_cast<uint8_t>((encoded >> 24U) & 0xFFU);
+}
+
+bool RegisterMap::PositionAtTarget(bool motor1) const
+{
+    const uint8_t mode = registers_[motor1 ? REG_M1_MODE : REG_M2_MODE];
+    if (mode != MOTOR_MODE_POSITION) {
+        return false;
+    }
+
+    const int32_t error =
+        LoadInt32(motor1 ? REG_M1_POSITION_ERROR_0 : REG_M2_POSITION_ERROR_0);
+    const uint32_t abs_error =
+        (error < 0) ? static_cast<uint32_t>(-static_cast<int64_t>(error)) :
+                      static_cast<uint32_t>(error);
+    return abs_error <= PositionTolerance();
 }
 
 void RegisterMap::ClearMotorMotion(uint8_t *target, bool motor1) const
@@ -365,6 +458,10 @@ void RegisterMap::NormalizeControlState(uint8_t *target,
     } else if (m1_mode_written && (target[REG_M1_MODE] == MOTOR_MODE_RUN)) {
         target[REG_M1_TARGET_RPM_0] = 0U;
         target[REG_M1_TARGET_RPM_1] = 0U;
+    } else if (m1_mode_written && (target[REG_M1_MODE] == MOTOR_MODE_POSITION)) {
+        target[REG_M1_DUTY] = 0U;
+        target[REG_M1_TARGET_RPM_0] = 0U;
+        target[REG_M1_TARGET_RPM_1] = 0U;
     }
 
     if (m2_mode_written && (target[REG_M2_MODE] == MOTOR_MODE_COAST)) {
@@ -374,6 +471,10 @@ void RegisterMap::NormalizeControlState(uint8_t *target,
         target[REG_M2_TARGET_RPM_0] = 0U;
         target[REG_M2_TARGET_RPM_1] = 0U;
     } else if (m2_mode_written && (target[REG_M2_MODE] == MOTOR_MODE_RUN)) {
+        target[REG_M2_TARGET_RPM_0] = 0U;
+        target[REG_M2_TARGET_RPM_1] = 0U;
+    } else if (m2_mode_written && (target[REG_M2_MODE] == MOTOR_MODE_POSITION)) {
+        target[REG_M2_DUTY] = 0U;
         target[REG_M2_TARGET_RPM_0] = 0U;
         target[REG_M2_TARGET_RPM_1] = 0U;
     }
@@ -398,7 +499,7 @@ bool RegisterMap::ApplyWriteTo(uint8_t *target, uint8_t reg, uint8_t value) cons
 
     case REG_M1_MODE:
     case REG_M2_MODE:
-        if (value > MOTOR_MODE_SPEED) {
+        if (value > MOTOR_MODE_POSITION) {
             return false;
         }
         target[reg] = value;
@@ -447,6 +548,21 @@ bool RegisterMap::ApplyWriteTo(uint8_t *target, uint8_t reg, uint8_t value) cons
     case REG_M2_COUNTS_PER_REV_1:
     case REG_M2_COUNTS_PER_REV_2:
     case REG_M2_COUNTS_PER_REV_3:
+    case REG_M1_TARGET_POSITION_0:
+    case REG_M1_TARGET_POSITION_1:
+    case REG_M1_TARGET_POSITION_2:
+    case REG_M1_TARGET_POSITION_3:
+    case REG_M2_TARGET_POSITION_0:
+    case REG_M2_TARGET_POSITION_1:
+    case REG_M2_TARGET_POSITION_2:
+    case REG_M2_TARGET_POSITION_3:
+    case REG_POSITION_KP_Q4_4:
+    case REG_POSITION_KI_Q4_4:
+    case REG_POSITION_KD_Q4_4:
+    case REG_POSITION_MAX_RPM_0:
+    case REG_POSITION_MAX_RPM_1:
+    case REG_POSITION_TOLERANCE_0:
+    case REG_POSITION_TOLERANCE_1:
         target[reg] = value;
         return true;
 
@@ -500,24 +616,47 @@ bool RegisterMap::IsControlRegister(uint8_t reg) const
     case REG_M2_COUNTS_PER_REV_1:
     case REG_M2_COUNTS_PER_REV_2:
     case REG_M2_COUNTS_PER_REV_3:
+    case REG_M1_TARGET_POSITION_0:
+    case REG_M1_TARGET_POSITION_1:
+    case REG_M1_TARGET_POSITION_2:
+    case REG_M1_TARGET_POSITION_3:
+    case REG_M2_TARGET_POSITION_0:
+    case REG_M2_TARGET_POSITION_1:
+    case REG_M2_TARGET_POSITION_2:
+    case REG_M2_TARGET_POSITION_3:
+    case REG_POSITION_KP_Q4_4:
+    case REG_POSITION_KI_Q4_4:
+    case REG_POSITION_KD_Q4_4:
+    case REG_POSITION_MAX_RPM_0:
+    case REG_POSITION_MAX_RPM_1:
+    case REG_POSITION_TOLERANCE_0:
+    case REG_POSITION_TOLERANCE_1:
         return true;
     default:
         return false;
     }
 }
 
-uint8_t RegisterMap::MotorStatus(uint8_t mode, uint8_t duty, uint8_t direction) const
+uint8_t RegisterMap::MotorStatus(bool motor1,
+                                 uint8_t mode,
+                                 uint8_t duty,
+                                 uint8_t direction) const
 {
     uint8_t status = 0U;
 
     if (IsEnabled() && (!timeout_active_) &&
         (((mode == MOTOR_MODE_RUN) && (duty > 0U)) ||
-         (mode == MOTOR_MODE_SPEED))) {
+         (mode == MOTOR_MODE_SPEED) ||
+         (mode == MOTOR_MODE_POSITION))) {
         status = static_cast<uint8_t>(status | MOTOR_STATUS_ACTIVE);
     }
 
     if (direction == MOTOR_DIRECTION_REVERSE) {
         status = static_cast<uint8_t>(status | MOTOR_STATUS_REVERSE);
+    }
+
+    if (PositionAtTarget(motor1)) {
+        status = static_cast<uint8_t>(status | MOTOR_STATUS_AT_TARGET);
     }
 
     return status;
