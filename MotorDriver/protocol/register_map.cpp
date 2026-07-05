@@ -28,11 +28,13 @@ void RegisterMap::Init(void)
     registers_[REG_M2_ENCODER_STATE] = 0U;
     registers_[REG_WATCHDOG_TIMEOUT] = 100U;
     registers_[REG_ENCODER_CONTROL] = 0U;
-    registers_[REG_SPEED_KP_Q4_4] = 16U;
+    registers_[REG_SPEED_KP_Q4_4] = 1U;
     registers_[REG_SPEED_KI_Q4_4] = 1U;
-    registers_[REG_SPEED_KD_Q4_4] = 0U;
+    registers_[REG_SPEED_KD_Q4_4] = 1U;
     registers_[REG_SPEED_MAX_DUTY] = 30U;
     registers_[REG_SPEED_MIN_DUTY] = 0U;
+    StoreInt32(REG_M1_COUNTS_PER_REV_0, 22400);
+    StoreInt32(REG_M2_COUNTS_PER_REV_0, 22400);
 
     RefreshStatus();
 }
@@ -235,11 +237,30 @@ uint8_t RegisterMap::SpeedMinDuty(void) const
     return registers_[REG_SPEED_MIN_DUTY];
 }
 
+uint32_t RegisterMap::M1CountsPerRev(void) const
+{
+    return LoadUint32(REG_M1_COUNTS_PER_REV_0);
+}
+
+uint32_t RegisterMap::M2CountsPerRev(void) const
+{
+    return LoadUint32(REG_M2_COUNTS_PER_REV_0);
+}
+
 uint16_t RegisterMap::LoadUint16(uint8_t reg) const
 {
     return static_cast<uint16_t>(
         static_cast<uint16_t>(registers_[reg]) |
         (static_cast<uint16_t>(registers_[static_cast<uint8_t>(reg + 1U)]) << 8U));
+}
+
+uint32_t RegisterMap::LoadUint32(uint8_t reg) const
+{
+    return static_cast<uint32_t>(
+        static_cast<uint32_t>(registers_[reg]) |
+        (static_cast<uint32_t>(registers_[static_cast<uint8_t>(reg + 1U)]) << 8U) |
+        (static_cast<uint32_t>(registers_[static_cast<uint8_t>(reg + 2U)]) << 16U) |
+        (static_cast<uint32_t>(registers_[static_cast<uint8_t>(reg + 3U)]) << 24U));
 }
 
 void RegisterMap::StoreInt16(uint8_t reg, int16_t value)
@@ -324,6 +345,14 @@ bool RegisterMap::ApplyWriteTo(uint8_t *target, uint8_t reg, uint8_t value) cons
     case REG_SPEED_KP_Q4_4:
     case REG_SPEED_KI_Q4_4:
     case REG_SPEED_KD_Q4_4:
+    case REG_M1_COUNTS_PER_REV_0:
+    case REG_M1_COUNTS_PER_REV_1:
+    case REG_M1_COUNTS_PER_REV_2:
+    case REG_M1_COUNTS_PER_REV_3:
+    case REG_M2_COUNTS_PER_REV_0:
+    case REG_M2_COUNTS_PER_REV_1:
+    case REG_M2_COUNTS_PER_REV_2:
+    case REG_M2_COUNTS_PER_REV_3:
         target[reg] = value;
         return true;
 
@@ -369,6 +398,14 @@ bool RegisterMap::IsControlRegister(uint8_t reg) const
     case REG_SPEED_KD_Q4_4:
     case REG_SPEED_MAX_DUTY:
     case REG_SPEED_MIN_DUTY:
+    case REG_M1_COUNTS_PER_REV_0:
+    case REG_M1_COUNTS_PER_REV_1:
+    case REG_M1_COUNTS_PER_REV_2:
+    case REG_M1_COUNTS_PER_REV_3:
+    case REG_M2_COUNTS_PER_REV_0:
+    case REG_M2_COUNTS_PER_REV_1:
+    case REG_M2_COUNTS_PER_REV_2:
+    case REG_M2_COUNTS_PER_REV_3:
         return true;
     default:
         return false;

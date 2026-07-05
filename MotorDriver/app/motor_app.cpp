@@ -12,11 +12,6 @@
 namespace app {
 namespace {
 
-constexpr int32_t kEncoderCountsPerMotorRev = 448;
-constexpr int32_t kMotorGearRatio = 50;
-constexpr int32_t kEncoderCountsPerOutputRev =
-    kEncoderCountsPerMotorRev * kMotorGearRatio;
-
 struct MotorFeedback {
     int16_t m1_rpm;
     int16_t m2_rpm;
@@ -40,10 +35,15 @@ uint32_t WatchdogTimeoutMs(void)
     return static_cast<uint32_t>(g_registers.WatchdogTimeout10ms()) * 10U;
 }
 
-int16_t EncoderCountsPerSecondToRpm(int32_t counts_per_second)
+int16_t EncoderCountsPerSecondToRpm(int32_t counts_per_second,
+                                    uint32_t counts_per_rev)
 {
+    if (counts_per_rev == 0U) {
+        return 0;
+    }
+
     int64_t numerator = static_cast<int64_t>(counts_per_second) * 60;
-    const int64_t denominator = kEncoderCountsPerOutputRev;
+    const int64_t denominator = counts_per_rev;
 
     if (numerator >= 0) {
         numerator += denominator / 2;
@@ -93,8 +93,10 @@ MotorFeedback SyncEncoderRegisters(void)
     const drivers::EncoderSnapshot m2 =
         board::BoardEncoders_GetSnapshot(drivers::EncoderId::Encoder2);
     const MotorFeedback feedback = {
-        EncoderCountsPerSecondToRpm(m1.counts_per_second),
-        EncoderCountsPerSecondToRpm(m2.counts_per_second),
+        EncoderCountsPerSecondToRpm(m1.counts_per_second,
+                                    g_registers.M1CountsPerRev()),
+        EncoderCountsPerSecondToRpm(m2.counts_per_second,
+                                    g_registers.M2CountsPerRev()),
     };
 
     g_registers.UpdateEncoderSnapshot(m1.count,

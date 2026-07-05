@@ -7,7 +7,7 @@ namespace protocol {
 
 constexpr uint8_t kDeviceId = 0xA5U;
 constexpr uint8_t kFirmwareVersion = 0x01U;
-constexpr uint8_t kRegisterCount = 0x40U;
+constexpr uint8_t kRegisterCount = 0x50U;
 constexpr uint8_t kMaxPayloadLength = 32U;
 
 constexpr uint8_t kSerialSof = 0xAAU;
@@ -71,6 +71,15 @@ enum Register : uint8_t {
     REG_SPEED_KD_Q4_4 = 0x3CU,
     REG_SPEED_MAX_DUTY = 0x3DU,
     REG_SPEED_MIN_DUTY = 0x3EU,
+
+    REG_M1_COUNTS_PER_REV_0 = 0x40U,
+    REG_M1_COUNTS_PER_REV_1 = 0x41U,
+    REG_M1_COUNTS_PER_REV_2 = 0x42U,
+    REG_M1_COUNTS_PER_REV_3 = 0x43U,
+    REG_M2_COUNTS_PER_REV_0 = 0x44U,
+    REG_M2_COUNTS_PER_REV_1 = 0x45U,
+    REG_M2_COUNTS_PER_REV_2 = 0x46U,
+    REG_M2_COUNTS_PER_REV_3 = 0x47U,
 };
 
 enum MotorMode : uint8_t {

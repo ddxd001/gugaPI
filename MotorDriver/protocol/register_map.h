@@ -41,9 +41,12 @@ public:
     uint8_t SpeedKdQ4_4(void) const;
     uint8_t SpeedMaxDuty(void) const;
     uint8_t SpeedMinDuty(void) const;
+    uint32_t M1CountsPerRev(void) const;
+    uint32_t M2CountsPerRev(void) const;
 
 private:
     uint16_t LoadUint16(uint8_t reg) const;
+    uint32_t LoadUint32(uint8_t reg) const;
     void StoreInt16(uint8_t reg, int16_t value);
     void StoreInt32(uint8_t reg, int32_t value);
     bool ApplyWriteTo(uint8_t *target, uint8_t reg, uint8_t value) const;

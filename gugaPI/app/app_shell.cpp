@@ -49,11 +49,14 @@ static const uint8_t kMotorRegM1TargetRpm = 0x32U;
 static const uint8_t kMotorRegM2TargetRpm = 0x34U;
 static const uint8_t kMotorRegSpeedRpmBlock = 0x32U;
 static const uint8_t kMotorRegSpeedPid = 0x3AU;
+static const uint8_t kMotorRegCountsPerRev = 0x40U;
 static const uint8_t kMotorEncoderBlockLength = 9U;
 static const uint8_t kMotorSpeedRpmBlockLength = 8U;
 static const uint8_t kMotorSpeedPidLength = 5U;
+static const uint8_t kMotorCountsPerRevLength = 8U;
 static const uint8_t kMotorModeSpeed = 3U;
 static const uint32_t kMotorSpeedMaxRpm = 1000U;
+static const uint32_t kMotorCountsPerRevMax = 100000000U;
 
 struct MotorProtocolFrame {
     uint8_t cmd;
@@ -285,6 +288,8 @@ void PrintMotorUsage(void)
     services::Shell_WriteLine("  motor enc");
     services::Shell_WriteLine("  motor enc reset");
     services::Shell_WriteLine("  motor rpm");
+    services::Shell_WriteLine("  motor cfg");
+    services::Shell_WriteLine("  motor cfg <m1_counts_per_rev> <m2_counts_per_rev>");
     services::Shell_WriteLine("  motor pid");
     services::Shell_WriteLine("  motor pid <kp_q4.4> <ki_q4.4> <kd_q4.4> [max_duty [min_duty]]");
     services::Shell_WriteLine("  motor reg <addr> <len 1..32>");
@@ -467,6 +472,15 @@ uint16_t DecodeMotorUint16Le(const uint8_t *data)
         (static_cast<uint16_t>(data[1]) << 8U));
 }
 
+uint32_t DecodeMotorUint32Le(const uint8_t *data)
+{
+    return static_cast<uint32_t>(
+        static_cast<uint32_t>(data[0]) |
+        (static_cast<uint32_t>(data[1]) << 8U) |
+        (static_cast<uint32_t>(data[2]) << 16U) |
+        (static_cast<uint32_t>(data[3]) << 24U));
+}
+
 int16_t DecodeMotorInt16Le(const uint8_t *data)
 {
     return static_cast<int16_t>(DecodeMotorUint16Le(data));
@@ -476,6 +490,14 @@ void EncodeMotorUint16Le(uint16_t value, uint8_t *data)
 {
     data[0] = static_cast<uint8_t>(value & 0xFFU);
     data[1] = static_cast<uint8_t>((value >> 8U) & 0xFFU);
+}
+
+void EncodeMotorUint32Le(uint32_t value, uint8_t *data)
+{
+    data[0] = static_cast<uint8_t>(value & 0xFFU);
+    data[1] = static_cast<uint8_t>((value >> 8U) & 0xFFU);
+    data[2] = static_cast<uint8_t>((value >> 16U) & 0xFFU);
+    data[3] = static_cast<uint8_t>((value >> 24U) & 0xFFU);
 }
 
 bool MotorStatusOkResponse(const MotorProtocolFrame &frame)
@@ -518,6 +540,20 @@ void PrintMotorRpmBlock(const MotorProtocolFrame &frame)
     services::Shell_WriteUInt32(DecodeMotorUint16Le(&frame.data[2]));
     services::Shell_WriteString(" actual=");
     WriteInt32(DecodeMotorInt16Le(&frame.data[6]));
+    services::Shell_WriteString("\r\n");
+}
+
+void PrintMotorConfigBlock(const MotorProtocolFrame &frame)
+{
+    if (frame.length != kMotorCountsPerRevLength) {
+        services::Shell_WriteLine("motor cfg: bad-response");
+        return;
+    }
+
+    services::Shell_WriteString("motor cfg m1_counts_per_rev=");
+    services::Shell_WriteUInt32(DecodeMotorUint32Le(&frame.data[0]));
+    services::Shell_WriteString(" m2_counts_per_rev=");
+    services::Shell_WriteUInt32(DecodeMotorUint32Le(&frame.data[4]));
     services::Shell_WriteString("\r\n");
 }
 
@@ -2129,6 +2165,67 @@ void MotorCommand(int argc, const char * const argv[])
         }
 
         PrintMotorRpmBlock(response);
+        return;
+    }
+
+    if (StrEqual(argv[1], "cfg")) {
+        MotorProtocolFrame response = {};
+
+        if (argc == 2) {
+            const drivers::DriverStatus status = MotorRequest(
+                kMotorCmdRead,
+                kMotorRegCountsPerRev,
+                0,
+                kMotorCountsPerRevLength,
+                &response);
+            if (status != drivers::DRIVER_OK) {
+                WriteStatusLine("motor cfg: ", status);
+                return;
+            }
+
+            PrintMotorConfigBlock(response);
+            return;
+        }
+
+        if (argc != 4) {
+            PrintMotorUsage();
+            return;
+        }
+
+        uint32_t m1_counts_per_rev = 0U;
+        uint32_t m2_counts_per_rev = 0U;
+        uint8_t data[kMotorCountsPerRevLength] = {
+            0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U
+        };
+
+        if ((!ParseUint32(argv[2],
+                          kMotorCountsPerRevMax,
+                          &m1_counts_per_rev)) ||
+            (!ParseUint32(argv[3],
+                          kMotorCountsPerRevMax,
+                          &m2_counts_per_rev))) {
+            PrintMotorUsage();
+            return;
+        }
+
+        EncodeMotorUint32Le(m1_counts_per_rev, &data[0]);
+        EncodeMotorUint32Le(m2_counts_per_rev, &data[4]);
+
+        const drivers::DriverStatus status = MotorRequest(
+            kMotorCmdWrite,
+            kMotorRegCountsPerRev,
+            data,
+            kMotorCountsPerRevLength,
+            &response);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor cfg: ", status);
+            return;
+        }
+
+        services::Shell_WriteString("motor cfg: ");
+        services::Shell_WriteString(MotorStatusOkResponse(response) ?
+                                    "ok" : "error");
+        services::Shell_WriteString("\r\n");
         return;
     }
 

@@ -78,8 +78,12 @@ bool UpdateSpeedMotor(protocol::RegisterMap &registers,
                               : protocol::REG_M2_DIRECTION);
     const uint16_t target_rpm =
         motor1 ? registers.M1TargetRpm() : registers.M2TargetRpm();
+    const uint32_t counts_per_rev =
+        motor1 ? registers.M1CountsPerRev() : registers.M2CountsPerRev();
 
-    if ((mode != protocol::MOTOR_MODE_SPEED) || (target_rpm == 0U)) {
+    if ((mode != protocol::MOTOR_MODE_SPEED) ||
+        (target_rpm == 0U) ||
+        (counts_per_rev == 0U)) {
         ResetPid(state);
         if (mode == protocol::MOTOR_MODE_SPEED) {
             const uint8_t duty =
