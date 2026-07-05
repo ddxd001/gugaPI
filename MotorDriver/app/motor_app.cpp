@@ -13,15 +13,17 @@ namespace app {
 namespace {
 
 struct MotorFeedback {
+    int32_t m1_count;
     int16_t m1_rpm;
+    int32_t m2_count;
     int16_t m2_rpm;
 };
 
 protocol::RegisterMap g_registers;
 protocol::SerialProtocol g_serial;
 volatile uint32_t g_ms_ticks = 0U;
-uint32_t g_last_successful_write_ms = 0U;
-bool g_have_successful_write = false;
+uint32_t g_last_watchdog_refresh_ms = 0U;
+bool g_watchdog_armed = false;
 bool g_timeout_active = false;
 bool g_output_dirty = true;
 
@@ -61,26 +63,46 @@ int16_t EncoderCountsPerSecondToRpm(int32_t counts_per_second,
     return static_cast<int16_t>(rpm);
 }
 
-void HandleSuccessfulWrite(void)
+void RefreshWatchdogLeaseFromWrite(void)
 {
-    g_last_successful_write_ms = Millis();
-    g_have_successful_write = true;
     g_timeout_active = false;
     g_registers.SetTimeoutActive(false);
+    if (g_registers.HasActiveCommand()) {
+        g_last_watchdog_refresh_ms = Millis();
+        g_watchdog_armed = true;
+    } else {
+        g_watchdog_armed = false;
+    }
     g_output_dirty = true;
+}
+
+void RefreshWatchdogLeaseFromKeepalive(void)
+{
+    if ((!g_timeout_active) && g_registers.HasActiveCommand()) {
+        g_last_watchdog_refresh_ms = Millis();
+        g_watchdog_armed = true;
+    }
 }
 
 void CheckWatchdog(void)
 {
     const uint32_t timeout_ms = WatchdogTimeoutMs();
 
-    if ((!g_have_successful_write) || (timeout_ms == 0U)) {
+    if ((timeout_ms == 0U) || (!g_registers.HasActiveCommand())) {
+        g_watchdog_armed = false;
         return;
     }
 
-    if ((!g_timeout_active) &&
-        ((Millis() - g_last_successful_write_ms) > timeout_ms)) {
+    if (!g_watchdog_armed) {
+        g_last_watchdog_refresh_ms = Millis();
+        g_watchdog_armed = true;
+        return;
+    }
+
+    if ((!g_timeout_active) && g_watchdog_armed &&
+        ((Millis() - g_last_watchdog_refresh_ms) > timeout_ms)) {
         g_timeout_active = true;
+        g_watchdog_armed = false;
         g_registers.ForceCoastOnTimeout();
         g_output_dirty = true;
     }
@@ -93,8 +115,10 @@ MotorFeedback SyncEncoderRegisters(void)
     const drivers::EncoderSnapshot m2 =
         board::BoardEncoders_GetSnapshot(drivers::EncoderId::Encoder2);
     const MotorFeedback feedback = {
+        m1.count,
         EncoderCountsPerSecondToRpm(m1.counts_per_second,
                                     g_registers.M1CountsPerRev()),
+        m2.count,
         EncoderCountsPerSecondToRpm(m2.counts_per_second,
                                     g_registers.M2CountsPerRev()),
     };
@@ -133,14 +157,22 @@ void ProcessSerialRx(void)
     while (board::BoardUart_ReadByte(&value)) {
         protocol::SerialResponse response = {};
         bool write_committed = false;
+        bool keepalive_received = false;
 
-        if (g_serial.ProcessByte(value, &response, &write_committed)) {
+        if (g_serial.ProcessByte(value,
+                                 &response,
+                                 &write_committed,
+                                 &keepalive_received)) {
             (void) board::BoardUart_Write(response.bytes, response.length);
+        }
+
+        if (keepalive_received) {
+            RefreshWatchdogLeaseFromKeepalive();
         }
 
         if (write_committed) {
             HandleEncoderControl();
-            HandleSuccessfulWrite();
+            RefreshWatchdogLeaseFromWrite();
         }
     }
 }
@@ -172,7 +204,9 @@ void MotorApp_Process(void)
 
     if ((!g_timeout_active) && g_registers.IsEnabled() &&
         control::MotorControl_UpdateSpeed(g_registers,
+                                          feedback.m1_count,
                                           feedback.m1_rpm,
+                                          feedback.m2_count,
                                           feedback.m2_rpm,
                                           Millis())) {
         g_output_dirty = true;

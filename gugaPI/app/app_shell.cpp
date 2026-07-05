@@ -2354,6 +2354,7 @@ void MotorCommand(int argc, const char * const argv[])
         MotorProtocolFrame response = {};
         static const uint8_t kM1Stop[] = { 0U, 0U };
         static const uint8_t kM2Stop[] = { 0U, 0U };
+        static const uint8_t kTargetZero[] = { 0U, 0U };
 
         if (argc != 2) {
             PrintMotorUsage();
@@ -2379,6 +2380,34 @@ void MotorCommand(int argc, const char * const argv[])
                               kMotorRegM2Mode,
                               kM2Stop,
                               (uint8_t) sizeof(kM2Stop),
+                              &response);
+        if ((status == drivers::DRIVER_OK) &&
+            ((response.length != 1U) || (response.data[0] != kMotorStatusOk))) {
+            status = drivers::DRIVER_ERROR;
+        }
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor stop m2: ", status);
+            return;
+        }
+
+        status = MotorRequest(kMotorCmdWrite,
+                              kMotorRegM1TargetRpm,
+                              kTargetZero,
+                              (uint8_t) sizeof(kTargetZero),
+                              &response);
+        if ((status == drivers::DRIVER_OK) &&
+            ((response.length != 1U) || (response.data[0] != kMotorStatusOk))) {
+            status = drivers::DRIVER_ERROR;
+        }
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor stop m1 target: ", status);
+            return;
+        }
+
+        status = MotorRequest(kMotorCmdWrite,
+                              kMotorRegM2TargetRpm,
+                              kTargetZero,
+                              (uint8_t) sizeof(kTargetZero),
                               &response);
         if ((status == drivers::DRIVER_OK) &&
             ((response.length != 1U) || (response.data[0] != kMotorStatusOk))) {

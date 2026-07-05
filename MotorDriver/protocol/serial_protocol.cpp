@@ -10,13 +10,17 @@ void SerialProtocol::Init(RegisterMap *registers)
 
 bool SerialProtocol::ProcessByte(uint8_t value,
                                  SerialResponse *response,
-                                 bool *write_committed)
+                                 bool *write_committed,
+                                 bool *keepalive_received)
 {
     if (response != 0) {
         response->length = 0U;
     }
     if (write_committed != 0) {
         *write_committed = false;
+    }
+    if (keepalive_received != 0) {
+        *keepalive_received = false;
     }
 
     switch (state_) {
@@ -72,7 +76,8 @@ bool SerialProtocol::ProcessByte(uint8_t value,
             return false;
         }
         {
-            const bool ready = HandleFrame(response, write_committed);
+            const bool ready =
+                HandleFrame(response, write_committed, keepalive_received);
             ResetParser();
             return ready;
         }
@@ -93,7 +98,9 @@ void SerialProtocol::ResetParser(void)
     data_index_ = 0U;
 }
 
-bool SerialProtocol::HandleFrame(SerialResponse *response, bool *write_committed)
+bool SerialProtocol::HandleFrame(SerialResponse *response,
+                                 bool *write_committed,
+                                 bool *keepalive_received)
 {
     if ((response == 0) || (registers_ == 0)) {
         return false;
@@ -101,6 +108,9 @@ bool SerialProtocol::HandleFrame(SerialResponse *response, bool *write_committed
 
     if (cmd_ == kSerialCmdHeartbeat) {
         if (length_ == 0U) {
+            if (keepalive_received != 0) {
+                *keepalive_received = true;
+            }
             BuildStatusResponse(cmd_, reg_, kSerialStatusOk, response);
         } else {
             BuildStatusResponse(cmd_, reg_, kSerialStatusError, response);

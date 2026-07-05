@@ -29,10 +29,15 @@ public:
                                uint8_t m2_state);
     void UpdateMeasuredRpm(int16_t m1_rpm, int16_t m2_rpm);
     void SetMotorDutyFromControl(bool motor1, uint8_t duty);
+    void SetMotorOutputFromControl(bool motor1,
+                                   uint8_t duty,
+                                   uint8_t direction);
+    void UpdateHoldTarget(bool motor1, int32_t count);
     uint8_t EncoderControl(void) const;
     void ClearEncoderControl(void);
 
     bool IsEnabled(void) const;
+    bool HasActiveCommand(void) const;
     uint8_t WatchdogTimeout10ms(void) const;
     uint16_t M1TargetRpm(void) const;
     uint16_t M2TargetRpm(void) const;
@@ -49,6 +54,10 @@ private:
     uint32_t LoadUint32(uint8_t reg) const;
     void StoreInt16(uint8_t reg, int16_t value);
     void StoreInt32(uint8_t reg, int32_t value);
+    void ClearMotorMotion(uint8_t *target, bool motor1) const;
+    void NormalizeControlState(uint8_t *target,
+                               uint8_t start_reg,
+                               uint8_t length) const;
     bool ApplyWriteTo(uint8_t *target, uint8_t reg, uint8_t value) const;
     bool IsReadableRange(uint8_t start_reg, uint8_t length) const;
     bool IsControlRegister(uint8_t reg) const;

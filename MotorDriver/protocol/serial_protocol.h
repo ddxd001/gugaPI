@@ -21,7 +21,8 @@ public:
     void Init(RegisterMap *registers);
     bool ProcessByte(uint8_t value,
                      SerialResponse *response,
-                     bool *write_committed);
+                     bool *write_committed,
+                     bool *keepalive_received);
     static uint8_t Crc8Update(uint8_t crc, uint8_t value);
 
 private:
@@ -35,7 +36,9 @@ private:
     };
 
     void ResetParser(void);
-    bool HandleFrame(SerialResponse *response, bool *write_committed);
+    bool HandleFrame(SerialResponse *response,
+                     bool *write_committed,
+                     bool *keepalive_received);
     void BuildResponse(uint8_t request_cmd,
                        uint8_t reg,
                        const uint8_t *data,

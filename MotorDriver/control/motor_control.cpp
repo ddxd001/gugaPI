@@ -8,14 +8,18 @@ namespace {
 
 constexpr uint32_t kSpeedControlPeriodMs = 100U;
 constexpr int32_t kPidScale = 16;
+constexpr int32_t kHoldPositionGain = 10;
+constexpr uint16_t kHoldMaxRpm = 100U;
 
 struct SpeedPidState {
     int32_t integral_q4;
     int32_t previous_error_rpm;
+    int32_t hold_count;
     uint32_t last_update_ms;
     uint16_t previous_target_rpm;
     uint8_t previous_mode;
     uint8_t previous_direction;
+    bool hold_mode;
     bool initialized;
 };
 
@@ -33,9 +37,11 @@ void ResetPid(SpeedPidState *state)
 {
     state->integral_q4 = 0;
     state->previous_error_rpm = 0;
+    state->hold_count = 0;
     state->previous_target_rpm = 0U;
     state->previous_mode = protocol::MOTOR_MODE_COAST;
     state->previous_direction = protocol::MOTOR_DIRECTION_FORWARD;
+    state->hold_mode = false;
     state->initialized = false;
 }
 
@@ -68,6 +74,7 @@ uint8_t ClampDuty(int32_t duty_q4, uint8_t min_duty, uint8_t max_duty)
 bool UpdateSpeedMotor(protocol::RegisterMap &registers,
                       SpeedPidState *state,
                       bool motor1,
+                      int32_t count,
                       int16_t measured_rpm,
                       uint32_t now_ms)
 {
@@ -80,9 +87,10 @@ bool UpdateSpeedMotor(protocol::RegisterMap &registers,
         motor1 ? registers.M1TargetRpm() : registers.M2TargetRpm();
     const uint32_t counts_per_rev =
         motor1 ? registers.M1CountsPerRev() : registers.M2CountsPerRev();
+    const bool hold_mode =
+        (mode == protocol::MOTOR_MODE_SPEED) && (target_rpm == 0U);
 
     if ((mode != protocol::MOTOR_MODE_SPEED) ||
-        (target_rpm == 0U) ||
         (counts_per_rev == 0U)) {
         ResetPid(state);
         if (mode == protocol::MOTOR_MODE_SPEED) {
@@ -100,13 +108,21 @@ bool UpdateSpeedMotor(protocol::RegisterMap &registers,
     if ((!state->initialized) ||
         (state->previous_mode != mode) ||
         (state->previous_direction != direction) ||
-        (state->previous_target_rpm != target_rpm)) {
+        (state->previous_target_rpm != target_rpm) ||
+        (state->hold_mode != hold_mode)) {
         ResetPid(state);
+        state->hold_count = count;
         state->last_update_ms = now_ms;
         state->previous_mode = mode;
         state->previous_direction = direction;
         state->previous_target_rpm = target_rpm;
+        state->hold_mode = hold_mode;
         state->initialized = true;
+        if (hold_mode) {
+            registers.UpdateHoldTarget(motor1, state->hold_count);
+            registers.SetMotorDutyFromControl(motor1, 0U);
+            return true;
+        }
     }
 
     if ((now_ms - state->last_update_ms) < kSpeedControlPeriodMs) {
@@ -114,14 +130,51 @@ bool UpdateSpeedMotor(protocol::RegisterMap &registers,
     }
     state->last_update_ms = now_ms;
 
+    uint16_t command_rpm = target_rpm;
+    uint8_t output_direction = direction;
+
+    if (hold_mode) {
+        const int64_t position_error =
+            static_cast<int64_t>(state->hold_count) -
+            static_cast<int64_t>(count);
+        const uint64_t abs_error =
+            (position_error < 0) ? static_cast<uint64_t>(-position_error) :
+                                   static_cast<uint64_t>(position_error);
+
+        if (position_error < 0) {
+            output_direction = protocol::MOTOR_DIRECTION_REVERSE;
+        } else if (position_error > 0) {
+            output_direction = protocol::MOTOR_DIRECTION_FORWARD;
+        } else if (measured_rpm > 0) {
+            output_direction = protocol::MOTOR_DIRECTION_REVERSE;
+        } else if (measured_rpm < 0) {
+            output_direction = protocol::MOTOR_DIRECTION_FORWARD;
+        }
+
+        uint64_t hold_rpm =
+            (abs_error * 60ULL * static_cast<uint64_t>(kHoldPositionGain)) /
+            static_cast<uint64_t>(counts_per_rev);
+        if ((abs_error > 0U) && (hold_rpm == 0U)) {
+            hold_rpm = 1;
+        }
+        if (hold_rpm > kHoldMaxRpm) {
+            hold_rpm = kHoldMaxRpm;
+        }
+        command_rpm = static_cast<uint16_t>(hold_rpm);
+    }
+
     const int32_t measured_aligned =
-        (direction == protocol::MOTOR_DIRECTION_REVERSE)
+        (output_direction == protocol::MOTOR_DIRECTION_REVERSE)
             ? -static_cast<int32_t>(measured_rpm)
             : static_cast<int32_t>(measured_rpm);
     const int32_t error_rpm =
-        static_cast<int32_t>(target_rpm) - measured_aligned;
+        static_cast<int32_t>(command_rpm) - measured_aligned;
     const int32_t derivative_rpm = error_rpm - state->previous_error_rpm;
     state->previous_error_rpm = error_rpm;
+
+    if ((hold_mode) && (command_rpm == 0U)) {
+        state->integral_q4 = 0;
+    }
 
     const int32_t max_q4 =
         static_cast<int32_t>(registers.SpeedMaxDuty()) * kPidScale;
@@ -141,7 +194,7 @@ bool UpdateSpeedMotor(protocol::RegisterMap &registers,
                                    registers.SpeedMinDuty(),
                                    registers.SpeedMaxDuty());
 
-    registers.SetMotorDutyFromControl(motor1, duty);
+    registers.SetMotorOutputFromControl(motor1, duty, output_direction);
     return true;
 }
 
@@ -183,14 +236,26 @@ void MotorControl_Init(void)
 }
 
 bool MotorControl_UpdateSpeed(protocol::RegisterMap &registers,
+                              int32_t m1_count,
                               int16_t m1_rpm,
+                              int32_t m2_count,
                               int16_t m2_rpm,
                               uint32_t now_ms)
 {
     const bool m1_changed =
-        UpdateSpeedMotor(registers, &g_m1_speed, true, m1_rpm, now_ms);
+        UpdateSpeedMotor(registers,
+                         &g_m1_speed,
+                         true,
+                         m1_count,
+                         m1_rpm,
+                         now_ms);
     const bool m2_changed =
-        UpdateSpeedMotor(registers, &g_m2_speed, false, m2_rpm, now_ms);
+        UpdateSpeedMotor(registers,
+                         &g_m2_speed,
+                         false,
+                         m2_count,
+                         m2_rpm,
+                         now_ms);
 
     return m1_changed || m2_changed;
 }

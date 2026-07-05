@@ -7,7 +7,9 @@ namespace control {
 
 void MotorControl_Init(void);
 bool MotorControl_UpdateSpeed(protocol::RegisterMap &registers,
+                              int32_t m1_count,
                               int16_t m1_rpm,
+                              int32_t m2_count,
                               int16_t m2_rpm,
                               uint32_t now_ms);
 void MotorControl_Apply(const protocol::RegisterMap &registers,

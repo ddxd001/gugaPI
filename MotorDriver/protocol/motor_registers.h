@@ -80,6 +80,14 @@ enum Register : uint8_t {
     REG_M2_COUNTS_PER_REV_1 = 0x45U,
     REG_M2_COUNTS_PER_REV_2 = 0x46U,
     REG_M2_COUNTS_PER_REV_3 = 0x47U,
+    REG_M1_HOLD_COUNT_0 = 0x48U,
+    REG_M1_HOLD_COUNT_1 = 0x49U,
+    REG_M1_HOLD_COUNT_2 = 0x4AU,
+    REG_M1_HOLD_COUNT_3 = 0x4BU,
+    REG_M2_HOLD_COUNT_0 = 0x4CU,
+    REG_M2_HOLD_COUNT_1 = 0x4DU,
+    REG_M2_HOLD_COUNT_2 = 0x4EU,
+    REG_M2_HOLD_COUNT_3 = 0x4FU,
 };
 
 enum MotorMode : uint8_t {
