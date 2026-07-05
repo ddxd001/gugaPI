@@ -1,0 +1,395 @@
+#include "protocol/register_map.h"
+
+namespace protocol {
+
+void RegisterMap::Init(void)
+{
+    for (uint8_t index = 0U; index < kRegisterCount; index++) {
+        registers_[index] = 0U;
+    }
+
+    timeout_active_ = false;
+
+    registers_[REG_DEVICE_ID] = kDeviceId;
+    registers_[REG_FW_VERSION] = kFirmwareVersion;
+    registers_[REG_STATUS] = STATUS_READY | STATUS_ENABLED;
+    registers_[REG_FAULT_FLAGS] = 0U;
+    registers_[REG_CONTROL_FLAGS] = CONTROL_ENABLE;
+    registers_[REG_I2C_ADDRESS] = 0U;
+    registers_[REG_M1_MODE] = MOTOR_MODE_COAST;
+    registers_[REG_M1_DUTY] = 0U;
+    registers_[REG_M1_DIRECTION] = MOTOR_DIRECTION_FORWARD;
+    registers_[REG_M1_STATUS] = 0U;
+    registers_[REG_M1_ENCODER_STATE] = 0U;
+    registers_[REG_M2_MODE] = MOTOR_MODE_COAST;
+    registers_[REG_M2_DUTY] = 0U;
+    registers_[REG_M2_DIRECTION] = MOTOR_DIRECTION_FORWARD;
+    registers_[REG_M2_STATUS] = 0U;
+    registers_[REG_M2_ENCODER_STATE] = 0U;
+    registers_[REG_WATCHDOG_TIMEOUT] = 100U;
+    registers_[REG_ENCODER_CONTROL] = 0U;
+    registers_[REG_SPEED_KP_Q4_4] = 16U;
+    registers_[REG_SPEED_KI_Q4_4] = 1U;
+    registers_[REG_SPEED_KD_Q4_4] = 0U;
+    registers_[REG_SPEED_MAX_DUTY] = 30U;
+    registers_[REG_SPEED_MIN_DUTY] = 0U;
+
+    RefreshStatus();
+}
+
+uint8_t RegisterMap::Read(uint8_t reg) const
+{
+    if (reg >= kRegisterCount) {
+        return 0U;
+    }
+
+    return registers_[reg];
+}
+
+bool RegisterMap::ReadBlock(uint8_t start_reg, uint8_t length, uint8_t *out) const
+{
+    if ((out == 0) || (!IsReadableRange(start_reg, length))) {
+        return false;
+    }
+
+    for (uint8_t index = 0U; index < length; index++) {
+        out[index] = Read(static_cast<uint8_t>(start_reg + index));
+    }
+
+    return true;
+}
+
+bool RegisterMap::CommitWrite(uint8_t start_reg,
+                              const uint8_t *data,
+                              uint8_t length,
+                              bool *control_changed)
+{
+    if ((data == 0) || (length == 0U) ||
+        ((uint16_t) start_reg + (uint16_t) length > kRegisterCount)) {
+        return false;
+    }
+
+    uint8_t next[kRegisterCount];
+    bool changed = false;
+
+    for (uint8_t index = 0U; index < kRegisterCount; index++) {
+        next[index] = registers_[index];
+    }
+
+    for (uint8_t index = 0U; index < length; index++) {
+        const uint8_t reg = static_cast<uint8_t>(start_reg + index);
+        if (!ApplyWriteTo(next, reg, data[index])) {
+            return false;
+        }
+        if (IsControlRegister(reg)) {
+            changed = true;
+        }
+    }
+
+    for (uint8_t index = 0U; index < kRegisterCount; index++) {
+        registers_[index] = next[index];
+    }
+
+    RefreshStatus();
+
+    if (control_changed != 0) {
+        *control_changed = changed;
+    }
+
+    return true;
+}
+
+void RegisterMap::SetTimeoutActive(bool active)
+{
+    timeout_active_ = active;
+    RefreshStatus();
+}
+
+void RegisterMap::ForceCoastOnTimeout(void)
+{
+    registers_[REG_M1_MODE] = MOTOR_MODE_COAST;
+    registers_[REG_M1_DUTY] = 0U;
+    registers_[REG_M2_MODE] = MOTOR_MODE_COAST;
+    registers_[REG_M2_DUTY] = 0U;
+    registers_[REG_FAULT_FLAGS] =
+        static_cast<uint8_t>(registers_[REG_FAULT_FLAGS] | FAULT_WATCHDOG_TIMEOUT);
+    timeout_active_ = true;
+    RefreshStatus();
+}
+
+void RegisterMap::RefreshStatus(void)
+{
+    uint8_t status = STATUS_READY;
+    const bool enabled = IsEnabled();
+
+    if (enabled) {
+        status = static_cast<uint8_t>(status | STATUS_ENABLED);
+    }
+
+    const uint8_t m1_status = MotorStatus(registers_[REG_M1_MODE],
+                                          registers_[REG_M1_DUTY],
+                                          registers_[REG_M1_DIRECTION]);
+    const uint8_t m2_status = MotorStatus(registers_[REG_M2_MODE],
+                                          registers_[REG_M2_DUTY],
+                                          registers_[REG_M2_DIRECTION]);
+
+    registers_[REG_M1_STATUS] = m1_status;
+    registers_[REG_M2_STATUS] = m2_status;
+
+    if (enabled && (!timeout_active_) &&
+        (((m1_status | m2_status) & MOTOR_STATUS_ACTIVE) != 0U)) {
+        status = static_cast<uint8_t>(status | STATUS_ACTIVE);
+    }
+
+    if (timeout_active_) {
+        status = static_cast<uint8_t>(status | STATUS_TIMEOUT);
+    }
+
+    registers_[REG_STATUS] = status;
+}
+
+void RegisterMap::UpdateEncoderSnapshot(int32_t m1_count,
+                                        int32_t m1_counts_per_second,
+                                        uint8_t m1_state,
+                                        int32_t m2_count,
+                                        int32_t m2_counts_per_second,
+                                        uint8_t m2_state)
+{
+    StoreInt32(REG_M1_ENCODER_COUNT_0, m1_count);
+    StoreInt32(REG_M1_ENCODER_CPS_0, m1_counts_per_second);
+    registers_[REG_M1_ENCODER_STATE] = static_cast<uint8_t>(m1_state & 0x03U);
+
+    StoreInt32(REG_M2_ENCODER_COUNT_0, m2_count);
+    StoreInt32(REG_M2_ENCODER_CPS_0, m2_counts_per_second);
+    registers_[REG_M2_ENCODER_STATE] = static_cast<uint8_t>(m2_state & 0x03U);
+}
+
+void RegisterMap::UpdateMeasuredRpm(int16_t m1_rpm, int16_t m2_rpm)
+{
+    StoreInt16(REG_M1_MEASURED_RPM_0, m1_rpm);
+    StoreInt16(REG_M2_MEASURED_RPM_0, m2_rpm);
+}
+
+void RegisterMap::SetMotorDutyFromControl(bool motor1, uint8_t duty)
+{
+    if (duty > 100U) {
+        duty = 100U;
+    }
+
+    registers_[motor1 ? REG_M1_DUTY : REG_M2_DUTY] = duty;
+    RefreshStatus();
+}
+
+uint8_t RegisterMap::EncoderControl(void) const
+{
+    return registers_[REG_ENCODER_CONTROL];
+}
+
+void RegisterMap::ClearEncoderControl(void)
+{
+    registers_[REG_ENCODER_CONTROL] = 0U;
+}
+
+bool RegisterMap::IsEnabled(void) const
+{
+    return (registers_[REG_CONTROL_FLAGS] & CONTROL_ENABLE) != 0U;
+}
+
+uint8_t RegisterMap::WatchdogTimeout10ms(void) const
+{
+    return registers_[REG_WATCHDOG_TIMEOUT];
+}
+
+uint16_t RegisterMap::M1TargetRpm(void) const
+{
+    return LoadUint16(REG_M1_TARGET_RPM_0);
+}
+
+uint16_t RegisterMap::M2TargetRpm(void) const
+{
+    return LoadUint16(REG_M2_TARGET_RPM_0);
+}
+
+uint8_t RegisterMap::SpeedKpQ4_4(void) const
+{
+    return registers_[REG_SPEED_KP_Q4_4];
+}
+
+uint8_t RegisterMap::SpeedKiQ4_4(void) const
+{
+    return registers_[REG_SPEED_KI_Q4_4];
+}
+
+uint8_t RegisterMap::SpeedKdQ4_4(void) const
+{
+    return registers_[REG_SPEED_KD_Q4_4];
+}
+
+uint8_t RegisterMap::SpeedMaxDuty(void) const
+{
+    return registers_[REG_SPEED_MAX_DUTY];
+}
+
+uint8_t RegisterMap::SpeedMinDuty(void) const
+{
+    return registers_[REG_SPEED_MIN_DUTY];
+}
+
+uint16_t RegisterMap::LoadUint16(uint8_t reg) const
+{
+    return static_cast<uint16_t>(
+        static_cast<uint16_t>(registers_[reg]) |
+        (static_cast<uint16_t>(registers_[static_cast<uint8_t>(reg + 1U)]) << 8U));
+}
+
+void RegisterMap::StoreInt16(uint8_t reg, int16_t value)
+{
+    const uint16_t encoded = static_cast<uint16_t>(value);
+
+    registers_[reg] = static_cast<uint8_t>(encoded & 0xFFU);
+    registers_[static_cast<uint8_t>(reg + 1U)] =
+        static_cast<uint8_t>((encoded >> 8U) & 0xFFU);
+}
+
+void RegisterMap::StoreInt32(uint8_t reg, int32_t value)
+{
+    const uint32_t encoded = static_cast<uint32_t>(value);
+
+    registers_[reg] = static_cast<uint8_t>(encoded & 0xFFU);
+    registers_[static_cast<uint8_t>(reg + 1U)] =
+        static_cast<uint8_t>((encoded >> 8U) & 0xFFU);
+    registers_[static_cast<uint8_t>(reg + 2U)] =
+        static_cast<uint8_t>((encoded >> 16U) & 0xFFU);
+    registers_[static_cast<uint8_t>(reg + 3U)] =
+        static_cast<uint8_t>((encoded >> 24U) & 0xFFU);
+}
+
+bool RegisterMap::ApplyWriteTo(uint8_t *target, uint8_t reg, uint8_t value) const
+{
+    switch (reg) {
+    case REG_FAULT_FLAGS:
+        if ((value & static_cast<uint8_t>(~FAULT_WATCHDOG_TIMEOUT)) != 0U) {
+            return false;
+        }
+        target[reg] = static_cast<uint8_t>(target[reg] & static_cast<uint8_t>(~value));
+        return true;
+
+    case REG_CONTROL_FLAGS:
+        if ((value & static_cast<uint8_t>(~CONTROL_ENABLE)) != 0U) {
+            return false;
+        }
+        target[reg] = value;
+        return true;
+
+    case REG_M1_MODE:
+    case REG_M2_MODE:
+        if (value > MOTOR_MODE_SPEED) {
+            return false;
+        }
+        target[reg] = value;
+        return true;
+
+    case REG_M1_DUTY:
+    case REG_M2_DUTY:
+        if (value > 100U) {
+            return false;
+        }
+        target[reg] = value;
+        return true;
+
+    case REG_M1_DIRECTION:
+    case REG_M2_DIRECTION:
+        if (value > MOTOR_DIRECTION_REVERSE) {
+            return false;
+        }
+        target[reg] = value;
+        return true;
+
+    case REG_WATCHDOG_TIMEOUT:
+        target[reg] = value;
+        return true;
+
+    case REG_ENCODER_CONTROL:
+        if ((value & static_cast<uint8_t>(~(ENCODER_CONTROL_RESET_M1 |
+                                            ENCODER_CONTROL_RESET_M2))) != 0U) {
+            return false;
+        }
+        target[reg] = value;
+        return true;
+
+    case REG_M1_TARGET_RPM_0:
+    case REG_M1_TARGET_RPM_1:
+    case REG_M2_TARGET_RPM_0:
+    case REG_M2_TARGET_RPM_1:
+    case REG_SPEED_KP_Q4_4:
+    case REG_SPEED_KI_Q4_4:
+    case REG_SPEED_KD_Q4_4:
+        target[reg] = value;
+        return true;
+
+    case REG_SPEED_MAX_DUTY:
+    case REG_SPEED_MIN_DUTY:
+        if (value > 100U) {
+            return false;
+        }
+        target[reg] = value;
+        return true;
+
+    default:
+        return false;
+    }
+}
+
+bool RegisterMap::IsReadableRange(uint8_t start_reg, uint8_t length) const
+{
+    if ((length == 0U) ||
+        ((uint16_t) start_reg + (uint16_t) length > kRegisterCount)) {
+        return false;
+    }
+
+    return true;
+}
+
+bool RegisterMap::IsControlRegister(uint8_t reg) const
+{
+    switch (reg) {
+    case REG_CONTROL_FLAGS:
+    case REG_M1_MODE:
+    case REG_M1_DUTY:
+    case REG_M1_DIRECTION:
+    case REG_M1_TARGET_RPM_0:
+    case REG_M1_TARGET_RPM_1:
+    case REG_M2_MODE:
+    case REG_M2_DUTY:
+    case REG_M2_DIRECTION:
+    case REG_M2_TARGET_RPM_0:
+    case REG_M2_TARGET_RPM_1:
+    case REG_SPEED_KP_Q4_4:
+    case REG_SPEED_KI_Q4_4:
+    case REG_SPEED_KD_Q4_4:
+    case REG_SPEED_MAX_DUTY:
+    case REG_SPEED_MIN_DUTY:
+        return true;
+    default:
+        return false;
+    }
+}
+
+uint8_t RegisterMap::MotorStatus(uint8_t mode, uint8_t duty, uint8_t direction) const
+{
+    uint8_t status = 0U;
+
+    if (IsEnabled() && (!timeout_active_) &&
+        ((mode == MOTOR_MODE_RUN) || (mode == MOTOR_MODE_SPEED)) &&
+        (duty > 0U)) {
+        status = static_cast<uint8_t>(status | MOTOR_STATUS_ACTIVE);
+    }
+
+    if (direction == MOTOR_DIRECTION_REVERSE) {
+        status = static_cast<uint8_t>(status | MOTOR_STATUS_REVERSE);
+    }
+
+    return status;
+}
+
+}  // namespace protocol

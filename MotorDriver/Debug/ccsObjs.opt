@@ -1,0 +1,16 @@
+"./empty_cpp.o"
+"./ti_msp_dl_config.o"
+"./startup_mspm0g351x_ticlang.o"
+"./app/motor_app.o"
+"./board/board_encoders.o"
+"./board/board_motor_outputs.o"
+"./board/board_uart.o"
+"./control/motor_control.o"
+"./drivers/drv8701.o"
+"./drivers/quadrature_encoder.o"
+"./drivers/uart_link.o"
+"./protocol/register_map.o"
+"./protocol/serial_protocol.o"
+-l"./device_linker.cmd"
+-ldevice.cmd.genlibs
+-llibc.a

@@ -1,0 +1,62 @@
+[
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/empty_cpp.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug/ti_msp_dl_config.c"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/register_map.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/serial_protocol.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/board/board_uart.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/drivers/drv8701.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/drivers/uart_link.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/board/board_motor_outputs.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/app/motor_app.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/control/motor_control.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/drivers/quadrature_encoder.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/board/board_encoders.cpp"
+   }
+]

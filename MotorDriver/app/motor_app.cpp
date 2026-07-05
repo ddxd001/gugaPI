@@ -1,212 +1,196 @@
 #include "app/motor_app.h"
 
+#include <stdint.h>
+
+#include "board/board_encoders.h"
+#include "board/board_uart.h"
 #include "control/motor_control.h"
-#include "drivers/dip_address.h"
-#include "drivers/i2c_slave.h"
-#include "drivers/uart_control.h"
-#include "protocol/motor_protocol.h"
+#include "protocol/register_map.h"
+#include "protocol/serial_protocol.h"
 #include "ti_msp_dl_config.h"
 
+namespace app {
 namespace {
 
-constexpr bool kEnableBootSpinTest = false;
-constexpr uint32_t kBootSpinStepMs = 1000;
-constexpr uint32_t kBootSpinBrakeMs = 1000;
-constexpr uint8_t kBootSpinStepPercent = 20;
+constexpr int32_t kEncoderCountsPerMotorRev = 448;
+constexpr int32_t kMotorGearRatio = 50;
+constexpr int32_t kEncoderCountsPerOutputRev =
+    kEncoderCountsPerMotorRev * kMotorGearRatio;
 
-enum class BootSpinState : uint8_t {
-    RampForward,
-    BrakeBeforeReverse,
-    RampReverse,
-    BrakeBeforeForward,
+struct MotorFeedback {
+    int16_t m1_rpm;
+    int16_t m2_rpm;
 };
 
-MotorRegisterMap g_registers;
-volatile uint32_t g_msTicks = 0;
-uint32_t g_lastCommandMs = 0;
-uint32_t g_bootSpinLastStepMs = 0;
-uint8_t g_bootSpinDuty = 0;
-BootSpinState g_bootSpinState = BootSpinState::RampForward;
+protocol::RegisterMap g_registers;
+protocol::SerialProtocol g_serial;
+volatile uint32_t g_ms_ticks = 0U;
+uint32_t g_last_successful_write_ms = 0U;
+bool g_have_successful_write = false;
+bool g_timeout_active = false;
+bool g_output_dirty = true;
 
-uint32_t millis(void)
+uint32_t Millis(void)
 {
-    return g_msTicks;
+    return g_ms_ticks;
 }
 
-uint32_t watchdogTimeoutMs(void)
+uint32_t WatchdogTimeoutMs(void)
 {
-    const uint8_t timeout10ms = g_registers.read(MotorProtocol::REG_WATCHDOG_TIMEOUT);
-    return static_cast<uint32_t>(timeout10ms) * 10U;
+    return static_cast<uint32_t>(g_registers.WatchdogTimeout10ms()) * 10U;
 }
 
-void forceCoastOnTimeout(void)
+int16_t EncoderCountsPerSecondToRpm(int32_t counts_per_second)
 {
-    g_registers.write(MotorProtocol::REG_M1_MODE, MotorProtocol::MOTOR_MODE_COAST);
-    g_registers.write(MotorProtocol::REG_M2_MODE, MotorProtocol::MOTOR_MODE_COAST);
-    g_registers.set(MotorProtocol::REG_FAULT_FLAGS,
-        g_registers.read(MotorProtocol::REG_FAULT_FLAGS) | MotorProtocol::FAULT_I2C_TIMEOUT);
-}
+    int64_t numerator = static_cast<int64_t>(counts_per_second) * 60;
+    const int64_t denominator = kEncoderCountsPerOutputRev;
 
-uint8_t motorStatus(uint8_t mode, uint8_t direction)
-{
-    uint8_t status = 0;
-    if (mode == MotorProtocol::MOTOR_MODE_RUN) {
-        status |= MotorProtocol::MOTOR_STATUS_ACTIVE;
-    }
-    if (direction == MotorProtocol::MOTOR_DIRECTION_REVERSE) {
-        status |= MotorProtocol::MOTOR_STATUS_REVERSE;
-    }
-    return status;
-}
-
-void updateStatus(bool timedOut)
-{
-    const bool enabled =
-        (g_registers.read(MotorProtocol::REG_CONTROL_FLAGS) & MotorProtocol::CONTROL_ENABLE) != 0U;
-    const bool m1Active =
-        g_registers.read(MotorProtocol::REG_M1_MODE) == MotorProtocol::MOTOR_MODE_RUN;
-    const bool m2Active =
-        g_registers.read(MotorProtocol::REG_M2_MODE) == MotorProtocol::MOTOR_MODE_RUN;
-
-    uint8_t status = MotorProtocol::STATUS_READY;
-    if (enabled) {
-        status |= MotorProtocol::STATUS_ENABLED;
-    }
-    if (m1Active || m2Active) {
-        status |= MotorProtocol::STATUS_ACTIVE;
-    }
-    if (timedOut) {
-        status |= MotorProtocol::STATUS_TIMEOUT;
-    }
-
-    g_registers.set(MotorProtocol::REG_STATUS, status);
-    g_registers.set(MotorProtocol::REG_M1_STATUS,
-        motorStatus(g_registers.read(MotorProtocol::REG_M1_MODE),
-                    g_registers.read(MotorProtocol::REG_M1_DIRECTION)));
-    g_registers.set(MotorProtocol::REG_M2_STATUS,
-        motorStatus(g_registers.read(MotorProtocol::REG_M2_MODE),
-                    g_registers.read(MotorProtocol::REG_M2_DIRECTION)));
-}
-
-void applyBootSpinCommand(void)
-{
-    const uint8_t direction = (g_bootSpinState == BootSpinState::RampReverse)
-        ? MotorProtocol::MOTOR_DIRECTION_REVERSE
-        : MotorProtocol::MOTOR_DIRECTION_FORWARD;
-
-    g_registers.write(MotorProtocol::REG_M1_DIRECTION, direction);
-    g_registers.write(MotorProtocol::REG_M1_DUTY, g_bootSpinDuty);
-    g_registers.write(MotorProtocol::REG_M1_MODE, MotorProtocol::MOTOR_MODE_RUN);
-
-    g_registers.write(MotorProtocol::REG_M2_DIRECTION, direction);
-    g_registers.write(MotorProtocol::REG_M2_DUTY, g_bootSpinDuty);
-    g_registers.write(MotorProtocol::REG_M2_MODE, MotorProtocol::MOTOR_MODE_RUN);
-}
-
-void applyBootSpinBrake(void)
-{
-    g_registers.write(MotorProtocol::REG_M1_DUTY, 0);
-    g_registers.write(MotorProtocol::REG_M1_MODE, MotorProtocol::MOTOR_MODE_BRAKE);
-
-    g_registers.write(MotorProtocol::REG_M2_DUTY, 0);
-    g_registers.write(MotorProtocol::REG_M2_MODE, MotorProtocol::MOTOR_MODE_BRAKE);
-}
-
-void startBootSpinTest(void)
-{
-    g_registers.write(MotorProtocol::REG_WATCHDOG_TIMEOUT, 0);
-    g_bootSpinState = BootSpinState::RampForward;
-    g_bootSpinDuty = 0;
-    g_bootSpinLastStepMs = millis();
-    applyBootSpinCommand();
-}
-
-void updateBootSpinTest(void)
-{
-    if ((g_bootSpinState == BootSpinState::BrakeBeforeReverse) ||
-        (g_bootSpinState == BootSpinState::BrakeBeforeForward)) {
-        if ((millis() - g_bootSpinLastStepMs) >= kBootSpinBrakeMs) {
-            g_bootSpinLastStepMs = millis();
-            g_bootSpinDuty = 0;
-            g_bootSpinState = (g_bootSpinState == BootSpinState::BrakeBeforeReverse)
-                ? BootSpinState::RampReverse
-                : BootSpinState::RampForward;
-            applyBootSpinCommand();
-        }
-        return;
-    }
-
-    if ((millis() - g_bootSpinLastStepMs) < kBootSpinStepMs) {
-        return;
-    }
-
-    g_bootSpinLastStepMs = millis();
-
-    if (g_bootSpinDuty < 100U) {
-        g_bootSpinDuty += kBootSpinStepPercent;
-        applyBootSpinCommand();
-        return;
-    }
-
-    applyBootSpinBrake();
-    g_bootSpinLastStepMs = millis();
-    if (g_bootSpinState == BootSpinState::RampForward) {
-        g_bootSpinState = BootSpinState::BrakeBeforeReverse;
+    if (numerator >= 0) {
+        numerator += denominator / 2;
     } else {
-        g_bootSpinState = BootSpinState::BrakeBeforeForward;
+        numerator -= denominator / 2;
+    }
+
+    int64_t rpm = numerator / denominator;
+    if (rpm > 32767) {
+        rpm = 32767;
+    } else if (rpm < -32768) {
+        rpm = -32768;
+    }
+
+    return static_cast<int16_t>(rpm);
+}
+
+void HandleSuccessfulWrite(void)
+{
+    g_last_successful_write_ms = Millis();
+    g_have_successful_write = true;
+    g_timeout_active = false;
+    g_registers.SetTimeoutActive(false);
+    g_output_dirty = true;
+}
+
+void CheckWatchdog(void)
+{
+    const uint32_t timeout_ms = WatchdogTimeoutMs();
+
+    if ((!g_have_successful_write) || (timeout_ms == 0U)) {
+        return;
+    }
+
+    if ((!g_timeout_active) &&
+        ((Millis() - g_last_successful_write_ms) > timeout_ms)) {
+        g_timeout_active = true;
+        g_registers.ForceCoastOnTimeout();
+        g_output_dirty = true;
+    }
+}
+
+MotorFeedback SyncEncoderRegisters(void)
+{
+    const drivers::EncoderSnapshot m1 =
+        board::BoardEncoders_GetSnapshot(drivers::EncoderId::Encoder1);
+    const drivers::EncoderSnapshot m2 =
+        board::BoardEncoders_GetSnapshot(drivers::EncoderId::Encoder2);
+    const MotorFeedback feedback = {
+        EncoderCountsPerSecondToRpm(m1.counts_per_second),
+        EncoderCountsPerSecondToRpm(m2.counts_per_second),
+    };
+
+    g_registers.UpdateEncoderSnapshot(m1.count,
+                                      m1.counts_per_second,
+                                      m1.state,
+                                      m2.count,
+                                      m2.counts_per_second,
+                                      m2.state);
+    g_registers.UpdateMeasuredRpm(feedback.m1_rpm, feedback.m2_rpm);
+    return feedback;
+}
+
+void HandleEncoderControl(void)
+{
+    const uint8_t control = g_registers.EncoderControl();
+
+    if ((control & protocol::ENCODER_CONTROL_RESET_M1) != 0U) {
+        board::BoardEncoders_Reset(drivers::EncoderId::Encoder1);
+    }
+    if ((control & protocol::ENCODER_CONTROL_RESET_M2) != 0U) {
+        board::BoardEncoders_Reset(drivers::EncoderId::Encoder2);
+    }
+
+    if (control != 0U) {
+        g_registers.ClearEncoderControl();
+        (void) SyncEncoderRegisters();
+    }
+}
+
+void ProcessSerialRx(void)
+{
+    uint8_t value = 0U;
+
+    while (board::BoardUart_ReadByte(&value)) {
+        protocol::SerialResponse response = {};
+        bool write_committed = false;
+
+        if (g_serial.ProcessByte(value, &response, &write_committed)) {
+            (void) board::BoardUart_Write(response.bytes, response.length);
+        }
+
+        if (write_committed) {
+            HandleEncoderControl();
+            HandleSuccessfulWrite();
+        }
     }
 }
 
 }  // namespace
 
-extern "C" void SysTick_Handler(void)
+void MotorApp_Init(void)
 {
-    ++g_msTicks;
-}
+    g_registers.Init();
+    g_serial.Init(&g_registers);
 
-void MotorApp_init(void)
-{
-    const uint8_t i2cAddress = DipAddress_readI2cAddress();
-
-    DL_GPIO_setDigitalInternalResistor(GPIO_I2C_TARGET_IOMUX_SCL, DL_GPIO_RESISTOR_PULL_UP);
-    DL_GPIO_setDigitalInternalResistor(GPIO_I2C_TARGET_IOMUX_SDA, DL_GPIO_RESISTOR_PULL_UP);
-#if defined(GPIO_UART_CONTROL_IOMUX_RX)
-    DL_GPIO_setDigitalInternalResistor(GPIO_UART_CONTROL_IOMUX_RX, DL_GPIO_RESISTOR_PULL_UP);
-#endif
-
-    g_registers.init(i2cAddress);
-    if (kEnableBootSpinTest) {
-        startBootSpinTest();
-    }
-
-    MotorControl_init();
-    I2cSlave_init(&g_registers, i2cAddress);
-    UartControl_init(&g_registers);
+    control::MotorControl_Init();
+    board::BoardEncoders_Init();
+    (void) board::BoardUart_Init();
 
     SysTick_Config(CPUCLK_FREQ / 1000U);
-    g_lastCommandMs = millis();
+    g_registers.RefreshStatus();
+    (void) SyncEncoderRegisters();
+    control::MotorControl_Apply(g_registers, true);
+    g_output_dirty = false;
 }
 
-void MotorApp_process(void)
+void MotorApp_Process(void)
 {
-    bool timedOut = false;
+    board::BoardEncoders_Process(Millis());
+    const MotorFeedback feedback = SyncEncoderRegisters();
+    ProcessSerialRx();
+    CheckWatchdog();
 
-    UartControl_process();
-
-    if (I2cSlave_consumeWriteActivity() || UartControl_consumeWriteActivity()) {
-        g_lastCommandMs = millis();
+    if ((!g_timeout_active) && g_registers.IsEnabled() &&
+        control::MotorControl_UpdateSpeed(g_registers,
+                                          feedback.m1_rpm,
+                                          feedback.m2_rpm,
+                                          Millis())) {
+        g_output_dirty = true;
     }
 
-    if (kEnableBootSpinTest) {
-        updateBootSpinTest();
+    if (g_output_dirty) {
+        g_registers.RefreshStatus();
+        control::MotorControl_Apply(g_registers, g_timeout_active);
+        g_output_dirty = false;
     }
+}
 
-    const uint32_t timeoutMs = watchdogTimeoutMs();
-    if ((timeoutMs > 0U) && ((millis() - g_lastCommandMs) > timeoutMs)) {
-        forceCoastOnTimeout();
-        timedOut = true;
-    }
+void MotorApp_TickFromIsr(void)
+{
+    g_ms_ticks++;
+}
 
-    updateStatus(timedOut);
-    MotorControl_apply(g_registers);
+}  // namespace app
+
+extern "C" void SysTick_Handler(void)
+{
+    app::MotorApp_TickFromIsr();
 }

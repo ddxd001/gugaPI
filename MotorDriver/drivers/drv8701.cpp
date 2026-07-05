@@ -1,137 +1,120 @@
 #include "drivers/drv8701.h"
 
-#include "ti_msp_dl_config.h"
+#include "board/board_motor_pins.h"
 
+namespace drivers {
 namespace {
 
-#if defined(PWM_M1_EN_INST)
-constexpr uint32_t kPwmPeriodCounts = 1600U;
-uint32_t dutyToCompareValue(uint8_t dutyPercent)
+uint32_t DutyToCompare(uint8_t duty_percent)
 {
-    if (dutyPercent > 100U) {
-        dutyPercent = 100U;
+    if (duty_percent > 100U) {
+        duty_percent = 100U;
     }
 
-    return kPwmPeriodCounts - ((kPwmPeriodCounts * dutyPercent) / 100U);
-}
-#endif
-
-void forceEnableLow(MotorId motor)
-{
-#if defined(PWM_M1_EN_INST)
-    if (motor == MotorId::Motor1) {
-        DL_GPIO_initDigitalOutput(GPIO_PWM_M1_EN_C1_IOMUX);
-        DL_GPIO_clearPins(GPIO_PWM_M1_EN_C1_PORT, GPIO_PWM_M1_EN_C1_PIN);
-        DL_GPIO_enableOutput(GPIO_PWM_M1_EN_C1_PORT, GPIO_PWM_M1_EN_C1_PIN);
-    } else {
-        DL_GPIO_initDigitalOutput(GPIO_PWM_M2_EN_C1_IOMUX);
-        DL_GPIO_clearPins(GPIO_PWM_M2_EN_C1_PORT, GPIO_PWM_M2_EN_C1_PIN);
-        DL_GPIO_enableOutput(GPIO_PWM_M2_EN_C1_PORT, GPIO_PWM_M2_EN_C1_PIN);
-    }
-#else
-    if (motor == MotorId::Motor1) {
-        DL_GPIO_clearPins(GPIO_M1_EN_PORT, GPIO_M1_EN_M1_EN_PIN_PIN);
-    } else {
-        DL_GPIO_clearPins(GPIO_M2_EN_PORT, GPIO_M2_EN_M2_EN_PIN_PIN);
-    }
-#endif
+    return board::kMotorPwmPeriodCounts -
+           ((board::kMotorPwmPeriodCounts * duty_percent) / 100U);
 }
 
-void configureEnablePwm(MotorId motor)
+void ForceEnableLow(MotorId motor)
 {
-#if defined(PWM_M1_EN_INST)
     if (motor == MotorId::Motor1) {
-        DL_GPIO_initPeripheralOutputFunction(
-            GPIO_PWM_M1_EN_C1_IOMUX, GPIO_PWM_M1_EN_C1_IOMUX_FUNC);
-        DL_GPIO_enableOutput(GPIO_PWM_M1_EN_C1_PORT, GPIO_PWM_M1_EN_C1_PIN);
+        DL_GPIO_initDigitalOutput(BOARD_M1_PWM_IOMUX);
+        DL_GPIO_clearPins(BOARD_M1_PWM_PORT, BOARD_M1_PWM_PIN);
+        DL_GPIO_enableOutput(BOARD_M1_PWM_PORT, BOARD_M1_PWM_PIN);
     } else {
-        DL_GPIO_initPeripheralOutputFunction(
-            GPIO_PWM_M2_EN_C1_IOMUX, GPIO_PWM_M2_EN_C1_IOMUX_FUNC);
-        DL_GPIO_enableOutput(GPIO_PWM_M2_EN_C1_PORT, GPIO_PWM_M2_EN_C1_PIN);
+        DL_GPIO_initDigitalOutput(BOARD_M2_PWM_IOMUX);
+        DL_GPIO_clearPins(BOARD_M2_PWM_PORT, BOARD_M2_PWM_PIN);
+        DL_GPIO_enableOutput(BOARD_M2_PWM_PORT, BOARD_M2_PWM_PIN);
     }
-#else
-    (void) motor;
-#endif
 }
 
-void setPhase(MotorId motor, MotorDirection direction)
+void ConfigureEnablePwm(MotorId motor)
+{
+    if (motor == MotorId::Motor1) {
+        DL_GPIO_initPeripheralOutputFunction(BOARD_M1_PWM_IOMUX,
+                                             BOARD_M1_PWM_IOMUX_FUNC);
+        DL_GPIO_enableOutput(BOARD_M1_PWM_PORT, BOARD_M1_PWM_PIN);
+    } else {
+        DL_GPIO_initPeripheralOutputFunction(BOARD_M2_PWM_IOMUX,
+                                             BOARD_M2_PWM_IOMUX_FUNC);
+        DL_GPIO_enableOutput(BOARD_M2_PWM_PORT, BOARD_M2_PWM_PIN);
+    }
+}
+
+void SetPhase(MotorId motor, MotorDirection direction)
 {
     const bool reverse = (direction == MotorDirection::Reverse);
 
     if (motor == MotorId::Motor1) {
         if (reverse) {
-            DL_GPIO_setPins(GPIO_M1_PH_PORT, GPIO_M1_PH_M1_PH_PIN_PIN);
+            DL_GPIO_setPins(BOARD_M1_PH_PORT, BOARD_M1_PH_PIN);
         } else {
-            DL_GPIO_clearPins(GPIO_M1_PH_PORT, GPIO_M1_PH_M1_PH_PIN_PIN);
+            DL_GPIO_clearPins(BOARD_M1_PH_PORT, BOARD_M1_PH_PIN);
         }
     } else {
         if (reverse) {
-            DL_GPIO_setPins(GPIO_M2_PH_PORT, GPIO_M2_PH_M2_PH_PIN_PIN);
+            DL_GPIO_setPins(BOARD_M2_PH_PORT, BOARD_M2_PH_PIN);
         } else {
-            DL_GPIO_clearPins(GPIO_M2_PH_PORT, GPIO_M2_PH_M2_PH_PIN_PIN);
+            DL_GPIO_clearPins(BOARD_M2_PH_PORT, BOARD_M2_PH_PIN);
         }
     }
 }
 
-void setEnableDuty(MotorId motor, uint8_t dutyPercent)
+void SetEnableDuty(MotorId motor, uint8_t duty_percent)
 {
-#if defined(PWM_M1_EN_INST)
-    if (dutyPercent == 0U) {
-        forceEnableLow(motor);
+    if (duty_percent == 0U) {
+        ForceEnableLow(motor);
         return;
     }
 
-    const uint32_t compareValue = dutyToCompareValue(dutyPercent);
+    const uint32_t compare = DutyToCompare(duty_percent);
 
     if (motor == MotorId::Motor1) {
-        DL_Timer_setCaptureCompareValue(PWM_M1_EN_INST, compareValue, GPIO_PWM_M1_EN_C1_IDX);
+        DL_TimerG_setCaptureCompareValue(BOARD_M1_PWM_INST,
+                                         compare,
+                                         BOARD_M1_PWM_INDEX);
     } else {
-        DL_Timer_setCaptureCompareValue(PWM_M2_EN_INST, compareValue, GPIO_PWM_M2_EN_C1_IDX);
+        DL_TimerG_setCaptureCompareValue(BOARD_M2_PWM_INST,
+                                         compare,
+                                         BOARD_M2_PWM_INDEX);
     }
-    configureEnablePwm(motor);
-#else
-    const bool enable = (dutyPercent > 0U);
-    if (motor == MotorId::Motor1) {
-        if (enable) {
-            DL_GPIO_setPins(GPIO_M1_EN_PORT, GPIO_M1_EN_M1_EN_PIN_PIN);
-        } else {
-            DL_GPIO_clearPins(GPIO_M1_EN_PORT, GPIO_M1_EN_M1_EN_PIN_PIN);
-        }
-    } else {
-        if (enable) {
-            DL_GPIO_setPins(GPIO_M2_EN_PORT, GPIO_M2_EN_M2_EN_PIN_PIN);
-        } else {
-            DL_GPIO_clearPins(GPIO_M2_EN_PORT, GPIO_M2_EN_M2_EN_PIN_PIN);
-        }
-    }
-#endif
+
+    ConfigureEnablePwm(motor);
 }
 
 }  // namespace
 
-void Drv8701_init(void)
+void Drv8701_Init(void)
 {
-    Drv8701_setCoast(MotorId::Motor1);
-    Drv8701_setCoast(MotorId::Motor2);
-#if defined(PWM_M1_EN_INST)
-    DL_Timer_startCounter(PWM_M1_EN_INST);
-    DL_Timer_startCounter(PWM_M2_EN_INST);
-#endif
+    DL_TimerG_setCaptureCompareValue(BOARD_M1_PWM_INST,
+                                     board::kMotorPwmPeriodCounts,
+                                     BOARD_M1_PWM_INDEX);
+    DL_TimerG_setCaptureCompareValue(BOARD_M2_PWM_INST,
+                                     board::kMotorPwmPeriodCounts,
+                                     BOARD_M2_PWM_INDEX);
+
+    DL_TimerG_startCounter(BOARD_M1_PWM_INST);
+    DL_TimerG_startCounter(BOARD_M2_PWM_INST);
+
+    Drv8701_SetCoast(MotorId::Motor1);
+    Drv8701_SetCoast(MotorId::Motor2);
 }
 
-void Drv8701_setCoast(MotorId motor)
+void Drv8701_SetCoast(MotorId motor)
 {
-    setEnableDuty(motor, 0);
+    SetEnableDuty(motor, 0U);
 }
 
-void Drv8701_setBrake(MotorId motor)
+void Drv8701_SetBrake(MotorId motor)
 {
-    setEnableDuty(motor, 0);
+    SetEnableDuty(motor, 0U);
 }
 
-void Drv8701_setRun(MotorId motor, MotorDirection direction, uint8_t dutyPercent)
+void Drv8701_SetRun(MotorId motor, MotorDirection direction, uint8_t duty_percent)
 {
-    setEnableDuty(motor, 0);
-    setPhase(motor, direction);
-    setEnableDuty(motor, dutyPercent);
+    ForceEnableLow(motor);
+    SetPhase(motor, direction);
+    SetEnableDuty(motor, duty_percent);
 }
+
+}  // namespace drivers

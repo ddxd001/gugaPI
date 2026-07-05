@@ -46,6 +46,23 @@ bool WaitTxFifoSpace(const MotorDriverUartConfig *config)
     return true;
 }
 
+void DiscardRxFifo(UART_Regs *uart)
+{
+    while (!DL_UART_Main_isRXFIFOEmpty(uart)) {
+        (void) DL_UART_Main_receiveData(uart);
+    }
+}
+
+uint32_t RxClearMask(void)
+{
+    return DL_UART_MAIN_INTERRUPT_RX |
+           DL_UART_MAIN_INTERRUPT_RX_TIMEOUT_ERROR |
+           DL_UART_MAIN_INTERRUPT_OVERRUN_ERROR |
+           DL_UART_MAIN_INTERRUPT_FRAMING_ERROR |
+           DL_UART_MAIN_INTERRUPT_PARITY_ERROR |
+           DL_UART_MAIN_INTERRUPT_NOISE_ERROR;
+}
+
 } /* namespace */
 
 DriverStatus MotorDriverUart_Init(MotorDriverUartContext *context,
@@ -63,7 +80,8 @@ DriverStatus MotorDriverUart_Init(MotorDriverUartContext *context,
     context->rx_dropped_count = 0U;
 
     /* MotorDriver 串口只做链路收发，具体电机协议后续再叠加。 */
-    DL_UART_Main_clearInterruptStatus(config->uart, DL_UART_MAIN_INTERRUPT_RX);
+    DiscardRxFifo(config->uart);
+    DL_UART_Main_clearInterruptStatus(config->uart, RxClearMask());
     NVIC_ClearPendingIRQ(config->irq);
 
     context->initialized = true;
@@ -185,9 +203,11 @@ DriverStatus MotorDriverUart_ClearRxBuffer(MotorDriverUartContext *context)
     }
 
     NVIC_DisableIRQ(context->config->irq);
+    DiscardRxFifo(context->config->uart);
     context->rx_head = 0U;
     context->rx_tail = 0U;
     context->rx_dropped_count = 0U;
+    DL_UART_Main_clearInterruptStatus(context->config->uart, RxClearMask());
     NVIC_ClearPendingIRQ(context->config->irq);
     NVIC_EnableIRQ(context->config->irq);
 
@@ -200,20 +220,14 @@ void MotorDriverUart_IrqHandler(MotorDriverUartContext *context)
         return;
     }
 
-    switch (DL_UART_Main_getPendingInterrupt(context->config->uart)) {
-    case DL_UART_MAIN_IIDX_RX:
-        while (!DL_UART_Main_isRXFIFOEmpty(context->config->uart)) {
-            PushRxByteFromIsr(
-                context,
-                DL_UART_Main_receiveData(context->config->uart));
-        }
-        DL_UART_Main_clearInterruptStatus(context->config->uart,
-                                          DL_UART_MAIN_INTERRUPT_RX);
-        break;
+    (void) DL_UART_Main_getPendingInterrupt(context->config->uart);
 
-    default:
-        break;
+    while (!DL_UART_Main_isRXFIFOEmpty(context->config->uart)) {
+        PushRxByteFromIsr(context,
+                          DL_UART_Main_receiveData(context->config->uart));
     }
+
+    DL_UART_Main_clearInterruptStatus(context->config->uart, RxClearMask());
 }
 
 } /* namespace drivers */
