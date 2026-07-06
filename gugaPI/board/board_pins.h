@@ -15,10 +15,24 @@
 #define BOARD_PIN_SWCLK_PORT            GPIOA
 #define BOARD_PIN_SWCLK_PIN             DL_GPIO_PIN_20
 
-#define BOARD_STATUS_LED_PORT           GPIO_LEDS_PORT
-#define BOARD_STATUS_LED_PIN            GPIO_LEDS_STATUS_LED_PIN
-#define BOARD_STATUS_LED_ACTIVE_LOW     (1U)
-#define BOARD_STATUS_LED_INITIAL_ON     (0U)
+#define BOARD_LED_COUNT                 (3U)
+#define BOARD_LED1_PORT                 GPIO_LED_A_PORT
+#define BOARD_LED1_PIN                  GPIO_LED_A_LED1_PIN
+#define BOARD_LED1_ACTIVE_LOW           (1U)
+#define BOARD_LED1_INITIAL_ON           (0U)
+#define BOARD_LED2_PORT                 GPIO_LED_A_PORT
+#define BOARD_LED2_PIN                  GPIO_LED_A_LED2_PIN
+#define BOARD_LED2_ACTIVE_LOW           (1U)
+#define BOARD_LED2_INITIAL_ON           (0U)
+#define BOARD_LED3_PORT                 GPIO_LED_B_PORT
+#define BOARD_LED3_PIN                  GPIO_LED_B_LED3_PIN
+#define BOARD_LED3_ACTIVE_LOW           (1U)
+#define BOARD_LED3_INITIAL_ON           (0U)
+
+#define BOARD_STATUS_LED_PORT           BOARD_LED1_PORT
+#define BOARD_STATUS_LED_PIN            BOARD_LED1_PIN
+#define BOARD_STATUS_LED_ACTIVE_LOW     BOARD_LED1_ACTIVE_LOW
+#define BOARD_STATUS_LED_INITIAL_ON     BOARD_LED1_INITIAL_ON
 
 #define BOARD_BUZZER_PORT               GPIO_BUZZER_PORT
 #define BOARD_BUZZER_PIN                GPIO_BUZZER_BUZZER_PIN

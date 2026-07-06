@@ -180,12 +180,15 @@ extern "C" {
 
 
 
-/* Port definition for Pin Group GPIO_LEDS */
-#define GPIO_LEDS_PORT                                                   (GPIOB)
+/* Port definition for Pin Group GPIO_LED_A */
+#define GPIO_LED_A_PORT                                                  (GPIOA)
 
-/* Defines for STATUS_LED: GPIOB.6 with pinCMx 23 on package pin 40 */
-#define GPIO_LEDS_STATUS_LED_PIN                                 (DL_GPIO_PIN_6)
-#define GPIO_LEDS_STATUS_LED_IOMUX                               (IOMUX_PINCM23)
+/* Defines for LED1: GPIOA.27 with pinCMx 60 on package pin 99 */
+#define GPIO_LED_A_LED1_PIN                                     (DL_GPIO_PIN_27)
+#define GPIO_LED_A_LED1_IOMUX                                    (IOMUX_PINCM60)
+/* Defines for LED2: GPIOA.26 with pinCMx 59 on package pin 98 */
+#define GPIO_LED_A_LED2_PIN                                     (DL_GPIO_PIN_26)
+#define GPIO_LED_A_LED2_IOMUX                                    (IOMUX_PINCM59)
 /* Port definition for Pin Group GPIO_BUZZER */
 #define GPIO_BUZZER_PORT                                                 (GPIOA)
 
@@ -228,6 +231,12 @@ extern "C" {
 /* Defines for ICM45686_INT2_FSYNC: GPIOA.31 with pinCMx 6 on package pin 7 */
 #define GPIO_IMU_A_ICM45686_INT2_FSYNC_PIN                      (DL_GPIO_PIN_31)
 #define GPIO_IMU_A_ICM45686_INT2_FSYNC_IOMUX                      (IOMUX_PINCM6)
+/* Port definition for Pin Group GPIO_LED_B */
+#define GPIO_LED_B_PORT                                                  (GPIOB)
+
+/* Defines for LED3: GPIOB.27 with pinCMx 58 on package pin 97 */
+#define GPIO_LED_B_LED3_PIN                                     (DL_GPIO_PIN_27)
+#define GPIO_LED_B_LED3_IOMUX                                    (IOMUX_PINCM58)
 
 
 /* clang-format on */

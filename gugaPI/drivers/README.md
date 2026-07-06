@@ -18,7 +18,7 @@ drivers/encoder/
 当前已接入的独立驱动包括：
 
 ```text
-drivers/led/          PB6 低电平点亮状态 LED
+drivers/led/          PA27/PA26/PB27 低电平点亮 LED
 drivers/buzzer/       PA12 高电平响有源蜂鸣器
 drivers/fm24cl64b/    FM24CL64B-GTR I2C FRAM
 drivers/oled/         HS91L02W2C01 128x32 I2C OLED

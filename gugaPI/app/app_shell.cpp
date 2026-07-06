@@ -972,31 +972,130 @@ void ResetCommand(int argc, const char * const argv[])
     NVIC_SystemReset();
 }
 
+void PrintLedUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  led status");
+    services::Shell_WriteLine("  led <1|2|3> on|off|toggle|status");
+    services::Shell_WriteLine("  led all on|off|toggle|status");
+}
+
+bool ParseLedId(const char *text, board::BoardLedId *id)
+{
+    uint32_t led_number = 0U;
+    if ((id == 0) ||
+        (!ParseUint32(text, board::Board_LedCount(), &led_number)) ||
+        (led_number == 0U)) {
+        return false;
+    }
+
+    *id = static_cast<board::BoardLedId>(led_number - 1U);
+    return true;
+}
+
+drivers::DriverStatus ApplyLedAction(board::BoardLedId id, const char *action)
+{
+    if (StrEqual(action, "on")) {
+        return board::Board_LedOn(id);
+    }
+    if (StrEqual(action, "off")) {
+        return board::Board_LedOff(id);
+    }
+    if (StrEqual(action, "toggle")) {
+        return board::Board_LedToggle(id);
+    }
+
+    return drivers::DRIVER_ERROR_INVALID_ARG;
+}
+
+drivers::DriverStatus ApplyAllLedAction(const char *action)
+{
+    for (uint8_t index = 0U; index < board::Board_LedCount(); index++) {
+        const drivers::DriverStatus status = ApplyLedAction(
+            static_cast<board::BoardLedId>(index),
+            action);
+        if (status != drivers::DRIVER_OK) {
+            return status;
+        }
+    }
+
+    return drivers::DRIVER_OK;
+}
+
+void WriteLedStatus(board::BoardLedId id)
+{
+    services::Shell_WriteString("led ");
+    services::Shell_WriteUInt32(static_cast<uint32_t>(id) + 1U);
+    services::Shell_WriteString(" ready=");
+    services::Shell_WriteUInt32(board::Board_LedIsReady(id) ? 1U : 0U);
+    services::Shell_WriteString(" state=");
+    services::Shell_WriteString(board::Board_LedIsOn(id) ? "on" : "off");
+    services::Shell_WriteString("\r\n");
+}
+
+void WriteAllLedStatus(void)
+{
+    for (uint8_t index = 0U; index < board::Board_LedCount(); index++) {
+        WriteLedStatus(static_cast<board::BoardLedId>(index));
+    }
+}
+
 void LedCommand(int argc, const char * const argv[])
 {
-    if (argc != 2) {
-        services::Shell_WriteLine("usage: led on|off");
+    if (argc < 2) {
+        PrintLedUsage();
         return;
     }
 
-    if (!board::Board_StatusLedIsReady()) {
-        services::Shell_WriteLine("led: not ready");
+    if (argc == 2) {
+        if (StrEqual(argv[1], "status")) {
+            WriteAllLedStatus();
+            return;
+        }
+
+        PrintLedUsage();
         return;
     }
 
-    if (StrEqual(argv[1], "on")) {
-        (void) board::Board_StatusLedOn();
-        services::Shell_WriteLine("led on");
+    if (argc != 3) {
+        PrintLedUsage();
         return;
     }
 
-    if (StrEqual(argv[1], "off")) {
-        (void) board::Board_StatusLedOff();
-        services::Shell_WriteLine("led off");
+    if (StrEqual(argv[1], "all")) {
+        if (StrEqual(argv[2], "status")) {
+            WriteAllLedStatus();
+            return;
+        }
+
+        const drivers::DriverStatus status = ApplyAllLedAction(argv[2]);
+        if (status == drivers::DRIVER_ERROR_INVALID_ARG) {
+            PrintLedUsage();
+            return;
+        }
+
+        WriteStatusLine("led all: ", status);
         return;
     }
 
-    services::Shell_WriteLine("usage: led on|off");
+    board::BoardLedId id = board::BOARD_LED_ID_1;
+    if (!ParseLedId(argv[1], &id)) {
+        PrintLedUsage();
+        return;
+    }
+
+    if (StrEqual(argv[2], "status")) {
+        WriteLedStatus(id);
+        return;
+    }
+
+    const drivers::DriverStatus status = ApplyLedAction(id, argv[2]);
+    if (status == drivers::DRIVER_ERROR_INVALID_ARG) {
+        PrintLedUsage();
+        return;
+    }
+
+    WriteStatusLine("led: ", status);
 }
 
 void BuzzerCommand(int argc, const char * const argv[])
@@ -3593,7 +3692,7 @@ void AppShell_RegisterCommands(void)
                                            "Reset the MCU",
                                            ResetCommand);
     (void) services::Shell_RegisterCommand("led",
-                                           "Control status LED: led on|off",
+                                           "Control LEDs: led <1|2|3|all> on|off|toggle|status",
                                            LedCommand);
     (void) services::Shell_RegisterCommand("buzzer",
                                            "Control buzzer: buzzer on|off",

@@ -228,8 +228,9 @@ services/debug_uart.cpp UART3 TX/RX、RX 中断环形缓冲
 help
 version
 reset
-led on
-led off
+led all status
+led 1 on
+led 1 off
 buzzer on
 buzzer off
 adc
@@ -274,16 +275,16 @@ C:\ti\ccs2100\ccs\utils\bin\gmake.exe
 不要为了让命令行构建通过而手工维护 `Debug/*.mk`，这些文件属于 CCS 生成产物。
 ## 九、当前板级资源
 
-### 状态 LED
+### LED
 
-- 引脚：PB6
+- 引脚：LED1 = PA27，LED2 = PA26，LED3 = PB27
 - 电平：低电平点亮，高电平熄灭
-- SysConfig 分组：`GPIO_LEDS.STATUS_LED`
+- SysConfig 分组：`GPIO_LED_A.LED1`、`GPIO_LED_A.LED2`、`GPIO_LED_B.LED3`
 - 板级接口：`board/board_led.h`
 - 驱动实现：`drivers/led/`
-- 当前测试程序：`app` 中注册 `status_led_test` 状态机任务，500 ms 亮，500 ms 灭
+- 当前测试程序：`app` 中注册 `status_led_test` 状态机任务，默认闪烁 LED1，500 ms 亮，500 ms 灭
 
-PB6 的初始输出配置为 `SET`，所以上电初始化后 LED 默认熄灭。
+PA27、PA26、PB27 的初始输出配置为 `SET`，所以上电初始化后 LED 默认熄灭。状态灯测试任务使用 LED1。
 ### 有源蜂鸣器
 
 - 引脚：PA12

@@ -20,6 +20,7 @@ const GPIO3  = GPIO.addInstance();
 const GPIO4  = GPIO.addInstance();
 const GPIO5  = GPIO.addInstance();
 const GPIO6  = GPIO.addInstance();
+const GPIO7  = GPIO.addInstance();
 const UART1  = UART.addInstance();
 const UART2  = UART.addInstance();
 const UART3  = UART.addInstance();
@@ -33,14 +34,18 @@ const SPI1   = SPI.addInstance();
 SYSCTL.forceDefaultClkConfig = true;
 SYSCTL.clockTreeEn           = true;
 
-GPIO1.$name                          = "GPIO_LEDS";
-GPIO1.port                           = "PORTB";
-GPIO1.portSegment                    = "Lower";
-GPIO1.associatedPins.create(1);
-GPIO1.associatedPins[0].$name        = "STATUS_LED";
+GPIO1.$name                          = "GPIO_LED_A";
+GPIO1.port                           = "PORTA";
+GPIO1.portSegment                    = "Upper";
+GPIO1.associatedPins.create(2);
+GPIO1.associatedPins[0].$name        = "LED1";
 GPIO1.associatedPins[0].direction    = "OUTPUT";
 GPIO1.associatedPins[0].initialValue = "SET";
-GPIO1.associatedPins[0].assignedPin  = "6";
+GPIO1.associatedPins[0].assignedPin  = "27";
+GPIO1.associatedPins[1].$name        = "LED2";
+GPIO1.associatedPins[1].direction    = "OUTPUT";
+GPIO1.associatedPins[1].initialValue = "SET";
+GPIO1.associatedPins[1].assignedPin  = "26";
 
 GPIO2.$name                          = "GPIO_BUZZER";
 GPIO2.port                           = "PORTA";
@@ -99,6 +104,15 @@ GPIO6.associatedPins[0].assignedPin  = "22";
 GPIO6.associatedPins[1].$name        = "ICM45686_INT2_FSYNC";
 GPIO6.associatedPins[1].direction    = "INPUT";
 GPIO6.associatedPins[1].assignedPin  = "31";
+
+GPIO7.$name                          = "GPIO_LED_B";
+GPIO7.port                           = "PORTB";
+GPIO7.portSegment                    = "Upper";
+GPIO7.associatedPins.create(1);
+GPIO7.associatedPins[0].$name        = "LED3";
+GPIO7.associatedPins[0].direction    = "OUTPUT";
+GPIO7.associatedPins[0].initialValue = "SET";
+GPIO7.associatedPins[0].assignedPin  = "27";
 
 UART1.$name                    = "DEBUG_UART";
 UART1.rxFifoThreshold          = "DL_UART_RX_FIFO_LEVEL_ONE_ENTRY";

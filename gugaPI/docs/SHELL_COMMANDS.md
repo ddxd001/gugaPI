@@ -24,36 +24,32 @@ reset
 
 ## LED
 
-### `led on`
-
-打开状态灯。
-
-```text
-led on
-```
-
-### `led off`
-
-关闭状态灯。
-
-```text
-led off
-```
-
-### `led toggle`
-
-翻转状态灯。
-
-```text
-led toggle
-```
-
 ### `led status`
 
-查看状态灯当前状态。
+查看 3 个 LED 的初始化状态和当前逻辑状态。
 
 ```text
 led status
+```
+
+### `led <1|2|3> on|off|toggle|status`
+
+控制或查看指定 LED。
+
+```text
+led 1 on
+led 2 toggle
+led 3 status
+```
+
+### `led all on|off|toggle|status`
+
+同时控制或查看全部 LED。
+
+```text
+led all on
+led all off
+led all status
 ```
 
 ## 蜂鸣器

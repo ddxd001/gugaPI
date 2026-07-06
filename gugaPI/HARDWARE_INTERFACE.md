@@ -43,7 +43,9 @@ PA9 / UART1_RX  <--------| MOTOR_UART RX        |---- MotorDriver TX
 PA14 / UART3_TX -------->| DEBUG_UART TX        |---- USB-UART RX / PC RX
 PA13 / UART3_RX <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
                          |                      |
-PB6              --------| STATUS_LED           |---- Active-low LED
+PA27             --------| LED1                 |---- Active-low LED
+PA26             --------| LED2                 |---- Active-low LED
+PB27             --------| LED3                 |---- Active-low LED
 PA12             --------| BUZZER               |---- Active-high buzzer
 PC9              <-------- BUTTON1              |---- Active-low key
 PB20             <-------- BUTTON2              |---- Active-low key
@@ -367,11 +369,13 @@ LIS3MDLTR configuration:
 | First firmware speed | 1 MHz | Increase only after WHO_AM_I reads are stable |
 | Sensor orientation | Same orientation, +X forward | Confirm +Y/+Z direction before sensor fusion |
 
-## Status LED
+## LEDs
 
 | Signal | MCU Pin | Package Pin | External Connection | Direction | Active Level | Initial State | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| STATUS_LED | PB6 | 40 | Status LED circuit | MCU output | Low = on | Off | SysConfig initial value is SET |
+| LED1 | PA27 | 99 | LED1 circuit | MCU output | Low = on | Off | SysConfig initial value is SET |
+| LED2 | PA26 | 98 | LED2 circuit | MCU output | Low = on | Off | SysConfig initial value is SET |
+| LED3 | PB27 | 97 | LED3 circuit | MCU output | Low = on | Off | SysConfig initial value is SET |
 
 ## Buzzer
 
@@ -437,7 +441,7 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 | Check | Expected Result | Shell Command |
 | --- | --- | --- |
 | Debug UART shell | Prompt responds at 115200 8N1 | `version` |
-| Status LED | LED can turn on/off | `led on`, `led off` |
+| LEDs | LED1/LED2/LED3 can turn on/off/toggle | `led all status`, `led 1 on`, `led 2 on`, `led 3 on`, `led all off` |
 | Buzzer | Buzzer can turn on/off | `buzzer on`, `buzzer off` |
 | Buttons | Pressed buttons read as pressed | `button` |
 | Shared IIC3 bus idle | PC2/PC3 high, FRAM read/write, INA219 probe, and OLED probe pass | `fram status`, `fram test`, `ina219 status`, `ina219 scan`, `oled status` |
