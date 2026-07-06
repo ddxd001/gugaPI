@@ -17,10 +17,12 @@ struct SpeedPidState {
     int32_t previous_target_position;
     int64_t position_integral_q4;
     uint32_t last_update_ms;
+    uint32_t position_settle_until_ms;
     uint16_t previous_target_rpm;
     uint8_t previous_mode;
     uint8_t previous_direction;
     bool hold_mode;
+    bool position_at_target;
     bool initialized;
 };
 
@@ -45,7 +47,9 @@ void ResetPid(SpeedPidState *state)
     state->previous_target_rpm = 0U;
     state->previous_mode = protocol::MOTOR_MODE_COAST;
     state->previous_direction = protocol::MOTOR_DIRECTION_FORWARD;
+    state->position_settle_until_ms = 0U;
     state->hold_mode = false;
+    state->position_at_target = false;
     state->initialized = false;
 }
 
@@ -88,6 +92,28 @@ int64_t ClampQ4(int64_t value, uint16_t max_rpm)
     return value;
 }
 
+uint32_t AbsCount(int32_t value)
+{
+    return (value < 0) ? static_cast<uint32_t>(-static_cast<int64_t>(value)) :
+                         static_cast<uint32_t>(value);
+}
+
+int8_t SignOfInt32(int32_t value)
+{
+    if (value > 0) {
+        return 1;
+    }
+    if (value < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+bool TimeBefore(uint32_t now_ms, uint32_t deadline_ms)
+{
+    return static_cast<int32_t>(now_ms - deadline_ms) < 0;
+}
+
 int64_t PositionTermQ4(int32_t error_count,
                        uint8_t gain_q4_4,
                        uint32_t counts_per_rev)
@@ -123,6 +149,139 @@ uint16_t CommandRpmFromQ4(int64_t command_q4, uint16_t max_rpm)
     }
 
     return static_cast<uint16_t>((magnitude + (kPidScale / 2)) / kPidScale);
+}
+
+uint8_t PositionDutyFromCommand(uint16_t command_rpm,
+                                uint16_t max_rpm,
+                                uint8_t min_duty,
+                                uint8_t max_duty)
+{
+    if (max_duty > 100U) {
+        max_duty = 100U;
+    }
+    if (min_duty > 100U) {
+        min_duty = 100U;
+    }
+    if (min_duty > max_duty) {
+        min_duty = max_duty;
+    }
+    if ((command_rpm == 0U) || (max_rpm == 0U) || (max_duty == 0U)) {
+        return 0U;
+    }
+    if (command_rpm >= max_rpm) {
+        return max_duty;
+    }
+
+    const uint16_t span =
+        static_cast<uint16_t>(max_duty - min_duty);
+    const uint32_t scaled =
+        (static_cast<uint32_t>(command_rpm) * span) +
+        (static_cast<uint32_t>(max_rpm) / 2U);
+    return static_cast<uint8_t>(
+        static_cast<uint16_t>(min_duty) +
+        static_cast<uint16_t>(scaled / max_rpm));
+}
+
+bool UpdatePositionMotor(protocol::RegisterMap &registers,
+                         SpeedPidState *state,
+                         bool motor1,
+                         bool hold_mode,
+                         int32_t target_position,
+                         int32_t count,
+                         uint32_t counts_per_rev,
+                         uint32_t now_ms)
+{
+    const int32_t position_target =
+        hold_mode ? state->hold_count : target_position;
+    const int32_t position_error =
+        SaturateInt32(static_cast<int64_t>(position_target) -
+                      static_cast<int64_t>(count));
+    const uint32_t abs_error = AbsCount(position_error);
+    const uint16_t enter_tolerance = registers.PositionTolerance();
+    uint16_t exit_tolerance = registers.PositionExitTolerance();
+    if (exit_tolerance < enter_tolerance) {
+        exit_tolerance = enter_tolerance;
+    }
+
+    const int32_t previous_error = state->previous_position_error;
+    const int8_t previous_sign = SignOfInt32(previous_error);
+    const int8_t current_sign = SignOfInt32(position_error);
+    const bool sign_changed =
+        (previous_sign != 0) && (current_sign != 0) &&
+        (previous_sign != current_sign);
+
+    registers.UpdatePositionError(motor1, position_error);
+
+    if (sign_changed && (!state->position_at_target)) {
+        state->position_at_target = true;
+        state->position_integral_q4 = 0;
+        state->position_settle_until_ms =
+            now_ms + registers.PositionSettleMs();
+    }
+
+    uint16_t command_rpm = 0U;
+    uint8_t output_duty = 0U;
+    uint8_t output_direction = protocol::MOTOR_DIRECTION_FORWARD;
+
+    if (state->position_at_target) {
+        if ((!TimeBefore(now_ms, state->position_settle_until_ms)) &&
+            (abs_error > exit_tolerance)) {
+            state->position_at_target = false;
+        }
+    } else if (abs_error <= enter_tolerance) {
+        state->position_at_target = true;
+        state->position_integral_q4 = 0;
+        state->position_settle_until_ms =
+            now_ms + registers.PositionSettleMs();
+    }
+
+    if (!state->position_at_target) {
+        const uint16_t max_rpm = registers.PositionMaxRpm();
+        const int32_t derivative_count =
+            SaturateInt32(static_cast<int64_t>(position_error) -
+                          static_cast<int64_t>(previous_error));
+
+        state->position_integral_q4 +=
+            PositionTermQ4(position_error,
+                           registers.PositionKiQ4_4(),
+                           counts_per_rev);
+        state->position_integral_q4 =
+            ClampQ4(state->position_integral_q4, max_rpm);
+
+        int64_t command_q4 =
+            PositionTermQ4(position_error,
+                           registers.PositionKpQ4_4(),
+                           counts_per_rev) +
+            state->position_integral_q4 +
+            PositionTermQ4(derivative_count,
+                           registers.PositionKdQ4_4(),
+                           counts_per_rev);
+        command_q4 = ClampQ4(command_q4, max_rpm);
+
+        output_direction = (command_q4 < 0) ?
+            protocol::MOTOR_DIRECTION_REVERSE :
+            protocol::MOTOR_DIRECTION_FORWARD;
+        command_rpm = CommandRpmFromQ4(command_q4, max_rpm);
+        if ((command_rpm == 0U) && (abs_error > enter_tolerance) &&
+            (max_rpm > 0U) &&
+            ((registers.PositionKpQ4_4() != 0U) ||
+             (registers.PositionKiQ4_4() != 0U) ||
+             (registers.PositionKdQ4_4() != 0U))) {
+            command_rpm = 1U;
+        }
+
+        output_duty = PositionDutyFromCommand(command_rpm,
+                                              max_rpm,
+                                              registers.PositionMinDuty(),
+                                              registers.PositionMaxDuty());
+    }
+
+    if (!hold_mode) {
+        registers.UpdateTargetRpmFromControl(motor1, command_rpm);
+    }
+    registers.SetMotorOutputFromControl(motor1, output_duty, output_direction);
+    state->previous_position_error = position_error;
+    return true;
 }
 
 bool UpdateSpeedMotor(protocol::RegisterMap &registers,
@@ -183,15 +342,22 @@ bool UpdateSpeedMotor(protocol::RegisterMap &registers,
         state->hold_mode = hold_mode;
         state->initialized = true;
         if (hold_mode) {
+            const int32_t position_error = 0;
             registers.UpdateHoldTarget(motor1, state->hold_count);
+            registers.UpdatePositionError(motor1, position_error);
+            state->previous_position_error = position_error;
+            state->position_at_target = true;
             registers.SetMotorDutyFromControl(motor1, 0U);
             return true;
         }
         if (position_mode) {
-            registers.UpdatePositionError(
-                motor1,
+            const int32_t position_error =
                 SaturateInt32(static_cast<int64_t>(target_position) -
-                              static_cast<int64_t>(count)));
+                              static_cast<int64_t>(count));
+            registers.UpdatePositionError(motor1, position_error);
+            state->previous_position_error = position_error;
+            state->position_at_target =
+                AbsCount(position_error) <= registers.PositionTolerance();
             registers.UpdateTargetRpmFromControl(motor1, 0U);
             registers.SetMotorDutyFromControl(motor1, 0U);
             return true;
@@ -203,74 +369,20 @@ bool UpdateSpeedMotor(protocol::RegisterMap &registers,
     }
     state->last_update_ms = now_ms;
 
-    uint16_t command_rpm = speed_mode ? target_rpm : 0U;
-    uint8_t output_direction = direction;
-
     if (hold_mode || position_mode) {
-        const int32_t position_target =
-            hold_mode ? state->hold_count : target_position;
-        const int32_t position_error =
-            SaturateInt32(static_cast<int64_t>(position_target) -
-                          static_cast<int64_t>(count));
-        const uint32_t abs_error =
-            (position_error < 0) ?
-                static_cast<uint32_t>(-static_cast<int64_t>(position_error)) :
-                static_cast<uint32_t>(position_error);
-        const uint16_t tolerance = registers.PositionTolerance();
-        const uint16_t max_rpm = registers.PositionMaxRpm();
-        const int32_t derivative_count =
-            SaturateInt32(static_cast<int64_t>(position_error) -
-                          static_cast<int64_t>(state->previous_position_error));
-        state->previous_position_error = position_error;
-        registers.UpdatePositionError(motor1, position_error);
-
-        if (abs_error <= tolerance) {
-            command_rpm = 0U;
-            state->position_integral_q4 = 0;
-        } else {
-            state->position_integral_q4 +=
-                PositionTermQ4(position_error,
-                               registers.PositionKiQ4_4(),
-                               counts_per_rev);
-            state->position_integral_q4 =
-                ClampQ4(state->position_integral_q4, max_rpm);
-
-            int64_t command_q4 =
-                PositionTermQ4(position_error,
-                               registers.PositionKpQ4_4(),
-                               counts_per_rev) +
-                state->position_integral_q4 +
-                PositionTermQ4(derivative_count,
-                               registers.PositionKdQ4_4(),
-                               counts_per_rev);
-            command_q4 = ClampQ4(command_q4, max_rpm);
-
-            if (command_q4 < 0) {
-                output_direction = protocol::MOTOR_DIRECTION_REVERSE;
-            } else {
-                output_direction = protocol::MOTOR_DIRECTION_FORWARD;
-            }
-
-            command_rpm = CommandRpmFromQ4(command_q4, max_rpm);
-            if ((command_rpm == 0U) && (abs_error > tolerance) &&
-                (max_rpm > 0U)) {
-                command_rpm = 1U;
-            }
-        }
-
-        if (command_rpm == 0U) {
-            if (measured_rpm > 0) {
-                output_direction = protocol::MOTOR_DIRECTION_REVERSE;
-            } else if (measured_rpm < 0) {
-                output_direction = protocol::MOTOR_DIRECTION_FORWARD;
-            }
-        }
-
-        if (position_mode) {
-            registers.UpdateTargetRpmFromControl(motor1, command_rpm);
-        }
+        (void) measured_rpm;
+        return UpdatePositionMotor(registers,
+                                   state,
+                                   motor1,
+                                   hold_mode,
+                                   target_position,
+                                   count,
+                                   counts_per_rev,
+                                   now_ms);
     }
 
+    const uint16_t command_rpm = target_rpm;
+    const uint8_t output_direction = direction;
     const int32_t measured_aligned =
         (output_direction == protocol::MOTOR_DIRECTION_REVERSE)
             ? -static_cast<int32_t>(measured_rpm)
@@ -279,10 +391,6 @@ bool UpdateSpeedMotor(protocol::RegisterMap &registers,
         static_cast<int32_t>(command_rpm) - measured_aligned;
     const int32_t derivative_rpm = error_rpm - state->previous_error_rpm;
     state->previous_error_rpm = error_rpm;
-
-    if ((hold_mode) && (command_rpm == 0U)) {
-        state->integral_q4 = 0;
-    }
 
     const int32_t max_q4 =
         static_cast<int32_t>(registers.SpeedMaxDuty()) * kPidScale;

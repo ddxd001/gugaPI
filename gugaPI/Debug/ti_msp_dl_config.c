@@ -40,6 +40,7 @@
 
 #include "ti_msp_dl_config.h"
 
+DL_UART_Main_backupConfig gDEBUG_UARTBackup;
 DL_SPI_backupConfig gIMU_SPIBackup;
 
 /*
@@ -52,14 +53,14 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_GPIO_init();
     /* Module-Specific Initializations*/
     SYSCFG_DL_SYSCTL_init();
-    SYSCFG_DL_FRAM_I2C_init();
-    SYSCFG_DL_INA219_I2C_init();
+    SYSCFG_DL_SENSOR_I2C_init();
+    SYSCFG_DL_MOTOR_I2C_init();
     SYSCFG_DL_DEBUG_UART_init();
     SYSCFG_DL_LORA_UART_init();
     SYSCFG_DL_MOTOR_UART_init();
     SYSCFG_DL_IMU_SPI_init();
     /* Ensure backup structures have no valid state */
-
+	gDEBUG_UARTBackup.backupRdy 	= false;
 	gIMU_SPIBackup.backupRdy 	= false;
 
 }
@@ -71,6 +72,7 @@ SYSCONFIG_WEAK bool SYSCFG_DL_saveConfiguration(void)
 {
     bool retStatus = true;
 
+	retStatus &= DL_UART_Main_saveConfiguration(DEBUG_UART_INST, &gDEBUG_UARTBackup);
 	retStatus &= DL_SPI_saveConfiguration(IMU_SPI_INST, &gIMU_SPIBackup);
 
     return retStatus;
@@ -81,6 +83,7 @@ SYSCONFIG_WEAK bool SYSCFG_DL_restoreConfiguration(void)
 {
     bool retStatus = true;
 
+	retStatus &= DL_UART_Main_restoreConfiguration(DEBUG_UART_INST, &gDEBUG_UARTBackup);
 	retStatus &= DL_SPI_restoreConfiguration(IMU_SPI_INST, &gIMU_SPIBackup);
 
     return retStatus;
@@ -91,8 +94,8 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_GPIO_reset(GPIOA);
     DL_GPIO_reset(GPIOB);
     DL_GPIO_reset(GPIOC);
-    DL_I2C_reset(FRAM_I2C_INST);
-    DL_I2C_reset(INA219_I2C_INST);
+    DL_I2C_reset(SENSOR_I2C_INST);
+    DL_I2C_reset(MOTOR_I2C_INST);
     DL_UART_Main_reset(DEBUG_UART_INST);
     DL_UART_Main_reset(LORA_UART_INST);
     DL_UART_Main_reset(MOTOR_UART_INST);
@@ -101,8 +104,8 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
     DL_GPIO_enablePower(GPIOA);
     DL_GPIO_enablePower(GPIOB);
     DL_GPIO_enablePower(GPIOC);
-    DL_I2C_enablePower(FRAM_I2C_INST);
-    DL_I2C_enablePower(INA219_I2C_INST);
+    DL_I2C_enablePower(SENSOR_I2C_INST);
+    DL_I2C_enablePower(MOTOR_I2C_INST);
     DL_UART_Main_enablePower(DEBUG_UART_INST);
     DL_UART_Main_enablePower(LORA_UART_INST);
     DL_UART_Main_enablePower(MOTOR_UART_INST);
@@ -113,26 +116,26 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
 SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
 {
 
-    DL_GPIO_initPeripheralInputFunctionFeatures(GPIO_FRAM_I2C_IOMUX_SDA,
-        GPIO_FRAM_I2C_IOMUX_SDA_FUNC, DL_GPIO_INVERSION_DISABLE,
+    DL_GPIO_initPeripheralInputFunctionFeatures(GPIO_SENSOR_I2C_IOMUX_SDA,
+        GPIO_SENSOR_I2C_IOMUX_SDA_FUNC, DL_GPIO_INVERSION_DISABLE,
         DL_GPIO_RESISTOR_NONE, DL_GPIO_HYSTERESIS_DISABLE,
         DL_GPIO_WAKEUP_DISABLE);
-    DL_GPIO_initPeripheralInputFunctionFeatures(GPIO_FRAM_I2C_IOMUX_SCL,
-        GPIO_FRAM_I2C_IOMUX_SCL_FUNC, DL_GPIO_INVERSION_DISABLE,
+    DL_GPIO_initPeripheralInputFunctionFeatures(GPIO_SENSOR_I2C_IOMUX_SCL,
+        GPIO_SENSOR_I2C_IOMUX_SCL_FUNC, DL_GPIO_INVERSION_DISABLE,
         DL_GPIO_RESISTOR_NONE, DL_GPIO_HYSTERESIS_DISABLE,
         DL_GPIO_WAKEUP_DISABLE);
-    DL_GPIO_enableHiZ(GPIO_FRAM_I2C_IOMUX_SDA);
-    DL_GPIO_enableHiZ(GPIO_FRAM_I2C_IOMUX_SCL);
-    DL_GPIO_initPeripheralInputFunctionFeatures(GPIO_INA219_I2C_IOMUX_SDA,
-        GPIO_INA219_I2C_IOMUX_SDA_FUNC, DL_GPIO_INVERSION_DISABLE,
+    DL_GPIO_enableHiZ(GPIO_SENSOR_I2C_IOMUX_SDA);
+    DL_GPIO_enableHiZ(GPIO_SENSOR_I2C_IOMUX_SCL);
+    DL_GPIO_initPeripheralInputFunctionFeatures(GPIO_MOTOR_I2C_IOMUX_SDA,
+        GPIO_MOTOR_I2C_IOMUX_SDA_FUNC, DL_GPIO_INVERSION_DISABLE,
         DL_GPIO_RESISTOR_NONE, DL_GPIO_HYSTERESIS_DISABLE,
         DL_GPIO_WAKEUP_DISABLE);
-    DL_GPIO_initPeripheralInputFunctionFeatures(GPIO_INA219_I2C_IOMUX_SCL,
-        GPIO_INA219_I2C_IOMUX_SCL_FUNC, DL_GPIO_INVERSION_DISABLE,
+    DL_GPIO_initPeripheralInputFunctionFeatures(GPIO_MOTOR_I2C_IOMUX_SCL,
+        GPIO_MOTOR_I2C_IOMUX_SCL_FUNC, DL_GPIO_INVERSION_DISABLE,
         DL_GPIO_RESISTOR_NONE, DL_GPIO_HYSTERESIS_DISABLE,
         DL_GPIO_WAKEUP_DISABLE);
-    DL_GPIO_enableHiZ(GPIO_INA219_I2C_IOMUX_SDA);
-    DL_GPIO_enableHiZ(GPIO_INA219_I2C_IOMUX_SCL);
+    DL_GPIO_enableHiZ(GPIO_MOTOR_I2C_IOMUX_SDA);
+    DL_GPIO_enableHiZ(GPIO_MOTOR_I2C_IOMUX_SCL);
 
     DL_GPIO_initPeripheralOutputFunction(
         GPIO_DEBUG_UART_IOMUX_TX, GPIO_DEBUG_UART_IOMUX_TX_FUNC);
@@ -214,53 +217,53 @@ SYSCONFIG_WEAK void SYSCFG_DL_SYSCTL_init(void)
 }
 
 
-static const DL_I2C_ClockConfig gFRAM_I2CClockConfig = {
+static const DL_I2C_ClockConfig gSENSOR_I2CClockConfig = {
     .clockSel = DL_I2C_CLOCK_BUSCLK,
     .divideRatio = DL_I2C_CLOCK_DIVIDE_1,
 };
 
-SYSCONFIG_WEAK void SYSCFG_DL_FRAM_I2C_init(void) {
+SYSCONFIG_WEAK void SYSCFG_DL_SENSOR_I2C_init(void) {
 
-    DL_I2C_setClockConfig(FRAM_I2C_INST,
-        (DL_I2C_ClockConfig *) &gFRAM_I2CClockConfig);
-    DL_I2C_disableAnalogGlitchFilter(FRAM_I2C_INST);
+    DL_I2C_setClockConfig(SENSOR_I2C_INST,
+        (DL_I2C_ClockConfig *) &gSENSOR_I2CClockConfig);
+    DL_I2C_disableAnalogGlitchFilter(SENSOR_I2C_INST);
 
     /* Configure Controller Mode */
-    DL_I2C_resetControllerTransfer(FRAM_I2C_INST);
+    DL_I2C_resetControllerTransfer(SENSOR_I2C_INST);
     /* Set frequency to 400000 Hz*/
-    DL_I2C_setTimerPeriod(FRAM_I2C_INST, 7);
-    DL_I2C_setControllerTXFIFOThreshold(FRAM_I2C_INST, DL_I2C_TX_FIFO_LEVEL_EMPTY);
-    DL_I2C_setControllerRXFIFOThreshold(FRAM_I2C_INST, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
-    DL_I2C_enableControllerClockStretching(FRAM_I2C_INST);
+    DL_I2C_setTimerPeriod(SENSOR_I2C_INST, 7);
+    DL_I2C_setControllerTXFIFOThreshold(SENSOR_I2C_INST, DL_I2C_TX_FIFO_LEVEL_EMPTY);
+    DL_I2C_setControllerRXFIFOThreshold(SENSOR_I2C_INST, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
+    DL_I2C_enableControllerClockStretching(SENSOR_I2C_INST);
 
 
     /* Enable module */
-    DL_I2C_enableController(FRAM_I2C_INST);
+    DL_I2C_enableController(SENSOR_I2C_INST);
 
 
 }
-static const DL_I2C_ClockConfig gINA219_I2CClockConfig = {
+static const DL_I2C_ClockConfig gMOTOR_I2CClockConfig = {
     .clockSel = DL_I2C_CLOCK_BUSCLK,
     .divideRatio = DL_I2C_CLOCK_DIVIDE_1,
 };
 
-SYSCONFIG_WEAK void SYSCFG_DL_INA219_I2C_init(void) {
+SYSCONFIG_WEAK void SYSCFG_DL_MOTOR_I2C_init(void) {
 
-    DL_I2C_setClockConfig(INA219_I2C_INST,
-        (DL_I2C_ClockConfig *) &gINA219_I2CClockConfig);
-    DL_I2C_disableAnalogGlitchFilter(INA219_I2C_INST);
+    DL_I2C_setClockConfig(MOTOR_I2C_INST,
+        (DL_I2C_ClockConfig *) &gMOTOR_I2CClockConfig);
+    DL_I2C_disableAnalogGlitchFilter(MOTOR_I2C_INST);
 
     /* Configure Controller Mode */
-    DL_I2C_resetControllerTransfer(INA219_I2C_INST);
+    DL_I2C_resetControllerTransfer(MOTOR_I2C_INST);
     /* Set frequency to 100000 Hz*/
-    DL_I2C_setTimerPeriod(INA219_I2C_INST, 31);
-    DL_I2C_setControllerTXFIFOThreshold(INA219_I2C_INST, DL_I2C_TX_FIFO_LEVEL_EMPTY);
-    DL_I2C_setControllerRXFIFOThreshold(INA219_I2C_INST, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
-    DL_I2C_enableControllerClockStretching(INA219_I2C_INST);
+    DL_I2C_setTimerPeriod(MOTOR_I2C_INST, 31);
+    DL_I2C_setControllerTXFIFOThreshold(MOTOR_I2C_INST, DL_I2C_TX_FIFO_LEVEL_EMPTY);
+    DL_I2C_setControllerRXFIFOThreshold(MOTOR_I2C_INST, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
+    DL_I2C_enableControllerClockStretching(MOTOR_I2C_INST);
 
 
     /* Enable module */
-    DL_I2C_enableController(INA219_I2C_INST);
+    DL_I2C_enableController(MOTOR_I2C_INST);
 
 
 }

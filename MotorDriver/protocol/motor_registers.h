@@ -7,8 +7,9 @@ namespace protocol {
 
 constexpr uint8_t kDeviceId = 0xA5U;
 constexpr uint8_t kFirmwareVersion = 0x01U;
-constexpr uint8_t kRegisterCount = 0x68U;
+constexpr uint8_t kRegisterCount = 0x6DU;
 constexpr uint8_t kMaxPayloadLength = 32U;
+constexpr uint8_t kDefaultI2cAddress = 0x20U;
 
 constexpr uint8_t kSerialSof = 0xAAU;
 constexpr uint8_t kSerialCmdRead = 0x01U;
@@ -113,6 +114,11 @@ enum Register : uint8_t {
     REG_POSITION_TOLERANCE_0 = 0x65U,
     REG_POSITION_TOLERANCE_1 = 0x66U,
     REG_POSITION_STATUS = 0x67U,
+    REG_POSITION_MIN_DUTY = 0x68U,
+    REG_POSITION_MAX_DUTY = 0x69U,
+    REG_POSITION_EXIT_TOLERANCE_0 = 0x6AU,
+    REG_POSITION_EXIT_TOLERANCE_1 = 0x6BU,
+    REG_POSITION_SETTLE_10MS = 0x6CU,
 };
 
 enum MotorMode : uint8_t {

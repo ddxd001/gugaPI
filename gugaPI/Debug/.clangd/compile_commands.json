@@ -153,5 +153,15 @@
       "directory" : "C:/Users/DdXd/workspace_ccstheia/gugaPI/Debug",
       "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/gugaPI\" -I\"C:/Users/DdXd/workspace_ccstheia/gugaPI/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
       "file"      : "C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_imu.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/gugaPI/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/gugaPI\" -I\"C:/Users/DdXd/workspace_ccstheia/gugaPI/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/oled/oled_ssd1306.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/gugaPI/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/gugaPI\" -I\"C:/Users/DdXd/workspace_ccstheia/gugaPI/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_oled.cpp"
    }
 ]

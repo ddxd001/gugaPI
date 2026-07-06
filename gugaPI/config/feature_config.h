@@ -21,7 +21,7 @@
 #define FEATURE_ENABLE_INA219            (1U) /* 启用 INA219 电压电流采样驱动。 */
 #define FEATURE_ENABLE_LORA              (1U) /* 启用 LoRa 串口透传模块驱动。 */
 #define FEATURE_ENABLE_MOTOR_DRIVER      (1U) /* 启用 MotorDriver 串口连接测试模块。 */
-#define FEATURE_ENABLE_OLED              (0U) /* 预留 OLED 显示功能。 */
+#define FEATURE_ENABLE_OLED              (1U) /* 启用 OLED 显示功能。 */
 #define FEATURE_ENABLE_IMU               (1U) /* 启用 ICM-45686 + LIS3MDLTR SPI 模块。 */
 #define FEATURE_ENABLE_MOTOR             (0U) /* 预留电机控制功能。 */
 #define FEATURE_ENABLE_ENCODER           (0U) /* 预留编码器采样功能。 */

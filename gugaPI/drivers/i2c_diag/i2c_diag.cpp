@@ -375,4 +375,76 @@ DriverStatus I2cDiag_WriteReg8(const I2cDiagBusConfig *config,
     return status;
 }
 
+DriverStatus I2cDiag_WriteReg8Block(const I2cDiagBusConfig *config,
+                                    uint8_t address,
+                                    uint8_t reg,
+                                    const uint8_t *data,
+                                    uint16_t length)
+{
+    if ((!IsConfigValid(config)) || (!IsAddressValid(address)) ||
+        (data == 0) || (length == 0U) ||
+        (length > I2C_DIAG_MAX_BLOCK_WRITE_BYTES)) {
+        return DRIVER_ERROR_INVALID_ARG;
+    }
+
+    DriverStatus status = WaitForIdle(config->i2c, config->timeout_iterations);
+    if (status != DRIVER_OK) {
+        ReleaseI2cBus(config);
+        return status;
+    }
+
+    ResetTransfer(config->i2c);
+
+    uint16_t sent = 0U;
+    const uint16_t total = static_cast<uint16_t>(length + 1U);
+
+    if (DL_I2C_isControllerTXFIFOFull(config->i2c)) {
+        ReleaseI2cBus(config);
+        return DRIVER_ERROR_BUSY;
+    }
+    DL_I2C_transmitControllerData(config->i2c, reg);
+    sent = 1U;
+
+    while ((sent < total) &&
+           (!DL_I2C_isControllerTXFIFOFull(config->i2c))) {
+        DL_I2C_transmitControllerData(config->i2c, data[sent - 1U]);
+        sent++;
+    }
+
+    DL_I2C_startControllerTransfer(config->i2c,
+                                   address,
+                                   DL_I2C_CONTROLLER_DIRECTION_TX,
+                                   total);
+    delay_cycles(kI2cErrataDelayCycles);
+
+    uint32_t timeout = config->timeout_iterations;
+    while ((DL_I2C_getControllerStatus(config->i2c) &
+            DL_I2C_CONTROLLER_STATUS_BUSY) != 0U) {
+        while ((sent < total) &&
+               (!DL_I2C_isControllerTXFIFOFull(config->i2c))) {
+            DL_I2C_transmitControllerData(config->i2c, data[sent - 1U]);
+            sent++;
+        }
+
+        if ((DL_I2C_getControllerStatus(config->i2c) &
+             DL_I2C_CONTROLLER_STATUS_ERROR) != 0U) {
+            ReleaseI2cBus(config);
+            return DRIVER_ERROR;
+        }
+
+        if (timeout == 0U) {
+            ReleaseI2cBus(config);
+            return DRIVER_ERROR_TIMEOUT;
+        }
+        timeout--;
+    }
+
+    status = CheckTransferError(config->i2c);
+    if (status != DRIVER_OK) {
+        ReleaseI2cBus(config);
+    }
+
+    return status;
+}
+
 } /* namespace drivers */

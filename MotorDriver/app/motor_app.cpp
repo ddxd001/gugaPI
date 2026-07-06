@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "board/board_encoders.h"
+#include "board/board_i2c_target.h"
 #include "board/board_uart.h"
 #include "control/motor_control.h"
 #include "protocol/register_map.h"
@@ -177,6 +178,23 @@ void ProcessSerialRx(void)
     }
 }
 
+void ProcessI2cWrites(void)
+{
+    board::BoardI2cTargetWrite write = {};
+
+    while (board::BoardI2cTarget_TakeWrite(&write)) {
+        bool control_changed = false;
+        if (g_registers.CommitWrite(write.reg,
+                                    write.data,
+                                    write.length,
+                                    &control_changed)) {
+            (void) control_changed;
+            HandleEncoderControl();
+            RefreshWatchdogLeaseFromWrite();
+        }
+    }
+}
+
 }  // namespace
 
 void MotorApp_Init(void)
@@ -187,6 +205,8 @@ void MotorApp_Init(void)
     control::MotorControl_Init();
     board::BoardEncoders_Init();
     (void) board::BoardUart_Init();
+    board::BoardI2cTarget_Init(&g_registers);
+    g_registers.SetI2cAddress(board::BoardI2cTarget_Address());
 
     SysTick_Config(CPUCLK_FREQ / 1000U);
     g_registers.RefreshStatus();
@@ -200,6 +220,7 @@ void MotorApp_Process(void)
     board::BoardEncoders_Process(Millis());
     const MotorFeedback feedback = SyncEncoderRegisters();
     ProcessSerialRx();
+    ProcessI2cWrites();
     CheckWatchdog();
 
     if ((!g_timeout_active) && g_registers.IsEnabled() &&

@@ -4,6 +4,9 @@ app/motor_app.o: ../app/motor_app.cpp \
  C:/Users/DdXd/workspace_ccstheia/MotorDriver/app/motor_app.h \
  C:/Users/DdXd/workspace_ccstheia/MotorDriver/board/board_encoders.h \
  C:/Users/DdXd/workspace_ccstheia/MotorDriver/drivers/quadrature_encoder.h \
+ C:/Users/DdXd/workspace_ccstheia/MotorDriver/board/board_i2c_target.h \
+ C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/motor_registers.h \
+ C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/register_map.h \
  C:/Users/DdXd/workspace_ccstheia/MotorDriver/board/board_uart.h \
  C:/Users/DdXd/workspace_ccstheia/MotorDriver/drivers/uart_link.h \
  ti_msp_dl_config.h \
@@ -91,12 +94,13 @@ app/motor_app.o: ../app/motor_app.cpp \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_interrupt.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h \
  C:/Users/DdXd/workspace_ccstheia/MotorDriver/control/motor_control.h \
- C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/register_map.h \
- C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/motor_registers.h \
  C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/serial_protocol.h
 C:/Users/DdXd/workspace_ccstheia/MotorDriver/app/motor_app.h:
 C:/Users/DdXd/workspace_ccstheia/MotorDriver/board/board_encoders.h:
 C:/Users/DdXd/workspace_ccstheia/MotorDriver/drivers/quadrature_encoder.h:
+C:/Users/DdXd/workspace_ccstheia/MotorDriver/board/board_i2c_target.h:
+C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/motor_registers.h:
+C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/register_map.h:
 C:/Users/DdXd/workspace_ccstheia/MotorDriver/board/board_uart.h:
 C:/Users/DdXd/workspace_ccstheia/MotorDriver/drivers/uart_link.h:
 ti_msp_dl_config.h:
@@ -184,6 +188,4 @@ C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_wwdt.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_interrupt.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h:
 C:/Users/DdXd/workspace_ccstheia/MotorDriver/control/motor_control.h:
-C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/register_map.h:
-C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/motor_registers.h:
 C:/Users/DdXd/workspace_ccstheia/MotorDriver/protocol/serial_protocol.h:

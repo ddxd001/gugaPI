@@ -1,18 +1,18 @@
 ******************************************************************************
             TI ARM Clang Linker PC v5.1.1                      
 ******************************************************************************
->> Linked Mon Jul  6 03:51:30 2026
+>> Linked Mon Jul  6 20:25:11 2026
 
 OUTPUT FILE NAME:   <MotorDriver.out>
-ENTRY POINT SYMBOL: "_c_int00_noargs"  address: 0000207d
+ENTRY POINT SYMBOL: "_c_int00_noargs"  address: 0000285d
 
 
 MEMORY CONFIGURATION
 
          name            origin    length      used     unused   attr    fill
 ----------------------  --------  ---------  --------  --------  ----  --------
-  FLASH                 00000000   00080000  000025a0  0007da60  R  X
-  SRAM_BANK0            20200000   00010000  00000338  0000fcc8  RW X
+  FLASH                 00000000   00080000  00002e10  0007d1f0  R  X
+  SRAM_BANK0            20200000   00010000  00000480  0000fb80  RW X
   SRAM_BANK1            20210000   00010000  00000000  00010000  RW X
   BCR_CONFIG            41c00000   000000ff  00000000  000000ff  R   
   BSL_CONFIG            41c00100   00000080  00000000  00000080  R   
@@ -23,14 +23,14 @@ SEGMENT ALLOCATION MAP
 
 run origin  load origin   length   init length attrs members
 ----------  ----------- ---------- ----------- ----- -------
-00000000    00000000    000025a0   000025a0    r-x
+00000000    00000000    00002e10   00002e10    r-x
   00000000    00000000    000000c0   000000c0    r-- .intvecs
-  000000c0    000000c0    00002360   00002360    r-x .text
-  00002420    00002420    00000150   00000150    r-- .rodata
-  00002570    00002570    00000030   00000030    r-- .cinit
-20200000    20200000    00000238   00000000    rw-
-  20200000    20200000    00000138   00000000    rw- .data
-  20200138    20200138    00000100   00000000    rw- .bss
+  000000c0    000000c0    00002bd0   00002bd0    r-x .text
+  00002c90    00002c90    00000150   00000150    r-- .rodata
+  00002de0    00002de0    00000030   00000030    r-- .cinit
+20200000    20200000    00000387   00000000    rw-
+  20200000    20200000    00000231   00000000    rw- .bss
+  20200238    20200238    0000014f   00000000    rw- .data
 2020ff00    2020ff00    00000100   00000000    rw-
   2020ff00    2020ff00    00000100   00000000    rw- .stack
 
@@ -43,176 +43,204 @@ section   page    origin      length       input sections
 .intvecs   0    00000000    000000c0     
                   00000000    000000c0     startup_mspm0g351x_ticlang.o (.intvecs)
 
-.text      0    000000c0    00002360     
-                  000000c0    00000472     motor_control.o (.text._ZN7control12_GLOBAL__N_116UpdateSpeedMotorERN8protocol11RegisterMapEPNS0_13SpeedPidStateEbisj)
-                  00000532    00000002     startup_mspm0g351x_ticlang.o (.text.Default_Handler)
-                  00000534    00000214     serial_protocol.o (.text._ZN8protocol14SerialProtocol11HandleFrameEPNS_14SerialResponseEPbS3_)
-                  00000748    000001c4     motor_app.o (.text._ZN3app16MotorApp_ProcessEv)
-                  0000090c    0000017a     register_map.o (.text._ZN8protocol11RegisterMap13RefreshStatusEv)
-                  00000a86    00000002     libclang_rt.builtins.a : aeabi_div0.c.obj (.text.__aeabi_idiv0)
-                  00000a88    0000014c     serial_protocol.o (.text._ZN8protocol14SerialProtocol11ProcessByteEhPNS_14SerialResponseEPbS3_)
-                  00000bd4    00000142     register_map.o (.text._ZN8protocol11RegisterMap11CommitWriteEhPKhhPb)
-                  00000d16    00000002     libclang_rt.builtins.a : aeabi_div0.c.obj (.text.__aeabi_ldiv0)
-                  00000d18    00000124     motor_app.o (.text._ZN3app12_GLOBAL__N_120SyncEncoderRegistersEv)
-                  00000e3c    00000104     driverlib.a : dl_timer.o (.text.DL_Timer_initFourCCPWMMode)
-                  00000f40    000000d8     quadrature_encoder.o (.text._ZN7drivers22QuadratureEncoder_InitEv)
-                  00001018    000000c8     uart_link.o (.text._ZN7drivers14UartLink_WriteEPNS_15UartLinkContextEPKhh)
-                  000010e0    000000c0     register_map.o (.text._ZNK8protocol11RegisterMap9ReadBlockEhhPh)
-                  000011a0    000000bc     register_map.o (.text._ZNK8protocol11RegisterMap12ApplyWriteToEPhhh)
-                  0000125c    000000b0     motor_control.o (.text._ZN7control18MotorControl_ApplyERKN8protocol11RegisterMapEb)
-                  0000130c    000000a8     drv8701.o (.text._ZN7drivers14Drv8701_SetRunENS_7MotorIdENS_14MotorDirectionEh)
-                  000013b4    000000a2     libclang_rt.builtins.a : udivmoddi4.S.obj (.text)
-                  00001456    00000002     --HOLE-- [fill = 0]
-                  00001458    000000a0     quadrature_encoder.o (.text._ZN7drivers37QuadratureEncoder_HandleGpioInterruptEv)
-                  000014f8    0000009a     libc.a : memcpy16.S.obj (.text:memcpy)
-                  00001592    00000002     --HOLE-- [fill = 0]
-                  00001594    00000088     ti_msp_dl_config.o (.text.SYSCFG_DL_UART_CONTROL_init)
-                  0000161c    00000084     uart_link.o (.text._ZN7drivers13UartLink_InitEPNS_15UartLinkContextEPKNS_14UartLinkConfigE)
-                  000016a0    0000007e     register_map.o (.text._ZNK8protocol11RegisterMap17IsControlRegisterEh)
-                  0000171e    00000002     --HOLE-- [fill = 0]
-                  00001720    0000007c     quadrature_encoder.o (.text._ZN7drivers25QuadratureEncoder_ProcessEj)
-                  0000179c    0000007c     libc.a : copy_decompress_lzss.c.obj (.text:decompress:lzss)
-                  00001818    00000078     ti_msp_dl_config.o (.text.SYSCFG_DL_GPIO_init)
-                  00001890    00000078     motor_app.o (.text._ZN3app13MotorApp_InitEv)
-                  00001908    00000076     register_map.o (.text._ZN8protocol11RegisterMap4InitEv)
-                  0000197e    00000002     --HOLE-- [fill = 0]
-                  00001980    00000074     ti_msp_dl_config.o (.text.SYSCFG_DL_PWM_M1_EN_init)
-                  000019f4    00000074     ti_msp_dl_config.o (.text.SYSCFG_DL_PWM_M2_EN_init)
-                  00001a68    0000006c     uart_link.o (.text._ZN7drivers19UartLink_IrqHandlerEPNS_15UartLinkContextE)
-                  00001ad4    00000064     drv8701.o (.text._ZN7drivers12Drv8701_InitEv)
-                  00001b38    00000062     libc.a : memset16.S.obj (.text:memset)
-                  00001b9a    0000005e     register_map.o (.text._ZNK8protocol11RegisterMap16HasActiveCommandEv)
-                  00001bf8    0000005c     quadrature_encoder.o (.text._ZN7drivers23QuadratureEncoder_ResetENS_9EncoderIdE)
-                  00001c54    0000005a     register_map.o (.text._ZN8protocol11RegisterMap21UpdateEncoderSnapshotEiihiih)
-                  00001cae    00000002     --HOLE-- [fill = 0]
-                  00001cb0    00000048     driverlib.a : dl_uart.o (.text.DL_UART_init)
-                  00001cf8    00000048     ti_msp_dl_config.o (.text.SYSCFG_DL_initPower)
-                  00001d40    00000044     quadrature_encoder.o (.text._ZN7drivers29QuadratureEncoder_GetSnapshotENS_9EncoderIdE)
-                  00001d84    00000040     uart_link.o (.text._ZN7drivers17UartLink_ReadByteEPNS_15UartLinkContextEPh)
-                  00001dc4    00000040     libclang_rt.builtins.a : aeabi_uidivmod.S.obj (.text)
-                  00001e04    0000003e                            : divmoddi4.c.obj (.text.__divmoddi4)
-                  00001e42    00000002     --HOLE-- [fill = 0]
-                  00001e44    0000003c     motor_control.o (.text._ZN7control17MotorControl_InitEv)
-                  00001e80    0000003c     motor_control.o (.text._ZN7control24MotorControl_UpdateSpeedERN8protocol11RegisterMapEisisj)
-                  00001ebc    0000003c     libc.a : autoinit.c.obj (.text:__TI_auto_init_nobinit_nopinit)
-                  00001ef8    0000003a     libclang_rt.builtins.a : muldsi3.S.obj (.text)
-                  00001f32    00000036     register_map.o (.text._ZN8protocol11RegisterMap23SetMotorDutyFromControlEbh)
-                  00001f68    00000032     register_map.o (.text._ZN8protocol11RegisterMap19ForceCoastOnTimeoutEv)
-                  00001f9a    00000002     --HOLE-- [fill = 0]
-                  00001f9c    00000030     ti_msp_dl_config.o (.text.SYSCFG_DL_SYSCTL_init)
-                  00001fcc    0000002e     register_map.o (.text._ZN8protocol11RegisterMap25SetMotorOutputFromControlEbhh)
-                  00001ffa    00000002     --HOLE-- [fill = 0]
-                  00001ffc    0000002c     drv8701.o (.text._ZN7drivers16Drv8701_SetBrakeENS_7MotorIdE)
-                  00002028    0000002c     drv8701.o (.text._ZN7drivers16Drv8701_SetCoastENS_7MotorIdE)
-                  00002054    00000028     board_uart.o (.text._ZN5board14BoardUart_InitEv)
-                  0000207c    00000028     libc.a : boot_cortex_m.c.obj (.text:_c_int00_noargs)
-                  000020a4    00000024     libclang_rt.builtins.a : muldi3.S.obj (.text)
-                  000020c8    00000022     register_map.o (.text._ZN8protocol11RegisterMap19UpdatePositionErrorEbi)
-                  000020ea    00000002     --HOLE-- [fill = 0]
-                  000020ec    0000001e     libclang_rt.builtins.a : ashldi3.S.obj (.text)
-                  0000210a    00000002     --HOLE-- [fill = 0]
-                  0000210c    0000001c     driverlib.a : dl_timer.o (.text.DL_Timer_setCaptCompUpdateMethod)
-                  00002128    0000001c                 : dl_timer.o (.text.DL_Timer_setClockConfig)
-                  00002144    0000001c     ti_msp_dl_config.o (.text.SYSCFG_DL_init)
-                  00002160    0000001c     register_map.o (.text._ZN8protocol11RegisterMap16UpdateHoldTargetEbi)
-                  0000217c    0000001a     register_map.o (.text._ZN8protocol11RegisterMap26UpdateTargetRpmFromControlEbt)
-                  00002196    0000001a     register_map.o (.text._ZNK8protocol11RegisterMap14M1CountsPerRevEv)
-                  000021b0    0000001a     register_map.o (.text._ZNK8protocol11RegisterMap14M2CountsPerRevEv)
-                  000021ca    0000001a     register_map.o (.text._ZNK8protocol11RegisterMap16M1TargetPositionEv)
-                  000021e4    0000001a     register_map.o (.text._ZNK8protocol11RegisterMap16M2TargetPositionEv)
-                  000021fe    00000002     --HOLE-- [fill = 0]
-                  00002200    0000001a     libclang_rt.builtins.a : aeabi_memset.S.obj (.text)
-                  0000221a    00000002     --HOLE-- [fill = 0]
-                  0000221c    00000018     driverlib.a : dl_timer.o (.text.DL_Timer_setCaptureCompareOutCtl)
-                  00002234    00000016     empty_cpp.o (.text.main)
-                  0000224a    00000016     libc.a : copy_zero_init.c.obj (.text:decompress:ZI:__TI_zero_init_nomemset)
-                  00002260    00000014     board_uart.o (.text._ZN5board15BoardUart_WriteEPKhh)
-                  00002274    00000014     libclang_rt.builtins.a : aeabi_ldivmod.S.obj (.text)
-                  00002288    00000012     driverlib.a : dl_uart.o (.text.DL_UART_setClockConfig)
-                  0000229a    00000012     register_map.o (.text._ZN8protocol11RegisterMap17UpdateMeasuredRpmEss)
-                  000022ac    00000012     libc.a : copy_decompress_none.c.obj (.text:decompress:none)
-                  000022be    00000002     --HOLE-- [fill = 0]
-                  000022c0    00000010     driverlib.a : dl_timer.o (.text.DL_Timer_setCaptureCompareValue)
-                  000022d0    00000010     motor_app.o (.text.SysTick_Handler)
-                  000022e0    00000010     board_uart.o (.text.UART4_IRQHandler)
-                  000022f0    00000010     board_uart.o (.text._ZN5board18BoardUart_ReadByteEPh)
-                  00002300    00000010     register_map.o (.text._ZNK8protocol11RegisterMap11M1TargetRpmEv)
-                  00002310    00000010     register_map.o (.text._ZNK8protocol11RegisterMap11M2TargetRpmEv)
-                  00002320    00000010     register_map.o (.text._ZNK8protocol11RegisterMap14PositionMaxRpmEv)
-                  00002330    00000010     register_map.o (.text._ZNK8protocol11RegisterMap17PositionToleranceEv)
-                  00002340    0000000c     register_map.o (.text._ZN8protocol11RegisterMap16SetTimeoutActiveEb)
-                  0000234c    0000000c     register_map.o (.text._ZNK8protocol11RegisterMap4ReadEh)
-                  00002358    0000000a     driverlib.a : dl_common.o (.text.DL_Common_delayCycles)
-                  00002362    00000008     board_encoders.o (.text.GROUP1_IRQHandler)
-                  0000236a    00000008     board_encoders.o (.text._ZN5board18BoardEncoders_InitEv)
-                  00002372    00000008     board_encoders.o (.text._ZN5board19BoardEncoders_ResetEN7drivers9EncoderIdE)
-                  0000237a    00000008     board_encoders.o (.text._ZN5board21BoardEncoders_ProcessEj)
-                  00002382    00000008     board_motor_outputs.o (.text._ZN5board21BoardMotorOutputs_RunEN7drivers7MotorIdENS0_14MotorDirectionEh)
-                  0000238a    00000008     board_motor_outputs.o (.text._ZN5board22BoardMotorOutputs_InitEv)
-                  00002392    00000008     board_motor_outputs.o (.text._ZN5board23BoardMotorOutputs_BrakeEN7drivers7MotorIdE)
-                  0000239a    00000008     board_motor_outputs.o (.text._ZN5board23BoardMotorOutputs_CoastEN7drivers7MotorIdE)
-                  000023a2    00000008     board_encoders.o (.text._ZN5board25BoardEncoders_GetSnapshotEN7drivers9EncoderIdE)
-                  000023aa    00000008     register_map.o (.text._ZN8protocol11RegisterMap19ClearEncoderControlEv)
-                  000023b2    00000008     serial_protocol.o (.text._ZN8protocol14SerialProtocol4InitEPNS_11RegisterMapE)
-                  000023ba    00000008     register_map.o (.text._ZNK8protocol11RegisterMap9IsEnabledEv)
-                  000023c2    00000002     --HOLE-- [fill = 0]
-                  000023c4    00000008     libclang_rt.builtins.a : aeabi_memcpy.S.obj (.text)
-                  000023cc    00000006     register_map.o (.text._ZNK8protocol11RegisterMap11SpeedKdQ4_4Ev)
-                  000023d2    00000006     register_map.o (.text._ZNK8protocol11RegisterMap11SpeedKiQ4_4Ev)
-                  000023d8    00000006     register_map.o (.text._ZNK8protocol11RegisterMap11SpeedKpQ4_4Ev)
-                  000023de    00000006     register_map.o (.text._ZNK8protocol11RegisterMap12SpeedMaxDutyEv)
-                  000023e4    00000006     register_map.o (.text._ZNK8protocol11RegisterMap12SpeedMinDutyEv)
-                  000023ea    00000006     register_map.o (.text._ZNK8protocol11RegisterMap14EncoderControlEv)
-                  000023f0    00000006     register_map.o (.text._ZNK8protocol11RegisterMap14PositionKdQ4_4Ev)
-                  000023f6    00000006     register_map.o (.text._ZNK8protocol11RegisterMap14PositionKiQ4_4Ev)
-                  000023fc    00000006     register_map.o (.text._ZNK8protocol11RegisterMap14PositionKpQ4_4Ev)
-                  00002402    00000006     register_map.o (.text._ZNK8protocol11RegisterMap19WatchdogTimeout10msEv)
-                  00002408    00000006     libc.a : exit.c.obj (.text:abort)
-                  0000240e    00000004     libsysbm.a : hostexit.c.obj (.text.HOSTexit)
-                  00002412    00000004     startup_mspm0g351x_ticlang.o (.text.Reset_Handler)
-                  00002416    00000004     libc.a : pre_init.c.obj (.text._system_pre_init)
-                  0000241a    00000006     --HOLE-- [fill = 0]
+.text      0    000000c0    00002bd0     
+                  000000c0    000005d4     motor_control.o (.text._ZN7control12_GLOBAL__N_116UpdateSpeedMotorERN8protocol11RegisterMapEPNS0_13SpeedPidStateEbisj)
+                  00000694    000002b0     board_i2c_target.o (.text._ZN5board25BoardI2cTarget_IrqHandlerEv)
+                  00000944    00000260     motor_app.o (.text._ZN3app16MotorApp_ProcessEv)
+                  00000ba4    00000214     serial_protocol.o (.text._ZN8protocol14SerialProtocol11HandleFrameEPNS_14SerialResponseEPbS3_)
+                  00000db8    0000017a     register_map.o (.text._ZN8protocol11RegisterMap13RefreshStatusEv)
+                  00000f32    00000002     startup_mspm0g351x_ticlang.o (.text.Default_Handler)
+                  00000f34    0000014c     serial_protocol.o (.text._ZN8protocol14SerialProtocol11ProcessByteEhPNS_14SerialResponseEPbS3_)
+                  00001080    00000142     register_map.o (.text._ZN8protocol11RegisterMap11CommitWriteEhPKhhPb)
+                  000011c2    00000002     libclang_rt.builtins.a : aeabi_div0.c.obj (.text.__aeabi_idiv0)
+                  000011c4    00000124     motor_app.o (.text._ZN3app12_GLOBAL__N_120SyncEncoderRegistersEv)
+                  000012e8    00000104     driverlib.a : dl_timer.o (.text.DL_Timer_initFourCCPWMMode)
+                  000013ec    00000104     board_i2c_target.o (.text._ZN5board24BoardI2cTarget_TakeWriteEPNS_19BoardI2cTargetWriteE)
+                  000014f0    000000d8     board_i2c_target.o (.text._ZN5board19BoardI2cTarget_InitEPKN8protocol11RegisterMapE)
+                  000015c8    000000d8     quadrature_encoder.o (.text._ZN7drivers22QuadratureEncoder_InitEv)
+                  000016a0    000000c8     uart_link.o (.text._ZN7drivers14UartLink_WriteEPNS_15UartLinkContextEPKhh)
+                  00001768    000000c2     register_map.o (.text._ZNK8protocol11RegisterMap12ApplyWriteToEPhhh)
+                  0000182a    000000c0     register_map.o (.text._ZNK8protocol11RegisterMap9ReadBlockEhhPh)
+                  000018ea    000000b0     motor_control.o (.text._ZN7control18MotorControl_ApplyERKN8protocol11RegisterMapEb)
+                  0000199a    00000002     libclang_rt.builtins.a : aeabi_div0.c.obj (.text.__aeabi_ldiv0)
+                  0000199c    000000a8     drv8701.o (.text._ZN7drivers14Drv8701_SetRunENS_7MotorIdENS_14MotorDirectionEh)
+                  00001a44    000000a2     libclang_rt.builtins.a : udivmoddi4.S.obj (.text)
+                  00001ae6    00000002     --HOLE-- [fill = 0]
+                  00001ae8    000000a0     quadrature_encoder.o (.text._ZN7drivers37QuadratureEncoder_HandleGpioInterruptEv)
+                  00001b88    0000009c     ti_msp_dl_config.o (.text.SYSCFG_DL_GPIO_init)
+                  00001c24    0000009a     libc.a : memcpy16.S.obj (.text:memcpy)
+                  00001cbe    00000090     register_map.o (.text._ZN8protocol11RegisterMap4InitEv)
+                  00001d4e    00000002     --HOLE-- [fill = 0]
+                  00001d50    00000088     ti_msp_dl_config.o (.text.SYSCFG_DL_UART_CONTROL_init)
+                  00001dd8    00000088     motor_app.o (.text._ZN3app13MotorApp_InitEv)
+                  00001e60    00000084     uart_link.o (.text._ZN7drivers13UartLink_InitEPNS_15UartLinkContextEPKNS_14UartLinkConfigE)
+                  00001ee4    00000084     register_map.o (.text._ZNK8protocol11RegisterMap17IsControlRegisterEh)
+                  00001f68    0000007c     ti_msp_dl_config.o (.text.SYSCFG_DL_I2C_CONTROL_init)
+                  00001fe4    0000007c     quadrature_encoder.o (.text._ZN7drivers25QuadratureEncoder_ProcessEj)
+                  00002060    0000007c     libc.a : copy_decompress_lzss.c.obj (.text:decompress:lzss)
+                  000020dc    00000074     ti_msp_dl_config.o (.text.SYSCFG_DL_PWM_M1_EN_init)
+                  00002150    00000074     ti_msp_dl_config.o (.text.SYSCFG_DL_PWM_M2_EN_init)
+                  000021c4    0000006c     uart_link.o (.text._ZN7drivers19UartLink_IrqHandlerEPNS_15UartLinkContextE)
+                  00002230    00000064     drv8701.o (.text._ZN7drivers12Drv8701_InitEv)
+                  00002294    00000062     libc.a : memset16.S.obj (.text:memset)
+                  000022f6    0000005e     register_map.o (.text._ZNK8protocol11RegisterMap16HasActiveCommandEv)
+                  00002354    0000005c     quadrature_encoder.o (.text._ZN7drivers23QuadratureEncoder_ResetENS_9EncoderIdE)
+                  000023b0    0000005a     register_map.o (.text._ZN8protocol11RegisterMap21UpdateEncoderSnapshotEiihiih)
+                  0000240a    00000002     --HOLE-- [fill = 0]
+                  0000240c    00000054     ti_msp_dl_config.o (.text.SYSCFG_DL_initPower)
+                  00002460    00000048     driverlib.a : dl_uart.o (.text.DL_UART_init)
+                  000024a8    00000048     motor_control.o (.text._ZN7control17MotorControl_InitEv)
+                  000024f0    00000044     quadrature_encoder.o (.text._ZN7drivers29QuadratureEncoder_GetSnapshotENS_9EncoderIdE)
+                  00002534    00000040     uart_link.o (.text._ZN7drivers17UartLink_ReadByteEPNS_15UartLinkContextEPh)
+                  00002574    00000040     libclang_rt.builtins.a : aeabi_uidivmod.S.obj (.text)
+                  000025b4    0000003e                            : divmoddi4.c.obj (.text.__divmoddi4)
+                  000025f2    00000002     --HOLE-- [fill = 0]
+                  000025f4    0000003c     driverlib.a : dl_i2c.o (.text.DL_I2C_flushTargetTXFIFO)
+                  00002630    0000003c     motor_control.o (.text._ZN7control24MotorControl_UpdateSpeedERN8protocol11RegisterMapEisisj)
+                  0000266c    0000003c     libc.a : autoinit.c.obj (.text:__TI_auto_init_nobinit_nopinit)
+                  000026a8    0000003a     libclang_rt.builtins.a : muldsi3.S.obj (.text)
+                  000026e2    00000036     register_map.o (.text._ZN8protocol11RegisterMap23SetMotorDutyFromControlEbh)
+                  00002718    00000032     register_map.o (.text._ZN8protocol11RegisterMap19ForceCoastOnTimeoutEv)
+                  0000274a    00000002     --HOLE-- [fill = 0]
+                  0000274c    00000030     driverlib.a : dl_i2c.o (.text.DL_I2C_flushTargetRXFIFO)
+                  0000277c    00000030     ti_msp_dl_config.o (.text.SYSCFG_DL_SYSCTL_init)
+                  000027ac    0000002e     register_map.o (.text._ZN8protocol11RegisterMap25SetMotorOutputFromControlEbhh)
+                  000027da    00000002     --HOLE-- [fill = 0]
+                  000027dc    0000002c     drv8701.o (.text._ZN7drivers16Drv8701_SetBrakeENS_7MotorIdE)
+                  00002808    0000002c     drv8701.o (.text._ZN7drivers16Drv8701_SetCoastENS_7MotorIdE)
+                  00002834    00000028     board_uart.o (.text._ZN5board14BoardUart_InitEv)
+                  0000285c    00000028     libc.a : boot_cortex_m.c.obj (.text:_c_int00_noargs)
+                  00002884    00000026     driverlib.a : dl_i2c.o (.text.DL_I2C_setClockConfig)
+                  000028aa    00000002     --HOLE-- [fill = 0]
+                  000028ac    00000024     libclang_rt.builtins.a : muldi3.S.obj (.text)
+                  000028d0    00000022     register_map.o (.text._ZN8protocol11RegisterMap19UpdatePositionErrorEbi)
+                  000028f2    00000020     ti_msp_dl_config.o (.text.SYSCFG_DL_init)
+                  00002912    00000002     --HOLE-- [fill = 0]
+                  00002914    0000001e     libclang_rt.builtins.a : ashldi3.S.obj (.text)
+                  00002932    00000002     --HOLE-- [fill = 0]
+                  00002934    0000001c     driverlib.a : dl_i2c.o (.text.DL_I2C_transmitTargetDataCheck)
+                  00002950    0000001c                 : dl_timer.o (.text.DL_Timer_setCaptCompUpdateMethod)
+                  0000296c    0000001c                 : dl_timer.o (.text.DL_Timer_setClockConfig)
+                  00002988    0000001c     register_map.o (.text._ZN8protocol11RegisterMap16UpdateHoldTargetEbi)
+                  000029a4    0000001a     register_map.o (.text._ZN8protocol11RegisterMap26UpdateTargetRpmFromControlEbt)
+                  000029be    0000001a     register_map.o (.text._ZNK8protocol11RegisterMap14M1CountsPerRevEv)
+                  000029d8    0000001a     register_map.o (.text._ZNK8protocol11RegisterMap14M2CountsPerRevEv)
+                  000029f2    0000001a     register_map.o (.text._ZNK8protocol11RegisterMap16M1TargetPositionEv)
+                  00002a0c    0000001a     register_map.o (.text._ZNK8protocol11RegisterMap16M2TargetPositionEv)
+                  00002a26    00000002     --HOLE-- [fill = 0]
+                  00002a28    0000001a     libclang_rt.builtins.a : aeabi_memset.S.obj (.text)
+                  00002a42    00000018     driverlib.a : dl_i2c.o (.text.DL_I2C_receiveTargetDataCheck)
+                  00002a5a    00000002     --HOLE-- [fill = 0]
+                  00002a5c    00000018                 : dl_timer.o (.text.DL_Timer_setCaptureCompareOutCtl)
+                  00002a74    00000016     empty_cpp.o (.text.main)
+                  00002a8a    00000016     libc.a : copy_zero_init.c.obj (.text:decompress:ZI:__TI_zero_init_nomemset)
+                  00002aa0    00000014     board_uart.o (.text._ZN5board15BoardUart_WriteEPKhh)
+                  00002ab4    00000014     libclang_rt.builtins.a : aeabi_ldivmod.S.obj (.text)
+                  00002ac8    00000012     driverlib.a : dl_uart.o (.text.DL_UART_setClockConfig)
+                  00002ada    00000012     register_map.o (.text._ZN8protocol11RegisterMap17UpdateMeasuredRpmEss)
+                  00002aec    00000012     libc.a : copy_decompress_none.c.obj (.text:decompress:none)
+                  00002afe    00000002     --HOLE-- [fill = 0]
+                  00002b00    00000010     driverlib.a : dl_timer.o (.text.DL_Timer_setCaptureCompareValue)
+                  00002b10    00000010     motor_app.o (.text.SysTick_Handler)
+                  00002b20    00000010     board_uart.o (.text.UART4_IRQHandler)
+                  00002b30    00000010     board_uart.o (.text._ZN5board18BoardUart_ReadByteEPh)
+                  00002b40    00000010     register_map.o (.text._ZNK8protocol11RegisterMap11M1TargetRpmEv)
+                  00002b50    00000010     register_map.o (.text._ZNK8protocol11RegisterMap11M2TargetRpmEv)
+                  00002b60    00000010     register_map.o (.text._ZNK8protocol11RegisterMap14PositionMaxRpmEv)
+                  00002b70    00000010     register_map.o (.text._ZNK8protocol11RegisterMap17PositionToleranceEv)
+                  00002b80    00000010     register_map.o (.text._ZNK8protocol11RegisterMap21PositionExitToleranceEv)
+                  00002b90    0000000c     register_map.o (.text._ZN8protocol11RegisterMap16SetTimeoutActiveEb)
+                  00002b9c    0000000c     register_map.o (.text._ZNK8protocol11RegisterMap4ReadEh)
+                  00002ba8    0000000a     driverlib.a : dl_common.o (.text.DL_Common_delayCycles)
+                  00002bb2    0000000a     register_map.o (.text._ZNK8protocol11RegisterMap16PositionSettleMsEv)
+                  00002bbc    00000008     board_encoders.o (.text.GROUP1_IRQHandler)
+                  00002bc4    00000008     board_i2c_target.o (.text.I2C1_IRQHandler)
+                  00002bcc    00000008     board_encoders.o (.text._ZN5board18BoardEncoders_InitEv)
+                  00002bd4    00000008     board_encoders.o (.text._ZN5board19BoardEncoders_ResetEN7drivers9EncoderIdE)
+                  00002bdc    00000008     board_encoders.o (.text._ZN5board21BoardEncoders_ProcessEj)
+                  00002be4    00000008     board_motor_outputs.o (.text._ZN5board21BoardMotorOutputs_RunEN7drivers7MotorIdENS0_14MotorDirectionEh)
+                  00002bec    00000008     board_motor_outputs.o (.text._ZN5board22BoardMotorOutputs_InitEv)
+                  00002bf4    00000008     board_motor_outputs.o (.text._ZN5board23BoardMotorOutputs_BrakeEN7drivers7MotorIdE)
+                  00002bfc    00000008     board_motor_outputs.o (.text._ZN5board23BoardMotorOutputs_CoastEN7drivers7MotorIdE)
+                  00002c04    00000008     board_encoders.o (.text._ZN5board25BoardEncoders_GetSnapshotEN7drivers9EncoderIdE)
+                  00002c0c    00000008     register_map.o (.text._ZN8protocol11RegisterMap19ClearEncoderControlEv)
+                  00002c14    00000008     serial_protocol.o (.text._ZN8protocol14SerialProtocol4InitEPNS_11RegisterMapE)
+                  00002c1c    00000008     register_map.o (.text._ZNK8protocol11RegisterMap9IsEnabledEv)
+                  00002c24    00000008     libclang_rt.builtins.a : aeabi_memcpy.S.obj (.text)
+                  00002c2c    00000006     register_map.o (.text._ZNK8protocol11RegisterMap11SpeedKdQ4_4Ev)
+                  00002c32    00000006     register_map.o (.text._ZNK8protocol11RegisterMap11SpeedKiQ4_4Ev)
+                  00002c38    00000006     register_map.o (.text._ZNK8protocol11RegisterMap11SpeedKpQ4_4Ev)
+                  00002c3e    00000006     register_map.o (.text._ZNK8protocol11RegisterMap12SpeedMaxDutyEv)
+                  00002c44    00000006     register_map.o (.text._ZNK8protocol11RegisterMap12SpeedMinDutyEv)
+                  00002c4a    00000006     register_map.o (.text._ZNK8protocol11RegisterMap14EncoderControlEv)
+                  00002c50    00000006     register_map.o (.text._ZNK8protocol11RegisterMap14PositionKdQ4_4Ev)
+                  00002c56    00000006     register_map.o (.text._ZNK8protocol11RegisterMap14PositionKiQ4_4Ev)
+                  00002c5c    00000006     register_map.o (.text._ZNK8protocol11RegisterMap14PositionKpQ4_4Ev)
+                  00002c62    00000006     register_map.o (.text._ZNK8protocol11RegisterMap15PositionMaxDutyEv)
+                  00002c68    00000006     register_map.o (.text._ZNK8protocol11RegisterMap15PositionMinDutyEv)
+                  00002c6e    00000006     register_map.o (.text._ZNK8protocol11RegisterMap19WatchdogTimeout10msEv)
+                  00002c74    00000006     libc.a : exit.c.obj (.text:abort)
+                  00002c7a    00000004     libsysbm.a : hostexit.c.obj (.text.HOSTexit)
+                  00002c7e    00000004     startup_mspm0g351x_ticlang.o (.text.Reset_Handler)
+                  00002c82    00000004     board_i2c_target.o (.text._ZN5board22BoardI2cTarget_AddressEv)
+                  00002c86    00000004     register_map.o (.text._ZN8protocol11RegisterMap13SetI2cAddressEh)
+                  00002c8a    00000004     libc.a : pre_init.c.obj (.text._system_pre_init)
+                  00002c8e    00000002     --HOLE-- [fill = 0]
 
-.cinit     0    00002570    00000030     
-                  00002570    0000000c     (__TI_handler_table)
-                  0000257c    00000009     (.cinit..data.load) [load image, compression = lzss]
-                  00002585    00000003     --HOLE-- [fill = 0]
-                  00002588    00000008     (.cinit..bss.load) [load image, compression = zero_init]
-                  00002590    00000010     (__TI_cinit_table)
+.cinit     0    00002de0    00000030     
+                  00002de0    0000000c     (__TI_handler_table)
+                  00002dec    00000009     (.cinit..data.load) [load image, compression = lzss]
+                  00002df5    00000003     --HOLE-- [fill = 0]
+                  00002df8    00000008     (.cinit..bss.load) [load image, compression = zero_init]
+                  00002e00    00000010     (__TI_cinit_table)
 
-.rodata    0    00002420    00000150     
-                  00002420    00000100     serial_protocol.o (.rodata..L.crctable)
-                  00002520    00000014     board_uart.o (.rodata._ZN5board12_GLOBAL__N_113g_uart_configE)
-                  00002534    00000010     quadrature_encoder.o (.rodata.cst16)
-                  00002544    0000000a     ti_msp_dl_config.o (.rodata.gUART_CONTROLConfig)
-                  0000254e    00000002     ti_msp_dl_config.o (.rodata.gUART_CONTROLClockConfig)
-                  00002550    00000008     ti_msp_dl_config.o (.rodata.gPWM_M1_ENConfig)
-                  00002558    00000008     ti_msp_dl_config.o (.rodata.gPWM_M2_ENConfig)
-                  00002560    00000003     ti_msp_dl_config.o (.rodata.gPWM_M1_ENClockConfig)
-                  00002563    00000003     ti_msp_dl_config.o (.rodata.gPWM_M2_ENClockConfig)
-                  00002566    0000000a     --HOLE-- [fill = 0]
+.rodata    0    00002c90    00000150     
+                  00002c90    00000100     serial_protocol.o (.rodata..L.crctable)
+                  00002d90    00000014     board_uart.o (.rodata._ZN5board12_GLOBAL__N_113g_uart_configE)
+                  00002da4    00000010     quadrature_encoder.o (.rodata.cst16)
+                  00002db4    0000000a     ti_msp_dl_config.o (.rodata.gUART_CONTROLConfig)
+                  00002dbe    00000002     ti_msp_dl_config.o (.rodata.gI2C_CONTROLClockConfig)
+                  00002dc0    00000008     ti_msp_dl_config.o (.rodata.gPWM_M1_ENConfig)
+                  00002dc8    00000008     ti_msp_dl_config.o (.rodata.gPWM_M2_ENConfig)
+                  00002dd0    00000003     ti_msp_dl_config.o (.rodata.gPWM_M1_ENClockConfig)
+                  00002dd3    00000003     ti_msp_dl_config.o (.rodata.gPWM_M2_ENClockConfig)
+                  00002dd6    00000002     ti_msp_dl_config.o (.rodata.gUART_CONTROLClockConfig)
+                  00002dd8    00000008     --HOLE-- [fill = 0]
 
 .init_array 
 *          0    00000000    00000000     UNINITIALIZED
 
 .binit     0    00000000    00000000     
 
-.data      0    20200000    00000138     UNINITIALIZED
-                  20200000    00000069     motor_app.o (.data._ZN3app12_GLOBAL__N_111g_registersE)
-                  20200069    00000001     motor_app.o (.data._ZN3app12_GLOBAL__N_114g_output_dirtyE)
-                  2020006a    00000001     motor_app.o (.data._ZN3app12_GLOBAL__N_116g_timeout_activeE)
-                  2020006b    00000001     motor_app.o (.data._ZN3app12_GLOBAL__N_116g_watchdog_armedE)
-                  2020006c    00000004     motor_app.o (.data._ZN3app12_GLOBAL__N_110g_ms_ticksE)
-                  20200070    00000030     motor_control.o (.data._ZN7control12_GLOBAL__N_110g_m1_speedE)
-                  202000a0    00000030     motor_control.o (.data._ZN7control12_GLOBAL__N_110g_m2_speedE)
-                  202000d0    0000002c     motor_app.o (.data._ZN3app12_GLOBAL__N_18g_serialE)
-                  202000fc    00000014     quadrature_encoder.o (.data._ZN7drivers12_GLOBAL__N_14g_m1E)
-                  20200110    00000014     quadrature_encoder.o (.data._ZN7drivers12_GLOBAL__N_14g_m2E)
-                  20200124    00000010     board_uart.o (.data._ZN5board12_GLOBAL__N_114g_uart_contextE)
-                  20200134    00000004     motor_app.o (.data._ZN3app12_GLOBAL__N_126g_last_watchdog_refresh_msE)
+.bss       0    20200000    00000231     UNINITIALIZED
+                  20200000    00000100     board_uart.o (.bss._ZN5board12_GLOBAL__N_111g_rx_bufferE)
+                  20200100    00000100     board_i2c_target.o (.bss._ZN5board12_GLOBAL__N_112g_write_dataE)
+                  20200200    00000021     board_i2c_target.o (.bss._ZN5board12_GLOBAL__N_111g_rx_bufferE)
+                  20200221    00000008     board_i2c_target.o (.bss._ZN5board12_GLOBAL__N_111g_write_regE)
+                  20200229    00000008     board_i2c_target.o (.bss._ZN5board12_GLOBAL__N_114g_write_lengthE)
 
-.bss       0    20200138    00000100     UNINITIALIZED
-                  20200138    00000100     board_uart.o (.bss._ZN5board12_GLOBAL__N_111g_rx_bufferE)
+.data      0    20200238    0000014f     UNINITIALIZED
+                  20200238    0000006e     motor_app.o (.data._ZN3app12_GLOBAL__N_111g_registersE)
+                  202002a6    00000001     motor_app.o (.data._ZN3app12_GLOBAL__N_114g_output_dirtyE)
+                  202002a7    00000001     motor_app.o (.data._ZN3app12_GLOBAL__N_116g_timeout_activeE)
+                  202002a8    00000030     motor_control.o (.data._ZN7control12_GLOBAL__N_110g_m1_speedE)
+                  202002d8    00000030     motor_control.o (.data._ZN7control12_GLOBAL__N_110g_m2_speedE)
+                  20200308    0000002c     motor_app.o (.data._ZN3app12_GLOBAL__N_18g_serialE)
+                  20200334    00000014     quadrature_encoder.o (.data._ZN7drivers12_GLOBAL__N_14g_m1E)
+                  20200348    00000014     quadrature_encoder.o (.data._ZN7drivers12_GLOBAL__N_14g_m2E)
+                  2020035c    00000010     board_uart.o (.data._ZN5board12_GLOBAL__N_114g_uart_contextE)
+                  2020036c    00000004     motor_app.o (.data._ZN3app12_GLOBAL__N_110g_ms_ticksE)
+                  20200370    00000004     motor_app.o (.data._ZN3app12_GLOBAL__N_126g_last_watchdog_refresh_msE)
+                  20200374    00000004     board_i2c_target.o (.data._ZN5board12_GLOBAL__N_111g_registersE)
+                  20200378    00000004     board_i2c_target.o (.data._ZN5board12_GLOBAL__N_113g_error_flagsE)
+                  2020037c    00000004     board_i2c_target.o (.data._ZN5board12_GLOBAL__N_116g_dropped_writesE)
+                  20200380    00000001     motor_app.o (.data._ZN3app12_GLOBAL__N_116g_watchdog_armedE)
+                  20200381    00000001     board_i2c_target.o (.data._ZN5board12_GLOBAL__N_110g_rx_countE)
+                  20200382    00000001     board_i2c_target.o (.data._ZN5board12_GLOBAL__N_112g_write_headE)
+                  20200383    00000001     board_i2c_target.o (.data._ZN5board12_GLOBAL__N_112g_write_tailE)
+                  20200384    00000001     board_i2c_target.o (.data._ZN5board12_GLOBAL__N_113g_write_countE)
+                  20200385    00000001     board_i2c_target.o (.data._ZN5board12_GLOBAL__N_114g_selected_regE)
+                  20200386    00000001     board_i2c_target.o (.data._ZN5board12_GLOBAL__N_121g_rx_overflow_currentE)
 
 .stack     0    2020ff00    00000100     UNINITIALIZED
                   2020ff00    00000004     libc.a : boot_cortex_m.c.obj (.stack)
@@ -226,100 +254,102 @@ __llvm_prf_bits
 
 MODULE SUMMARY
 
-       Module                         code   ro data   rw data
-       ------                         ----   -------   -------
+       Module                         code    ro data   rw data
+       ------                         ----    -------   -------
     .\
-       ti_msp_dl_config.o             636    34        0      
-       startup_mspm0g351x_ticlang.o   6      192       0      
-       empty_cpp.o                    22     0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         664    226       0      
-                                                              
+       ti_msp_dl_config.o             812     36        0      
+       startup_mspm0g351x_ticlang.o   6       192       0      
+       empty_cpp.o                    22      0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         840     228       0      
+                                                               
     .\app\
-       motor_app.o                    880    0         160    
-    +--+------------------------------+------+---------+---------+
-       Total:                         880    0         160    
-                                                              
+       motor_app.o                    1052    0         165    
+    +--+------------------------------+-------+---------+---------+
+       Total:                         1052    0         165    
+                                                               
     .\board\
-       board_uart.o                   92     20        272    
-       board_encoders.o               40     0         0      
-       board_motor_outputs.o          32     0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         164    20        272    
-                                                              
+       board_i2c_target.o             1176    0         323    
+       board_uart.o                   92      20        272    
+       board_encoders.o               40      0         0      
+       board_motor_outputs.o          32      0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         1340    20        595    
+                                                               
     .\control\
-       motor_control.o                1434   0         96     
-    +--+------------------------------+------+---------+---------+
-       Total:                         1434   0         96     
-                                                              
+       motor_control.o                1800    0         96     
+    +--+------------------------------+-------+---------+---------+
+       Total:                         1800    0         96     
+                                                               
     .\drivers\
-       quadrature_encoder.o           660    16        40     
-       uart_link.o                    504    0         0      
-       drv8701.o                      356    0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         1520   16        40     
-                                                              
+       quadrature_encoder.o           660     16        40     
+       uart_link.o                    504     0         0      
+       drv8701.o                      356     0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         1520    16        40     
+                                                               
     .\protocol\
-       register_map.o                 2032   0         0      
-       serial_protocol.o              872    256       0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         2904   256       0      
-                                                              
+       register_map.o                 2112    0         0      
+       serial_protocol.o              872     256       0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         2984    256       0      
+                                                               
     C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/lib/ticlang/m0p/mspm0gx51x/driverlib.a
-       dl_timer.o                     356    0         0      
-       dl_uart.o                      90     0         0      
-       dl_common.o                    10     0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         456    0         0      
-                                                              
+       dl_timer.o                     356     0         0      
+       dl_i2c.o                       198     0         0      
+       dl_uart.o                      90      0         0      
+       dl_common.o                    10      0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         654     0         0      
+                                                               
     C:\ti\ccs2100\ccs\tools\compiler\ti-cgt-armllvm_5.1.1.LTS\lib\armv6m-ti-none-eabi/c/libc.a
-       memcpy16.S.obj                 154    0         0      
-       copy_decompress_lzss.c.obj     124    0         0      
-       memset16.S.obj                 98     0         0      
-       autoinit.c.obj                 60     0         0      
-       boot_cortex_m.c.obj            40     0         0      
-       copy_zero_init.c.obj           22     0         0      
-       copy_decompress_none.c.obj     18     0         0      
-       exit.c.obj                     6      0         0      
-       pre_init.c.obj                 4      0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         526    0         0      
-                                                              
+       memcpy16.S.obj                 154     0         0      
+       copy_decompress_lzss.c.obj     124     0         0      
+       memset16.S.obj                 98      0         0      
+       autoinit.c.obj                 60      0         0      
+       boot_cortex_m.c.obj            40      0         0      
+       copy_zero_init.c.obj           22      0         0      
+       copy_decompress_none.c.obj     18      0         0      
+       exit.c.obj                     6       0         0      
+       pre_init.c.obj                 4       0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         526     0         0      
+                                                               
     C:\ti\ccs2100\ccs\tools\compiler\ti-cgt-armllvm_5.1.1.LTS\lib\armv6m-ti-none-eabi/c/libsysbm.a
-       hostexit.c.obj                 4      0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         4      0         0      
-                                                              
+       hostexit.c.obj                 4       0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         4       0         0      
+                                                               
     C:\ti\ccs2100\ccs\tools\compiler\ti-cgt-armllvm_5.1.1.LTS\lib\armv6m-ti-none-eabi/libclang_rt.builtins.a
-       udivmoddi4.S.obj               162    0         0      
-       aeabi_uidivmod.S.obj           64     0         0      
-       divmoddi4.c.obj                62     0         0      
-       muldsi3.S.obj                  58     0         0      
-       muldi3.S.obj                   36     0         0      
-       ashldi3.S.obj                  30     0         0      
-       aeabi_memset.S.obj             26     0         0      
-       aeabi_ldivmod.S.obj            20     0         0      
-       aeabi_memcpy.S.obj             8      0         0      
-       aeabi_div0.c.obj               4      0         0      
-    +--+------------------------------+------+---------+---------+
-       Total:                         470    0         0      
-                                                              
-       Stack:                         0      0         256    
-       Linker Generated:              0      45        0      
-    +--+------------------------------+------+---------+---------+
-       Grand Total:                   9022   563       824    
+       udivmoddi4.S.obj               162     0         0      
+       aeabi_uidivmod.S.obj           64      0         0      
+       divmoddi4.c.obj                62      0         0      
+       muldsi3.S.obj                  58      0         0      
+       muldi3.S.obj                   36      0         0      
+       ashldi3.S.obj                  30      0         0      
+       aeabi_memset.S.obj             26      0         0      
+       aeabi_ldivmod.S.obj            20      0         0      
+       aeabi_memcpy.S.obj             8       0         0      
+       aeabi_div0.c.obj               4       0         0      
+    +--+------------------------------+-------+---------+---------+
+       Total:                         470     0         0      
+                                                               
+       Stack:                         0       0         256    
+       Linker Generated:              0       45        0      
+    +--+------------------------------+-------+---------+---------+
+       Grand Total:                   11190   565       1152   
 
 
 LINKER GENERATED COPY TABLES
 
-__TI_cinit_table @ 00002590 records: 2, size/record: 8, table size: 16
-	.data: load addr=0000257c, load size=00000009 bytes, run addr=20200000, run size=00000138 bytes, compression=lzss
-	.bss: load addr=00002588, load size=00000008 bytes, run addr=20200138, run size=00000100 bytes, compression=zero_init
+__TI_cinit_table @ 00002e00 records: 2, size/record: 8, table size: 16
+	.data: load addr=00002dec, load size=00000009 bytes, run addr=20200238, run size=0000014f bytes, compression=lzss
+	.bss: load addr=00002df8, load size=00000008 bytes, run addr=20200000, run size=00000231 bytes, compression=zero_init
 
 
 LINKER GENERATED HANDLER TABLE
 
-__TI_handler_table @ 00002570 records: 3, size/record: 4, table size: 12
+__TI_handler_table @ 00002de0 records: 3, size/record: 4, table size: 12
 	index: 0, handler: __TI_decompress_lzss
 	index: 1, handler: __TI_decompress_none
 	index: 2, handler: __TI_zero_init
@@ -329,131 +359,146 @@ GLOBAL SYMBOLS: SORTED ALPHABETICALLY BY Name
 
 address   name                                                                     
 -------   ----                                                                     
-00000533  ADC0_IRQHandler                                                          
-00000533  ADC1_IRQHandler                                                          
-00000533  AESADV_IRQHandler                                                        
-0000240e  C$$EXIT                                                                  
-00000533  CANFD0_IRQHandler                                                        
-00000533  CANFD1_IRQHandler                                                        
-00000533  DAC0_IRQHandler                                                          
-00002359  DL_Common_delayCycles                                                    
-00000e3d  DL_Timer_initFourCCPWMMode                                               
-0000210d  DL_Timer_setCaptCompUpdateMethod                                         
-0000221d  DL_Timer_setCaptureCompareOutCtl                                         
-000022c1  DL_Timer_setCaptureCompareValue                                          
-00002129  DL_Timer_setClockConfig                                                  
-00001cb1  DL_UART_init                                                             
-00002289  DL_UART_setClockConfig                                                   
-00000533  DMA_IRQHandler                                                           
-00000533  Default_Handler                                                          
-00000533  GROUP0_IRQHandler                                                        
-00002363  GROUP1_IRQHandler                                                        
-0000240f  HOSTexit                                                                 
-00000533  HardFault_Handler                                                        
-00000533  I2C0_IRQHandler                                                          
-00000533  I2C1_IRQHandler                                                          
-00000533  I2C2_IRQHandler                                                          
-00000533  LFSS_IRQHandler                                                          
-00000533  NMI_Handler                                                              
-00000533  PendSV_Handler                                                           
-00002413  Reset_Handler                                                            
-00000533  SPI0_IRQHandler                                                          
-00000533  SPI1_IRQHandler                                                          
-00000533  SPI2_IRQHandler                                                          
-00000533  SVC_Handler                                                              
-00001819  SYSCFG_DL_GPIO_init                                                      
-00001981  SYSCFG_DL_PWM_M1_EN_init                                                 
-000019f5  SYSCFG_DL_PWM_M2_EN_init                                                 
-00001f9d  SYSCFG_DL_SYSCTL_init                                                    
-00001595  SYSCFG_DL_UART_CONTROL_init                                              
-00002145  SYSCFG_DL_init                                                           
-00001cf9  SYSCFG_DL_initPower                                                      
-000022d1  SysTick_Handler                                                          
-00000533  TIMA0_IRQHandler                                                         
-00000533  TIMA1_IRQHandler                                                         
-00000533  TIMG0_IRQHandler                                                         
-00000533  TIMG12_IRQHandler                                                        
-00000533  TIMG14_IRQHandler                                                        
-00000533  TIMG6_IRQHandler                                                         
-00000533  TIMG7_IRQHandler                                                         
-00000533  TIMG8_IRQHandler                                                         
-00000533  TIMG9_IRQHandler                                                         
-00000533  UART0_IRQHandler                                                         
-00000533  UART1_IRQHandler                                                         
-00000533  UART3_IRQHandler                                                         
-000022e1  UART4_IRQHandler                                                         
-00000533  UART5_IRQHandler                                                         
-00000533  UART6_IRQHandler                                                         
-00000533  UART7_IRQHandler                                                         
-00001891  _ZN3app13MotorApp_InitEv                                                 
-00000749  _ZN3app16MotorApp_ProcessEv                                              
-00002055  _ZN5board14BoardUart_InitEv                                              
-00002261  _ZN5board15BoardUart_WriteEPKhh                                          
-0000236b  _ZN5board18BoardEncoders_InitEv                                          
-000022f1  _ZN5board18BoardUart_ReadByteEPh                                         
-00002373  _ZN5board19BoardEncoders_ResetEN7drivers9EncoderIdE                      
-0000237b  _ZN5board21BoardEncoders_ProcessEj                                       
-00002383  _ZN5board21BoardMotorOutputs_RunEN7drivers7MotorIdENS0_14MotorDirectionEh
-0000238b  _ZN5board22BoardMotorOutputs_InitEv                                      
-00002393  _ZN5board23BoardMotorOutputs_BrakeEN7drivers7MotorIdE                    
-0000239b  _ZN5board23BoardMotorOutputs_CoastEN7drivers7MotorIdE                    
-000023a3  _ZN5board25BoardEncoders_GetSnapshotEN7drivers9EncoderIdE                
-00001e45  _ZN7control17MotorControl_InitEv                                         
-0000125d  _ZN7control18MotorControl_ApplyERKN8protocol11RegisterMapEb              
-00001e81  _ZN7control24MotorControl_UpdateSpeedERN8protocol11RegisterMapEisisj     
-00001ad5  _ZN7drivers12Drv8701_InitEv                                              
-0000161d  _ZN7drivers13UartLink_InitEPNS_15UartLinkContextEPKNS_14UartLinkConfigE  
-0000130d  _ZN7drivers14Drv8701_SetRunENS_7MotorIdENS_14MotorDirectionEh            
-00001019  _ZN7drivers14UartLink_WriteEPNS_15UartLinkContextEPKhh                   
-00001ffd  _ZN7drivers16Drv8701_SetBrakeENS_7MotorIdE                               
-00002029  _ZN7drivers16Drv8701_SetCoastENS_7MotorIdE                               
-00001d85  _ZN7drivers17UartLink_ReadByteEPNS_15UartLinkContextEPh                  
-00001a69  _ZN7drivers19UartLink_IrqHandlerEPNS_15UartLinkContextE                  
-00000f41  _ZN7drivers22QuadratureEncoder_InitEv                                    
-00001bf9  _ZN7drivers23QuadratureEncoder_ResetENS_9EncoderIdE                      
-00001721  _ZN7drivers25QuadratureEncoder_ProcessEj                                 
-00001d41  _ZN7drivers29QuadratureEncoder_GetSnapshotENS_9EncoderIdE                
-00001459  _ZN7drivers37QuadratureEncoder_HandleGpioInterruptEv                     
-00000bd5  _ZN8protocol11RegisterMap11CommitWriteEhPKhhPb                           
-0000090d  _ZN8protocol11RegisterMap13RefreshStatusEv                               
-00002341  _ZN8protocol11RegisterMap16SetTimeoutActiveEb                            
-00002161  _ZN8protocol11RegisterMap16UpdateHoldTargetEbi                           
-0000229b  _ZN8protocol11RegisterMap17UpdateMeasuredRpmEss                          
-000023ab  _ZN8protocol11RegisterMap19ClearEncoderControlEv                         
-00001f69  _ZN8protocol11RegisterMap19ForceCoastOnTimeoutEv                         
-000020c9  _ZN8protocol11RegisterMap19UpdatePositionErrorEbi                        
-00001c55  _ZN8protocol11RegisterMap21UpdateEncoderSnapshotEiihiih                  
-00001f33  _ZN8protocol11RegisterMap23SetMotorDutyFromControlEbh                    
-00001fcd  _ZN8protocol11RegisterMap25SetMotorOutputFromControlEbhh                 
-0000217d  _ZN8protocol11RegisterMap26UpdateTargetRpmFromControlEbt                 
-00001909  _ZN8protocol11RegisterMap4InitEv                                         
-00000535  _ZN8protocol14SerialProtocol11HandleFrameEPNS_14SerialResponseEPbS3_     
-00000a89  _ZN8protocol14SerialProtocol11ProcessByteEhPNS_14SerialResponseEPbS3_    
-000023b3  _ZN8protocol14SerialProtocol4InitEPNS_11RegisterMapE                     
-00002301  _ZNK8protocol11RegisterMap11M1TargetRpmEv                                
-00002311  _ZNK8protocol11RegisterMap11M2TargetRpmEv                                
-000023cd  _ZNK8protocol11RegisterMap11SpeedKdQ4_4Ev                                
-000023d3  _ZNK8protocol11RegisterMap11SpeedKiQ4_4Ev                                
-000023d9  _ZNK8protocol11RegisterMap11SpeedKpQ4_4Ev                                
-000011a1  _ZNK8protocol11RegisterMap12ApplyWriteToEPhhh                            
-000023df  _ZNK8protocol11RegisterMap12SpeedMaxDutyEv                               
-000023e5  _ZNK8protocol11RegisterMap12SpeedMinDutyEv                               
-000023eb  _ZNK8protocol11RegisterMap14EncoderControlEv                             
-00002197  _ZNK8protocol11RegisterMap14M1CountsPerRevEv                             
-000021b1  _ZNK8protocol11RegisterMap14M2CountsPerRevEv                             
-000023f1  _ZNK8protocol11RegisterMap14PositionKdQ4_4Ev                             
-000023f7  _ZNK8protocol11RegisterMap14PositionKiQ4_4Ev                             
-000023fd  _ZNK8protocol11RegisterMap14PositionKpQ4_4Ev                             
-00002321  _ZNK8protocol11RegisterMap14PositionMaxRpmEv                             
-00001b9b  _ZNK8protocol11RegisterMap16HasActiveCommandEv                           
-000021cb  _ZNK8protocol11RegisterMap16M1TargetPositionEv                           
-000021e5  _ZNK8protocol11RegisterMap16M2TargetPositionEv                           
-000016a1  _ZNK8protocol11RegisterMap17IsControlRegisterEh                          
-00002331  _ZNK8protocol11RegisterMap17PositionToleranceEv                          
-00002403  _ZNK8protocol11RegisterMap19WatchdogTimeout10msEv                        
-0000234d  _ZNK8protocol11RegisterMap4ReadEh                                        
-000023bb  _ZNK8protocol11RegisterMap9IsEnabledEv                                   
-000010e1  _ZNK8protocol11RegisterMap9ReadBlockEhhPh                                
+00000f33  ADC0_IRQHandler                                                          
+00000f33  ADC1_IRQHandler                                                          
+00000f33  AESADV_IRQHandler                                                        
+00002c7a  C$$EXIT                                                                  
+00000f33  CANFD0_IRQHandler                                                        
+00000f33  CANFD1_IRQHandler                                                        
+00000f33  DAC0_IRQHandler                                                          
+00002ba9  DL_Common_delayCycles                                                    
+0000274d  DL_I2C_flushTargetRXFIFO                                                 
+000025f5  DL_I2C_flushTargetTXFIFO                                                 
+00002a43  DL_I2C_receiveTargetDataCheck                                            
+00002885  DL_I2C_setClockConfig                                                    
+00002935  DL_I2C_transmitTargetDataCheck                                           
+000012e9  DL_Timer_initFourCCPWMMode                                               
+00002951  DL_Timer_setCaptCompUpdateMethod                                         
+00002a5d  DL_Timer_setCaptureCompareOutCtl                                         
+00002b01  DL_Timer_setCaptureCompareValue                                          
+0000296d  DL_Timer_setClockConfig                                                  
+00002461  DL_UART_init                                                             
+00002ac9  DL_UART_setClockConfig                                                   
+00000f33  DMA_IRQHandler                                                           
+00000f33  Default_Handler                                                          
+00000f33  GROUP0_IRQHandler                                                        
+00002bbd  GROUP1_IRQHandler                                                        
+00002c7b  HOSTexit                                                                 
+00000f33  HardFault_Handler                                                        
+00000f33  I2C0_IRQHandler                                                          
+00002bc5  I2C1_IRQHandler                                                          
+00000f33  I2C2_IRQHandler                                                          
+00000f33  LFSS_IRQHandler                                                          
+00000f33  NMI_Handler                                                              
+00000f33  PendSV_Handler                                                           
+00002c7f  Reset_Handler                                                            
+00000f33  SPI0_IRQHandler                                                          
+00000f33  SPI1_IRQHandler                                                          
+00000f33  SPI2_IRQHandler                                                          
+00000f33  SVC_Handler                                                              
+00001b89  SYSCFG_DL_GPIO_init                                                      
+00001f69  SYSCFG_DL_I2C_CONTROL_init                                               
+000020dd  SYSCFG_DL_PWM_M1_EN_init                                                 
+00002151  SYSCFG_DL_PWM_M2_EN_init                                                 
+0000277d  SYSCFG_DL_SYSCTL_init                                                    
+00001d51  SYSCFG_DL_UART_CONTROL_init                                              
+000028f3  SYSCFG_DL_init                                                           
+0000240d  SYSCFG_DL_initPower                                                      
+00002b11  SysTick_Handler                                                          
+00000f33  TIMA0_IRQHandler                                                         
+00000f33  TIMA1_IRQHandler                                                         
+00000f33  TIMG0_IRQHandler                                                         
+00000f33  TIMG12_IRQHandler                                                        
+00000f33  TIMG14_IRQHandler                                                        
+00000f33  TIMG6_IRQHandler                                                         
+00000f33  TIMG7_IRQHandler                                                         
+00000f33  TIMG8_IRQHandler                                                         
+00000f33  TIMG9_IRQHandler                                                         
+00000f33  UART0_IRQHandler                                                         
+00000f33  UART1_IRQHandler                                                         
+00000f33  UART3_IRQHandler                                                         
+00002b21  UART4_IRQHandler                                                         
+00000f33  UART5_IRQHandler                                                         
+00000f33  UART6_IRQHandler                                                         
+00000f33  UART7_IRQHandler                                                         
+00001dd9  _ZN3app13MotorApp_InitEv                                                 
+00000945  _ZN3app16MotorApp_ProcessEv                                              
+00002835  _ZN5board14BoardUart_InitEv                                              
+00002aa1  _ZN5board15BoardUart_WriteEPKhh                                          
+00002bcd  _ZN5board18BoardEncoders_InitEv                                          
+00002b31  _ZN5board18BoardUart_ReadByteEPh                                         
+00002bd5  _ZN5board19BoardEncoders_ResetEN7drivers9EncoderIdE                      
+000014f1  _ZN5board19BoardI2cTarget_InitEPKN8protocol11RegisterMapE                
+00002bdd  _ZN5board21BoardEncoders_ProcessEj                                       
+00002be5  _ZN5board21BoardMotorOutputs_RunEN7drivers7MotorIdENS0_14MotorDirectionEh
+00002c83  _ZN5board22BoardI2cTarget_AddressEv                                      
+00002bed  _ZN5board22BoardMotorOutputs_InitEv                                      
+00002bf5  _ZN5board23BoardMotorOutputs_BrakeEN7drivers7MotorIdE                    
+00002bfd  _ZN5board23BoardMotorOutputs_CoastEN7drivers7MotorIdE                    
+000013ed  _ZN5board24BoardI2cTarget_TakeWriteEPNS_19BoardI2cTargetWriteE           
+00002c05  _ZN5board25BoardEncoders_GetSnapshotEN7drivers9EncoderIdE                
+00000695  _ZN5board25BoardI2cTarget_IrqHandlerEv                                   
+000024a9  _ZN7control17MotorControl_InitEv                                         
+000018eb  _ZN7control18MotorControl_ApplyERKN8protocol11RegisterMapEb              
+00002631  _ZN7control24MotorControl_UpdateSpeedERN8protocol11RegisterMapEisisj     
+00002231  _ZN7drivers12Drv8701_InitEv                                              
+00001e61  _ZN7drivers13UartLink_InitEPNS_15UartLinkContextEPKNS_14UartLinkConfigE  
+0000199d  _ZN7drivers14Drv8701_SetRunENS_7MotorIdENS_14MotorDirectionEh            
+000016a1  _ZN7drivers14UartLink_WriteEPNS_15UartLinkContextEPKhh                   
+000027dd  _ZN7drivers16Drv8701_SetBrakeENS_7MotorIdE                               
+00002809  _ZN7drivers16Drv8701_SetCoastENS_7MotorIdE                               
+00002535  _ZN7drivers17UartLink_ReadByteEPNS_15UartLinkContextEPh                  
+000021c5  _ZN7drivers19UartLink_IrqHandlerEPNS_15UartLinkContextE                  
+000015c9  _ZN7drivers22QuadratureEncoder_InitEv                                    
+00002355  _ZN7drivers23QuadratureEncoder_ResetENS_9EncoderIdE                      
+00001fe5  _ZN7drivers25QuadratureEncoder_ProcessEj                                 
+000024f1  _ZN7drivers29QuadratureEncoder_GetSnapshotENS_9EncoderIdE                
+00001ae9  _ZN7drivers37QuadratureEncoder_HandleGpioInterruptEv                     
+00001081  _ZN8protocol11RegisterMap11CommitWriteEhPKhhPb                           
+00000db9  _ZN8protocol11RegisterMap13RefreshStatusEv                               
+00002c87  _ZN8protocol11RegisterMap13SetI2cAddressEh                               
+00002b91  _ZN8protocol11RegisterMap16SetTimeoutActiveEb                            
+00002989  _ZN8protocol11RegisterMap16UpdateHoldTargetEbi                           
+00002adb  _ZN8protocol11RegisterMap17UpdateMeasuredRpmEss                          
+00002c0d  _ZN8protocol11RegisterMap19ClearEncoderControlEv                         
+00002719  _ZN8protocol11RegisterMap19ForceCoastOnTimeoutEv                         
+000028d1  _ZN8protocol11RegisterMap19UpdatePositionErrorEbi                        
+000023b1  _ZN8protocol11RegisterMap21UpdateEncoderSnapshotEiihiih                  
+000026e3  _ZN8protocol11RegisterMap23SetMotorDutyFromControlEbh                    
+000027ad  _ZN8protocol11RegisterMap25SetMotorOutputFromControlEbhh                 
+000029a5  _ZN8protocol11RegisterMap26UpdateTargetRpmFromControlEbt                 
+00001cbf  _ZN8protocol11RegisterMap4InitEv                                         
+00000ba5  _ZN8protocol14SerialProtocol11HandleFrameEPNS_14SerialResponseEPbS3_     
+00000f35  _ZN8protocol14SerialProtocol11ProcessByteEhPNS_14SerialResponseEPbS3_    
+00002c15  _ZN8protocol14SerialProtocol4InitEPNS_11RegisterMapE                     
+00002b41  _ZNK8protocol11RegisterMap11M1TargetRpmEv                                
+00002b51  _ZNK8protocol11RegisterMap11M2TargetRpmEv                                
+00002c2d  _ZNK8protocol11RegisterMap11SpeedKdQ4_4Ev                                
+00002c33  _ZNK8protocol11RegisterMap11SpeedKiQ4_4Ev                                
+00002c39  _ZNK8protocol11RegisterMap11SpeedKpQ4_4Ev                                
+00001769  _ZNK8protocol11RegisterMap12ApplyWriteToEPhhh                            
+00002c3f  _ZNK8protocol11RegisterMap12SpeedMaxDutyEv                               
+00002c45  _ZNK8protocol11RegisterMap12SpeedMinDutyEv                               
+00002c4b  _ZNK8protocol11RegisterMap14EncoderControlEv                             
+000029bf  _ZNK8protocol11RegisterMap14M1CountsPerRevEv                             
+000029d9  _ZNK8protocol11RegisterMap14M2CountsPerRevEv                             
+00002c51  _ZNK8protocol11RegisterMap14PositionKdQ4_4Ev                             
+00002c57  _ZNK8protocol11RegisterMap14PositionKiQ4_4Ev                             
+00002c5d  _ZNK8protocol11RegisterMap14PositionKpQ4_4Ev                             
+00002b61  _ZNK8protocol11RegisterMap14PositionMaxRpmEv                             
+00002c63  _ZNK8protocol11RegisterMap15PositionMaxDutyEv                            
+00002c69  _ZNK8protocol11RegisterMap15PositionMinDutyEv                            
+000022f7  _ZNK8protocol11RegisterMap16HasActiveCommandEv                           
+000029f3  _ZNK8protocol11RegisterMap16M1TargetPositionEv                           
+00002a0d  _ZNK8protocol11RegisterMap16M2TargetPositionEv                           
+00002bb3  _ZNK8protocol11RegisterMap16PositionSettleMsEv                           
+00001ee5  _ZNK8protocol11RegisterMap17IsControlRegisterEh                          
+00002b71  _ZNK8protocol11RegisterMap17PositionToleranceEv                          
+00002c6f  _ZNK8protocol11RegisterMap19WatchdogTimeout10msEv                        
+00002b81  _ZNK8protocol11RegisterMap21PositionExitToleranceEv                      
+00002b9d  _ZNK8protocol11RegisterMap4ReadEh                                        
+00002c1d  _ZNK8protocol11RegisterMap9IsEnabledEv                                   
+0000182b  _ZNK8protocol11RegisterMap9ReadBlockEhhPh                                
 20210000  __STACK_END                                                              
 00000100  __STACK_SIZE                                                             
 00000000  __TI_ATRegion0_region_sz                                                 
@@ -465,56 +510,56 @@ address   name
 00000000  __TI_ATRegion2_region_sz                                                 
 00000000  __TI_ATRegion2_src_addr                                                  
 00000000  __TI_ATRegion2_trg_addr                                                  
-00002590  __TI_CINIT_Base                                                          
-000025a0  __TI_CINIT_Limit                                                         
-000025a0  __TI_CINIT_Warm                                                          
-00002570  __TI_Handler_Table_Base                                                  
-0000257c  __TI_Handler_Table_Limit                                                 
-00001ebd  __TI_auto_init_nobinit_nopinit                                           
-0000179d  __TI_decompress_lzss                                                     
-000022ad  __TI_decompress_none                                                     
+00002e00  __TI_CINIT_Base                                                          
+00002e10  __TI_CINIT_Limit                                                         
+00002e10  __TI_CINIT_Warm                                                          
+00002de0  __TI_Handler_Table_Base                                                  
+00002dec  __TI_Handler_Table_Limit                                                 
+0000266d  __TI_auto_init_nobinit_nopinit                                           
+00002061  __TI_decompress_lzss                                                     
+00002aed  __TI_decompress_none                                                     
 ffffffff  __TI_pprof_out_hndl                                                      
 ffffffff  __TI_prof_data_size                                                      
 ffffffff  __TI_prof_data_start                                                     
 00000000  __TI_static_base__                                                       
-0000224b  __TI_zero_init_nomemset                                                  
-00000a87  __aeabi_idiv0                                                            
-00000d17  __aeabi_ldiv0                                                            
-00002275  __aeabi_ldivmod                                                          
-000020ed  __aeabi_llsl                                                             
-000020a5  __aeabi_lmul                                                             
-0000220f  __aeabi_memclr                                                           
-0000220f  __aeabi_memclr4                                                          
-0000220f  __aeabi_memclr8                                                          
-000023c5  __aeabi_memcpy                                                           
-000023c5  __aeabi_memcpy4                                                          
-000023c5  __aeabi_memcpy8                                                          
-00002201  __aeabi_memset                                                           
-00002201  __aeabi_memset4                                                          
-00002201  __aeabi_memset8                                                          
-00001dc5  __aeabi_uidiv                                                            
-00001dc5  __aeabi_uidivmod                                                         
-000020ed  __ashldi3                                                                
+00002a8b  __TI_zero_init_nomemset                                                  
+000011c3  __aeabi_idiv0                                                            
+0000199b  __aeabi_ldiv0                                                            
+00002ab5  __aeabi_ldivmod                                                          
+00002915  __aeabi_llsl                                                             
+000028ad  __aeabi_lmul                                                             
+00002a37  __aeabi_memclr                                                           
+00002a37  __aeabi_memclr4                                                          
+00002a37  __aeabi_memclr8                                                          
+00002c25  __aeabi_memcpy                                                           
+00002c25  __aeabi_memcpy4                                                          
+00002c25  __aeabi_memcpy8                                                          
+00002a29  __aeabi_memset                                                           
+00002a29  __aeabi_memset4                                                          
+00002a29  __aeabi_memset8                                                          
+00002575  __aeabi_uidiv                                                            
+00002575  __aeabi_uidivmod                                                         
+00002915  __ashldi3                                                                
 ffffffff  __binit__                                                                
-00001e05  __divmoddi4                                                              
+000025b5  __divmoddi4                                                              
 UNDEFED   __mpu_init                                                               
-000020a5  __muldi3                                                                 
-00001ef9  __muldsi3                                                                
+000028ad  __muldi3                                                                 
+000026a9  __muldsi3                                                                
 2020ff00  __stack                                                                  
 20200000  __start___llvm_prf_bits                                                  
 20200000  __start___llvm_prf_cnts                                                  
 20200000  __stop___llvm_prf_bits                                                   
 20200000  __stop___llvm_prf_cnts                                                   
-000013b5  __udivmoddi4                                                             
-0000207d  _c_int00_noargs                                                          
+00001a45  __udivmoddi4                                                             
+0000285d  _c_int00_noargs                                                          
 UNDEFED   _system_post_cinit                                                       
-00002417  _system_pre_init                                                         
-00002409  abort                                                                    
+00002c8b  _system_pre_init                                                         
+00002c75  abort                                                                    
 ffffffff  binit                                                                    
 00000000  interruptVectors                                                         
-00002235  main                                                                     
-000014f9  memcpy                                                                   
-00001b39  memset                                                                   
+00002a75  main                                                                     
+00001c25  memcpy                                                                   
+00002295  memset                                                                   
 
 
 GLOBAL SYMBOLS: SORTED BY Symbol Address 
@@ -533,167 +578,182 @@ address   name
 00000000  __TI_static_base__                                                       
 00000000  interruptVectors                                                         
 00000100  __STACK_SIZE                                                             
-00000533  ADC0_IRQHandler                                                          
-00000533  ADC1_IRQHandler                                                          
-00000533  AESADV_IRQHandler                                                        
-00000533  CANFD0_IRQHandler                                                        
-00000533  CANFD1_IRQHandler                                                        
-00000533  DAC0_IRQHandler                                                          
-00000533  DMA_IRQHandler                                                           
-00000533  Default_Handler                                                          
-00000533  GROUP0_IRQHandler                                                        
-00000533  HardFault_Handler                                                        
-00000533  I2C0_IRQHandler                                                          
-00000533  I2C1_IRQHandler                                                          
-00000533  I2C2_IRQHandler                                                          
-00000533  LFSS_IRQHandler                                                          
-00000533  NMI_Handler                                                              
-00000533  PendSV_Handler                                                           
-00000533  SPI0_IRQHandler                                                          
-00000533  SPI1_IRQHandler                                                          
-00000533  SPI2_IRQHandler                                                          
-00000533  SVC_Handler                                                              
-00000533  TIMA0_IRQHandler                                                         
-00000533  TIMA1_IRQHandler                                                         
-00000533  TIMG0_IRQHandler                                                         
-00000533  TIMG12_IRQHandler                                                        
-00000533  TIMG14_IRQHandler                                                        
-00000533  TIMG6_IRQHandler                                                         
-00000533  TIMG7_IRQHandler                                                         
-00000533  TIMG8_IRQHandler                                                         
-00000533  TIMG9_IRQHandler                                                         
-00000533  UART0_IRQHandler                                                         
-00000533  UART1_IRQHandler                                                         
-00000533  UART3_IRQHandler                                                         
-00000533  UART5_IRQHandler                                                         
-00000533  UART6_IRQHandler                                                         
-00000533  UART7_IRQHandler                                                         
-00000535  _ZN8protocol14SerialProtocol11HandleFrameEPNS_14SerialResponseEPbS3_     
-00000749  _ZN3app16MotorApp_ProcessEv                                              
-0000090d  _ZN8protocol11RegisterMap13RefreshStatusEv                               
-00000a87  __aeabi_idiv0                                                            
-00000a89  _ZN8protocol14SerialProtocol11ProcessByteEhPNS_14SerialResponseEPbS3_    
-00000bd5  _ZN8protocol11RegisterMap11CommitWriteEhPKhhPb                           
-00000d17  __aeabi_ldiv0                                                            
-00000e3d  DL_Timer_initFourCCPWMMode                                               
-00000f41  _ZN7drivers22QuadratureEncoder_InitEv                                    
-00001019  _ZN7drivers14UartLink_WriteEPNS_15UartLinkContextEPKhh                   
-000010e1  _ZNK8protocol11RegisterMap9ReadBlockEhhPh                                
-000011a1  _ZNK8protocol11RegisterMap12ApplyWriteToEPhhh                            
-0000125d  _ZN7control18MotorControl_ApplyERKN8protocol11RegisterMapEb              
-0000130d  _ZN7drivers14Drv8701_SetRunENS_7MotorIdENS_14MotorDirectionEh            
-000013b5  __udivmoddi4                                                             
-00001459  _ZN7drivers37QuadratureEncoder_HandleGpioInterruptEv                     
-000014f9  memcpy                                                                   
-00001595  SYSCFG_DL_UART_CONTROL_init                                              
-0000161d  _ZN7drivers13UartLink_InitEPNS_15UartLinkContextEPKNS_14UartLinkConfigE  
-000016a1  _ZNK8protocol11RegisterMap17IsControlRegisterEh                          
-00001721  _ZN7drivers25QuadratureEncoder_ProcessEj                                 
-0000179d  __TI_decompress_lzss                                                     
-00001819  SYSCFG_DL_GPIO_init                                                      
-00001891  _ZN3app13MotorApp_InitEv                                                 
-00001909  _ZN8protocol11RegisterMap4InitEv                                         
-00001981  SYSCFG_DL_PWM_M1_EN_init                                                 
-000019f5  SYSCFG_DL_PWM_M2_EN_init                                                 
-00001a69  _ZN7drivers19UartLink_IrqHandlerEPNS_15UartLinkContextE                  
-00001ad5  _ZN7drivers12Drv8701_InitEv                                              
-00001b39  memset                                                                   
-00001b9b  _ZNK8protocol11RegisterMap16HasActiveCommandEv                           
-00001bf9  _ZN7drivers23QuadratureEncoder_ResetENS_9EncoderIdE                      
-00001c55  _ZN8protocol11RegisterMap21UpdateEncoderSnapshotEiihiih                  
-00001cb1  DL_UART_init                                                             
-00001cf9  SYSCFG_DL_initPower                                                      
-00001d41  _ZN7drivers29QuadratureEncoder_GetSnapshotENS_9EncoderIdE                
-00001d85  _ZN7drivers17UartLink_ReadByteEPNS_15UartLinkContextEPh                  
-00001dc5  __aeabi_uidiv                                                            
-00001dc5  __aeabi_uidivmod                                                         
-00001e05  __divmoddi4                                                              
-00001e45  _ZN7control17MotorControl_InitEv                                         
-00001e81  _ZN7control24MotorControl_UpdateSpeedERN8protocol11RegisterMapEisisj     
-00001ebd  __TI_auto_init_nobinit_nopinit                                           
-00001ef9  __muldsi3                                                                
-00001f33  _ZN8protocol11RegisterMap23SetMotorDutyFromControlEbh                    
-00001f69  _ZN8protocol11RegisterMap19ForceCoastOnTimeoutEv                         
-00001f9d  SYSCFG_DL_SYSCTL_init                                                    
-00001fcd  _ZN8protocol11RegisterMap25SetMotorOutputFromControlEbhh                 
-00001ffd  _ZN7drivers16Drv8701_SetBrakeENS_7MotorIdE                               
-00002029  _ZN7drivers16Drv8701_SetCoastENS_7MotorIdE                               
-00002055  _ZN5board14BoardUart_InitEv                                              
-0000207d  _c_int00_noargs                                                          
-000020a5  __aeabi_lmul                                                             
-000020a5  __muldi3                                                                 
-000020c9  _ZN8protocol11RegisterMap19UpdatePositionErrorEbi                        
-000020ed  __aeabi_llsl                                                             
-000020ed  __ashldi3                                                                
-0000210d  DL_Timer_setCaptCompUpdateMethod                                         
-00002129  DL_Timer_setClockConfig                                                  
-00002145  SYSCFG_DL_init                                                           
-00002161  _ZN8protocol11RegisterMap16UpdateHoldTargetEbi                           
-0000217d  _ZN8protocol11RegisterMap26UpdateTargetRpmFromControlEbt                 
-00002197  _ZNK8protocol11RegisterMap14M1CountsPerRevEv                             
-000021b1  _ZNK8protocol11RegisterMap14M2CountsPerRevEv                             
-000021cb  _ZNK8protocol11RegisterMap16M1TargetPositionEv                           
-000021e5  _ZNK8protocol11RegisterMap16M2TargetPositionEv                           
-00002201  __aeabi_memset                                                           
-00002201  __aeabi_memset4                                                          
-00002201  __aeabi_memset8                                                          
-0000220f  __aeabi_memclr                                                           
-0000220f  __aeabi_memclr4                                                          
-0000220f  __aeabi_memclr8                                                          
-0000221d  DL_Timer_setCaptureCompareOutCtl                                         
-00002235  main                                                                     
-0000224b  __TI_zero_init_nomemset                                                  
-00002261  _ZN5board15BoardUart_WriteEPKhh                                          
-00002275  __aeabi_ldivmod                                                          
-00002289  DL_UART_setClockConfig                                                   
-0000229b  _ZN8protocol11RegisterMap17UpdateMeasuredRpmEss                          
-000022ad  __TI_decompress_none                                                     
-000022c1  DL_Timer_setCaptureCompareValue                                          
-000022d1  SysTick_Handler                                                          
-000022e1  UART4_IRQHandler                                                         
-000022f1  _ZN5board18BoardUart_ReadByteEPh                                         
-00002301  _ZNK8protocol11RegisterMap11M1TargetRpmEv                                
-00002311  _ZNK8protocol11RegisterMap11M2TargetRpmEv                                
-00002321  _ZNK8protocol11RegisterMap14PositionMaxRpmEv                             
-00002331  _ZNK8protocol11RegisterMap17PositionToleranceEv                          
-00002341  _ZN8protocol11RegisterMap16SetTimeoutActiveEb                            
-0000234d  _ZNK8protocol11RegisterMap4ReadEh                                        
-00002359  DL_Common_delayCycles                                                    
-00002363  GROUP1_IRQHandler                                                        
-0000236b  _ZN5board18BoardEncoders_InitEv                                          
-00002373  _ZN5board19BoardEncoders_ResetEN7drivers9EncoderIdE                      
-0000237b  _ZN5board21BoardEncoders_ProcessEj                                       
-00002383  _ZN5board21BoardMotorOutputs_RunEN7drivers7MotorIdENS0_14MotorDirectionEh
-0000238b  _ZN5board22BoardMotorOutputs_InitEv                                      
-00002393  _ZN5board23BoardMotorOutputs_BrakeEN7drivers7MotorIdE                    
-0000239b  _ZN5board23BoardMotorOutputs_CoastEN7drivers7MotorIdE                    
-000023a3  _ZN5board25BoardEncoders_GetSnapshotEN7drivers9EncoderIdE                
-000023ab  _ZN8protocol11RegisterMap19ClearEncoderControlEv                         
-000023b3  _ZN8protocol14SerialProtocol4InitEPNS_11RegisterMapE                     
-000023bb  _ZNK8protocol11RegisterMap9IsEnabledEv                                   
-000023c5  __aeabi_memcpy                                                           
-000023c5  __aeabi_memcpy4                                                          
-000023c5  __aeabi_memcpy8                                                          
-000023cd  _ZNK8protocol11RegisterMap11SpeedKdQ4_4Ev                                
-000023d3  _ZNK8protocol11RegisterMap11SpeedKiQ4_4Ev                                
-000023d9  _ZNK8protocol11RegisterMap11SpeedKpQ4_4Ev                                
-000023df  _ZNK8protocol11RegisterMap12SpeedMaxDutyEv                               
-000023e5  _ZNK8protocol11RegisterMap12SpeedMinDutyEv                               
-000023eb  _ZNK8protocol11RegisterMap14EncoderControlEv                             
-000023f1  _ZNK8protocol11RegisterMap14PositionKdQ4_4Ev                             
-000023f7  _ZNK8protocol11RegisterMap14PositionKiQ4_4Ev                             
-000023fd  _ZNK8protocol11RegisterMap14PositionKpQ4_4Ev                             
-00002403  _ZNK8protocol11RegisterMap19WatchdogTimeout10msEv                        
-00002409  abort                                                                    
-0000240e  C$$EXIT                                                                  
-0000240f  HOSTexit                                                                 
-00002413  Reset_Handler                                                            
-00002417  _system_pre_init                                                         
-00002570  __TI_Handler_Table_Base                                                  
-0000257c  __TI_Handler_Table_Limit                                                 
-00002590  __TI_CINIT_Base                                                          
-000025a0  __TI_CINIT_Limit                                                         
-000025a0  __TI_CINIT_Warm                                                          
+00000695  _ZN5board25BoardI2cTarget_IrqHandlerEv                                   
+00000945  _ZN3app16MotorApp_ProcessEv                                              
+00000ba5  _ZN8protocol14SerialProtocol11HandleFrameEPNS_14SerialResponseEPbS3_     
+00000db9  _ZN8protocol11RegisterMap13RefreshStatusEv                               
+00000f33  ADC0_IRQHandler                                                          
+00000f33  ADC1_IRQHandler                                                          
+00000f33  AESADV_IRQHandler                                                        
+00000f33  CANFD0_IRQHandler                                                        
+00000f33  CANFD1_IRQHandler                                                        
+00000f33  DAC0_IRQHandler                                                          
+00000f33  DMA_IRQHandler                                                           
+00000f33  Default_Handler                                                          
+00000f33  GROUP0_IRQHandler                                                        
+00000f33  HardFault_Handler                                                        
+00000f33  I2C0_IRQHandler                                                          
+00000f33  I2C2_IRQHandler                                                          
+00000f33  LFSS_IRQHandler                                                          
+00000f33  NMI_Handler                                                              
+00000f33  PendSV_Handler                                                           
+00000f33  SPI0_IRQHandler                                                          
+00000f33  SPI1_IRQHandler                                                          
+00000f33  SPI2_IRQHandler                                                          
+00000f33  SVC_Handler                                                              
+00000f33  TIMA0_IRQHandler                                                         
+00000f33  TIMA1_IRQHandler                                                         
+00000f33  TIMG0_IRQHandler                                                         
+00000f33  TIMG12_IRQHandler                                                        
+00000f33  TIMG14_IRQHandler                                                        
+00000f33  TIMG6_IRQHandler                                                         
+00000f33  TIMG7_IRQHandler                                                         
+00000f33  TIMG8_IRQHandler                                                         
+00000f33  TIMG9_IRQHandler                                                         
+00000f33  UART0_IRQHandler                                                         
+00000f33  UART1_IRQHandler                                                         
+00000f33  UART3_IRQHandler                                                         
+00000f33  UART5_IRQHandler                                                         
+00000f33  UART6_IRQHandler                                                         
+00000f33  UART7_IRQHandler                                                         
+00000f35  _ZN8protocol14SerialProtocol11ProcessByteEhPNS_14SerialResponseEPbS3_    
+00001081  _ZN8protocol11RegisterMap11CommitWriteEhPKhhPb                           
+000011c3  __aeabi_idiv0                                                            
+000012e9  DL_Timer_initFourCCPWMMode                                               
+000013ed  _ZN5board24BoardI2cTarget_TakeWriteEPNS_19BoardI2cTargetWriteE           
+000014f1  _ZN5board19BoardI2cTarget_InitEPKN8protocol11RegisterMapE                
+000015c9  _ZN7drivers22QuadratureEncoder_InitEv                                    
+000016a1  _ZN7drivers14UartLink_WriteEPNS_15UartLinkContextEPKhh                   
+00001769  _ZNK8protocol11RegisterMap12ApplyWriteToEPhhh                            
+0000182b  _ZNK8protocol11RegisterMap9ReadBlockEhhPh                                
+000018eb  _ZN7control18MotorControl_ApplyERKN8protocol11RegisterMapEb              
+0000199b  __aeabi_ldiv0                                                            
+0000199d  _ZN7drivers14Drv8701_SetRunENS_7MotorIdENS_14MotorDirectionEh            
+00001a45  __udivmoddi4                                                             
+00001ae9  _ZN7drivers37QuadratureEncoder_HandleGpioInterruptEv                     
+00001b89  SYSCFG_DL_GPIO_init                                                      
+00001c25  memcpy                                                                   
+00001cbf  _ZN8protocol11RegisterMap4InitEv                                         
+00001d51  SYSCFG_DL_UART_CONTROL_init                                              
+00001dd9  _ZN3app13MotorApp_InitEv                                                 
+00001e61  _ZN7drivers13UartLink_InitEPNS_15UartLinkContextEPKNS_14UartLinkConfigE  
+00001ee5  _ZNK8protocol11RegisterMap17IsControlRegisterEh                          
+00001f69  SYSCFG_DL_I2C_CONTROL_init                                               
+00001fe5  _ZN7drivers25QuadratureEncoder_ProcessEj                                 
+00002061  __TI_decompress_lzss                                                     
+000020dd  SYSCFG_DL_PWM_M1_EN_init                                                 
+00002151  SYSCFG_DL_PWM_M2_EN_init                                                 
+000021c5  _ZN7drivers19UartLink_IrqHandlerEPNS_15UartLinkContextE                  
+00002231  _ZN7drivers12Drv8701_InitEv                                              
+00002295  memset                                                                   
+000022f7  _ZNK8protocol11RegisterMap16HasActiveCommandEv                           
+00002355  _ZN7drivers23QuadratureEncoder_ResetENS_9EncoderIdE                      
+000023b1  _ZN8protocol11RegisterMap21UpdateEncoderSnapshotEiihiih                  
+0000240d  SYSCFG_DL_initPower                                                      
+00002461  DL_UART_init                                                             
+000024a9  _ZN7control17MotorControl_InitEv                                         
+000024f1  _ZN7drivers29QuadratureEncoder_GetSnapshotENS_9EncoderIdE                
+00002535  _ZN7drivers17UartLink_ReadByteEPNS_15UartLinkContextEPh                  
+00002575  __aeabi_uidiv                                                            
+00002575  __aeabi_uidivmod                                                         
+000025b5  __divmoddi4                                                              
+000025f5  DL_I2C_flushTargetTXFIFO                                                 
+00002631  _ZN7control24MotorControl_UpdateSpeedERN8protocol11RegisterMapEisisj     
+0000266d  __TI_auto_init_nobinit_nopinit                                           
+000026a9  __muldsi3                                                                
+000026e3  _ZN8protocol11RegisterMap23SetMotorDutyFromControlEbh                    
+00002719  _ZN8protocol11RegisterMap19ForceCoastOnTimeoutEv                         
+0000274d  DL_I2C_flushTargetRXFIFO                                                 
+0000277d  SYSCFG_DL_SYSCTL_init                                                    
+000027ad  _ZN8protocol11RegisterMap25SetMotorOutputFromControlEbhh                 
+000027dd  _ZN7drivers16Drv8701_SetBrakeENS_7MotorIdE                               
+00002809  _ZN7drivers16Drv8701_SetCoastENS_7MotorIdE                               
+00002835  _ZN5board14BoardUart_InitEv                                              
+0000285d  _c_int00_noargs                                                          
+00002885  DL_I2C_setClockConfig                                                    
+000028ad  __aeabi_lmul                                                             
+000028ad  __muldi3                                                                 
+000028d1  _ZN8protocol11RegisterMap19UpdatePositionErrorEbi                        
+000028f3  SYSCFG_DL_init                                                           
+00002915  __aeabi_llsl                                                             
+00002915  __ashldi3                                                                
+00002935  DL_I2C_transmitTargetDataCheck                                           
+00002951  DL_Timer_setCaptCompUpdateMethod                                         
+0000296d  DL_Timer_setClockConfig                                                  
+00002989  _ZN8protocol11RegisterMap16UpdateHoldTargetEbi                           
+000029a5  _ZN8protocol11RegisterMap26UpdateTargetRpmFromControlEbt                 
+000029bf  _ZNK8protocol11RegisterMap14M1CountsPerRevEv                             
+000029d9  _ZNK8protocol11RegisterMap14M2CountsPerRevEv                             
+000029f3  _ZNK8protocol11RegisterMap16M1TargetPositionEv                           
+00002a0d  _ZNK8protocol11RegisterMap16M2TargetPositionEv                           
+00002a29  __aeabi_memset                                                           
+00002a29  __aeabi_memset4                                                          
+00002a29  __aeabi_memset8                                                          
+00002a37  __aeabi_memclr                                                           
+00002a37  __aeabi_memclr4                                                          
+00002a37  __aeabi_memclr8                                                          
+00002a43  DL_I2C_receiveTargetDataCheck                                            
+00002a5d  DL_Timer_setCaptureCompareOutCtl                                         
+00002a75  main                                                                     
+00002a8b  __TI_zero_init_nomemset                                                  
+00002aa1  _ZN5board15BoardUart_WriteEPKhh                                          
+00002ab5  __aeabi_ldivmod                                                          
+00002ac9  DL_UART_setClockConfig                                                   
+00002adb  _ZN8protocol11RegisterMap17UpdateMeasuredRpmEss                          
+00002aed  __TI_decompress_none                                                     
+00002b01  DL_Timer_setCaptureCompareValue                                          
+00002b11  SysTick_Handler                                                          
+00002b21  UART4_IRQHandler                                                         
+00002b31  _ZN5board18BoardUart_ReadByteEPh                                         
+00002b41  _ZNK8protocol11RegisterMap11M1TargetRpmEv                                
+00002b51  _ZNK8protocol11RegisterMap11M2TargetRpmEv                                
+00002b61  _ZNK8protocol11RegisterMap14PositionMaxRpmEv                             
+00002b71  _ZNK8protocol11RegisterMap17PositionToleranceEv                          
+00002b81  _ZNK8protocol11RegisterMap21PositionExitToleranceEv                      
+00002b91  _ZN8protocol11RegisterMap16SetTimeoutActiveEb                            
+00002b9d  _ZNK8protocol11RegisterMap4ReadEh                                        
+00002ba9  DL_Common_delayCycles                                                    
+00002bb3  _ZNK8protocol11RegisterMap16PositionSettleMsEv                           
+00002bbd  GROUP1_IRQHandler                                                        
+00002bc5  I2C1_IRQHandler                                                          
+00002bcd  _ZN5board18BoardEncoders_InitEv                                          
+00002bd5  _ZN5board19BoardEncoders_ResetEN7drivers9EncoderIdE                      
+00002bdd  _ZN5board21BoardEncoders_ProcessEj                                       
+00002be5  _ZN5board21BoardMotorOutputs_RunEN7drivers7MotorIdENS0_14MotorDirectionEh
+00002bed  _ZN5board22BoardMotorOutputs_InitEv                                      
+00002bf5  _ZN5board23BoardMotorOutputs_BrakeEN7drivers7MotorIdE                    
+00002bfd  _ZN5board23BoardMotorOutputs_CoastEN7drivers7MotorIdE                    
+00002c05  _ZN5board25BoardEncoders_GetSnapshotEN7drivers9EncoderIdE                
+00002c0d  _ZN8protocol11RegisterMap19ClearEncoderControlEv                         
+00002c15  _ZN8protocol14SerialProtocol4InitEPNS_11RegisterMapE                     
+00002c1d  _ZNK8protocol11RegisterMap9IsEnabledEv                                   
+00002c25  __aeabi_memcpy                                                           
+00002c25  __aeabi_memcpy4                                                          
+00002c25  __aeabi_memcpy8                                                          
+00002c2d  _ZNK8protocol11RegisterMap11SpeedKdQ4_4Ev                                
+00002c33  _ZNK8protocol11RegisterMap11SpeedKiQ4_4Ev                                
+00002c39  _ZNK8protocol11RegisterMap11SpeedKpQ4_4Ev                                
+00002c3f  _ZNK8protocol11RegisterMap12SpeedMaxDutyEv                               
+00002c45  _ZNK8protocol11RegisterMap12SpeedMinDutyEv                               
+00002c4b  _ZNK8protocol11RegisterMap14EncoderControlEv                             
+00002c51  _ZNK8protocol11RegisterMap14PositionKdQ4_4Ev                             
+00002c57  _ZNK8protocol11RegisterMap14PositionKiQ4_4Ev                             
+00002c5d  _ZNK8protocol11RegisterMap14PositionKpQ4_4Ev                             
+00002c63  _ZNK8protocol11RegisterMap15PositionMaxDutyEv                            
+00002c69  _ZNK8protocol11RegisterMap15PositionMinDutyEv                            
+00002c6f  _ZNK8protocol11RegisterMap19WatchdogTimeout10msEv                        
+00002c75  abort                                                                    
+00002c7a  C$$EXIT                                                                  
+00002c7b  HOSTexit                                                                 
+00002c7f  Reset_Handler                                                            
+00002c83  _ZN5board22BoardI2cTarget_AddressEv                                      
+00002c87  _ZN8protocol11RegisterMap13SetI2cAddressEh                               
+00002c8b  _system_pre_init                                                         
+00002de0  __TI_Handler_Table_Base                                                  
+00002dec  __TI_Handler_Table_Limit                                                 
+00002e00  __TI_CINIT_Base                                                          
+00002e10  __TI_CINIT_Limit                                                         
+00002e10  __TI_CINIT_Warm                                                          
 20200000  __start___llvm_prf_bits                                                  
 20200000  __start___llvm_prf_cnts                                                  
 20200000  __stop___llvm_prf_bits                                                   
@@ -708,4 +768,4 @@ ffffffff  binit
 UNDEFED   __mpu_init                                                               
 UNDEFED   _system_post_cinit                                                       
 
-[186 symbols]
+[201 symbols]

@@ -79,48 +79,48 @@ extern "C" {
 
 
 
-/* Defines for FRAM_I2C */
-#define FRAM_I2C_INST                                                       I2C2
-#define FRAM_I2C_INST_IRQHandler                                 I2C2_IRQHandler
-#define FRAM_I2C_INST_INT_IRQN                                     I2C2_INT_IRQn
-#define FRAM_I2C_BUS_SPEED_HZ                                             400000
-#define GPIO_FRAM_I2C_SDA_PORT                                             GPIOC
-#define GPIO_FRAM_I2C_SDA_PIN                                      DL_GPIO_PIN_3
-#define GPIO_FRAM_I2C_IOMUX_SDA                                  (IOMUX_PINCM77)
-#define GPIO_FRAM_I2C_IOMUX_SDA_FUNC                   IOMUX_PINCM77_PF_I2C2_SDA
-#define GPIO_FRAM_I2C_SCL_PORT                                             GPIOC
-#define GPIO_FRAM_I2C_SCL_PIN                                      DL_GPIO_PIN_2
-#define GPIO_FRAM_I2C_IOMUX_SCL                                  (IOMUX_PINCM76)
-#define GPIO_FRAM_I2C_IOMUX_SCL_FUNC                   IOMUX_PINCM76_PF_I2C2_SCL
+/* Defines for SENSOR_I2C */
+#define SENSOR_I2C_INST                                                     I2C2
+#define SENSOR_I2C_INST_IRQHandler                               I2C2_IRQHandler
+#define SENSOR_I2C_INST_INT_IRQN                                   I2C2_INT_IRQn
+#define SENSOR_I2C_BUS_SPEED_HZ                                           400000
+#define GPIO_SENSOR_I2C_SDA_PORT                                           GPIOC
+#define GPIO_SENSOR_I2C_SDA_PIN                                    DL_GPIO_PIN_3
+#define GPIO_SENSOR_I2C_IOMUX_SDA                                (IOMUX_PINCM77)
+#define GPIO_SENSOR_I2C_IOMUX_SDA_FUNC                 IOMUX_PINCM77_PF_I2C2_SDA
+#define GPIO_SENSOR_I2C_SCL_PORT                                           GPIOC
+#define GPIO_SENSOR_I2C_SCL_PIN                                    DL_GPIO_PIN_2
+#define GPIO_SENSOR_I2C_IOMUX_SCL                                (IOMUX_PINCM76)
+#define GPIO_SENSOR_I2C_IOMUX_SCL_FUNC                 IOMUX_PINCM76_PF_I2C2_SCL
 
-/* Defines for INA219_I2C */
-#define INA219_I2C_INST                                                     I2C1
-#define INA219_I2C_INST_IRQHandler                               I2C1_IRQHandler
-#define INA219_I2C_INST_INT_IRQN                                   I2C1_INT_IRQn
-#define INA219_I2C_BUS_SPEED_HZ                                           100000
-#define GPIO_INA219_I2C_SDA_PORT                                           GPIOA
-#define GPIO_INA219_I2C_SDA_PIN                                   DL_GPIO_PIN_10
-#define GPIO_INA219_I2C_IOMUX_SDA                                (IOMUX_PINCM21)
-#define GPIO_INA219_I2C_IOMUX_SDA_FUNC                 IOMUX_PINCM21_PF_I2C1_SDA
-#define GPIO_INA219_I2C_SCL_PORT                                           GPIOA
-#define GPIO_INA219_I2C_SCL_PIN                                   DL_GPIO_PIN_11
-#define GPIO_INA219_I2C_IOMUX_SCL                                (IOMUX_PINCM22)
-#define GPIO_INA219_I2C_IOMUX_SCL_FUNC                 IOMUX_PINCM22_PF_I2C1_SCL
+/* Defines for MOTOR_I2C */
+#define MOTOR_I2C_INST                                                      I2C1
+#define MOTOR_I2C_INST_IRQHandler                                I2C1_IRQHandler
+#define MOTOR_I2C_INST_INT_IRQN                                    I2C1_INT_IRQn
+#define MOTOR_I2C_BUS_SPEED_HZ                                            100000
+#define GPIO_MOTOR_I2C_SDA_PORT                                            GPIOA
+#define GPIO_MOTOR_I2C_SDA_PIN                                    DL_GPIO_PIN_10
+#define GPIO_MOTOR_I2C_IOMUX_SDA                                 (IOMUX_PINCM21)
+#define GPIO_MOTOR_I2C_IOMUX_SDA_FUNC                  IOMUX_PINCM21_PF_I2C1_SDA
+#define GPIO_MOTOR_I2C_SCL_PORT                                            GPIOA
+#define GPIO_MOTOR_I2C_SCL_PIN                                    DL_GPIO_PIN_11
+#define GPIO_MOTOR_I2C_IOMUX_SCL                                 (IOMUX_PINCM22)
+#define GPIO_MOTOR_I2C_IOMUX_SCL_FUNC                  IOMUX_PINCM22_PF_I2C1_SCL
 
 
 /* Defines for DEBUG_UART */
-#define DEBUG_UART_INST                                                    UART5
+#define DEBUG_UART_INST                                                    UART3
 #define DEBUG_UART_INST_FREQUENCY                                       32000000
-#define DEBUG_UART_INST_IRQHandler                              UART5_IRQHandler
-#define DEBUG_UART_INST_INT_IRQN                                  UART5_INT_IRQn
+#define DEBUG_UART_INST_IRQHandler                              UART3_IRQHandler
+#define DEBUG_UART_INST_INT_IRQN                                  UART3_INT_IRQn
 #define GPIO_DEBUG_UART_RX_PORT                                            GPIOA
 #define GPIO_DEBUG_UART_TX_PORT                                            GPIOA
-#define GPIO_DEBUG_UART_RX_PIN                                     DL_GPIO_PIN_0
-#define GPIO_DEBUG_UART_TX_PIN                                     DL_GPIO_PIN_1
-#define GPIO_DEBUG_UART_IOMUX_RX                                  (IOMUX_PINCM1)
-#define GPIO_DEBUG_UART_IOMUX_TX                                  (IOMUX_PINCM2)
-#define GPIO_DEBUG_UART_IOMUX_RX_FUNC                   IOMUX_PINCM1_PF_UART5_RX
-#define GPIO_DEBUG_UART_IOMUX_TX_FUNC                   IOMUX_PINCM2_PF_UART5_TX
+#define GPIO_DEBUG_UART_RX_PIN                                    DL_GPIO_PIN_13
+#define GPIO_DEBUG_UART_TX_PIN                                    DL_GPIO_PIN_14
+#define GPIO_DEBUG_UART_IOMUX_RX                                 (IOMUX_PINCM35)
+#define GPIO_DEBUG_UART_IOMUX_TX                                 (IOMUX_PINCM36)
+#define GPIO_DEBUG_UART_IOMUX_RX_FUNC                  IOMUX_PINCM35_PF_UART3_RX
+#define GPIO_DEBUG_UART_IOMUX_TX_FUNC                  IOMUX_PINCM36_PF_UART3_TX
 #define DEBUG_UART_BAUD_RATE                                            (115200)
 #define DEBUG_UART_IBRD_32_MHZ_115200_BAUD                                  (17)
 #define DEBUG_UART_FBRD_32_MHZ_115200_BAUD                                  (23)
@@ -236,8 +236,8 @@ void SYSCFG_DL_init(void);
 void SYSCFG_DL_initPower(void);
 void SYSCFG_DL_GPIO_init(void);
 void SYSCFG_DL_SYSCTL_init(void);
-void SYSCFG_DL_FRAM_I2C_init(void);
-void SYSCFG_DL_INA219_I2C_init(void);
+void SYSCFG_DL_SENSOR_I2C_init(void);
+void SYSCFG_DL_MOTOR_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);
 void SYSCFG_DL_LORA_UART_init(void);
 void SYSCFG_DL_MOTOR_UART_init(void);

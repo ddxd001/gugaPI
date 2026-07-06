@@ -97,6 +97,7 @@ board/board.o: ../board/board.cpp \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_lora.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_motor_driver.h \
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_oled.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_pins.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board.h:
@@ -195,5 +196,6 @@ C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_imu.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_lora.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_motor_driver.h:
+C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_oled.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_pins.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h:

@@ -15,6 +15,7 @@ ORDERED_OBJS += \
 "./startup_mspm0g351x_ticlang.o" \
 "./app/motor_app.o" \
 "./board/board_encoders.o" \
+"./board/board_i2c_target.o" \
 "./board/board_motor_outputs.o" \
 "./board/board_uart.o" \
 "./control/motor_control.o" \
@@ -156,9 +157,9 @@ MotorDriver.out: $(OBJS) $(GEN_CMDS)
 # Other Targets
 clean:
 	-$(RM) $(GEN_MISC_FILES__QUOTED)$(GEN_FILES__QUOTED)$(EXE_OUTPUTS__QUOTED)
-	-$(RM) "empty_cpp.o" "ti_msp_dl_config.o" "startup_mspm0g351x_ticlang.o" "app\motor_app.o" "board\board_encoders.o" "board\board_motor_outputs.o" "board\board_uart.o" "control\motor_control.o" "drivers\drv8701.o" "drivers\quadrature_encoder.o" "drivers\uart_link.o" "protocol\register_map.o" "protocol\serial_protocol.o" 
+	-$(RM) "empty_cpp.o" "ti_msp_dl_config.o" "startup_mspm0g351x_ticlang.o" "app\motor_app.o" "board\board_encoders.o" "board\board_i2c_target.o" "board\board_motor_outputs.o" "board\board_uart.o" "control\motor_control.o" "drivers\drv8701.o" "drivers\quadrature_encoder.o" "drivers\uart_link.o" "protocol\register_map.o" "protocol\serial_protocol.o" 
 	-$(RM) "ti_msp_dl_config.d" "startup_mspm0g351x_ticlang.d" 
-	-$(RM) "empty_cpp.d" "app\motor_app.d" "board\board_encoders.d" "board\board_motor_outputs.d" "board\board_uart.d" "control\motor_control.d" "drivers\drv8701.d" "drivers\quadrature_encoder.d" "drivers\uart_link.d" "protocol\register_map.d" "protocol\serial_protocol.d" 
+	-$(RM) "empty_cpp.d" "app\motor_app.d" "board\board_encoders.d" "board\board_i2c_target.d" "board\board_motor_outputs.d" "board\board_uart.d" "control\motor_control.d" "drivers\drv8701.d" "drivers\quadrature_encoder.d" "drivers\uart_link.d" "protocol\register_map.d" "protocol\serial_protocol.d" 
 	-@echo ' '
 
 .PHONY: all clean dependents

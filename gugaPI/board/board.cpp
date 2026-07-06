@@ -10,6 +10,7 @@
 #include "board/board_led.h"
 #include "board/board_lora.h"
 #include "board/board_motor_driver.h"
+#include "board/board_oled.h"
 #include "board/board_pins.h"
 #include "config/feature_config.h"
 
@@ -40,6 +41,10 @@ void Board_Init(void)
 
 #if FEATURE_ENABLE_INA219
     (void) Board_Ina219Init();
+#endif
+
+#if FEATURE_ENABLE_OLED
+    (void) Board_OledInit();
 #endif
 
 #if FEATURE_ENABLE_IMU

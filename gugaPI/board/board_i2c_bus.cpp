@@ -25,6 +25,19 @@ bool StrEqual(const char *left, const char *right)
 // 板级 I2C 总线表。后续增加新设备时，在这里追加总线别名和引脚配置。
 static const drivers::I2cDiagBusConfig g_i2cBuses[] = {
     {
+        "motor",
+        BOARD_MOTOR_DRIVER_I2C_INST,
+        BOARD_MOTOR_DRIVER_I2C_TIMEOUT_ITERATIONS,
+        BOARD_MOTOR_DRIVER_I2C_SCL_PORT,
+        BOARD_MOTOR_DRIVER_I2C_SCL_PIN,
+        BOARD_MOTOR_DRIVER_I2C_SCL_IOMUX,
+        BOARD_MOTOR_DRIVER_I2C_SCL_IOMUX_FUNC,
+        BOARD_MOTOR_DRIVER_I2C_SDA_PORT,
+        BOARD_MOTOR_DRIVER_I2C_SDA_PIN,
+        BOARD_MOTOR_DRIVER_I2C_SDA_IOMUX,
+        BOARD_MOTOR_DRIVER_I2C_SDA_IOMUX_FUNC
+    },
+    {
         "fram",
         BOARD_FRAM_I2C_INST,
         BOARD_FRAM_TIMEOUT_ITERATIONS,
@@ -36,6 +49,19 @@ static const drivers::I2cDiagBusConfig g_i2cBuses[] = {
         BOARD_FRAM_I2C_SDA_PIN,
         BOARD_FRAM_I2C_SDA_IOMUX,
         BOARD_FRAM_I2C_SDA_IOMUX_FUNC
+    },
+    {
+        BOARD_OLED_I2C_BUS_NAME,
+        BOARD_OLED_I2C_INST,
+        BOARD_OLED_TIMEOUT_ITERATIONS,
+        BOARD_OLED_I2C_SCL_PORT,
+        BOARD_OLED_I2C_SCL_PIN,
+        BOARD_OLED_I2C_SCL_IOMUX,
+        BOARD_OLED_I2C_SCL_IOMUX_FUNC,
+        BOARD_OLED_I2C_SDA_PORT,
+        BOARD_OLED_I2C_SDA_PIN,
+        BOARD_OLED_I2C_SDA_IOMUX,
+        BOARD_OLED_I2C_SDA_IOMUX_FUNC
     },
     {
         "ina219",

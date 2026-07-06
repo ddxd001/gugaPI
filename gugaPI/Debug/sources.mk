@@ -130,6 +130,7 @@ drivers/ina219 \
 drivers/led \
 drivers/lora \
 drivers/motor_driver \
+drivers/oled \
 drivers/template \
 services \
 

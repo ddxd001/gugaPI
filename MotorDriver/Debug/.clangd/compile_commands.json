@@ -58,5 +58,10 @@
       "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
       "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
       "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/board/board_encoders.cpp"
+   },
+   {
+      "directory" : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug",
+      "command"   : "clang++ -D__MSPM0G3519__ -D__USE_SYSCONFIG__ -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver\" -I\"C:/Users/DdXd/workspace_ccstheia/MotorDriver/Debug\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source/third_party/CMSIS/Core/Include\" -I\"C:/ti/mspm0_sdk_2_10_00_04/source\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/armv7em-ti-none-eabihf/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c++/v1\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/lib/clang/22/include\" -isystem\"C:/ti/ccs2100/ccs/tools/compiler/ti-cgt-armllvm_5.1.1.LTS/include/c\" -xc++",
+      "file"      : "C:/Users/DdXd/workspace_ccstheia/MotorDriver/board/board_i2c_target.cpp"
    }
 ]

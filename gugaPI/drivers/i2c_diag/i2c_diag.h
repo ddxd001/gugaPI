@@ -13,6 +13,7 @@ static const uint8_t I2C_DIAG_MIN_7BIT_ADDRESS = 0x08U;
 static const uint8_t I2C_DIAG_MAX_7BIT_ADDRESS = 0x77U;
 static const uint16_t I2C_DIAG_MAX_READ_BYTES = 32U;
 static const uint16_t I2C_DIAG_MAX_WRITE_BYTES = 7U;
+static const uint16_t I2C_DIAG_MAX_BLOCK_WRITE_BYTES = 32U;
 
 struct I2cDiagBusConfig {
     const char *name;
@@ -49,6 +50,11 @@ DriverStatus I2cDiag_WriteReg8(const I2cDiagBusConfig *config,
                                uint8_t reg,
                                const uint8_t *data,
                                uint16_t length);
+DriverStatus I2cDiag_WriteReg8Block(const I2cDiagBusConfig *config,
+                                    uint8_t address,
+                                    uint8_t reg,
+                                    const uint8_t *data,
+                                    uint16_t length);
 
 } /* namespace drivers */
 

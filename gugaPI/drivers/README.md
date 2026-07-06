@@ -21,4 +21,5 @@ drivers/encoder/
 drivers/led/          PB6 低电平点亮状态 LED
 drivers/buzzer/       PA12 高电平响有源蜂鸣器
 drivers/fm24cl64b/    FM24CL64B-GTR I2C FRAM
+drivers/oled/         HS91L02W2C01 128x32 I2C OLED
 ```

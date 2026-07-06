@@ -15,7 +15,8 @@ CPP_SRCS += \
 ../board/board_ina219.cpp \
 ../board/board_led.cpp \
 ../board/board_lora.cpp \
-../board/board_motor_driver.cpp 
+../board/board_motor_driver.cpp \
+../board/board_oled.cpp 
 
 OBJS += \
 ./board/board.o \
@@ -27,7 +28,8 @@ OBJS += \
 ./board/board_ina219.o \
 ./board/board_led.o \
 ./board/board_lora.o \
-./board/board_motor_driver.o 
+./board/board_motor_driver.o \
+./board/board_oled.o 
 
 CPP_DEPS += \
 ./board/board.d \
@@ -39,7 +41,8 @@ CPP_DEPS += \
 ./board/board_ina219.d \
 ./board/board_led.d \
 ./board/board_lora.d \
-./board/board_motor_driver.d 
+./board/board_motor_driver.d \
+./board/board_oled.d 
 
 OBJS__QUOTED += \
 "board\board.o" \
@@ -51,7 +54,8 @@ OBJS__QUOTED += \
 "board\board_ina219.o" \
 "board\board_led.o" \
 "board\board_lora.o" \
-"board\board_motor_driver.o" 
+"board\board_motor_driver.o" \
+"board\board_oled.o" 
 
 CPP_DEPS__QUOTED += \
 "board\board.d" \
@@ -63,7 +67,8 @@ CPP_DEPS__QUOTED += \
 "board\board_ina219.d" \
 "board\board_led.d" \
 "board\board_lora.d" \
-"board\board_motor_driver.d" 
+"board\board_motor_driver.d" \
+"board\board_oled.d" 
 
 CPP_SRCS__QUOTED += \
 "../board/board.cpp" \
@@ -75,6 +80,7 @@ CPP_SRCS__QUOTED += \
 "../board/board_ina219.cpp" \
 "../board/board_led.cpp" \
 "../board/board_lora.cpp" \
-"../board/board_motor_driver.cpp" 
+"../board/board_motor_driver.cpp" \
+"../board/board_oled.cpp" 
 
 

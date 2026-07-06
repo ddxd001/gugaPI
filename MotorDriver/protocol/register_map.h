@@ -35,6 +35,7 @@ public:
     void UpdateTargetRpmFromControl(bool motor1, uint16_t rpm);
     void UpdateHoldTarget(bool motor1, int32_t count);
     void UpdatePositionError(bool motor1, int32_t error);
+    void SetI2cAddress(uint8_t address);
     uint8_t EncoderControl(void) const;
     void ClearEncoderControl(void);
 
@@ -57,6 +58,10 @@ public:
     uint8_t PositionKdQ4_4(void) const;
     uint16_t PositionMaxRpm(void) const;
     uint16_t PositionTolerance(void) const;
+    uint8_t PositionMinDuty(void) const;
+    uint8_t PositionMaxDuty(void) const;
+    uint16_t PositionExitTolerance(void) const;
+    uint16_t PositionSettleMs(void) const;
 
 private:
     uint16_t LoadUint16(uint8_t reg) const;

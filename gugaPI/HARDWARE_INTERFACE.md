@@ -22,11 +22,11 @@ firmware pin definitions.
                          |     MSPM0G3519       |
                          |    LQFP-100(PZ)      |
                          |                      |
-PC2 / I2C2_SCL  -------->| FRAM_I2C SCL         |---- FM24CL64B SCL
-PC3 / I2C2_SDA  <------->| FRAM_I2C SDA         |---- FM24CL64B SDA
+PC2 / I2C2_SCL  -------->| SENSOR_I2C / IIC3 SCL|---- FM24CL64B SCL, INA219 SCL, OLED SCL
+PC3 / I2C2_SDA  <------->| SENSOR_I2C / IIC3 SDA|---- FM24CL64B SDA, INA219 SDA, OLED SDA
                          |                      |
-PA11 / I2C1_SCL -------->| INA219_I2C SCL       |---- INA219 SCL
-PA10 / I2C1_SDA <------->| INA219_I2C SDA       |---- INA219 SDA
+PA11 / I2C1_SCL -------->| MOTOR_I2C / IIC1 SCL |---- MotorDriver I2C SCL
+PA10 / I2C1_SDA <------->| MOTOR_I2C / IIC1 SDA |---- MotorDriver I2C SDA
                          |                      |
 PB18 / SPIx_SCLK ------->| IMU_SPI SCLK         |---- ICM-45686 SCLK, LIS3MDLTR SCK
 PB17 / SPIx_PICO ------->| IMU_SPI PICO/MOSI    |---- ICM-45686 SDI, LIS3MDLTR SDI
@@ -40,8 +40,8 @@ PB1 / UART0_RX  <--------| LORA_UART RX         |---- LoRa TX
 PA8 / UART1_TX  -------->| MOTOR_UART TX        |---- MotorDriver RX
 PA9 / UART1_RX  <--------| MOTOR_UART RX        |---- MotorDriver TX
                          |                      |
-PA1 / UART5_TX  -------->| DEBUG_UART TX        |---- USB-UART RX / PC RX
-PA0 / UART5_RX  <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
+PA14 / UART3_TX -------->| DEBUG_UART TX        |---- USB-UART RX / PC RX
+PA13 / UART3_RX <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
                          |                      |
 PB6              --------| STATUS_LED           |---- Active-low LED
 PA12             --------| BUZZER               |---- Active-high buzzer
@@ -62,14 +62,14 @@ All external UART/I2C modules must share GND with gugaPI.
 | --- | --- | --- |
 | 3.3V | MCU logic, pull-ups, low-voltage peripherals | Verify current budget from schematic |
 | GND | All external modules | UART and I2C links require common ground |
-| External module power | LoRa, MotorDriver, INA219 sense side, FRAM | Voltage and current depend on selected module |
+| External module power | LoRa, MotorDriver, INA219 sense side, FRAM, OLED | Voltage and current depend on selected module |
 
 ## Debug UART
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| DEBUG_UART_TX | PA1 | UART5_TX | USB-UART RX / PC RX | MCU output | N/A | 115200 8N1 |
-| DEBUG_UART_RX | PA0 | UART5_RX | USB-UART TX / PC TX | MCU input | Not configured in board code | 115200 8N1 |
+| DEBUG_UART_TX | PA14 | UART3_TX | USB-UART RX / PC RX | MCU output | N/A | 115200 8N1 |
+| DEBUG_UART_RX | PA13 | UART3_RX | USB-UART TX / PC TX | MCU input | Not configured in board code | 115200 8N1 |
 
 UART configuration:
 
@@ -118,7 +118,7 @@ MotorDriver UART configuration:
 | Field | Value | Notes |
 | --- | --- | --- |
 | Enabled | Yes | `FEATURE_ENABLE_MOTOR_DRIVER` |
-| Use case | MotorDriver control and raw UART test | Shell commands use the binary MotorDriver frame |
+| Use case | Raw UART test and optional manual control | High-level shell control defaults to I2C; UART mode uses the binary MotorDriver frame |
 | Electrical interface | 3.3V TTL UART | Direct MCU-to-MotorDriver UART |
 | Baud rate | 115200 | `BOARD_MOTOR_DRIVER_BAUDRATE` |
 | Data bits | 8 | Standard 8N1 |
@@ -138,12 +138,35 @@ MotorDriver frame format:
 | DATA | 0 - 32 bytes | Payload | Present for write requests and data responses |
 | CRC8 | 1 byte | CRC-8 poly 0x07, init 0x00 | Covers SOF through DATA |
 
+## MotorDriver I2C Interface
+
+This board uses a dedicated MotorDriver I2C bus. The board-level schematic name
+is IIC1, and the MCU peripheral is I2C1.
+
+| Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| MOTOR_I2C_SCL | PA11 | I2C1_SCL | MotorDriver SCL | Open-drain bus | External pull-up required by hardware; internal pull-up may be used during debug | Dedicated MotorDriver I2C bus |
+| MOTOR_I2C_SDA | PA10 | I2C1_SDA | MotorDriver SDA | Open-drain bus | External pull-up required by hardware; internal pull-up may be used during debug | Dedicated MotorDriver I2C bus |
+| MOTOR_GND | GND | N/A | MotorDriver GND | N/A | N/A | Common ground required |
+
+MotorDriver I2C configuration:
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| Enabled | Yes | `FEATURE_ENABLE_MOTOR_DRIVER` |
+| Use case | Default MotorDriver high-level control | Shell `motor` commands default to this bus |
+| Board bus name | IIC1 | Dedicated to MotorDriver |
+| MCU I2C instance | I2C1 | `MOTOR_I2C_INST` |
+| Bus speed | 100 kHz | Conservative bring-up speed |
+| 7-bit address | 0x20 | `BOARD_MOTOR_DRIVER_I2C_ADDRESS` |
+| Protocol | Direct register access | No UART frame wrapper on I2C |
+
 ## FRAM I2C Interface
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| FRAM_I2C_SCL | PC2 | I2C2_SCL | FM24CL64B SCL | Open-drain bus | External pull-up required by hardware; firmware recovery uses GPIO mode | `PROJECT_GUIDE.md` identifies package pin 65 |
-| FRAM_I2C_SDA | PC3 | I2C2_SDA | FM24CL64B SDA | Open-drain bus | External pull-up required by hardware; firmware recovery uses GPIO mode | `PROJECT_GUIDE.md` identifies package pin 66 |
+| SENSOR_I2C_SCL | PC2 | I2C2_SCL | FM24CL64B SCL, INA219 SCL, OLED SCL | Open-drain bus | External pull-up required by hardware; firmware recovery uses GPIO mode | Board-level IIC3 shared bus; `PROJECT_GUIDE.md` identifies package pin 65 |
+| SENSOR_I2C_SDA | PC3 | I2C2_SDA | FM24CL64B SDA, INA219 SDA, OLED SDA | Open-drain bus | External pull-up required by hardware; firmware recovery uses GPIO mode | Board-level IIC3 shared bus; `PROJECT_GUIDE.md` identifies package pin 66 |
 | FRAM_VCC | 3.3V | N/A | FM24CL64B VCC | N/A | N/A | Verify with selected FRAM variant |
 | FRAM_GND | GND | N/A | FM24CL64B GND | N/A | N/A | Common ground |
 
@@ -153,18 +176,44 @@ FRAM configuration:
 | --- | --- | --- |
 | Enabled | Yes | `FEATURE_ENABLE_FRAM` |
 | Device | FM24CL64B-GTR | 64 Kbit / 8 KiB I2C FRAM |
-| I2C instance | I2C2 | `FRAM_I2C_INST` |
-| Bus speed | 400 kHz | `FRAM_I2C_BUS_SPEED_HZ` |
+| Board bus name | IIC3 | Shared with INA219 and OLED |
+| MCU I2C instance | I2C2 | `SENSOR_I2C_INST`; FRAM board alias uses this instance |
+| Bus speed | 400 kHz | `SENSOR_I2C_BUS_SPEED_HZ` |
 | 7-bit address | 0x50 | `BOARD_FRAM_I2C_ADDRESS` |
 | Address pins | A2/A1/A0 hardware-dependent | Update address if strapped differently |
 | Self-test address | 0x1FF0 | `BOARD_FRAM_SELF_TEST_ADDRESS` |
+
+## OLED I2C Interface
+
+The OLED module is Hansheng `HS91L02W2C01`, 0.91 inch, white, 128 x 32 dots.
+Its datasheet lists `ADD:0x78`; that is the 8-bit write address, so firmware
+uses 7-bit address `0x3C`.
+
+| Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| SENSOR_I2C_SCL | PC2 | I2C2_SCL | OLED SCL, FM24CL64B SCL, INA219 SCL | Open-drain bus | External pull-up required by hardware; internal pull-up may be used during debug | Board-level IIC3 shared bus |
+| SENSOR_I2C_SDA | PC3 | I2C2_SDA | OLED SDA, FM24CL64B SDA, INA219 SDA | Open-drain bus | External pull-up required by hardware; internal pull-up may be used during debug | Board-level IIC3 shared bus |
+| OLED_VCC | 3.3V | N/A | OLED VCC | N/A | N/A | Datasheet supports logic up to 3.3 V |
+| OLED_GND | GND | N/A | OLED GND | N/A | N/A | Common ground |
+
+OLED configuration:
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| Enabled | Yes | `FEATURE_ENABLE_OLED` |
+| Device | HS91L02W2C01 | SSD1306-style I2C command set |
+| Board bus name | IIC3 | Shared with FRAM and INA219 |
+| MCU I2C instance | I2C2 | `SENSOR_I2C_INST`; OLED board alias uses this instance |
+| Bus speed | 400 kHz | Shared bus speed |
+| 7-bit address | 0x3C | `BOARD_OLED_I2C_ADDRESS`; datasheet `0x78` is the 8-bit write address |
+| Resolution | 128 x 32 | `BOARD_OLED_WIDTH`, `BOARD_OLED_HEIGHT` |
 
 ## INA219 I2C Interface
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| INA219_I2C_SCL | PA11 | I2C1_SCL | INA219 SCL | Open-drain bus | Internal pull-up enabled in `Board_Ina219Init()`; external pull-up recommended | Board comments identify this as package pin 34 |
-| INA219_I2C_SDA | PA10 | I2C1_SDA | INA219 SDA | Open-drain bus | Internal pull-up enabled in `Board_Ina219Init()`; external pull-up recommended | Board comments identify this as package pin 33 |
+| SENSOR_I2C_SCL | PC2 | I2C2_SCL | INA219 SCL, FM24CL64B SCL, OLED SCL | Open-drain bus | Internal pull-up enabled in `Board_Ina219Init()` for debug; external pull-up recommended | Board-level IIC3 shared bus |
+| SENSOR_I2C_SDA | PC3 | I2C2_SDA | INA219 SDA, FM24CL64B SDA, OLED SDA | Open-drain bus | Internal pull-up enabled in `Board_Ina219Init()` for debug; external pull-up recommended | Board-level IIC3 shared bus |
 | INA219_VCC | 3.3V | N/A | INA219 VCC | N/A | N/A | Verify module IO voltage |
 | INA219_GND | GND | N/A | INA219 GND | N/A | N/A | Common ground |
 | INA219_IN+ | Sense input | N/A | Current sense high side | Analog | N/A | Board uses 5 mOhm shunt |
@@ -175,8 +224,9 @@ INA219 configuration:
 | Field | Value | Notes |
 | --- | --- | --- |
 | Enabled | Yes | `FEATURE_ENABLE_INA219` |
-| I2C instance | I2C1 | `INA219_I2C_INST` |
-| Bus speed | 100 kHz | `INA219_I2C_BUS_SPEED_HZ` |
+| Board bus name | IIC3 | Shared with FRAM and OLED |
+| MCU I2C instance | I2C2 | `SENSOR_I2C_INST`; INA219 board alias uses this instance |
+| Bus speed | 400 kHz | Shared bus speed |
 | 7-bit address | 0x40 | `BOARD_INA219_I2C_ADDRESS`; shell can scan 0x40 - 0x4F |
 | Shunt resistor | 5 mOhm | `BOARD_INA219_SHUNT_MILLIOHMS` |
 | Current LSB | 200 uA | `BOARD_INA219_CURRENT_LSB_UA` |
@@ -348,16 +398,21 @@ LIS3MDLTR configuration:
 
 ## I2C Bus Summary
 
+`IIC1` and `IIC3` are board-level bus names. On MSPM0G3519, the current
+pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
+
 | Bus Alias | MCU Instance | SCL | SDA | Speed | Devices | Address Range Used |
 | --- | --- | --- | --- | --- | --- | --- |
-| `fram` | I2C2 | PC2 | PC3 | 400 kHz | FM24CL64B | Default 0x50 |
-| `ina219` | I2C1 | PA11 | PA10 | 100 kHz | INA219 | Default 0x40, possible 0x40 - 0x4F |
+| `motor` | I2C1 | PA11 | PA10 | 100 kHz | MotorDriver I2C target on dedicated IIC1 | Default 0x20, planned 0x20 - 0x27 |
+| `fram` | I2C2 | PC2 | PC3 | 400 kHz | FM24CL64B on shared IIC3 | Default 0x50 |
+| `oled` | I2C2 | PC2 | PC3 | 400 kHz | HS91L02W2C01 OLED on shared IIC3 | Default 0x3C |
+| `ina219` | I2C2 | PC2 | PC3 | 400 kHz | INA219 on shared IIC3 | Default 0x40, possible 0x40 - 0x4F |
 
 ## UART Summary
 
 | Interface | MCU Instance | TX | RX | Baud | External Peer | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| DEBUG_UART | UART5 | PA1 | PA0 | 115200 | USB-UART / PC | Shell and logs |
+| DEBUG_UART | UART3 | PA14 | PA13 | 115200 | USB-UART / PC | Shell and logs |
 | LORA_UART | UART0 | PB0 | PB1 | 115200 | LoRa module | Raw transparent serial |
 | MOTOR_UART | UART1 | PA8 | PA9 | 115200 | MotorDriver | Binary motor control protocol |
 
@@ -371,9 +426,8 @@ LIS3MDLTR configuration:
 
 | Interface | Current State | Notes |
 | --- | --- | --- |
-| OLED | Disabled | `FEATURE_ENABLE_OLED = 0` |
 | IMU / magnetometer | Planned | ICM-45686 and LIS3MDLTR shared SPI; `FEATURE_ENABLE_IMU = 0` until firmware is added |
-| Local motor control | Disabled | `FEATURE_ENABLE_MOTOR = 0`; current motor control goes through MotorDriver UART |
+| Local motor control | Disabled | `FEATURE_ENABLE_MOTOR = 0`; current motor control goes through external MotorDriver UART/I2C |
 | Encoder | Disabled | `FEATURE_ENABLE_ENCODER = 0` |
 | ADC placeholder | No ADC driver registered | Shell command reports placeholder |
 | PWM placeholder | No PWM driver registered | Shell command only echoes duty request |
@@ -386,11 +440,12 @@ LIS3MDLTR configuration:
 | Status LED | LED can turn on/off | `led on`, `led off` |
 | Buzzer | Buzzer can turn on/off | `buzzer on`, `buzzer off` |
 | Buttons | Pressed buttons read as pressed | `button` |
-| FRAM bus idle | SCL/SDA high, read/write self-test passes | `fram status`, `fram test` |
-| INA219 bus idle | SCL/SDA high, device address responds | `ina219 status`, `ina219 scan` |
+| Shared IIC3 bus idle | PC2/PC3 high, FRAM read/write, INA219 probe, and OLED probe pass | `fram status`, `fram test`, `ina219 status`, `ina219 scan`, `oled status` |
+| OLED display | Address 0x3C responds and test pattern is visible | `i2c scan oled 0x3C 0x3C`, `oled init`, `oled test` |
 | ICM-45686 + LIS3MDLTR SPI | Both WHO_AM_I reads return expected IDs | TBD after SPI driver and shell command are added |
 | LoRa UART wiring | Module receives TX and gugaPI receives replies | `lora test`, `lora read` |
-| MotorDriver UART wiring | Heartbeat returns OK | `motor ping`, `motor info` |
+| MotorDriver UART wiring | Heartbeat returns OK in UART mode | `motor bus uart`, `motor ping`, `motor info` |
+| MotorDriver I2C wiring | Address 0x20 responds on dedicated IIC1 motor bus | `i2c scan motor 0x20 0x27`, `motor bus i2c`, `motor info` |
 
 ## Notes For Future Schematic Updates
 
@@ -400,4 +455,4 @@ LIS3MDLTR configuration:
 | Keep board pin ownership centralized | Add aliases in `board/board_pins.h` before wiring drivers |
 | I2C pull-ups | Document exact resistor values from schematic when available |
 | Connector names | Add J-number / pin-number mapping once schematic connector names are finalized |
-| External power rails | Add rated voltage/current for LoRa, MotorDriver, INA219 sense path, and FRAM |
+| External power rails | Add rated voltage/current for LoRa, MotorDriver, INA219 sense path, FRAM, and OLED |

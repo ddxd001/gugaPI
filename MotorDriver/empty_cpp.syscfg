@@ -11,11 +11,13 @@
  */
 const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
 const GPIO   = scripting.addModule("/ti/driverlib/GPIO", {}, false);
+const I2C    = scripting.addModule("/ti/driverlib/I2C", {}, false);
 const PWM    = scripting.addModule("/ti/driverlib/PWM", {}, false);
 const UART   = scripting.addModule("/ti/driverlib/UART", {}, false);
 const GPIO1  = GPIO.addInstance();
 const GPIO2  = GPIO.addInstance();
 const GPIO3  = GPIO.addInstance();
+const I2C1   = I2C.addInstance();
 const PWM1   = PWM.addInstance();
 const PWM2   = PWM.addInstance();
 const UART1  = UART.addInstance();
@@ -68,6 +70,19 @@ GPIO3.associatedPins[3].internalResistor  = "PULL_UP";
 GPIO3.associatedPins[3].assignedPort      = "PORTA";
 GPIO3.associatedPins[3].assignedPin       = "21";
 GPIO3.associatedPins[3].pin.$assign       = "PA21";
+
+I2C1.$name                     = "I2C_CONTROL";
+I2C1.basicEnableTarget         = true;
+I2C1.basicTargetAddress        = 0x20;
+I2C1.advAnalogGlitchFilter     = "DISABLED";
+I2C1.advTargetTXFIFOTRIG       = "BYTES_1";
+I2C1.advTargetTXEmptyEn        = true;
+I2C1.intTarget                 = ["RXFIFO_TRIGGER","START","STOP"];
+I2C1.peripheral.$assign        = "I2C1";
+I2C1.peripheral.sclPin.$assign = "PA17";
+I2C1.peripheral.sdaPin.$assign = "PA18";
+I2C1.sclPinConfig.internalResistor = "PULL_UP";
+I2C1.sdaPinConfig.internalResistor = "PULL_UP";
 
 PWM1.$name                      = "PWM_M1_EN";
 PWM1.ccIndex                    = [1];

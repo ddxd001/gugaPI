@@ -15,7 +15,7 @@ void RegisterMap::Init(void)
     registers_[REG_STATUS] = STATUS_READY | STATUS_ENABLED;
     registers_[REG_FAULT_FLAGS] = 0U;
     registers_[REG_CONTROL_FLAGS] = CONTROL_ENABLE;
-    registers_[REG_I2C_ADDRESS] = 0U;
+    registers_[REG_I2C_ADDRESS] = kDefaultI2cAddress;
     registers_[REG_M1_MODE] = MOTOR_MODE_COAST;
     registers_[REG_M1_DUTY] = 0U;
     registers_[REG_M1_DIRECTION] = MOTOR_DIRECTION_FORWARD;
@@ -30,14 +30,18 @@ void RegisterMap::Init(void)
     registers_[REG_ENCODER_CONTROL] = 0U;
     registers_[REG_SPEED_KP_Q4_4] = 1U;
     registers_[REG_SPEED_KI_Q4_4] = 1U;
-    registers_[REG_SPEED_KD_Q4_4] = 1U;
+    registers_[REG_SPEED_KD_Q4_4] = 0U;
     registers_[REG_SPEED_MAX_DUTY] = 30U;
     registers_[REG_SPEED_MIN_DUTY] = 0U;
-    registers_[REG_POSITION_KP_Q4_4] = 160U;
+    registers_[REG_POSITION_KP_Q4_4] = 20U;
     registers_[REG_POSITION_KI_Q4_4] = 0U;
     registers_[REG_POSITION_KD_Q4_4] = 0U;
-    StoreUint16(REG_POSITION_MAX_RPM_0, 100U);
-    StoreUint16(REG_POSITION_TOLERANCE_0, 20U);
+    StoreUint16(REG_POSITION_MAX_RPM_0, 40U);
+    StoreUint16(REG_POSITION_TOLERANCE_0, 400U);
+    registers_[REG_POSITION_MIN_DUTY] = 5U;
+    registers_[REG_POSITION_MAX_DUTY] = 25U;
+    StoreUint16(REG_POSITION_EXIT_TOLERANCE_0, 800U);
+    registers_[REG_POSITION_SETTLE_10MS] = 10U;
     StoreInt32(REG_M1_COUNTS_PER_REV_0, 22400);
     StoreInt32(REG_M2_COUNTS_PER_REV_0, 22400);
 
@@ -226,6 +230,11 @@ void RegisterMap::UpdatePositionError(bool motor1, int32_t error)
     RefreshStatus();
 }
 
+void RegisterMap::SetI2cAddress(uint8_t address)
+{
+    registers_[REG_I2C_ADDRESS] = address;
+}
+
 uint8_t RegisterMap::EncoderControl(void) const
 {
     return registers_[REG_ENCODER_CONTROL];
@@ -354,6 +363,27 @@ uint16_t RegisterMap::PositionMaxRpm(void) const
 uint16_t RegisterMap::PositionTolerance(void) const
 {
     return LoadUint16(REG_POSITION_TOLERANCE_0);
+}
+
+uint8_t RegisterMap::PositionMinDuty(void) const
+{
+    return registers_[REG_POSITION_MIN_DUTY];
+}
+
+uint8_t RegisterMap::PositionMaxDuty(void) const
+{
+    return registers_[REG_POSITION_MAX_DUTY];
+}
+
+uint16_t RegisterMap::PositionExitTolerance(void) const
+{
+    return LoadUint16(REG_POSITION_EXIT_TOLERANCE_0);
+}
+
+uint16_t RegisterMap::PositionSettleMs(void) const
+{
+    return static_cast<uint16_t>(
+        static_cast<uint16_t>(registers_[REG_POSITION_SETTLE_10MS]) * 10U);
 }
 
 uint16_t RegisterMap::LoadUint16(uint8_t reg) const
@@ -563,11 +593,16 @@ bool RegisterMap::ApplyWriteTo(uint8_t *target, uint8_t reg, uint8_t value) cons
     case REG_POSITION_MAX_RPM_1:
     case REG_POSITION_TOLERANCE_0:
     case REG_POSITION_TOLERANCE_1:
+    case REG_POSITION_EXIT_TOLERANCE_0:
+    case REG_POSITION_EXIT_TOLERANCE_1:
+    case REG_POSITION_SETTLE_10MS:
         target[reg] = value;
         return true;
 
     case REG_SPEED_MAX_DUTY:
     case REG_SPEED_MIN_DUTY:
+    case REG_POSITION_MIN_DUTY:
+    case REG_POSITION_MAX_DUTY:
         if (value > 100U) {
             return false;
         }
@@ -631,6 +666,11 @@ bool RegisterMap::IsControlRegister(uint8_t reg) const
     case REG_POSITION_MAX_RPM_1:
     case REG_POSITION_TOLERANCE_0:
     case REG_POSITION_TOLERANCE_1:
+    case REG_POSITION_MIN_DUTY:
+    case REG_POSITION_MAX_DUTY:
+    case REG_POSITION_EXIT_TOLERANCE_0:
+    case REG_POSITION_EXIT_TOLERANCE_1:
+    case REG_POSITION_SETTLE_10MS:
         return true;
     default:
         return false;
