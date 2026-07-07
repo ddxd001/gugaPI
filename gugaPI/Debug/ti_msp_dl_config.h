@@ -190,11 +190,11 @@ extern "C" {
 #define GPIO_LED_A_LED2_PIN                                     (DL_GPIO_PIN_26)
 #define GPIO_LED_A_LED2_IOMUX                                    (IOMUX_PINCM59)
 /* Port definition for Pin Group GPIO_BUZZER */
-#define GPIO_BUZZER_PORT                                                 (GPIOA)
+#define GPIO_BUZZER_PORT                                                 (GPIOC)
 
-/* Defines for BUZZER: GPIOA.12 with pinCMx 34 on package pin 51 */
-#define GPIO_BUZZER_BUZZER_PIN                                  (DL_GPIO_PIN_12)
-#define GPIO_BUZZER_BUZZER_IOMUX                                 (IOMUX_PINCM34)
+/* Defines for BUZZER: GPIOC.16 with pinCMx 69 on package pin 35 */
+#define GPIO_BUZZER_BUZZER_PIN                                  (DL_GPIO_PIN_16)
+#define GPIO_BUZZER_BUZZER_IOMUX                                 (IOMUX_PINCM69)
 /* Port definition for Pin Group GPIO_BUTTON_C */
 #define GPIO_BUTTON_C_PORT                                               (GPIOC)
 
@@ -237,6 +237,15 @@ extern "C" {
 /* Defines for LED3: GPIOB.27 with pinCMx 58 on package pin 97 */
 #define GPIO_LED_B_LED3_PIN                                     (DL_GPIO_PIN_27)
 #define GPIO_LED_B_LED3_IOMUX                                    (IOMUX_PINCM58)
+/* Port definition for Pin Group GPIO_GY931_I2C */
+#define GPIO_GY931_I2C_PORT                                              (GPIOA)
+
+/* Defines for GY931_SCL: GPIOA.29 with pinCMx 4 on package pin 4 */
+#define GPIO_GY931_I2C_GY931_SCL_PIN                            (DL_GPIO_PIN_29)
+#define GPIO_GY931_I2C_GY931_SCL_IOMUX                            (IOMUX_PINCM4)
+/* Defines for GY931_SDA: GPIOA.30 with pinCMx 5 on package pin 5 */
+#define GPIO_GY931_I2C_GY931_SDA_PIN                            (DL_GPIO_PIN_30)
+#define GPIO_GY931_I2C_GY931_SDA_IOMUX                            (IOMUX_PINCM5)
 
 
 /* clang-format on */

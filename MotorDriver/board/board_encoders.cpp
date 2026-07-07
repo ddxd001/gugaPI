@@ -12,6 +12,11 @@ void BoardEncoders_Process(uint32_t now_ms)
     drivers::QuadratureEncoder_Process(now_ms);
 }
 
+void BoardEncoders_SetEnabled(drivers::EncoderId encoder, bool enabled)
+{
+    drivers::QuadratureEncoder_SetEnabled(encoder, enabled);
+}
+
 void BoardEncoders_Reset(drivers::EncoderId encoder)
 {
     drivers::QuadratureEncoder_Reset(encoder);

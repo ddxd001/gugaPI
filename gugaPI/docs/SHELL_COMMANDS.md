@@ -247,6 +247,151 @@ ina219 reg 0
 ina219 reg 0 0x399F
 ```
 
+### `ina219 oled on [period_ms]`
+
+把 INA219 的测量数据周期显示到 OLED。默认刷新周期为 500 ms，可设置范围为 `100..5000` ms。该命令使用调度器周期刷新，不会阻塞 shell。开启 INA219 OLED 显示时，会自动停止 GY931 OLED 实时显示，避免两个任务同时覆盖屏幕。
+```text
+ina219 oled on
+ina219 oled on 500
+```
+
+OLED 4 行内容为：
+```text
+INA219 0x40 500ms
+Bus: 12.345V
+Cur: 123.456mA
+P:152mW Sh:60uV
+```
+
+### `ina219 oled off`
+
+停止 INA219 到 OLED 的周期刷新。
+```text
+ina219 oled off
+```
+
+### `ina219 oled status`
+
+查看 OLED 实时显示任务是否开启、刷新周期和最近一次状态。
+```text
+ina219 oled status
+```
+
+### `ina219 oled once`
+
+只刷新一次 OLED，用于先验证接线和显示格式。
+```text
+ina219 oled once
+```
+
+## GY931 角度传感器
+
+GY931 通过 PA29/SCL、PA30/SDA 连接，固件使用 GPIO 模拟开漏 I2C。默认 7-bit 地址为 `0x50`，角度寄存器按维特标准协议读取 `Roll/Pitch/Yaw = 0x3D/0x3E/0x3F`，输出角度单位为度，保留三位小数。
+
+### `gy931 status`
+
+查看软件 I2C 总线电平、当前地址和探测结果。
+```text
+gy931 status
+```
+
+正常空闲时 `scl=H sda=H`，默认地址连接正确时 `probe=ok`。
+
+### `gy931 scan [start end]`
+
+扫描 GY931 软件 I2C 总线地址。默认扫描 `0x08..0x77`，也可以只扫默认地址。
+```text
+gy931 scan 0x50 0x50
+```
+
+### `gy931 addr [0x08..0x77]`
+
+查看或临时切换固件使用的 GY931 地址。
+```text
+gy931 addr
+gy931 addr 0x50
+```
+
+### `gy931 init`
+
+重新初始化 GY931 驱动并探测当前地址。
+```text
+gy931 init
+```
+
+### `gy931 recover`
+
+释放并恢复 PA29/PA30 软件 I2C 总线。若 SDA 被设备拉低，可先执行该命令。
+```text
+gy931 recover
+```
+
+### `gy931 angle`
+
+读取 Roll、Pitch、Yaw 三轴角度。
+```text
+gy931 angle
+```
+
+典型输出：
+```text
+gy931 angle raw=123,-45,1000 deg=0.675,-0.247,5.493
+```
+
+### `gy931 sample`
+
+一次读取加速度、角速度、磁场原始值和角度。
+```text
+gy931 sample
+```
+
+输出中的 `acc_g` 单位为 g，`gyro_dps` 单位为 deg/s，`angle_deg` 单位为 deg，`mag_raw` 为未换算的磁场原始寄存器值。
+
+### `gy931 raw <reg> <words 1..16>`
+
+读取连续 16-bit 小端寄存器，调试未知寄存器或核对协议时使用。
+```text
+gy931 raw 0x3D 3
+gy931 raw 0x34 12
+```
+
+### `gy931 oled on [period_ms]`
+
+把 GY931 的 Roll/Pitch/Yaw 周期显示到 OLED。默认刷新周期为 200 ms，可设置范围为 `50..5000` ms。该命令使用调度器周期刷新，不会阻塞 shell。
+```text
+gy931 oled on
+gy931 oled on 100
+```
+
+OLED 4 行内容为：
+```text
+GY931 0x50 200ms
+Roll: 12.345 deg
+Pitch:-1.234 deg
+Yaw:  90.000 deg
+```
+
+### `gy931 oled off`
+
+停止 GY931 到 OLED 的周期刷新。
+```text
+gy931 oled off
+```
+
+### `gy931 oled status`
+
+查看 OLED 实时显示任务是否开启、刷新周期和最近一次状态。
+```text
+gy931 oled status
+```
+
+### `gy931 oled once`
+
+只刷新一次 OLED，用于先验证接线和显示格式。
+```text
+gy931 oled once
+```
+
 ## OLED
 
 OLED 模块为 Hansheng `HS91L02W2C01`，0.91 寸白色 128x32 IIC 屏，和 FRAM、INA219 共用 IIC3 / MCU I2C2 总线。数据手册标注 `ADD:0x78`，这是 8-bit 写地址；shell 和固件中使用 7-bit 地址 `0x3C`。
@@ -750,6 +895,7 @@ motor m1 run 10 rev
 ```
 
 `duty` 范围是 `0..100`。
+开环 `run duty > 0` 期间 MotorDriver 会暂停对应电机的编码器 GPIO 中断，停止后约 3 秒再恢复，以保证高占空比测试和惯性转动期间通信仍能处理；此时该路编码器 count/RPM 不保证更新。需要编码器闭环时使用 `motor m1 speed` / `hold` / `pos` / `posrel`。
 
 ### `motor m2 coast`
 
@@ -777,6 +923,7 @@ motor m2 run 10 rev
 ```
 
 `duty` 范围是 `0..100`。
+开环 `run duty > 0` 期间 MotorDriver 会暂停对应电机的编码器 GPIO 中断，停止后约 3 秒再恢复，以保证高占空比测试和惯性转动期间通信仍能处理；此时该路编码器 count/RPM 不保证更新。需要编码器闭环时使用 `motor m2 speed` / `hold` / `pos` / `posrel`。
 
 ### MotorDriver 原始串口调试命令
 

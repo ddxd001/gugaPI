@@ -31,7 +31,7 @@ void RegisterMap::Init(void)
     registers_[REG_SPEED_KP_Q4_4] = 1U;
     registers_[REG_SPEED_KI_Q4_4] = 1U;
     registers_[REG_SPEED_KD_Q4_4] = 0U;
-    registers_[REG_SPEED_MAX_DUTY] = 30U;
+    registers_[REG_SPEED_MAX_DUTY] = 100U;
     registers_[REG_SPEED_MIN_DUTY] = 0U;
     registers_[REG_POSITION_KP_Q4_4] = 20U;
     registers_[REG_POSITION_KI_Q4_4] = 0U;

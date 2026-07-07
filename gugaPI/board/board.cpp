@@ -5,6 +5,7 @@
 #include "board/board_buzzer.h"
 #include "board/board_config.h"
 #include "board/board_fram.h"
+#include "board/board_gy931.h"
 #include "board/board_ina219.h"
 #include "board/board_imu.h"
 #include "board/board_led.h"
@@ -45,6 +46,10 @@ void Board_Init(void)
 
 #if FEATURE_ENABLE_OLED
     (void) Board_OledInit();
+#endif
+
+#if FEATURE_ENABLE_GY931
+    (void) Board_Gy931Init();
 #endif
 
 #if FEATURE_ENABLE_IMU

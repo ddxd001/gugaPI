@@ -20,13 +20,17 @@ struct MotorFeedback {
     int16_t m2_rpm;
 };
 
+constexpr uint32_t kM1GpioReenableDelayAfterFastModeMs = 3000U;
+
 protocol::RegisterMap g_registers;
 protocol::SerialProtocol g_serial;
 volatile uint32_t g_ms_ticks = 0U;
 uint32_t g_last_watchdog_refresh_ms = 0U;
+uint32_t g_m1_encoder_cooldown_start_ms = 0U;
 bool g_watchdog_armed = false;
 bool g_timeout_active = false;
 bool g_output_dirty = true;
+bool g_m1_encoder_cooldown_active = false;
 
 uint32_t Millis(void)
 {
@@ -109,19 +113,105 @@ void CheckWatchdog(void)
     }
 }
 
+bool IsOpenLoopRunActive(uint8_t mode, uint8_t duty)
+{
+    return (mode == protocol::MOTOR_MODE_RUN) && (duty > 0U);
+}
+
+bool IsM1FastEncoderMode(uint8_t mode, uint8_t duty)
+{
+    if (IsOpenLoopRunActive(mode, duty)) {
+        return true;
+    }
+
+    return (mode == protocol::MOTOR_MODE_SPEED) &&
+           (g_registers.M1TargetRpm() > 0U);
+}
+
+bool M1NeedsGpioQuadrature(uint8_t mode)
+{
+    if (mode == protocol::MOTOR_MODE_POSITION) {
+        return true;
+    }
+
+    return (mode == protocol::MOTOR_MODE_SPEED) &&
+           (g_registers.M1TargetRpm() == 0U);
+}
+
+int16_t ApplyM1FastEncoderDirection(int16_t rpm)
+{
+    const uint8_t mode = g_registers.Read(protocol::REG_M1_MODE);
+    const uint8_t duty = g_registers.Read(protocol::REG_M1_DUTY);
+    const bool m1_fast_encoder =
+        IsM1FastEncoderMode(mode, duty) ||
+        (g_m1_encoder_cooldown_active && (!M1NeedsGpioQuadrature(mode)));
+
+    if (!m1_fast_encoder) {
+        return rpm;
+    }
+
+    int32_t magnitude = rpm;
+    if (magnitude < 0) {
+        magnitude = -magnitude;
+    }
+    if (magnitude > 32767) {
+        magnitude = 32767;
+    }
+
+    if (g_registers.Read(protocol::REG_M1_DIRECTION) ==
+        protocol::MOTOR_DIRECTION_REVERSE) {
+        return static_cast<int16_t>(-magnitude);
+    }
+    return static_cast<int16_t>(magnitude);
+}
+
+void UpdateEncoderModes(void)
+{
+    const uint32_t now = Millis();
+    const uint8_t m1_mode = g_registers.Read(protocol::REG_M1_MODE);
+    const uint8_t m1_duty = g_registers.Read(protocol::REG_M1_DUTY);
+
+    if (M1NeedsGpioQuadrature(m1_mode)) {
+        g_m1_encoder_cooldown_active = false;
+        board::BoardEncoders_SetEnabled(drivers::EncoderId::Encoder1, true);
+    } else if (IsM1FastEncoderMode(m1_mode, m1_duty)) {
+        g_m1_encoder_cooldown_start_ms = now;
+        g_m1_encoder_cooldown_active = true;
+        board::BoardEncoders_SetEnabled(drivers::EncoderId::Encoder1, false);
+    } else if (g_m1_encoder_cooldown_active) {
+        if ((now - g_m1_encoder_cooldown_start_ms) >=
+            kM1GpioReenableDelayAfterFastModeMs) {
+            g_m1_encoder_cooldown_active = false;
+            board::BoardEncoders_SetEnabled(drivers::EncoderId::Encoder1, true);
+        } else {
+            board::BoardEncoders_SetEnabled(drivers::EncoderId::Encoder1, false);
+        }
+    } else {
+        board::BoardEncoders_SetEnabled(drivers::EncoderId::Encoder1, true);
+    }
+
+    board::BoardEncoders_SetEnabled(drivers::EncoderId::Encoder2, true);
+}
+
 MotorFeedback SyncEncoderRegisters(void)
 {
     const drivers::EncoderSnapshot m1 =
         board::BoardEncoders_GetSnapshot(drivers::EncoderId::Encoder1);
     const drivers::EncoderSnapshot m2 =
         board::BoardEncoders_GetSnapshot(drivers::EncoderId::Encoder2);
+    int16_t m1_rpm =
+        EncoderCountsPerSecondToRpm(m1.counts_per_second,
+                                    g_registers.M1CountsPerRev());
+    const int16_t m2_rpm =
+        EncoderCountsPerSecondToRpm(m2.counts_per_second,
+                                    g_registers.M2CountsPerRev());
+    m1_rpm = ApplyM1FastEncoderDirection(m1_rpm);
+
     const MotorFeedback feedback = {
         m1.count,
-        EncoderCountsPerSecondToRpm(m1.counts_per_second,
-                                    g_registers.M1CountsPerRev()),
+        m1_rpm,
         m2.count,
-        EncoderCountsPerSecondToRpm(m2.counts_per_second,
-                                    g_registers.M2CountsPerRev()),
+        m2_rpm,
     };
 
     g_registers.UpdateEncoderSnapshot(m1.count,
@@ -222,6 +312,7 @@ void MotorApp_Process(void)
     ProcessSerialRx();
     ProcessI2cWrites();
     CheckWatchdog();
+    UpdateEncoderModes();
 
     if ((!g_timeout_active) && g_registers.IsEnabled() &&
         control::MotorControl_UpdateSpeed(g_registers,

@@ -28,6 +28,9 @@ PC3 / I2C2_SDA  <------->| SENSOR_I2C / IIC3 SDA|---- FM24CL64B SDA, INA219 SDA,
 PA11 / I2C1_SCL -------->| MOTOR_I2C / IIC1 SCL |---- MotorDriver I2C SCL
 PA10 / I2C1_SDA <------->| MOTOR_I2C / IIC1 SDA |---- MotorDriver I2C SDA
                          |                      |
+PA29 / GPIO      -------->| GY931_SOFT_I2C SCL   |---- GY931 SCL
+PA30 / GPIO      <------->| GY931_SOFT_I2C SDA   |---- GY931 SDA
+                         |                      |
 PB18 / SPIx_SCLK ------->| IMU_SPI SCLK         |---- ICM-45686 SCLK, LIS3MDLTR SCK
 PB17 / SPIx_PICO ------->| IMU_SPI PICO/MOSI    |---- ICM-45686 SDI, LIS3MDLTR SDI
 PB19 / SPIx_POCI <-------| IMU_SPI POCI/MISO    |---- ICM-45686 SDO, LIS3MDLTR SDO
@@ -46,7 +49,7 @@ PA13 / UART3_RX <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
 PA27             --------| LED1                 |---- Active-low LED
 PA26             --------| LED2                 |---- Active-low LED
 PB27             --------| LED3                 |---- Active-low LED
-PA12             --------| BUZZER               |---- Active-high buzzer
+PC16             --------| BUZZER               |---- Active-high buzzer
 PC9              <-------- BUTTON1              |---- Active-low key
 PB20             <-------- BUTTON2              |---- Active-low key
 PB23             <-------- BUTTON3              |---- Active-low key
@@ -64,7 +67,7 @@ All external UART/I2C modules must share GND with gugaPI.
 | --- | --- | --- |
 | 3.3V | MCU logic, pull-ups, low-voltage peripherals | Verify current budget from schematic |
 | GND | All external modules | UART and I2C links require common ground |
-| External module power | LoRa, MotorDriver, INA219 sense side, FRAM, OLED | Voltage and current depend on selected module |
+| External module power | LoRa, MotorDriver, INA219 sense side, FRAM, OLED, GY931 | Voltage and current depend on selected module |
 
 ## Debug UART
 
@@ -162,6 +165,32 @@ MotorDriver I2C configuration:
 | Bus speed | 100 kHz | Conservative bring-up speed |
 | 7-bit address | 0x20 | `BOARD_MOTOR_DRIVER_I2C_ADDRESS` |
 | Protocol | Direct register access | No UART frame wrapper on I2C |
+
+## GY931 Angle Sensor I2C Interface
+
+The WIT GY931 angle sensor is connected on PA29/PA30. These two pins can be
+muxed to MSPM0 hardware I2C1/I2C2 functions, but both hardware controllers are
+already assigned to MotorDriver and the shared SENSOR_I2C bus. Firmware
+therefore uses GPIO bit-banged open-drain I2C for this module.
+
+| Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up | Notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| GY931_SOFT_I2C_SCL | PA29 | GPIO | GY931 SCL | Open-drain emulation | Internal pull-up enabled; external pull-up recommended | Dedicated software I2C clock |
+| GY931_SOFT_I2C_SDA | PA30 | GPIO | GY931 SDA | Open-drain emulation | Internal pull-up enabled; external pull-up recommended | Dedicated software I2C data |
+| GY931_VCC | 3.3V | N/A | GY931 VCC | N/A | N/A | Verify selected module voltage |
+| GY931_GND | GND | N/A | GY931 GND | N/A | N/A | Common ground required |
+
+GY931 configuration:
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| Enabled | Yes | `FEATURE_ENABLE_GY931` |
+| Board bus name | GY931 software I2C | Not registered in generic hardware I2C diagnostic table |
+| MCU pins | PA29/SCL, PA30/SDA | `GPIO_GY931_I2C` SysConfig group |
+| Bus speed | Conservative software I2C | `BOARD_GY931_I2C_HALF_PERIOD_CYCLES` controls timing |
+| 7-bit address | 0x50 | `BOARD_GY931_I2C_ADDRESS`; shell can scan or change runtime address |
+| Angle registers | Roll/Pitch/Yaw at 0x3D/0x3E/0x3F | WIT standard register map |
+| Angle scale | raw / 32768 * 180 deg | Firmware reports fixed 0.001 deg units |
 
 ## FRAM I2C Interface
 
@@ -381,7 +410,7 @@ LIS3MDLTR configuration:
 
 | Signal | MCU Pin | Package Pin | External Connection | Direction | Active Level | Initial State | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BUZZER | PA12 | 51 | Active buzzer circuit | MCU output | High = on | Off | SysConfig initial value is CLEARED |
+| BUZZER | PC16 | 35 | Active buzzer circuit | MCU output | High = on | Off | SysConfig initial value is CLEARED |
 
 ## Buttons
 
@@ -408,6 +437,7 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 | Bus Alias | MCU Instance | SCL | SDA | Speed | Devices | Address Range Used |
 | --- | --- | --- | --- | --- | --- | --- |
 | `motor` | I2C1 | PA11 | PA10 | 100 kHz | MotorDriver I2C target on dedicated IIC1 | Default 0x20, planned 0x20 - 0x27 |
+| `gy931` | GPIO bit-bang | PA29 | PA30 | Software I2C | WIT GY931 angle sensor | Default 0x50 |
 | `fram` | I2C2 | PC2 | PC3 | 400 kHz | FM24CL64B on shared IIC3 | Default 0x50 |
 | `oled` | I2C2 | PC2 | PC3 | 400 kHz | HS91L02W2C01 OLED on shared IIC3 | Default 0x3C |
 | `ina219` | I2C2 | PC2 | PC3 | 400 kHz | INA219 on shared IIC3 | Default 0x40, possible 0x40 - 0x4F |
@@ -446,6 +476,7 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 | Buttons | Pressed buttons read as pressed | `button` |
 | Shared IIC3 bus idle | PC2/PC3 high, FRAM read/write, INA219 probe, and OLED probe pass | `fram status`, `fram test`, `ina219 status`, `ina219 scan`, `oled status` |
 | OLED display | Address 0x3C responds and test pattern is visible | `i2c scan oled 0x3C 0x3C`, `oled init`, `oled test` |
+| GY931 software I2C | PA29/PA30 idle high, address 0x50 responds, angle values update when the module rotates | `gy931 status`, `gy931 scan 0x50 0x50`, `gy931 angle` |
 | ICM-45686 + LIS3MDLTR SPI | Both WHO_AM_I reads return expected IDs | TBD after SPI driver and shell command are added |
 | LoRa UART wiring | Module receives TX and gugaPI receives replies | `lora test`, `lora read` |
 | MotorDriver UART wiring | Heartbeat returns OK in UART mode | `motor bus uart`, `motor ping`, `motor info` |
@@ -459,4 +490,4 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 | Keep board pin ownership centralized | Add aliases in `board/board_pins.h` before wiring drivers |
 | I2C pull-ups | Document exact resistor values from schematic when available |
 | Connector names | Add J-number / pin-number mapping once schematic connector names are finalized |
-| External power rails | Add rated voltage/current for LoRa, MotorDriver, INA219 sense path, FRAM, and OLED |
+| External power rails | Add rated voltage/current for LoRa, MotorDriver, INA219 sense path, FRAM, OLED, and GY931 |

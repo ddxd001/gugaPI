@@ -21,6 +21,7 @@ ORDERED_OBJS += \
 "./board/board_button.o" \
 "./board/board_buzzer.o" \
 "./board/board_fram.o" \
+"./board/board_gy931.o" \
 "./board/board_i2c_bus.o" \
 "./board/board_imu.o" \
 "./board/board_ina219.o" \
@@ -31,12 +32,14 @@ ORDERED_OBJS += \
 "./drivers/button/button.o" \
 "./drivers/buzzer/buzzer.o" \
 "./drivers/fm24cl64b/fm24cl64b.o" \
+"./drivers/gy931/gy931.o" \
 "./drivers/i2c_diag/i2c_diag.o" \
 "./drivers/ina219/ina219.o" \
 "./drivers/led/led.o" \
 "./drivers/lora/lora.o" \
 "./drivers/motor_driver/motor_driver_uart.o" \
 "./drivers/oled/oled_ssd1306.o" \
+"./drivers/soft_i2c/soft_i2c.o" \
 "./drivers/template/template_driver.o" \
 "./services/debug_uart.o" \
 "./services/fault.o" \
@@ -62,12 +65,14 @@ RMDIR := RMDIR /S/Q
 -include drivers/button/subdir_vars.mk
 -include drivers/buzzer/subdir_vars.mk
 -include drivers/fm24cl64b/subdir_vars.mk
+-include drivers/gy931/subdir_vars.mk
 -include drivers/i2c_diag/subdir_vars.mk
 -include drivers/ina219/subdir_vars.mk
 -include drivers/led/subdir_vars.mk
 -include drivers/lora/subdir_vars.mk
 -include drivers/motor_driver/subdir_vars.mk
 -include drivers/oled/subdir_vars.mk
+-include drivers/soft_i2c/subdir_vars.mk
 -include drivers/template/subdir_vars.mk
 -include services/subdir_vars.mk
 -include subdir_rules.mk
@@ -77,12 +82,14 @@ RMDIR := RMDIR /S/Q
 -include drivers/button/subdir_rules.mk
 -include drivers/buzzer/subdir_rules.mk
 -include drivers/fm24cl64b/subdir_rules.mk
+-include drivers/gy931/subdir_rules.mk
 -include drivers/i2c_diag/subdir_rules.mk
 -include drivers/ina219/subdir_rules.mk
 -include drivers/led/subdir_rules.mk
 -include drivers/lora/subdir_rules.mk
 -include drivers/motor_driver/subdir_rules.mk
 -include drivers/oled/subdir_rules.mk
+-include drivers/soft_i2c/subdir_rules.mk
 -include drivers/template/subdir_rules.mk
 -include services/subdir_rules.mk
 -include objects.mk
@@ -195,9 +202,9 @@ gugaPI.out: $(OBJS) $(GEN_CMDS)
 # Other Targets
 clean:
 	-$(RM) $(GEN_MISC_FILES__QUOTED)$(GEN_FILES__QUOTED)$(EXE_OUTPUTS__QUOTED)
-	-$(RM) "empty_cpp.o" "ti_msp_dl_config.o" "startup_mspm0g351x_ticlang.o" "algorithm\filter.o" "algorithm\pid.o" "app\app_main.o" "app\app_shell.o" "board\board.o" "board\board_button.o" "board\board_buzzer.o" "board\board_fram.o" "board\board_i2c_bus.o" "board\board_imu.o" "board\board_ina219.o" "board\board_led.o" "board\board_lora.o" "board\board_motor_driver.o" "board\board_oled.o" "drivers\button\button.o" "drivers\buzzer\buzzer.o" "drivers\fm24cl64b\fm24cl64b.o" "drivers\i2c_diag\i2c_diag.o" "drivers\ina219\ina219.o" "drivers\led\led.o" "drivers\lora\lora.o" "drivers\motor_driver\motor_driver_uart.o" "drivers\oled\oled_ssd1306.o" "drivers\template\template_driver.o" "services\debug_uart.o" "services\fault.o" "services\log.o" "services\scheduler.o" "services\shell.o" "services\time.o" 
+	-$(RM) "empty_cpp.o" "ti_msp_dl_config.o" "startup_mspm0g351x_ticlang.o" "algorithm\filter.o" "algorithm\pid.o" "app\app_main.o" "app\app_shell.o" "board\board.o" "board\board_button.o" "board\board_buzzer.o" "board\board_fram.o" "board\board_gy931.o" "board\board_i2c_bus.o" "board\board_imu.o" "board\board_ina219.o" "board\board_led.o" "board\board_lora.o" "board\board_motor_driver.o" "board\board_oled.o" "drivers\button\button.o" "drivers\buzzer\buzzer.o" "drivers\fm24cl64b\fm24cl64b.o" "drivers\gy931\gy931.o" "drivers\i2c_diag\i2c_diag.o" "drivers\ina219\ina219.o" "drivers\led\led.o" "drivers\lora\lora.o" "drivers\motor_driver\motor_driver_uart.o" "drivers\oled\oled_ssd1306.o" "drivers\soft_i2c\soft_i2c.o" "drivers\template\template_driver.o" "services\debug_uart.o" "services\fault.o" "services\log.o" "services\scheduler.o" "services\shell.o" "services\time.o" 
 	-$(RM) "ti_msp_dl_config.d" "startup_mspm0g351x_ticlang.d" 
-	-$(RM) "empty_cpp.d" "algorithm\filter.d" "algorithm\pid.d" "app\app_main.d" "app\app_shell.d" "board\board.d" "board\board_button.d" "board\board_buzzer.d" "board\board_fram.d" "board\board_i2c_bus.d" "board\board_imu.d" "board\board_ina219.d" "board\board_led.d" "board\board_lora.d" "board\board_motor_driver.d" "board\board_oled.d" "drivers\button\button.d" "drivers\buzzer\buzzer.d" "drivers\fm24cl64b\fm24cl64b.d" "drivers\i2c_diag\i2c_diag.d" "drivers\ina219\ina219.d" "drivers\led\led.d" "drivers\lora\lora.d" "drivers\motor_driver\motor_driver_uart.d" "drivers\oled\oled_ssd1306.d" "drivers\template\template_driver.d" "services\debug_uart.d" "services\fault.d" "services\log.d" "services\scheduler.d" "services\shell.d" "services\time.d" 
+	-$(RM) "empty_cpp.d" "algorithm\filter.d" "algorithm\pid.d" "app\app_main.d" "app\app_shell.d" "board\board.d" "board\board_button.d" "board\board_buzzer.d" "board\board_fram.d" "board\board_gy931.d" "board\board_i2c_bus.d" "board\board_imu.d" "board\board_ina219.d" "board\board_led.d" "board\board_lora.d" "board\board_motor_driver.d" "board\board_oled.d" "drivers\button\button.d" "drivers\buzzer\buzzer.d" "drivers\fm24cl64b\fm24cl64b.d" "drivers\gy931\gy931.d" "drivers\i2c_diag\i2c_diag.d" "drivers\ina219\ina219.d" "drivers\led\led.d" "drivers\lora\lora.d" "drivers\motor_driver\motor_driver_uart.d" "drivers\oled\oled_ssd1306.d" "drivers\soft_i2c\soft_i2c.d" "drivers\template\template_driver.d" "services\debug_uart.d" "services\fault.d" "services\log.d" "services\scheduler.d" "services\shell.d" "services\time.d" 
 	-@echo ' '
 
 .PHONY: all clean dependents

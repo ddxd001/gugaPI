@@ -19,7 +19,9 @@ drivers/encoder/
 
 ```text
 drivers/led/          PA27/PA26/PB27 低电平点亮 LED
-drivers/buzzer/       PA12 高电平响有源蜂鸣器
+drivers/buzzer/       PC16 高电平响有源蜂鸣器
 drivers/fm24cl64b/    FM24CL64B-GTR I2C FRAM
 drivers/oled/         HS91L02W2C01 128x32 I2C OLED
+drivers/soft_i2c/     GPIO software I2C master for dedicated low-speed devices
+drivers/gy931/        WIT GY931 angle sensor register driver
 ```

@@ -10,6 +10,7 @@ CPP_SRCS += \
 ../board/board_button.cpp \
 ../board/board_buzzer.cpp \
 ../board/board_fram.cpp \
+../board/board_gy931.cpp \
 ../board/board_i2c_bus.cpp \
 ../board/board_imu.cpp \
 ../board/board_ina219.cpp \
@@ -23,6 +24,7 @@ OBJS += \
 ./board/board_button.o \
 ./board/board_buzzer.o \
 ./board/board_fram.o \
+./board/board_gy931.o \
 ./board/board_i2c_bus.o \
 ./board/board_imu.o \
 ./board/board_ina219.o \
@@ -36,6 +38,7 @@ CPP_DEPS += \
 ./board/board_button.d \
 ./board/board_buzzer.d \
 ./board/board_fram.d \
+./board/board_gy931.d \
 ./board/board_i2c_bus.d \
 ./board/board_imu.d \
 ./board/board_ina219.d \
@@ -49,6 +52,7 @@ OBJS__QUOTED += \
 "board\board_button.o" \
 "board\board_buzzer.o" \
 "board\board_fram.o" \
+"board\board_gy931.o" \
 "board\board_i2c_bus.o" \
 "board\board_imu.o" \
 "board\board_ina219.o" \
@@ -62,6 +66,7 @@ CPP_DEPS__QUOTED += \
 "board\board_button.d" \
 "board\board_buzzer.d" \
 "board\board_fram.d" \
+"board\board_gy931.d" \
 "board\board_i2c_bus.d" \
 "board\board_imu.d" \
 "board\board_ina219.d" \
@@ -75,6 +80,7 @@ CPP_SRCS__QUOTED += \
 "../board/board_button.cpp" \
 "../board/board_buzzer.cpp" \
 "../board/board_fram.cpp" \
+"../board/board_gy931.cpp" \
 "../board/board_i2c_bus.cpp" \
 "../board/board_imu.cpp" \
 "../board/board_ina219.cpp" \

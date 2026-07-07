@@ -125,12 +125,14 @@ board \
 drivers/button \
 drivers/buzzer \
 drivers/fm24cl64b \
+drivers/gy931 \
 drivers/i2c_diag \
 drivers/ina219 \
 drivers/led \
 drivers/lora \
 drivers/motor_driver \
 drivers/oled \
+drivers/soft_i2c \
 drivers/template \
 services \
 

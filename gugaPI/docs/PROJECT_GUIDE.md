@@ -287,14 +287,14 @@ C:\ti\ccs2100\ccs\utils\bin\gmake.exe
 PA27、PA26、PB27 的初始输出配置为 `SET`，所以上电初始化后 LED 默认熄灭。状态灯测试任务使用 LED1。
 ### 有源蜂鸣器
 
-- 引脚：PA12
+- 引脚：PC16
 - 电平：高电平响，低电平停
 - SysConfig 分组：`GPIO_BUZZER.BUZZER`
 - 板级接口：`board/board_buzzer.h`
 - 驱动实现：`drivers/buzzer/`
 - 当前测试程序：`app` 中注册 `buzzer_test` 状态机任务，响 200 ms，停 800 ms
 
-PA12 的初始输出配置为 `CLEARED`，所以上电初始化后蜂鸣器默认不响。
+PC16 的初始输出配置为 `CLEARED`，所以上电初始化后蜂鸣器默认不响。
 
 ### 调试串口 UART3
 
@@ -334,6 +334,32 @@ fram write 0x0000 0x5A
 ```
 
 `fram status` 用于查看 I2C 控制器状态和 SCL/SDA 电平；正常空闲时 SCL/SDA 应为高电平。`fram test` 会在 `BOARD_FRAM_SELF_TEST_ADDRESS` 指定地址备份 8 字节原始数据，写入测试图样并读回校验，最后恢复原始数据。为了避免误操作，Shell 的 `fram read` 单次最多读取 32 字节。
+
+### WIT GY931 角度传感器
+
+- 器件：维特 GY931 姿态/角度传感器模块，按 WIT 标准寄存器协议读取
+- I2C 地址：默认 `0x50`，可通过 `gy931 scan` 和 `gy931 addr` 在运行时确认
+- 单片机连接：`PA29` 为 SCL，`PA30` 为 SDA
+- 总线方式：GPIO 软件 I2C。PA29/PA30 可复用到硬件 I2C1/I2C2，但当前硬件 I2C1 已用于 MotorDriver，I2C2 已用于 FRAM/OLED/INA219，因此不抢占硬件总线
+- SysConfig 分组：`GPIO_GY931_I2C`
+- 板级接口：`board/board_gy931.h`
+- 驱动实现：`drivers/soft_i2c/`、`drivers/gy931/`
+- 功能开关：`FEATURE_ENABLE_GY931`
+
+驱动读取维特标准寄存器：加速度 `AX/AY/AZ = 0x34..0x36`，角速度 `GX/GY/GZ = 0x37..0x39`，磁场 `HX/HY/HZ = 0x3A..0x3C`，角度 `Roll/Pitch/Yaw = 0x3D..0x3F`。角度换算为 `raw / 32768 * 180`，shell 中以三位小数输出角度。
+
+Shell 测试命令：
+```text
+gy931 status
+gy931 scan 0x50 0x50
+gy931 init
+gy931 angle
+gy931 sample
+gy931 raw 0x3D 3
+gy931 oled once
+gy931 oled on 200
+gy931 oled off
+```
 
 ### HS91L02W2C01 OLED
 

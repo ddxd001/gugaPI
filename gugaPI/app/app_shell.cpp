@@ -6,6 +6,7 @@
 #include "board/board_button.h"
 #include "board/board_config.h"
 #include "board/board_fram.h"
+#include "board/board_gy931.h"
 #include "board/board_ina219.h"
 #include "board/board_imu.h"
 #include "board/board_i2c_bus.h"
@@ -17,6 +18,7 @@
 #include "config/feature_config.h"
 #include "drivers/common/driver_status.h"
 #include "drivers/i2c_diag/i2c_diag.h"
+#include "services/scheduler.h"
 #include "services/shell.h"
 #include "services/time.h"
 #include "ti_msp_dl_config.h"
@@ -35,6 +37,15 @@ static const uint32_t kImuSpiSampleDefaultBytes = 8U;
 static const uint32_t kImuSpiSampleMaxBytes = 16U;
 static const uint8_t kOledTextRows = 4U;
 static const uint8_t kOledTextCols = 21U;
+static const uint8_t kGy931MaxReadWords = drivers::GY931_MAX_READ_WORDS;
+static const uint32_t kGy931OledTaskPeriodMs = 50U;
+static const uint32_t kGy931OledDefaultPeriodMs = 200U;
+static const uint32_t kGy931OledMinPeriodMs = 50U;
+static const uint32_t kGy931OledMaxPeriodMs = 5000U;
+static const uint32_t kIna219OledTaskPeriodMs = 50U;
+static const uint32_t kIna219OledDefaultPeriodMs = 500U;
+static const uint32_t kIna219OledMinPeriodMs = 100U;
+static const uint32_t kIna219OledMaxPeriodMs = 5000U;
 static const uint8_t kMotorSof = 0xAAU;
 static const uint8_t kMotorCmdRead = 0x01U;
 static const uint8_t kMotorCmdWrite = 0x02U;
@@ -92,6 +103,22 @@ enum MotorTransport : uint8_t {
 
 MotorTransport g_motorTransport = MOTOR_TRANSPORT_I2C;
 uint8_t g_motorI2cAddress = kMotorI2cDefaultAddress;
+#if FEATURE_ENABLE_OLED && (FEATURE_ENABLE_GY931 || FEATURE_ENABLE_INA219)
+bool g_gy931OledEnabled = false;
+bool g_gy931OledTaskRegistered = false;
+services::SchedulerTaskId g_gy931OledTaskId = 0U;
+uint32_t g_gy931OledPeriodMs = kGy931OledDefaultPeriodMs;
+uint32_t g_gy931OledLastUpdateMs = 0U;
+drivers::DriverStatus g_gy931OledLastStatus = drivers::DRIVER_OK;
+#endif
+#if FEATURE_ENABLE_INA219 && FEATURE_ENABLE_OLED
+bool g_ina219OledEnabled = false;
+bool g_ina219OledTaskRegistered = false;
+services::SchedulerTaskId g_ina219OledTaskId = 0U;
+uint32_t g_ina219OledPeriodMs = kIna219OledDefaultPeriodMs;
+uint32_t g_ina219OledLastUpdateMs = 0U;
+drivers::DriverStatus g_ina219OledLastStatus = drivers::DRIVER_OK;
+#endif
 
 bool StrEqual(const char *left, const char *right)
 {
@@ -285,6 +312,44 @@ void WriteInt32(int32_t value)
     services::Shell_WriteUInt32(magnitude);
 }
 
+void WriteFixedMilli(int32_t value)
+{
+    uint32_t magnitude = 0U;
+
+    if (value < 0) {
+        services::Shell_WriteString("-");
+        magnitude = (uint32_t) (-(value + 1)) + 1U;
+    } else {
+        magnitude = (uint32_t) value;
+    }
+
+    services::Shell_WriteUInt32(magnitude / 1000U);
+    services::Shell_WriteString(".");
+
+    const uint32_t fraction = magnitude % 1000U;
+    char text[4] = { '0', '0', '0', '\0' };
+    text[0] = (char) ('0' + ((fraction / 100U) % 10U));
+    text[1] = (char) ('0' + ((fraction / 10U) % 10U));
+    text[2] = (char) ('0' + (fraction % 10U));
+    services::Shell_WriteString(text);
+}
+
+void WriteSignedVector3Milli(const char *label,
+                             const int32_t values[3],
+                             const char *unit)
+{
+    services::Shell_WriteString(label);
+    services::Shell_WriteString("=");
+    WriteFixedMilli(values[0]);
+    services::Shell_WriteString(",");
+    WriteFixedMilli(values[1]);
+    services::Shell_WriteString(",");
+    WriteFixedMilli(values[2]);
+    if (unit != 0) {
+        services::Shell_WriteString(unit);
+    }
+}
+
 const char *DriverStatusText(drivers::DriverStatus status)
 {
     switch (status) {
@@ -336,6 +401,7 @@ void PrintIna219Usage(void)
     services::Shell_WriteLine("  ina219 read");
     services::Shell_WriteLine("  ina219 raw");
     services::Shell_WriteLine("  ina219 reg <0..5> [value]");
+    services::Shell_WriteLine("  ina219 oled on [period_ms 100..5000]|off|status|once");
 }
 
 void PrintOledUsage(void)
@@ -350,6 +416,495 @@ void PrintOledUsage(void)
     services::Shell_WriteLine("  oled invert on|off");
     services::Shell_WriteLine("  oled on|off");
 }
+
+void PrintGy931Usage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  gy931 status");
+    services::Shell_WriteLine("  gy931 init");
+    services::Shell_WriteLine("  gy931 recover");
+    services::Shell_WriteLine("  gy931 scan [start end]");
+    services::Shell_WriteLine("  gy931 addr [0x08..0x77]");
+    services::Shell_WriteLine("  gy931 angle");
+    services::Shell_WriteLine("  gy931 sample");
+    services::Shell_WriteLine("  gy931 raw <reg> <words 1..16>");
+    services::Shell_WriteLine("  gy931 oled on [period_ms 50..5000]|off|status|once");
+}
+
+#if FEATURE_ENABLE_GY931 && FEATURE_ENABLE_OLED
+char *AppendChar(char *cursor, char *end, char ch)
+{
+    if (cursor < end) {
+        *cursor = ch;
+        cursor++;
+    }
+    return cursor;
+}
+
+char *AppendString(char *cursor, char *end, const char *text)
+{
+    while ((text != 0) && (*text != '\0') && (cursor < end)) {
+        *cursor = *text;
+        cursor++;
+        text++;
+    }
+    return cursor;
+}
+
+char *AppendUIntDec(char *cursor, char *end, uint32_t value)
+{
+    char digits[10];
+    uint8_t count = 0U;
+
+    do {
+        digits[count] = (char) ('0' + (value % 10U));
+        value /= 10U;
+        count++;
+    } while ((value != 0U) && (count < sizeof(digits)));
+
+    while ((count > 0U) && (cursor < end)) {
+        count--;
+        *cursor = digits[count];
+        cursor++;
+    }
+
+    return cursor;
+}
+
+char *AppendIntDec(char *cursor, char *end, int32_t value)
+{
+    uint32_t magnitude = 0U;
+
+    if (value < 0) {
+        cursor = AppendChar(cursor, end, '-');
+        magnitude = (uint32_t) (-(value + 1)) + 1U;
+    } else {
+        magnitude = (uint32_t) value;
+    }
+
+    return AppendUIntDec(cursor, end, magnitude);
+}
+
+char *AppendHex8Text(char *cursor, char *end, uint8_t value)
+{
+    cursor = AppendString(cursor, end, "0x");
+    cursor = AppendChar(cursor, end, HexDigit((uint8_t) (value >> 4U)));
+    return AppendChar(cursor, end, HexDigit(value));
+}
+
+char *AppendFixedMilliText(char *cursor, char *end, int32_t value)
+{
+    uint32_t magnitude = 0U;
+
+    if (value < 0) {
+        cursor = AppendChar(cursor, end, '-');
+        magnitude = (uint32_t) (-(value + 1)) + 1U;
+    } else {
+        magnitude = (uint32_t) value;
+    }
+
+    cursor = AppendUIntDec(cursor, end, magnitude / 1000U);
+    cursor = AppendChar(cursor, end, '.');
+
+    const uint32_t fraction = magnitude % 1000U;
+    cursor = AppendChar(cursor, end,
+                        (char) ('0' + ((fraction / 100U) % 10U)));
+    cursor = AppendChar(cursor, end,
+                        (char) ('0' + ((fraction / 10U) % 10U)));
+    return AppendChar(cursor, end, (char) ('0' + (fraction % 10U)));
+}
+
+void FinishOledLine(char *buffer, char *cursor)
+{
+    char *end = &buffer[kOledTextCols];
+    while (cursor < end) {
+        *cursor = ' ';
+        cursor++;
+    }
+    buffer[kOledTextCols] = '\0';
+}
+
+drivers::DriverStatus OledTextWriteLine(uint8_t row, const char *text)
+{
+    char line[kOledTextCols + 1U];
+    char *cursor = AppendString(line, &line[kOledTextCols], text);
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(row, 0U, line);
+}
+
+drivers::DriverStatus SchedulerStatusToDriverStatus(
+    services::SchedulerStatus status)
+{
+    switch (status) {
+        case services::SCHEDULER_OK:
+            return drivers::DRIVER_OK;
+        case services::SCHEDULER_ERROR_INVALID_ARG:
+        case services::SCHEDULER_ERROR_INVALID_ID:
+            return drivers::DRIVER_ERROR_INVALID_ARG;
+        case services::SCHEDULER_ERROR_FULL:
+            return drivers::DRIVER_ERROR_BUSY;
+        default:
+            return drivers::DRIVER_ERROR;
+    }
+}
+
+#if FEATURE_ENABLE_GY931
+drivers::DriverStatus Gy931OledWriteStatusLine(void)
+{
+    char line[kOledTextCols + 1U];
+    char *cursor = line;
+
+    cursor = AppendString(cursor, &line[kOledTextCols], "GY931 ");
+    cursor = AppendHex8Text(cursor, &line[kOledTextCols],
+                            board::Board_Gy931Address());
+    cursor = AppendChar(cursor, &line[kOledTextCols], ' ');
+    cursor = AppendUIntDec(cursor, &line[kOledTextCols], g_gy931OledPeriodMs);
+    cursor = AppendString(cursor, &line[kOledTextCols], "ms");
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(0U, 0U, line);
+}
+
+drivers::DriverStatus Gy931OledWriteAngleLine(uint8_t row,
+                                              const char *label,
+                                              int32_t angle_mdeg)
+{
+    char line[kOledTextCols + 1U];
+    char *cursor = line;
+
+    cursor = AppendString(cursor, &line[kOledTextCols], label);
+    cursor = AppendFixedMilliText(cursor, &line[kOledTextCols], angle_mdeg);
+    cursor = AppendString(cursor, &line[kOledTextCols], " deg");
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(row, 0U, line);
+}
+
+drivers::DriverStatus Gy931OledShowAngles(const drivers::Gy931Angles &angles)
+{
+    drivers::DriverStatus status = Gy931OledWriteStatusLine();
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    status = Gy931OledWriteAngleLine(1U, "Roll: ", angles.roll_mdeg);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    status = Gy931OledWriteAngleLine(2U, "Pitch:", angles.pitch_mdeg);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    return Gy931OledWriteAngleLine(3U, "Yaw:  ", angles.yaw_mdeg);
+}
+
+drivers::DriverStatus Gy931OledShowError(drivers::DriverStatus read_status)
+{
+    drivers::DriverStatus status = OledTextWriteLine(0U, "GY931 read error");
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    char line[kOledTextCols + 1U];
+    char *cursor = AppendString(line, &line[kOledTextCols], "status: ");
+    cursor = AppendString(cursor, &line[kOledTextCols],
+                          DriverStatusText(read_status));
+    FinishOledLine(line, cursor);
+    status = board::Board_OledWriteText(1U, 0U, line);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    cursor = AppendString(line, &line[kOledTextCols], "addr: ");
+    cursor = AppendHex8Text(cursor, &line[kOledTextCols],
+                            board::Board_Gy931Address());
+    FinishOledLine(line, cursor);
+    status = board::Board_OledWriteText(2U, 0U, line);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    return OledTextWriteLine(3U, "use gy931 status");
+}
+
+drivers::DriverStatus Gy931OledUpdateDisplay(void)
+{
+    if (!board::Board_OledIsReady()) {
+        const drivers::DriverStatus init_status = board::Board_OledInit();
+        if (init_status != drivers::DRIVER_OK) {
+            g_gy931OledLastStatus = init_status;
+            return init_status;
+        }
+    }
+
+    drivers::Gy931Angles angles;
+    const drivers::DriverStatus read_status =
+        board::Board_Gy931ReadAngles(&angles);
+    if (read_status != drivers::DRIVER_OK) {
+        g_gy931OledLastStatus = read_status;
+        (void) Gy931OledShowError(read_status);
+        return read_status;
+    }
+
+    const drivers::DriverStatus oled_status = Gy931OledShowAngles(angles);
+    g_gy931OledLastStatus = oled_status;
+    return oled_status;
+}
+
+void Gy931OledTask(void)
+{
+    if (!g_gy931OledEnabled) {
+        return;
+    }
+
+    const uint32_t now = services::Time_Millis();
+    if (!services::Time_HasElapsed(g_gy931OledLastUpdateMs,
+                                   g_gy931OledPeriodMs)) {
+        return;
+    }
+
+    g_gy931OledLastUpdateMs = now;
+    (void) Gy931OledUpdateDisplay();
+}
+
+drivers::DriverStatus Gy931OledEnsureTask(void)
+{
+    if (g_gy931OledTaskRegistered) {
+        return drivers::DRIVER_OK;
+    }
+
+    const services::SchedulerStatus status = services::Scheduler_AddTask(
+        "gy931_oled",
+        Gy931OledTask,
+        kGy931OledTaskPeriodMs,
+        0U,
+        &g_gy931OledTaskId);
+    if (status != services::SCHEDULER_OK) {
+        return SchedulerStatusToDriverStatus(status);
+    }
+
+    g_gy931OledTaskRegistered = true;
+    return SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_gy931OledTaskId, false));
+}
+
+drivers::DriverStatus Gy931OledSetEnabled(bool enabled)
+{
+    if (!enabled) {
+        g_gy931OledEnabled = false;
+        if (!g_gy931OledTaskRegistered) {
+            return drivers::DRIVER_OK;
+        }
+        return SchedulerStatusToDriverStatus(
+            services::Scheduler_EnableTask(g_gy931OledTaskId, false));
+    }
+
+    drivers::DriverStatus status = Gy931OledEnsureTask();
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+#if FEATURE_ENABLE_INA219
+    g_ina219OledEnabled = false;
+    if (g_ina219OledTaskRegistered) {
+        (void) services::Scheduler_EnableTask(g_ina219OledTaskId, false);
+    }
+#endif
+    g_gy931OledEnabled = true;
+    g_gy931OledLastUpdateMs = services::Time_Millis();
+    status = SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_gy931OledTaskId, true));
+    if (status != drivers::DRIVER_OK) {
+        g_gy931OledEnabled = false;
+        return status;
+    }
+
+    return Gy931OledUpdateDisplay();
+}
+#endif
+
+#if FEATURE_ENABLE_INA219
+drivers::DriverStatus Ina219OledWriteStatusLine(void)
+{
+    char line[kOledTextCols + 1U];
+    char *cursor = line;
+
+    cursor = AppendString(cursor, &line[kOledTextCols], "INA219 ");
+    cursor = AppendHex8Text(cursor, &line[kOledTextCols],
+                            board::Board_Ina219GetAddress());
+    cursor = AppendChar(cursor, &line[kOledTextCols], ' ');
+    cursor = AppendUIntDec(cursor, &line[kOledTextCols],
+                           g_ina219OledPeriodMs);
+    cursor = AppendString(cursor, &line[kOledTextCols], "ms");
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(0U, 0U, line);
+}
+
+drivers::DriverStatus Ina219OledShowMeasurement(
+    const drivers::Ina219Measurement &measurement)
+{
+    drivers::DriverStatus status = Ina219OledWriteStatusLine();
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    char line[kOledTextCols + 1U];
+    char *cursor = line;
+    cursor = AppendString(cursor, &line[kOledTextCols], "Bus: ");
+    cursor = AppendFixedMilliText(cursor, &line[kOledTextCols],
+                                  measurement.bus_voltage_mv);
+    cursor = AppendChar(cursor, &line[kOledTextCols], 'V');
+    FinishOledLine(line, cursor);
+    status = board::Board_OledWriteText(1U, 0U, line);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    cursor = line;
+    cursor = AppendString(cursor, &line[kOledTextCols], "Cur: ");
+    cursor = AppendFixedMilliText(cursor, &line[kOledTextCols],
+                                  measurement.current_ua);
+    cursor = AppendString(cursor, &line[kOledTextCols], "mA");
+    FinishOledLine(line, cursor);
+    status = board::Board_OledWriteText(2U, 0U, line);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    cursor = line;
+    cursor = AppendString(cursor, &line[kOledTextCols], "P:");
+    cursor = AppendIntDec(cursor, &line[kOledTextCols],
+                          measurement.power_mw);
+    cursor = AppendString(cursor, &line[kOledTextCols], "mW Sh:");
+    cursor = AppendIntDec(cursor, &line[kOledTextCols],
+                          measurement.shunt_voltage_uv);
+    cursor = AppendString(cursor, &line[kOledTextCols], "uV");
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(3U, 0U, line);
+}
+
+drivers::DriverStatus Ina219OledShowError(drivers::DriverStatus read_status)
+{
+    drivers::DriverStatus status =
+        OledTextWriteLine(0U, "INA219 read error");
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    char line[kOledTextCols + 1U];
+    char *cursor = AppendString(line, &line[kOledTextCols], "status: ");
+    cursor = AppendString(cursor, &line[kOledTextCols],
+                          DriverStatusText(read_status));
+    FinishOledLine(line, cursor);
+    status = board::Board_OledWriteText(1U, 0U, line);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    cursor = AppendString(line, &line[kOledTextCols], "addr: ");
+    cursor = AppendHex8Text(cursor, &line[kOledTextCols],
+                            board::Board_Ina219GetAddress());
+    FinishOledLine(line, cursor);
+    status = board::Board_OledWriteText(2U, 0U, line);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    return OledTextWriteLine(3U, "use ina219 status");
+}
+
+drivers::DriverStatus Ina219OledUpdateDisplay(void)
+{
+    if (!board::Board_OledIsReady()) {
+        const drivers::DriverStatus init_status = board::Board_OledInit();
+        if (init_status != drivers::DRIVER_OK) {
+            g_ina219OledLastStatus = init_status;
+            return init_status;
+        }
+    }
+
+    drivers::Ina219Measurement measurement;
+    const drivers::DriverStatus read_status =
+        board::Board_Ina219ReadMeasurement(&measurement);
+    if (read_status != drivers::DRIVER_OK) {
+        g_ina219OledLastStatus = read_status;
+        (void) Ina219OledShowError(read_status);
+        return read_status;
+    }
+
+    const drivers::DriverStatus oled_status =
+        Ina219OledShowMeasurement(measurement);
+    g_ina219OledLastStatus = oled_status;
+    return oled_status;
+}
+
+void Ina219OledTask(void)
+{
+    if (!g_ina219OledEnabled) {
+        return;
+    }
+
+    const uint32_t now = services::Time_Millis();
+    if (!services::Time_HasElapsed(g_ina219OledLastUpdateMs,
+                                   g_ina219OledPeriodMs)) {
+        return;
+    }
+
+    g_ina219OledLastUpdateMs = now;
+    (void) Ina219OledUpdateDisplay();
+}
+
+drivers::DriverStatus Ina219OledEnsureTask(void)
+{
+    if (g_ina219OledTaskRegistered) {
+        return drivers::DRIVER_OK;
+    }
+
+    const services::SchedulerStatus status = services::Scheduler_AddTask(
+        "ina219_oled",
+        Ina219OledTask,
+        kIna219OledTaskPeriodMs,
+        0U,
+        &g_ina219OledTaskId);
+    if (status != services::SCHEDULER_OK) {
+        return SchedulerStatusToDriverStatus(status);
+    }
+
+    g_ina219OledTaskRegistered = true;
+    return SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_ina219OledTaskId, false));
+}
+
+drivers::DriverStatus Ina219OledSetEnabled(bool enabled)
+{
+    if (!enabled) {
+        g_ina219OledEnabled = false;
+        if (!g_ina219OledTaskRegistered) {
+            return drivers::DRIVER_OK;
+        }
+        return SchedulerStatusToDriverStatus(
+            services::Scheduler_EnableTask(g_ina219OledTaskId, false));
+    }
+
+    drivers::DriverStatus status = Ina219OledEnsureTask();
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+#if FEATURE_ENABLE_GY931
+    g_gy931OledEnabled = false;
+    if (g_gy931OledTaskRegistered) {
+        (void) services::Scheduler_EnableTask(g_gy931OledTaskId, false);
+    }
+#endif
+    g_ina219OledEnabled = true;
+    g_ina219OledLastUpdateMs = services::Time_Millis();
+    status = SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_ina219OledTaskId, true));
+    if (status != drivers::DRIVER_OK) {
+        g_ina219OledEnabled = false;
+        return status;
+    }
+
+    return Ina219OledUpdateDisplay();
+}
+#endif
+#endif
 
 void PrintImuUsage(void)
 {
@@ -1491,6 +2046,328 @@ void OledCommand(int argc, const char * const argv[])
 #endif
 }
 
+void Gy931Command(int argc, const char * const argv[])
+{
+#if FEATURE_ENABLE_GY931
+    uint32_t value = 0U;
+
+    if (argc < 2) {
+        PrintGy931Usage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        bool scl_high = false;
+        bool sda_high = false;
+
+        if (argc != 2) {
+            PrintGy931Usage();
+            return;
+        }
+
+        const drivers::DriverStatus bus_status =
+            board::Board_Gy931GetBusStatus(&scl_high, &sda_high);
+        const drivers::DriverStatus probe_status = board::Board_Gy931Probe();
+
+        services::Shell_WriteString("gy931 ready=");
+        services::Shell_WriteUInt32(board::Board_Gy931IsReady() ? 1U : 0U);
+        services::Shell_WriteString(" addr=");
+        WriteHex8(board::Board_Gy931Address());
+        services::Shell_WriteString(" probe=");
+        services::Shell_WriteString(DriverStatusText(probe_status));
+        services::Shell_WriteString(" bus=");
+        if (bus_status == drivers::DRIVER_OK) {
+            services::Shell_WriteString("ok scl=");
+            services::Shell_WriteString(scl_high ? "H" : "L");
+            services::Shell_WriteString(" sda=");
+            services::Shell_WriteString(sda_high ? "H" : "L");
+        } else {
+            services::Shell_WriteString(DriverStatusText(bus_status));
+        }
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "init")) {
+        if (argc != 2) {
+            PrintGy931Usage();
+            return;
+        }
+
+        WriteStatusLine("gy931 init: ", board::Board_Gy931Init());
+        return;
+    }
+
+    if (StrEqual(argv[1], "recover")) {
+        if (argc != 2) {
+            PrintGy931Usage();
+            return;
+        }
+
+        WriteStatusLine("gy931 recover: ", board::Board_Gy931RecoverBus());
+        return;
+    }
+
+    if (StrEqual(argv[1], "scan")) {
+        uint32_t start = 0x08U;
+        uint32_t end = 0x77U;
+
+        if ((argc != 2) && (argc != 4)) {
+            PrintGy931Usage();
+            return;
+        }
+        if (argc == 4) {
+            if ((!ParseUint32(argv[2], 0x77U, &start)) ||
+                (!ParseUint32(argv[3], 0x77U, &end)) ||
+                (start < 0x08U) || (end < start)) {
+                PrintGy931Usage();
+                return;
+            }
+        }
+
+        services::Shell_WriteString("gy931 scan ");
+        WriteHex8((uint8_t) start);
+        services::Shell_WriteString("..");
+        WriteHex8((uint8_t) end);
+        services::Shell_WriteString("\r\n");
+
+        uint32_t count = 0U;
+        for (uint8_t address = (uint8_t) start;
+             address <= (uint8_t) end;
+             address++) {
+            const drivers::DriverStatus status =
+                board::Board_Gy931ProbeAddress(address);
+            if (status == drivers::DRIVER_OK) {
+                services::Shell_WriteString("gy931 found ");
+                WriteHex8(address);
+                services::Shell_WriteString("\r\n");
+                count++;
+            }
+        }
+
+        services::Shell_WriteString("gy931 scan count=");
+        services::Shell_WriteUInt32(count);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "addr")) {
+        if ((argc != 2) && (argc != 3)) {
+            PrintGy931Usage();
+            return;
+        }
+
+        if (argc == 2) {
+            services::Shell_WriteString("gy931 addr=");
+            WriteHex8(board::Board_Gy931Address());
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if ((!ParseUint32(argv[2], 0x77U, &value)) || (value < 0x08U)) {
+            PrintGy931Usage();
+            return;
+        }
+
+        const drivers::DriverStatus status =
+            board::Board_Gy931SetAddress((uint8_t) value);
+        services::Shell_WriteString("gy931 addr: ");
+        services::Shell_WriteString(DriverStatusText(status));
+        services::Shell_WriteString(" addr=");
+        WriteHex8(board::Board_Gy931Address());
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "oled")) {
+#if FEATURE_ENABLE_OLED
+        if (argc < 3) {
+            PrintGy931Usage();
+            return;
+        }
+
+        if (StrEqual(argv[2], "on")) {
+            if ((argc != 3) && (argc != 4)) {
+                PrintGy931Usage();
+                return;
+            }
+            if (argc == 4) {
+                if ((!ParseUint32(argv[3],
+                                  kGy931OledMaxPeriodMs,
+                                  &value)) ||
+                    (value < kGy931OledMinPeriodMs)) {
+                    PrintGy931Usage();
+                    return;
+                }
+                g_gy931OledPeriodMs = value;
+            }
+
+            const drivers::DriverStatus status = Gy931OledSetEnabled(true);
+            services::Shell_WriteString("gy931 oled: ");
+            services::Shell_WriteString(DriverStatusText(status));
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_gy931OledPeriodMs);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if (StrEqual(argv[2], "off")) {
+            if (argc != 3) {
+                PrintGy931Usage();
+                return;
+            }
+
+            const drivers::DriverStatus status = Gy931OledSetEnabled(false);
+            WriteStatusLine("gy931 oled: ", status);
+            return;
+        }
+
+        if (StrEqual(argv[2], "status")) {
+            if (argc != 3) {
+                PrintGy931Usage();
+                return;
+            }
+
+            services::Shell_WriteString("gy931 oled enabled=");
+            services::Shell_WriteUInt32(g_gy931OledEnabled ? 1U : 0U);
+            services::Shell_WriteString(" registered=");
+            services::Shell_WriteUInt32(g_gy931OledTaskRegistered ? 1U : 0U);
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_gy931OledPeriodMs);
+            services::Shell_WriteString(" last=");
+            services::Shell_WriteString(DriverStatusText(g_gy931OledLastStatus));
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if (StrEqual(argv[2], "once")) {
+            if (argc != 3) {
+                PrintGy931Usage();
+                return;
+            }
+
+            WriteStatusLine("gy931 oled once: ", Gy931OledUpdateDisplay());
+            return;
+        }
+
+        PrintGy931Usage();
+        return;
+#else
+        (void) value;
+        services::Shell_WriteLine("gy931 oled: oled disabled");
+        return;
+#endif
+    }
+
+    if (StrEqual(argv[1], "angle")) {
+        drivers::Gy931Angles angles;
+
+        if (argc != 2) {
+            PrintGy931Usage();
+            return;
+        }
+
+        const drivers::DriverStatus status =
+            board::Board_Gy931ReadAngles(&angles);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("gy931 angle: ", status);
+            return;
+        }
+
+        services::Shell_WriteString("gy931 angle raw=");
+        WriteInt32(angles.roll_raw);
+        services::Shell_WriteString(",");
+        WriteInt32(angles.pitch_raw);
+        services::Shell_WriteString(",");
+        WriteInt32(angles.yaw_raw);
+        services::Shell_WriteString(" deg=");
+        WriteFixedMilli(angles.roll_mdeg);
+        services::Shell_WriteString(",");
+        WriteFixedMilli(angles.pitch_mdeg);
+        services::Shell_WriteString(",");
+        WriteFixedMilli(angles.yaw_mdeg);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "sample")) {
+        drivers::Gy931Sample sample;
+
+        if (argc != 2) {
+            PrintGy931Usage();
+            return;
+        }
+
+        const drivers::DriverStatus status =
+            board::Board_Gy931ReadSample(&sample);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("gy931 sample: ", status);
+            return;
+        }
+
+        services::Shell_WriteString("gy931 ");
+        WriteSignedVector3Milli("acc_g", sample.acc_mg, "g");
+        services::Shell_WriteString(" ");
+        WriteSignedVector3Milli("gyro_dps", sample.gyro_mdps, "dps");
+        services::Shell_WriteString(" mag_raw=");
+        WriteInt32(sample.mag_raw[0]);
+        services::Shell_WriteString(",");
+        WriteInt32(sample.mag_raw[1]);
+        services::Shell_WriteString(",");
+        WriteInt32(sample.mag_raw[2]);
+        services::Shell_WriteString(" ");
+        WriteSignedVector3Milli("angle_deg", sample.angle_mdeg, "deg");
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "raw")) {
+        uint32_t reg = 0U;
+        uint32_t word_count = 0U;
+        int16_t words[kGy931MaxReadWords];
+
+        if ((argc != 4) ||
+            (!ParseUint32(argv[2], 0xFFU, &reg)) ||
+            (!ParseUint32(argv[3], kGy931MaxReadWords, &word_count)) ||
+            (word_count == 0U) ||
+            (((uint16_t) reg + ((uint16_t) word_count * 2U)) > 256U)) {
+            PrintGy931Usage();
+            return;
+        }
+
+        const drivers::DriverStatus status =
+            board::Board_Gy931ReadRawRegisters((uint8_t) reg,
+                                               words,
+                                               (uint8_t) word_count);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("gy931 raw: ", status);
+            return;
+        }
+
+        services::Shell_WriteString("gy931 raw reg=");
+        WriteHex8((uint8_t) reg);
+        services::Shell_WriteString(" words=");
+        services::Shell_WriteUInt32(word_count);
+        services::Shell_WriteString(" data:");
+        for (uint8_t i = 0U; i < (uint8_t) word_count; i++) {
+            services::Shell_WriteString(" ");
+            WriteInt32(words[i]);
+            services::Shell_WriteString("(");
+            WriteHex16((uint16_t) words[i]);
+            services::Shell_WriteString(")");
+        }
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    PrintGy931Usage();
+#else
+    (void) argc;
+    (void) argv;
+    services::Shell_WriteLine("gy931: disabled");
+#endif
+}
+
 void Ina219Command(int argc, const char * const argv[])
 {
 #if FEATURE_ENABLE_INA219
@@ -1636,6 +2513,87 @@ void Ina219Command(int argc, const char * const argv[])
         }
         WriteStatusLine("ina219 reset: ", status);
         return;
+    }
+
+    if (StrEqual(argv[1], "oled")) {
+#if FEATURE_ENABLE_OLED
+        if (argc < 3) {
+            PrintIna219Usage();
+            return;
+        }
+
+        if (StrEqual(argv[2], "on")) {
+            if ((argc != 3) && (argc != 4)) {
+                PrintIna219Usage();
+                return;
+            }
+            if (argc == 4) {
+                if ((!ParseUint32(argv[3],
+                                  kIna219OledMaxPeriodMs,
+                                  &value)) ||
+                    (value < kIna219OledMinPeriodMs)) {
+                    PrintIna219Usage();
+                    return;
+                }
+                g_ina219OledPeriodMs = value;
+            }
+
+            const drivers::DriverStatus status = Ina219OledSetEnabled(true);
+            services::Shell_WriteString("ina219 oled: ");
+            services::Shell_WriteString(DriverStatusText(status));
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_ina219OledPeriodMs);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if (StrEqual(argv[2], "off")) {
+            if (argc != 3) {
+                PrintIna219Usage();
+                return;
+            }
+
+            const drivers::DriverStatus status = Ina219OledSetEnabled(false);
+            WriteStatusLine("ina219 oled: ", status);
+            return;
+        }
+
+        if (StrEqual(argv[2], "status")) {
+            if (argc != 3) {
+                PrintIna219Usage();
+                return;
+            }
+
+            services::Shell_WriteString("ina219 oled enabled=");
+            services::Shell_WriteUInt32(g_ina219OledEnabled ? 1U : 0U);
+            services::Shell_WriteString(" registered=");
+            services::Shell_WriteUInt32(g_ina219OledTaskRegistered ? 1U : 0U);
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_ina219OledPeriodMs);
+            services::Shell_WriteString(" last=");
+            services::Shell_WriteString(
+                DriverStatusText(g_ina219OledLastStatus));
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if (StrEqual(argv[2], "once")) {
+            if (argc != 3) {
+                PrintIna219Usage();
+                return;
+            }
+
+            WriteStatusLine("ina219 oled once: ", Ina219OledUpdateDisplay());
+            return;
+        }
+
+        PrintIna219Usage();
+        return;
+#else
+        (void) value;
+        services::Shell_WriteLine("ina219 oled: oled disabled");
+        return;
+#endif
     }
 
     if (StrEqual(argv[1], "read")) {
@@ -3250,70 +4208,47 @@ void MotorCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "stop")) {
-        MotorProtocolFrame response = {};
         static const uint8_t kM1Stop[] = { 0U, 0U };
         static const uint8_t kM2Stop[] = { 0U, 0U };
-        static const uint8_t kTargetZero[] = { 0U, 0U };
+        drivers::DriverStatus final_status = drivers::DRIVER_OK;
 
         if (argc != 2) {
             PrintMotorUsage();
             return;
         }
 
+        MotorProtocolFrame response = {};
         drivers::DriverStatus status = MotorRequest(
             kMotorCmdWrite,
             kMotorRegM1Mode,
             kM1Stop,
             (uint8_t) sizeof(kM1Stop),
             &response);
-        if ((status == drivers::DRIVER_OK) &&
-            ((response.length != 1U) || (response.data[0] != kMotorStatusOk))) {
+        if ((status == drivers::DRIVER_OK) && (!MotorStatusOkResponse(response))) {
             status = drivers::DRIVER_ERROR;
         }
         if (status != drivers::DRIVER_OK) {
             WriteStatusLine("motor stop m1: ", status);
-            return;
+            final_status = status;
         }
 
+        response = {};
         status = MotorRequest(kMotorCmdWrite,
                               kMotorRegM2Mode,
                               kM2Stop,
                               (uint8_t) sizeof(kM2Stop),
                               &response);
-        if ((status == drivers::DRIVER_OK) &&
-            ((response.length != 1U) || (response.data[0] != kMotorStatusOk))) {
+        if ((status == drivers::DRIVER_OK) && (!MotorStatusOkResponse(response))) {
             status = drivers::DRIVER_ERROR;
         }
         if (status != drivers::DRIVER_OK) {
             WriteStatusLine("motor stop m2: ", status);
-            return;
+            if (final_status == drivers::DRIVER_OK) {
+                final_status = status;
+            }
         }
 
-        status = MotorRequest(kMotorCmdWrite,
-                              kMotorRegM1TargetRpm,
-                              kTargetZero,
-                              (uint8_t) sizeof(kTargetZero),
-                              &response);
-        if ((status == drivers::DRIVER_OK) &&
-            ((response.length != 1U) || (response.data[0] != kMotorStatusOk))) {
-            status = drivers::DRIVER_ERROR;
-        }
-        if (status != drivers::DRIVER_OK) {
-            WriteStatusLine("motor stop m1 target: ", status);
-            return;
-        }
-
-        status = MotorRequest(kMotorCmdWrite,
-                              kMotorRegM2TargetRpm,
-                              kTargetZero,
-                              (uint8_t) sizeof(kTargetZero),
-                              &response);
-        if ((status == drivers::DRIVER_OK) &&
-            ((response.length != 1U) || (response.data[0] != kMotorStatusOk))) {
-            status = drivers::DRIVER_ERROR;
-        }
-
-        WriteStatusLine("motor stop: ", status);
+        WriteStatusLine("motor stop: ", final_status);
         return;
     }
 
@@ -3711,7 +4646,7 @@ void AppShell_RegisterCommands(void)
 #if FEATURE_ENABLE_INA219
     (void) services::Shell_RegisterCommand(
         "ina219",
-        "INA219: status|scan|addr|recover|config|read|raw|reg",
+        "INA219: status|scan|addr|recover|config|read|raw|reg|oled",
         Ina219Command);
 #endif
 #if FEATURE_ENABLE_OLED
@@ -3719,6 +4654,12 @@ void AppShell_RegisterCommands(void)
         "oled",
         "OLED: status|init|clear|fill|test|invert|on|off",
         OledCommand);
+#endif
+#if FEATURE_ENABLE_GY931
+    (void) services::Shell_RegisterCommand(
+        "gy931",
+        "GY931: status|init|recover|scan|addr|angle|sample|raw|oled",
+        Gy931Command);
 #endif
 #if FEATURE_ENABLE_IMU
     (void) services::Shell_RegisterCommand(

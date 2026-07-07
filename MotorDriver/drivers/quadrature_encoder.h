@@ -18,6 +18,7 @@ struct EncoderSnapshot {
 
 void QuadratureEncoder_Init(void);
 void QuadratureEncoder_Process(uint32_t now_ms);
+void QuadratureEncoder_SetEnabled(EncoderId encoder, bool enabled);
 void QuadratureEncoder_HandleGpioInterrupt(void);
 void QuadratureEncoder_Reset(EncoderId encoder);
 EncoderSnapshot QuadratureEncoder_GetSnapshot(EncoderId encoder);

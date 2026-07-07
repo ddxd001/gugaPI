@@ -26,4 +26,6 @@
 #define FEATURE_ENABLE_MOTOR             (0U) /* 预留电机控制功能。 */
 #define FEATURE_ENABLE_ENCODER           (0U) /* 预留编码器采样功能。 */
 
+#define FEATURE_ENABLE_GY931             (1U) /* Enable WIT GY931 I2C angle sensor. */
+
 #endif /* CONFIG_FEATURE_CONFIG_H_ */

@@ -1,14 +1,8 @@
 # FIXED
 
-board/board.o: ../board/board.cpp \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_button.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_buzzer.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_config.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_fram.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_gy931.h \
+drivers/gy931/gy931.o: ../drivers/gy931/gy931.cpp \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/gy931/gy931.h \
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/soft_i2c/soft_i2c.h \
  ti_msp_dl_config.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/msp/msp.h \
@@ -93,24 +87,9 @@ board/board.o: ../board/board.cpp \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_vref.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_wwdt.h \
  C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_interrupt.h \
- C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_ina219.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/ina219/ina219.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_imu.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_lora.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_motor_driver.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_oled.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_pins.h \
- C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_button.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_buzzer.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_config.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_fram.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_gy931.h:
+ C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h
 C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/gy931/gy931.h:
+C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/soft_i2c/soft_i2c.h:
 ti_msp_dl_config.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/devices/msp/msp.h:
@@ -196,12 +175,3 @@ C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_vref.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/dl_wwdt.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_interrupt.h:
 C:/ti/mspm0_sdk_2_10_00_04/source/ti/driverlib/m0p/dl_systick.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_ina219.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/ina219/ina219.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_imu.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_led.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_lora.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_motor_driver.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_oled.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_pins.h:
-C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h:

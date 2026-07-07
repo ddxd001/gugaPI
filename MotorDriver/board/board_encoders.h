@@ -9,6 +9,7 @@ namespace board {
 
 void BoardEncoders_Init(void);
 void BoardEncoders_Process(uint32_t now_ms);
+void BoardEncoders_SetEnabled(drivers::EncoderId encoder, bool enabled);
 void BoardEncoders_Reset(drivers::EncoderId encoder);
 drivers::EncoderSnapshot BoardEncoders_GetSnapshot(drivers::EncoderId encoder);
 void BoardEncoders_GpioIrqHandler(void);

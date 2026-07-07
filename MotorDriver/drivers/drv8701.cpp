@@ -28,6 +28,19 @@ void ForceEnableLow(MotorId motor)
     }
 }
 
+void ForceEnableHigh(MotorId motor)
+{
+    if (motor == MotorId::Motor1) {
+        DL_GPIO_initDigitalOutput(BOARD_M1_PWM_IOMUX);
+        DL_GPIO_setPins(BOARD_M1_PWM_PORT, BOARD_M1_PWM_PIN);
+        DL_GPIO_enableOutput(BOARD_M1_PWM_PORT, BOARD_M1_PWM_PIN);
+    } else {
+        DL_GPIO_initDigitalOutput(BOARD_M2_PWM_IOMUX);
+        DL_GPIO_setPins(BOARD_M2_PWM_PORT, BOARD_M2_PWM_PIN);
+        DL_GPIO_enableOutput(BOARD_M2_PWM_PORT, BOARD_M2_PWM_PIN);
+    }
+}
+
 void ConfigureEnablePwm(MotorId motor)
 {
     if (motor == MotorId::Motor1) {
@@ -64,6 +77,11 @@ void SetEnableDuty(MotorId motor, uint8_t duty_percent)
 {
     if (duty_percent == 0U) {
         ForceEnableLow(motor);
+        return;
+    }
+
+    if (duty_percent >= 100U) {
+        ForceEnableHigh(motor);
         return;
     }
 
