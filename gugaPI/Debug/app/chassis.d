@@ -3,6 +3,7 @@
 app/chassis.o: ../app/chassis.cpp \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/app/chassis.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h \
+ C:/Users/DdXd/workspace_ccstheia/gugaPI/app/config_store.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/app/motor_driver_client.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_i2c_bus.h \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/i2c_diag/i2c_diag.h \
@@ -95,6 +96,7 @@ app/chassis.o: ../app/chassis.cpp \
  C:/Users/DdXd/workspace_ccstheia/gugaPI/config/feature_config.h
 C:/Users/DdXd/workspace_ccstheia/gugaPI/app/chassis.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/common/driver_status.h:
+C:/Users/DdXd/workspace_ccstheia/gugaPI/app/config_store.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/app/motor_driver_client.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/board/board_i2c_bus.h:
 C:/Users/DdXd/workspace_ccstheia/gugaPI/drivers/i2c_diag/i2c_diag.h:

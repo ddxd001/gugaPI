@@ -1,6 +1,7 @@
 #include "app/app_main.h"
 
 #include "app/chassis.h"
+#include "app/config_store.h"
 #include "board/board_button.h"
 
 #include "board/board_buzzer.h"
@@ -164,6 +165,7 @@ void App_Init(void)
     g_appState.mode = APP_MODE_RUNNING;
     g_appState.uptime_ms = 0U;
 #if FEATURE_ENABLE_MOTOR_DRIVER
+    (void) ConfigStore_Load();
     (void) Chassis_Init();
 #endif
 #if FEATURE_ENABLE_BUTTONS

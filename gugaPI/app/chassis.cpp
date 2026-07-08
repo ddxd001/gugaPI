@@ -1,5 +1,6 @@
 #include "app/chassis.h"
 
+#include "app/config_store.h"
 #include "app/motor_driver_client.h"
 #include "config/feature_config.h"
 
@@ -8,9 +9,6 @@ namespace {
 
 namespace motor = motor_driver_client;
 
-static const uint32_t kDefaultWheelRadiusMm = 32U;
-static const uint32_t kDefaultWheelTrackMm = 160U;
-static const uint32_t kDefaultCountsPerRev = 22400U;
 static const uint32_t kPiMicro = 3141593U;
 
 motor::Client g_motorClient = { motor::TRANSPORT_I2C,
@@ -23,10 +21,10 @@ ChassisState g_state = {
     { 0, 0, 0, 0, 0U },
     { 0, 0, 0, 0, 0U },
     {
-        kDefaultWheelRadiusMm,
-        kDefaultWheelTrackMm,
-        kDefaultCountsPerRev,
-        kDefaultCountsPerRev,
+        32U,
+        160U,
+        22400U,
+        22400U,
         static_cast<uint16_t>(motor::kSpeedMaxRpm)
     },
     drivers::DRIVER_ERROR_NOT_INITIALIZED
@@ -135,12 +133,27 @@ void SetLastStatus(drivers::DriverStatus status)
     g_state.last_status = status;
 }
 
+void RefreshConfig(void)
+{
+    const ConfigStoreParams *params = ConfigStore_Get();
+    if (params == 0) {
+        return;
+    }
+
+    g_state.config.wheel_radius_mm = params->wheel_radius_mm;
+    g_state.config.wheel_track_mm = params->wheel_track_mm;
+    g_state.config.left_counts_per_rev = params->left_counts_per_rev;
+    g_state.config.right_counts_per_rev = params->right_counts_per_rev;
+    g_state.config.max_wheel_rpm = params->max_wheel_rpm;
+}
+
 } /* namespace */
 
 drivers::DriverStatus Chassis_Init(void)
 {
 #if FEATURE_ENABLE_MOTOR_DRIVER
     motor::Init(&g_motorClient);
+    RefreshConfig();
     g_state.initialized = true;
     g_state.target_linear_mm_s = 0;
     g_state.target_angular_mdeg_s = 0;
@@ -181,6 +194,7 @@ drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
     if (!g_state.initialized) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
+    RefreshConfig();
 
     drivers::DriverStatus status =
         ClampWheelRpm(left_rpm, g_state.config.max_wheel_rpm);
@@ -218,6 +232,7 @@ drivers::DriverStatus Chassis_SetVelocity(int32_t linear_mm_s,
     if (!g_state.initialized) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
+    RefreshConfig();
 
     const int32_t delta_mm_s =
         AngularToWheelDeltaMmPerSecond(angular_mdeg_s,
@@ -248,6 +263,7 @@ drivers::DriverStatus Chassis_Update(void)
     if (!g_state.initialized) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
+    RefreshConfig();
 
     motor::RpmData rpm = {};
     drivers::DriverStatus status = motor::ReadRpm(&g_motorClient, &rpm);

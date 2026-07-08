@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "app/chassis.h"
+#include "app/config_store.h"
 #include "app/motor_driver_client.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
@@ -338,6 +339,17 @@ void PrintFramUsage(void)
     services::Shell_WriteLine("  fram test");
     services::Shell_WriteLine("  fram read <addr> <len 1..32>");
     services::Shell_WriteLine("  fram write <addr> <byte>");
+}
+
+void PrintParamUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  param status");
+    services::Shell_WriteLine("  param get [name]");
+    services::Shell_WriteLine("  param set <name> <value>");
+    services::Shell_WriteLine("  param save");
+    services::Shell_WriteLine("  param load");
+    services::Shell_WriteLine("  param reset");
 }
 
 void PrintIna219Usage(void)
@@ -1108,6 +1120,58 @@ void PrintChassisState(const ChassisState &state)
     PrintChassisWheelState("chassis right", state.right);
 }
 
+void PrintParamLine(const char *name)
+{
+    int32_t value = 0;
+    int32_t min_value = 0;
+    int32_t max_value = 0;
+
+    if (!ConfigStore_GetValue(name, &value, &min_value, &max_value)) {
+        services::Shell_WriteLine("param: unknown");
+        return;
+    }
+
+    services::Shell_WriteString("param ");
+    services::Shell_WriteString(name);
+    services::Shell_WriteString("=");
+    WriteInt32(value);
+    services::Shell_WriteString(" range=");
+    WriteInt32(min_value);
+    services::Shell_WriteString("..");
+    WriteInt32(max_value);
+    services::Shell_WriteString("\r\n");
+}
+
+void PrintAllParams(void)
+{
+    const uint8_t count = ConfigStore_ParamCount();
+    for (uint8_t i = 0U; i < count; i++) {
+        const char *name = ConfigStore_ParamName(i);
+        if (name != 0) {
+            PrintParamLine(name);
+        }
+    }
+}
+
+void PrintParamStatus(void)
+{
+    const ConfigStoreStatus *status = ConfigStore_GetStatus();
+
+    services::Shell_WriteString("param loaded=");
+    services::Shell_WriteUInt32(status->loaded_from_fram ? 1U : 0U);
+    services::Shell_WriteString(" dirty=");
+    services::Shell_WriteUInt32(status->dirty ? 1U : 0U);
+    services::Shell_WriteString(" len=");
+    services::Shell_WriteUInt32(status->stored_length);
+    services::Shell_WriteString(" crc=");
+    WriteHex32(status->stored_crc);
+    services::Shell_WriteString(" load=");
+    services::Shell_WriteString(DriverStatusText(status->last_load_status));
+    services::Shell_WriteString(" save=");
+    services::Shell_WriteString(DriverStatusText(status->last_save_status));
+    services::Shell_WriteString("\r\n");
+}
+
 
 void PrintI2cUsage(void)
 {
@@ -1333,6 +1397,85 @@ void ButtonCommand(int argc, const char * const argv[])
     (void) argv;
     services::Shell_WriteLine("button: disabled");
 #endif
+}
+
+void ParamCommand(int argc, const char * const argv[])
+{
+    if (argc < 2) {
+        PrintParamUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        if (argc != 2) {
+            PrintParamUsage();
+            return;
+        }
+        PrintParamStatus();
+        return;
+    }
+
+    if (StrEqual(argv[1], "get")) {
+        if (argc == 2) {
+            PrintAllParams();
+            return;
+        }
+        if (argc == 3) {
+            PrintParamLine(argv[2]);
+            return;
+        }
+        PrintParamUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "set")) {
+        int32_t value = 0;
+        int32_t min_value = 0;
+        int32_t max_value = 0;
+
+        if ((argc != 4) ||
+            (!ConfigStore_GetValue(argv[2], 0, &min_value, &max_value)) ||
+            (!ParseInt32(argv[3], min_value, max_value, &value))) {
+            PrintParamUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = ConfigStore_Set(argv[2], value);
+        WriteStatusLine("param set: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "save")) {
+        if (argc != 2) {
+            PrintParamUsage();
+            return;
+        }
+        const drivers::DriverStatus status = ConfigStore_Save();
+        WriteStatusLine("param save: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "load")) {
+        if (argc != 2) {
+            PrintParamUsage();
+            return;
+        }
+        const drivers::DriverStatus status = ConfigStore_Load();
+        WriteStatusLine("param load: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "reset")) {
+        if (argc != 2) {
+            PrintParamUsage();
+            return;
+        }
+        ConfigStore_ResetDefaults();
+        services::Shell_WriteLine("param reset: ok");
+        return;
+    }
+
+    PrintParamUsage();
 }
 
 void FramCommand(int argc, const char * const argv[])
@@ -4179,6 +4322,10 @@ void AppShell_RegisterCommands(void)
         "fram",
         "FRAM: fram status|recover|test|read <addr> <len>|write <addr> <byte>",
         FramCommand);
+    (void) services::Shell_RegisterCommand(
+        "param",
+        "Params: status|get|set|save|load|reset",
+        ParamCommand);
 #endif
 #if FEATURE_ENABLE_INA219
     (void) services::Shell_RegisterCommand(
