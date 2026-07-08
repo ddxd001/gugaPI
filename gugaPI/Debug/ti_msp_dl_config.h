@@ -73,8 +73,12 @@ extern "C" {
 #define POWER_STARTUP_DELAY                                                (16)
 
 
-
-#define CPUCLK_FREQ                                                     32000000
+#define GPIO_HFXT_PORT                                                     GPIOA
+#define GPIO_HFXIN_PIN                                             DL_GPIO_PIN_5
+#define GPIO_HFXIN_IOMUX                                         (IOMUX_PINCM10)
+#define GPIO_HFXOUT_PIN                                            DL_GPIO_PIN_6
+#define GPIO_HFXOUT_IOMUX                                        (IOMUX_PINCM11)
+#define CPUCLK_FREQ                                                     40000000
 
 
 
@@ -110,7 +114,7 @@ extern "C" {
 
 /* Defines for DEBUG_UART */
 #define DEBUG_UART_INST                                                    UART3
-#define DEBUG_UART_INST_FREQUENCY                                       32000000
+#define DEBUG_UART_INST_FREQUENCY                                       40000000
 #define DEBUG_UART_INST_IRQHandler                              UART3_IRQHandler
 #define DEBUG_UART_INST_INT_IRQN                                  UART3_INT_IRQn
 #define GPIO_DEBUG_UART_RX_PORT                                            GPIOA
@@ -122,11 +126,11 @@ extern "C" {
 #define GPIO_DEBUG_UART_IOMUX_RX_FUNC                  IOMUX_PINCM35_PF_UART3_RX
 #define GPIO_DEBUG_UART_IOMUX_TX_FUNC                  IOMUX_PINCM36_PF_UART3_TX
 #define DEBUG_UART_BAUD_RATE                                            (115200)
-#define DEBUG_UART_IBRD_32_MHZ_115200_BAUD                                  (17)
-#define DEBUG_UART_FBRD_32_MHZ_115200_BAUD                                  (23)
+#define DEBUG_UART_IBRD_40_MHZ_115200_BAUD                                  (21)
+#define DEBUG_UART_FBRD_40_MHZ_115200_BAUD                                  (45)
 /* Defines for LORA_UART */
 #define LORA_UART_INST                                                     UART0
-#define LORA_UART_INST_FREQUENCY                                        32000000
+#define LORA_UART_INST_FREQUENCY                                        20000000
 #define LORA_UART_INST_IRQHandler                               UART0_IRQHandler
 #define LORA_UART_INST_INT_IRQN                                   UART0_INT_IRQn
 #define GPIO_LORA_UART_RX_PORT                                             GPIOB
@@ -138,11 +142,11 @@ extern "C" {
 #define GPIO_LORA_UART_IOMUX_RX_FUNC                   IOMUX_PINCM13_PF_UART0_RX
 #define GPIO_LORA_UART_IOMUX_TX_FUNC                   IOMUX_PINCM12_PF_UART0_TX
 #define LORA_UART_BAUD_RATE                                             (115200)
-#define LORA_UART_IBRD_32_MHZ_115200_BAUD                                   (17)
-#define LORA_UART_FBRD_32_MHZ_115200_BAUD                                   (23)
+#define LORA_UART_IBRD_20_MHZ_115200_BAUD                                   (10)
+#define LORA_UART_FBRD_20_MHZ_115200_BAUD                                   (54)
 /* Defines for MOTOR_UART */
 #define MOTOR_UART_INST                                                    UART1
-#define MOTOR_UART_INST_FREQUENCY                                       32000000
+#define MOTOR_UART_INST_FREQUENCY                                       20000000
 #define MOTOR_UART_INST_IRQHandler                              UART1_IRQHandler
 #define MOTOR_UART_INST_INT_IRQN                                  UART1_INT_IRQn
 #define GPIO_MOTOR_UART_RX_PORT                                            GPIOA
@@ -154,8 +158,8 @@ extern "C" {
 #define GPIO_MOTOR_UART_IOMUX_RX_FUNC                  IOMUX_PINCM20_PF_UART1_RX
 #define GPIO_MOTOR_UART_IOMUX_TX_FUNC                  IOMUX_PINCM19_PF_UART1_TX
 #define MOTOR_UART_BAUD_RATE                                            (115200)
-#define MOTOR_UART_IBRD_32_MHZ_115200_BAUD                                  (17)
-#define MOTOR_UART_FBRD_32_MHZ_115200_BAUD                                  (23)
+#define MOTOR_UART_IBRD_20_MHZ_115200_BAUD                                  (10)
+#define MOTOR_UART_FBRD_20_MHZ_115200_BAUD                                  (54)
 
 
 
@@ -254,6 +258,7 @@ void SYSCFG_DL_init(void);
 void SYSCFG_DL_initPower(void);
 void SYSCFG_DL_GPIO_init(void);
 void SYSCFG_DL_SYSCTL_init(void);
+void SYSCFG_DL_SYSCTL_CLK_init(void);
 void SYSCFG_DL_SENSOR_I2C_init(void);
 void SYSCFG_DL_MOTOR_I2C_init(void);
 void SYSCFG_DL_DEBUG_UART_init(void);

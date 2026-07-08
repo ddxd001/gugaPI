@@ -59,6 +59,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_init(void)
     SYSCFG_DL_LORA_UART_init();
     SYSCFG_DL_MOTOR_UART_init();
     SYSCFG_DL_IMU_SPI_init();
+    SYSCFG_DL_SYSCTL_CLK_init();
     /* Ensure backup structures have no valid state */
 	gDEBUG_UARTBackup.backupRdy 	= false;
 	gIMU_SPIBackup.backupRdy 	= false;
@@ -115,6 +116,9 @@ SYSCONFIG_WEAK void SYSCFG_DL_initPower(void)
 
 SYSCONFIG_WEAK void SYSCFG_DL_GPIO_init(void)
 {
+
+    DL_GPIO_initPeripheralAnalogFunction(GPIO_HFXIN_IOMUX);
+    DL_GPIO_initPeripheralAnalogFunction(GPIO_HFXOUT_IOMUX);
 
     DL_GPIO_initPeripheralInputFunctionFeatures(GPIO_SENSOR_I2C_IOMUX_SDA,
         GPIO_SENSOR_I2C_IOMUX_SDA_FUNC, DL_GPIO_INVERSION_DISABLE,
@@ -223,14 +227,33 @@ SYSCONFIG_WEAK void SYSCFG_DL_SYSCTL_init(void)
 
 	//Low Power Mode is configured to be SLEEP0
     DL_SYSCTL_setBORThreshold(DL_SYSCTL_BOR_THRESHOLD_LEVEL_0);
+    DL_SYSCTL_setFlashWaitState(DL_SYSCTL_FLASH_WAIT_STATE_2);
 
     
 	DL_SYSCTL_setSYSOSCFreq(DL_SYSCTL_SYSOSC_FREQ_BASE);
 	/* Set default configuration */
 	DL_SYSCTL_disableHFXT();
 	DL_SYSCTL_disableSYSPLL();
+    DL_SYSCTL_setHFCLKSourceHFXTParams(DL_SYSCTL_HFXT_RANGE_32_48_MHZ,10, true);
+    DL_SYSCTL_setULPCLKDivider(DL_SYSCTL_ULPCLK_DIV_2);
+    DL_SYSCTL_setMCLKSource(SYSOSC, HSCLK, DL_SYSCTL_HSCLK_SOURCE_HFCLK);
 
 }
+SYSCONFIG_WEAK void SYSCFG_DL_SYSCTL_CLK_init(void) {
+    while ((DL_SYSCTL_getClockStatus() & (DL_SYSCTL_CLK_STATUS_HFCLK_GOOD
+		 | DL_SYSCTL_CLK_STATUS_HSCLK_GOOD
+		 | DL_SYSCTL_CLK_STATUS_LFOSC_GOOD))
+	       != (DL_SYSCTL_CLK_STATUS_HFCLK_GOOD
+		 | DL_SYSCTL_CLK_STATUS_HSCLK_GOOD
+		 | DL_SYSCTL_CLK_STATUS_LFOSC_GOOD))
+	{
+		/* Ensure that clocks are in default POR configuration before initialization.
+		* Additionally once LFXT is enabled, the internal LFOSC is disabled, and cannot
+		* be re-enabled other than by executing a BOOTRST. */
+		;
+	}
+}
+
 
 
 static const DL_I2C_ClockConfig gSENSOR_I2CClockConfig = {
@@ -247,7 +270,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_SENSOR_I2C_init(void) {
     /* Configure Controller Mode */
     DL_I2C_resetControllerTransfer(SENSOR_I2C_INST);
     /* Set frequency to 400000 Hz*/
-    DL_I2C_setTimerPeriod(SENSOR_I2C_INST, 7);
+    DL_I2C_setTimerPeriod(SENSOR_I2C_INST, 4);
     DL_I2C_setControllerTXFIFOThreshold(SENSOR_I2C_INST, DL_I2C_TX_FIFO_LEVEL_EMPTY);
     DL_I2C_setControllerRXFIFOThreshold(SENSOR_I2C_INST, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
     DL_I2C_enableControllerClockStretching(SENSOR_I2C_INST);
@@ -272,7 +295,7 @@ SYSCONFIG_WEAK void SYSCFG_DL_MOTOR_I2C_init(void) {
     /* Configure Controller Mode */
     DL_I2C_resetControllerTransfer(MOTOR_I2C_INST);
     /* Set frequency to 100000 Hz*/
-    DL_I2C_setTimerPeriod(MOTOR_I2C_INST, 31);
+    DL_I2C_setTimerPeriod(MOTOR_I2C_INST, 19);
     DL_I2C_setControllerTXFIFOThreshold(MOTOR_I2C_INST, DL_I2C_TX_FIFO_LEVEL_EMPTY);
     DL_I2C_setControllerRXFIFOThreshold(MOTOR_I2C_INST, DL_I2C_RX_FIFO_LEVEL_BYTES_1);
     DL_I2C_enableControllerClockStretching(MOTOR_I2C_INST);
@@ -306,10 +329,10 @@ SYSCONFIG_WEAK void SYSCFG_DL_DEBUG_UART_init(void)
     /*
      * Configure baud rate by setting oversampling and baud rate divisors.
      *  Target baud rate: 115200
-     *  Actual baud rate: 115211.52
+     *  Actual baud rate: 115190.78
      */
     DL_UART_Main_setOversampling(DEBUG_UART_INST, DL_UART_OVERSAMPLING_RATE_16X);
-    DL_UART_Main_setBaudRateDivisor(DEBUG_UART_INST, DEBUG_UART_IBRD_32_MHZ_115200_BAUD, DEBUG_UART_FBRD_32_MHZ_115200_BAUD);
+    DL_UART_Main_setBaudRateDivisor(DEBUG_UART_INST, DEBUG_UART_IBRD_40_MHZ_115200_BAUD, DEBUG_UART_FBRD_40_MHZ_115200_BAUD);
 
 
     /* Configure Interrupts */
@@ -345,10 +368,10 @@ SYSCONFIG_WEAK void SYSCFG_DL_LORA_UART_init(void)
     /*
      * Configure baud rate by setting oversampling and baud rate divisors.
      *  Target baud rate: 115200
-     *  Actual baud rate: 115211.52
+     *  Actual baud rate: 115273.78
      */
     DL_UART_Main_setOversampling(LORA_UART_INST, DL_UART_OVERSAMPLING_RATE_16X);
-    DL_UART_Main_setBaudRateDivisor(LORA_UART_INST, LORA_UART_IBRD_32_MHZ_115200_BAUD, LORA_UART_FBRD_32_MHZ_115200_BAUD);
+    DL_UART_Main_setBaudRateDivisor(LORA_UART_INST, LORA_UART_IBRD_20_MHZ_115200_BAUD, LORA_UART_FBRD_20_MHZ_115200_BAUD);
 
 
     /* Configure Interrupts */
@@ -384,10 +407,10 @@ SYSCONFIG_WEAK void SYSCFG_DL_MOTOR_UART_init(void)
     /*
      * Configure baud rate by setting oversampling and baud rate divisors.
      *  Target baud rate: 115200
-     *  Actual baud rate: 115211.52
+     *  Actual baud rate: 115273.78
      */
     DL_UART_Main_setOversampling(MOTOR_UART_INST, DL_UART_OVERSAMPLING_RATE_16X);
-    DL_UART_Main_setBaudRateDivisor(MOTOR_UART_INST, MOTOR_UART_IBRD_32_MHZ_115200_BAUD, MOTOR_UART_FBRD_32_MHZ_115200_BAUD);
+    DL_UART_Main_setBaudRateDivisor(MOTOR_UART_INST, MOTOR_UART_IBRD_20_MHZ_115200_BAUD, MOTOR_UART_FBRD_20_MHZ_115200_BAUD);
 
 
     /* Configure Interrupts */
@@ -424,9 +447,9 @@ SYSCONFIG_WEAK void SYSCFG_DL_IMU_SPI_init(void) {
     /*
      * Set the bit rate clock divider to generate the serial output clock
      *     outputBitRate = (spiInputClock) / ((1 + SCR) * 2)
-     *     1000000 = (32000000)/((1 + 15) * 2)
+     *     1000000 = (40000000)/((1 + 19) * 2)
      */
-    DL_SPI_setBitRateSerialClockDivider(IMU_SPI_INST, 15);
+    DL_SPI_setBitRateSerialClockDivider(IMU_SPI_INST, 19);
     /* Set RX and TX FIFO threshold levels */
     DL_SPI_setFIFOThreshold(IMU_SPI_INST, DL_SPI_RX_FIFO_LEVEL_1_2_FULL, DL_SPI_TX_FIFO_LEVEL_1_2_EMPTY);
 
