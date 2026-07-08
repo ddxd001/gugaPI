@@ -11,8 +11,10 @@ namespace {
 
 static const uint16_t kFramAddress = 0x0000U;
 static const uint32_t kMagic = 0x47504643U; /* "CFPG" little-endian */
-static const uint16_t kVersion = 1U;
-static const uint16_t kPayloadLength = 66U;
+static const uint16_t kVersion = 2U;
+static const uint16_t kLegacyVersion = 1U;
+static const uint16_t kLegacyPayloadLength = 66U;
+static const uint16_t kPayloadLength = 68U;
 static const uint16_t kHeaderLength = 8U;
 static const uint16_t kCrcLength = 4U;
 static const uint16_t kImageLength =
@@ -58,6 +60,10 @@ static const ParamDescriptor kParamDescriptors[] = {
       PARAM_OFFSET(wheel_track_mm), 1, 2000 },
     { "max_wheel_rpm", PARAM_U16,
       PARAM_OFFSET(max_wheel_rpm), 1, 1000 },
+    { "motor_output_invert_flags", PARAM_U8,
+      PARAM_OFFSET(motor_output_invert_flags), 0, 3 },
+    { "motor_encoder_invert_flags", PARAM_U8,
+      PARAM_OFFSET(motor_encoder_invert_flags), 0, 3 },
 
     { "speed_kp", PARAM_U8, PARAM_OFFSET(speed_kp_q4_4), 0, 255 },
     { "speed_ki", PARAM_U8, PARAM_OFFSET(speed_ki_q4_4), 0, 255 },
@@ -184,6 +190,8 @@ void SetDefaults(ConfigStoreParams *params)
     params->wheel_radius_mm = 32U;
     params->wheel_track_mm = 160U;
     params->max_wheel_rpm = 1000U;
+    params->motor_output_invert_flags = 0U;
+    params->motor_encoder_invert_flags = 0U;
 
     params->speed_kp_q4_4 = 1U;
     params->speed_ki_q4_4 = 1U;
@@ -255,6 +263,8 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     cursor = AppendU32(cursor, params.wheel_radius_mm);
     cursor = AppendU32(cursor, params.wheel_track_mm);
     cursor = AppendU16(cursor, params.max_wheel_rpm);
+    cursor = AppendU8(cursor, params.motor_output_invert_flags);
+    cursor = AppendU8(cursor, params.motor_encoder_invert_flags);
 
     cursor = AppendU8(cursor, params.speed_kp_q4_4);
     cursor = AppendU8(cursor, params.speed_ki_q4_4);
@@ -280,15 +290,23 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     (void) AppendI32(cursor, params.imu_gyro_bias_z_mdps);
 }
 
-void DecodePayload(const uint8_t *payload, ConfigStoreParams *params)
+void DecodePayload(const uint8_t *payload,
+                   uint16_t payload_length,
+                   ConfigStoreParams *params)
 {
     const uint8_t *cursor = payload;
+
+    SetDefaults(params);
 
     cursor = ReadU32Field(cursor, &params->left_counts_per_rev);
     cursor = ReadU32Field(cursor, &params->right_counts_per_rev);
     cursor = ReadU32Field(cursor, &params->wheel_radius_mm);
     cursor = ReadU32Field(cursor, &params->wheel_track_mm);
     cursor = ReadU16Field(cursor, &params->max_wheel_rpm);
+    if (payload_length >= kPayloadLength) {
+        cursor = ReadU8Field(cursor, &params->motor_output_invert_flags);
+        cursor = ReadU8Field(cursor, &params->motor_encoder_invert_flags);
+    }
 
     cursor = ReadU8Field(cursor, &params->speed_kp_q4_4);
     cursor = ReadU8Field(cursor, &params->speed_ki_q4_4);
@@ -413,8 +431,12 @@ drivers::DriverStatus ConfigStore_Load(void)
     g_status.stored_length = length;
     g_status.stored_crc = 0U;
 
-    if ((magic != kMagic) || (version != kVersion) ||
-        (length != kPayloadLength)) {
+    const bool current_layout =
+        (version == kVersion) && (length == kPayloadLength);
+    const bool legacy_layout =
+        (version == kLegacyVersion) && (length == kLegacyPayloadLength);
+
+    if ((magic != kMagic) || ((!current_layout) && (!legacy_layout))) {
         g_status.loaded_from_fram = false;
         g_status.last_load_status = drivers::DRIVER_ERROR;
         return g_status.last_load_status;
@@ -431,7 +453,7 @@ drivers::DriverStatus ConfigStore_Load(void)
         return g_status.last_load_status;
     }
 
-    DecodePayload(&image[kHeaderLength], &loaded);
+    DecodePayload(&image[kHeaderLength], length, &loaded);
     if (!ValidateParams(loaded)) {
         g_status.loaded_from_fram = false;
         g_status.last_load_status = drivers::DRIVER_ERROR_INVALID_ARG;

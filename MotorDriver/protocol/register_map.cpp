@@ -16,6 +16,8 @@ void RegisterMap::Init(void)
     registers_[REG_FAULT_FLAGS] = 0U;
     registers_[REG_CONTROL_FLAGS] = CONTROL_ENABLE;
     registers_[REG_I2C_ADDRESS] = kDefaultI2cAddress;
+    registers_[REG_OUTPUT_INVERT_FLAGS] = 0U;
+    registers_[REG_ENCODER_INVERT_FLAGS] = 0U;
     registers_[REG_M1_MODE] = MOTOR_MODE_COAST;
     registers_[REG_M1_DUTY] = 0U;
     registers_[REG_M1_DIRECTION] = MOTOR_DIRECTION_FORWARD;
@@ -386,6 +388,18 @@ uint16_t RegisterMap::PositionSettleMs(void) const
         static_cast<uint16_t>(registers_[REG_POSITION_SETTLE_10MS]) * 10U);
 }
 
+bool RegisterMap::MotorOutputInverted(bool motor1) const
+{
+    const uint8_t mask = motor1 ? INVERT_M1 : INVERT_M2;
+    return (registers_[REG_OUTPUT_INVERT_FLAGS] & mask) != 0U;
+}
+
+bool RegisterMap::EncoderInverted(bool motor1) const
+{
+    const uint8_t mask = motor1 ? INVERT_M1 : INVERT_M2;
+    return (registers_[REG_ENCODER_INVERT_FLAGS] & mask) != 0U;
+}
+
 uint16_t RegisterMap::LoadUint16(uint8_t reg) const
 {
     return static_cast<uint16_t>(
@@ -527,6 +541,14 @@ bool RegisterMap::ApplyWriteTo(uint8_t *target, uint8_t reg, uint8_t value) cons
         target[reg] = value;
         return true;
 
+    case REG_OUTPUT_INVERT_FLAGS:
+    case REG_ENCODER_INVERT_FLAGS:
+        if ((value & static_cast<uint8_t>(~INVERT_VALID_MASK)) != 0U) {
+            return false;
+        }
+        target[reg] = value;
+        return true;
+
     case REG_M1_MODE:
     case REG_M2_MODE:
         if (value > MOTOR_MODE_POSITION) {
@@ -628,6 +650,8 @@ bool RegisterMap::IsControlRegister(uint8_t reg) const
 {
     switch (reg) {
     case REG_CONTROL_FLAGS:
+    case REG_OUTPUT_INVERT_FLAGS:
+    case REG_ENCODER_INVERT_FLAGS:
     case REG_M1_MODE:
     case REG_M1_DUTY:
     case REG_M1_DIRECTION:

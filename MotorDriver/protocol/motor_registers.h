@@ -27,6 +27,8 @@ enum Register : uint8_t {
     REG_FAULT_FLAGS = 0x03U,
     REG_CONTROL_FLAGS = 0x04U,
     REG_I2C_ADDRESS = 0x05U,
+    REG_OUTPUT_INVERT_FLAGS = 0x06U,
+    REG_ENCODER_INVERT_FLAGS = 0x07U,
 
     REG_M1_MODE = 0x10U,
     REG_M1_DUTY = 0x11U,
@@ -147,6 +149,12 @@ enum FaultFlags : uint8_t {
 
 enum ControlFlags : uint8_t {
     CONTROL_ENABLE = 0x01U,
+};
+
+enum InvertFlags : uint8_t {
+    INVERT_M1 = 0x01U,
+    INVERT_M2 = 0x02U,
+    INVERT_VALID_MASK = INVERT_M1 | INVERT_M2,
 };
 
 enum MotorStatusFlags : uint8_t {

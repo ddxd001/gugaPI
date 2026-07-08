@@ -24,6 +24,8 @@ static const char * const kI2cBusName = "motor";
 static const uint8_t kI2cDefaultAddress = BOARD_MOTOR_DRIVER_I2C_ADDRESS;
 
 static const uint8_t kRegDeviceId = 0x00U;
+static const uint8_t kRegOutputInvertFlags = 0x06U;
+static const uint8_t kRegEncoderInvertFlags = 0x07U;
 static const uint8_t kRegM1Mode = 0x10U;
 static const uint8_t kRegM1Encoder = 0x14U;
 static const uint8_t kRegM2Mode = 0x20U;
@@ -41,6 +43,7 @@ static const uint8_t kRegPositionPid = 0x60U;
 static const uint8_t kRegPositionControl = 0x68U;
 
 static const uint8_t kDeviceInfoLength = 6U;
+static const uint8_t kInvertConfigLength = 2U;
 static const uint8_t kEncoderBlockLength = 9U;
 static const uint8_t kSpeedRpmBlockLength = 8U;
 static const uint8_t kSpeedPidLength = 5U;
@@ -54,6 +57,10 @@ static const uint8_t kModeRun = 1U;
 static const uint8_t kModeBrake = 2U;
 static const uint8_t kModeSpeed = 3U;
 static const uint8_t kModePosition = 4U;
+
+static const uint8_t kInvertM1 = 0x01U;
+static const uint8_t kInvertM2 = 0x02U;
+static const uint8_t kInvertValidMask = kInvertM1 | kInvertM2;
 
 static const uint32_t kSpeedMaxRpm = 1000U;
 static const uint32_t kCountsPerRevMax = 100000000U;
@@ -104,6 +111,11 @@ struct RpmData {
 struct CountsPerRev {
     uint32_t m1;
     uint32_t m2;
+};
+
+struct InvertConfig {
+    uint8_t output_flags;
+    uint8_t encoder_flags;
 };
 
 struct SpeedPid {
@@ -680,6 +692,55 @@ inline drivers::DriverStatus SetCountsPerRev(Client *client,
 
     const drivers::DriverStatus status =
         WriteRegisters(client, kRegCountsPerRev, data, kCountsPerRevLength,
+                       &response);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    return StatusOkResponse(response) ? drivers::DRIVER_OK
+                                      : drivers::DRIVER_ERROR;
+}
+
+inline drivers::DriverStatus ReadInvertConfig(Client *client,
+                                              InvertConfig *config)
+{
+    Frame response = {};
+    if (config == 0) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    const drivers::DriverStatus status =
+        ReadRegisters(client,
+                      kRegOutputInvertFlags,
+                      kInvertConfigLength,
+                      &response);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    if (response.length != kInvertConfigLength) {
+        return drivers::DRIVER_ERROR;
+    }
+
+    config->output_flags = static_cast<uint8_t>(
+        response.data[0] & kInvertValidMask);
+    config->encoder_flags = static_cast<uint8_t>(
+        response.data[1] & kInvertValidMask);
+    return drivers::DRIVER_OK;
+}
+
+inline drivers::DriverStatus SetInvertConfig(Client *client,
+                                             const InvertConfig &config)
+{
+    Frame response = {};
+    uint8_t data[kInvertConfigLength] = {
+        static_cast<uint8_t>(config.output_flags & kInvertValidMask),
+        static_cast<uint8_t>(config.encoder_flags & kInvertValidMask),
+    };
+
+    const drivers::DriverStatus status =
+        WriteRegisters(client,
+                       kRegOutputInvertFlags,
+                       data,
+                       kInvertConfigLength,
                        &response);
     if (status != drivers::DRIVER_OK) {
         return status;

@@ -14,6 +14,8 @@ struct ConfigStoreParams {
     uint32_t wheel_radius_mm;
     uint32_t wheel_track_mm;
     uint16_t max_wheel_rpm;
+    uint8_t motor_output_invert_flags;
+    uint8_t motor_encoder_invert_flags;
 
     uint8_t speed_kp_q4_4;
     uint8_t speed_ki_q4_4;

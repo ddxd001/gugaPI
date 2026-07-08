@@ -147,6 +147,22 @@ void RefreshConfig(void)
     g_state.config.max_wheel_rpm = params->max_wheel_rpm;
 }
 
+drivers::DriverStatus ApplyPersistentMotorConfig(void)
+{
+    const ConfigStoreParams *params = ConfigStore_Get();
+    if (params == 0) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    const motor::InvertConfig invert = {
+        static_cast<uint8_t>(params->motor_output_invert_flags &
+                             motor::kInvertValidMask),
+        static_cast<uint8_t>(params->motor_encoder_invert_flags &
+                             motor::kInvertValidMask),
+    };
+    return motor::SetInvertConfig(&g_motorClient, invert);
+}
+
 } /* namespace */
 
 drivers::DriverStatus Chassis_Init(void)
@@ -159,8 +175,8 @@ drivers::DriverStatus Chassis_Init(void)
     g_state.target_angular_mdeg_s = 0;
     g_state.left.target_rpm = 0;
     g_state.right.target_rpm = 0;
-    g_state.last_status = drivers::DRIVER_OK;
-    return drivers::DRIVER_OK;
+    g_state.last_status = ApplyPersistentMotorConfig();
+    return g_state.last_status;
 #else
     g_state.initialized = false;
     g_state.last_status = drivers::DRIVER_ERROR_UNSUPPORTED;

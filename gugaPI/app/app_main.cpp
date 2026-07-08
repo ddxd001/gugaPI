@@ -151,6 +151,38 @@ void App_ButtonScanTask(void)
     }
 }
 #endif
+
+#if FEATURE_ENABLE_BUTTONS && FEATURE_ENABLE_MOTOR_DRIVER && \
+    FEATURE_ENABLE_BUTTON_CHASSIS_TEST
+const uint32_t BUTTON_CHASSIS_TEST_PERIOD_MS = 10U;
+const uint32_t BUTTON_CHASSIS_TEST_RUN_MS = 1000U;
+const int32_t BUTTON_CHASSIS_TEST_RPM = 5;
+
+static bool g_buttonChassisTestActive = false;
+static uint32_t g_buttonChassisTestStartMs = 0U;
+
+void App_ButtonChassisTestTask(void)
+{
+    const uint32_t now = services::Time_Millis();
+
+    if ((!g_buttonChassisTestActive) &&
+        board::Board_ButtonWasPressed(board::BOARD_BUTTON_1)) {
+        if (app::Chassis_SetWheelRpm(BUTTON_CHASSIS_TEST_RPM,
+                                     BUTTON_CHASSIS_TEST_RPM) ==
+            drivers::DRIVER_OK) {
+            g_buttonChassisTestActive = true;
+            g_buttonChassisTestStartMs = now;
+        }
+    }
+
+    if (g_buttonChassisTestActive &&
+        services::Time_HasElapsed(g_buttonChassisTestStartMs,
+                                  BUTTON_CHASSIS_TEST_RUN_MS)) {
+        (void) app::Chassis_Stop();
+        g_buttonChassisTestActive = false;
+    }
+}
+#endif
 } /* namespace */
 
 namespace app {
@@ -172,6 +204,16 @@ void App_Init(void)
     if (services::Scheduler_AddTask("buttons",
                                     App_ButtonScanTask,
                                     BUTTON_SCAN_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
+#if FEATURE_ENABLE_BUTTONS && FEATURE_ENABLE_MOTOR_DRIVER && \
+    FEATURE_ENABLE_BUTTON_CHASSIS_TEST
+    if (services::Scheduler_AddTask("button_chassis",
+                                    App_ButtonChassisTestTask,
+                                    BUTTON_CHASSIS_TEST_PERIOD_MS,
                                     0U,
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);

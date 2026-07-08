@@ -62,6 +62,8 @@ public:
     uint8_t PositionMaxDuty(void) const;
     uint16_t PositionExitTolerance(void) const;
     uint16_t PositionSettleMs(void) const;
+    bool MotorOutputInverted(bool motor1) const;
+    bool EncoderInverted(bool motor1) const;
 
 private:
     uint16_t LoadUint16(uint8_t reg) const;

@@ -36,6 +36,13 @@ drivers::MotorDirection DirectionFromRegister(uint8_t value)
                : drivers::MotorDirection::Forward;
 }
 
+uint8_t ToggleDirection(uint8_t direction)
+{
+    return (direction == protocol::MOTOR_DIRECTION_REVERSE)
+               ? protocol::MOTOR_DIRECTION_FORWARD
+               : protocol::MOTOR_DIRECTION_REVERSE;
+}
+
 void ResetPid(SpeedPidState *state)
 {
     state->integral_q4 = 0;
@@ -488,11 +495,15 @@ void MotorControl_Apply(const protocol::RegisterMap &registers,
     ApplyMotor(drivers::MotorId::Motor1,
                registers.Read(protocol::REG_M1_MODE),
                registers.Read(protocol::REG_M1_DUTY),
-               registers.Read(protocol::REG_M1_DIRECTION));
+               registers.MotorOutputInverted(true) ?
+                   ToggleDirection(registers.Read(protocol::REG_M1_DIRECTION)) :
+                   registers.Read(protocol::REG_M1_DIRECTION));
     ApplyMotor(drivers::MotorId::Motor2,
                registers.Read(protocol::REG_M2_MODE),
                registers.Read(protocol::REG_M2_DUTY),
-               registers.Read(protocol::REG_M2_DIRECTION));
+               registers.MotorOutputInverted(false) ?
+                   ToggleDirection(registers.Read(protocol::REG_M2_DIRECTION)) :
+                   registers.Read(protocol::REG_M2_DIRECTION));
 }
 
 void MotorControl_StopAll(void)

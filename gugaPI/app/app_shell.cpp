@@ -204,6 +204,34 @@ bool ParsePercent(const char *text, uint8_t *outValue)
     return true;
 }
 
+bool ParseOnOff(const char *text, bool *outValue)
+{
+    if ((text == 0) || (outValue == 0)) {
+        return false;
+    }
+    if (StrEqual(text, "on") || StrEqual(text, "1")) {
+        *outValue = true;
+        return true;
+    }
+    if (StrEqual(text, "off") || StrEqual(text, "0")) {
+        *outValue = false;
+        return true;
+    }
+    return false;
+}
+
+void SetFlagValue(uint8_t *flags, uint8_t mask, bool enabled)
+{
+    if (flags == 0) {
+        return;
+    }
+    if (enabled) {
+        *flags = static_cast<uint8_t>(*flags | mask);
+    } else {
+        *flags = static_cast<uint8_t>(*flags & static_cast<uint8_t>(~mask));
+    }
+}
+
 char HexDigit(uint8_t value)
 {
     value &= 0x0FU;
@@ -908,6 +936,9 @@ void PrintMotorUsage(void)
     services::Shell_WriteLine("  motor rpm");
     services::Shell_WriteLine("  motor cfg");
     services::Shell_WriteLine("  motor cfg <m1_counts_per_rev> <m2_counts_per_rev>");
+    services::Shell_WriteLine("  motor invert");
+    services::Shell_WriteLine("  motor invert m1|m2 on|off");
+    services::Shell_WriteLine("  motor invert enc m1|m2 on|off");
     services::Shell_WriteLine("  motor pid");
     services::Shell_WriteLine("  motor pid <kp_q4.4> <ki_q4.4> <kd_q4.4> [max_duty [min_duty]]");
     services::Shell_WriteLine("  motor pos");
@@ -992,6 +1023,28 @@ void PrintMotorConfigBlock(const motor::CountsPerRev &counts)
     services::Shell_WriteUInt32(counts.m1);
     services::Shell_WriteString(" m2_counts_per_rev=");
     services::Shell_WriteUInt32(counts.m2);
+    services::Shell_WriteString("\r\n");
+}
+
+void WriteOnOff(bool enabled)
+{
+    services::Shell_WriteString(enabled ? "on" : "off");
+}
+
+void PrintMotorInvertBlock(const motor::InvertConfig &config)
+{
+    services::Shell_WriteString("motor invert output=");
+    WriteHex8(config.output_flags);
+    services::Shell_WriteString(" encoder=");
+    WriteHex8(config.encoder_flags);
+    services::Shell_WriteString(" m1=");
+    WriteOnOff((config.output_flags & motor::kInvertM1) != 0U);
+    services::Shell_WriteString(" m2=");
+    WriteOnOff((config.output_flags & motor::kInvertM2) != 0U);
+    services::Shell_WriteString(" enc_m1=");
+    WriteOnOff((config.encoder_flags & motor::kInvertM1) != 0U);
+    services::Shell_WriteString(" enc_m2=");
+    WriteOnOff((config.encoder_flags & motor::kInvertM2) != 0U);
     services::Shell_WriteString("\r\n");
 }
 
@@ -3696,6 +3749,79 @@ void MotorCommand(int argc, const char * const argv[])
         }
 
         services::Shell_WriteLine("motor cfg: ok");
+        return;
+    }
+
+    if (StrEqual(argv[1], "invert")) {
+        motor::InvertConfig config = {};
+        const drivers::DriverStatus read_status =
+            motor::ReadInvertConfig(&g_motorClient, &config);
+        if (read_status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor invert: ", read_status);
+            return;
+        }
+
+        if (argc == 2) {
+            PrintMotorInvertBlock(config);
+            return;
+        }
+
+        bool encoder_invert = false;
+        const char *motor_name = 0;
+        const char *state_name = 0;
+
+        if (argc == 4) {
+            motor_name = argv[2];
+            state_name = argv[3];
+        } else if ((argc == 5) && StrEqual(argv[2], "enc")) {
+            encoder_invert = true;
+            motor_name = argv[3];
+            state_name = argv[4];
+        } else {
+            PrintMotorUsage();
+            return;
+        }
+
+        uint8_t mask = 0U;
+        bool enabled = false;
+        if (StrEqual(motor_name, "m1")) {
+            mask = motor::kInvertM1;
+        } else if (StrEqual(motor_name, "m2")) {
+            mask = motor::kInvertM2;
+        } else {
+            PrintMotorUsage();
+            return;
+        }
+
+        if (!ParseOnOff(state_name, &enabled)) {
+            PrintMotorUsage();
+            return;
+        }
+
+        if (encoder_invert) {
+            SetFlagValue(&config.encoder_flags, mask, enabled);
+        } else {
+            SetFlagValue(&config.output_flags, mask, enabled);
+        }
+
+        const drivers::DriverStatus status =
+            motor::SetInvertConfig(&g_motorClient, config);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor invert: ", status);
+            return;
+        }
+
+        const drivers::DriverStatus param_status =
+            ConfigStore_Set(encoder_invert ? "motor_encoder_invert_flags" :
+                                             "motor_output_invert_flags",
+                            encoder_invert ? config.encoder_flags :
+                                             config.output_flags);
+        if (param_status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor invert param: ", param_status);
+            return;
+        }
+
+        services::Shell_WriteLine("motor invert: ok");
         return;
     }
 

@@ -27,5 +27,6 @@
 #define FEATURE_ENABLE_ENCODER           (0U) /* 预留编码器采样功能。 */
 
 #define FEATURE_ENABLE_GY931             (1U) /* Enable WIT GY931 I2C angle sensor. */
+#define FEATURE_ENABLE_BUTTON_CHASSIS_TEST (1U) /* Button1 chassis wheel test. */
 
 #endif /* CONFIG_FEATURE_CONFIG_H_ */

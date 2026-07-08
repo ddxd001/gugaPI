@@ -68,6 +68,14 @@ int16_t EncoderCountsPerSecondToRpm(int32_t counts_per_second,
     return static_cast<int16_t>(rpm);
 }
 
+int32_t NegateInt32Saturating(int32_t value)
+{
+    if (value == static_cast<int32_t>(-2147483647 - 1)) {
+        return 2147483647;
+    }
+    return -value;
+}
+
 void RefreshWatchdogLeaseFromWrite(void)
 {
     g_timeout_active = false;
@@ -199,26 +207,40 @@ MotorFeedback SyncEncoderRegisters(void)
         board::BoardEncoders_GetSnapshot(drivers::EncoderId::Encoder1);
     const drivers::EncoderSnapshot m2 =
         board::BoardEncoders_GetSnapshot(drivers::EncoderId::Encoder2);
+    int32_t m1_count = m1.count;
+    int32_t m1_cps = m1.counts_per_second;
+    int32_t m2_count = m2.count;
+    int32_t m2_cps = m2.counts_per_second;
+
+    if (g_registers.EncoderInverted(true)) {
+        m1_count = NegateInt32Saturating(m1_count);
+        m1_cps = NegateInt32Saturating(m1_cps);
+    }
+    if (g_registers.EncoderInverted(false)) {
+        m2_count = NegateInt32Saturating(m2_count);
+        m2_cps = NegateInt32Saturating(m2_cps);
+    }
+
     int16_t m1_rpm =
-        EncoderCountsPerSecondToRpm(m1.counts_per_second,
+        EncoderCountsPerSecondToRpm(m1_cps,
                                     g_registers.M1CountsPerRev());
     const int16_t m2_rpm =
-        EncoderCountsPerSecondToRpm(m2.counts_per_second,
+        EncoderCountsPerSecondToRpm(m2_cps,
                                     g_registers.M2CountsPerRev());
     m1_rpm = ApplyM1FastEncoderDirection(m1_rpm);
 
     const MotorFeedback feedback = {
-        m1.count,
+        m1_count,
         m1_rpm,
-        m2.count,
+        m2_count,
         m2_rpm,
     };
 
-    g_registers.UpdateEncoderSnapshot(m1.count,
-                                      m1.counts_per_second,
+    g_registers.UpdateEncoderSnapshot(m1_count,
+                                      m1_cps,
                                       m1.state,
-                                      m2.count,
-                                      m2.counts_per_second,
+                                      m2_count,
+                                      m2_cps,
                                       m2.state);
     g_registers.UpdateMeasuredRpm(feedback.m1_rpm, feedback.m2_rpm);
     return feedback;
