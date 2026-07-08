@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "app/chassis.h"
 #include "app/motor_driver_client.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
@@ -49,6 +50,8 @@ static const uint32_t kIna219OledTaskPeriodMs = 50U;
 static const uint32_t kIna219OledDefaultPeriodMs = 500U;
 static const uint32_t kIna219OledMinPeriodMs = 100U;
 static const uint32_t kIna219OledMaxPeriodMs = 5000U;
+static const int32_t kChassisLinearLimitMmS = 5000;
+static const int32_t kChassisAngularLimitMdegS = 720000;
 motor::Client g_motorClient = { motor::TRANSPORT_I2C,
                                 motor::kI2cDefaultAddress };
 #if FEATURE_ENABLE_OLED && (FEATURE_ENABLE_GY931 || FEATURE_ENABLE_INA219)
@@ -917,6 +920,16 @@ void PrintMotorUsage(void)
     services::Shell_WriteLine("  motor test");
 }
 
+void PrintChassisUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  chassis status");
+    services::Shell_WriteLine("  chassis stop");
+    services::Shell_WriteLine("  chassis wheel <left_rpm> <right_rpm>");
+    services::Shell_WriteLine(
+        "  chassis vel <linear_mm_s> <angular_mdeg_s>");
+}
+
 void PrintMotorFrameData(const char *prefix, const motor::Frame &frame)
 {
     services::Shell_WriteString(prefix);
@@ -1048,6 +1061,51 @@ void PrintMotorPositionControlBlock(const motor::PositionControl &control)
     services::Shell_WriteString("motor posctl");
     PrintMotorPositionControlFields(control);
     services::Shell_WriteString("\r\n");
+}
+
+void PrintChassisWheelState(const char *prefix,
+                            const ChassisWheelState &wheel)
+{
+    services::Shell_WriteString(prefix);
+    services::Shell_WriteString(" target_rpm=");
+    WriteInt32(wheel.target_rpm);
+    services::Shell_WriteString(" actual_rpm=");
+    WriteInt32(wheel.actual_rpm);
+    services::Shell_WriteString(" enc=");
+    WriteInt32(wheel.encoder_count);
+    services::Shell_WriteString(" cps=");
+    WriteInt32(wheel.encoder_counts_per_second);
+    services::Shell_WriteString(" state=");
+    WriteHex8(wheel.encoder_state);
+    services::Shell_WriteString("\r\n");
+}
+
+void PrintChassisState(const ChassisState &state)
+{
+    services::Shell_WriteString("chassis initialized=");
+    services::Shell_WriteUInt32(state.initialized ? 1U : 0U);
+    services::Shell_WriteString(" linear_mm_s=");
+    WriteInt32(state.target_linear_mm_s);
+    services::Shell_WriteString(" angular_mdeg_s=");
+    WriteInt32(state.target_angular_mdeg_s);
+    services::Shell_WriteString(" last=");
+    services::Shell_WriteString(DriverStatusText(state.last_status));
+    services::Shell_WriteString("\r\n");
+
+    services::Shell_WriteString("chassis cfg radius_mm=");
+    services::Shell_WriteUInt32(state.config.wheel_radius_mm);
+    services::Shell_WriteString(" track_mm=");
+    services::Shell_WriteUInt32(state.config.wheel_track_mm);
+    services::Shell_WriteString(" left_cpr=");
+    services::Shell_WriteUInt32(state.config.left_counts_per_rev);
+    services::Shell_WriteString(" right_cpr=");
+    services::Shell_WriteUInt32(state.config.right_counts_per_rev);
+    services::Shell_WriteString(" max_rpm=");
+    services::Shell_WriteUInt32(state.config.max_wheel_rpm);
+    services::Shell_WriteString("\r\n");
+
+    PrintChassisWheelState("chassis left", state.left);
+    PrintChassisWheelState("chassis right", state.right);
 }
 
 
@@ -3139,6 +3197,91 @@ drivers::DriverStatus MotorWriteArgs(int argc,
     return drivers::DRIVER_OK;
 }
 
+void ChassisCommand(int argc, const char * const argv[])
+{
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    if (argc < 2) {
+        PrintChassisUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        if (argc != 2) {
+            PrintChassisUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = Chassis_Update();
+        if ((status != drivers::DRIVER_OK) &&
+            (status != drivers::DRIVER_ERROR_NOT_INITIALIZED)) {
+            WriteStatusLine("chassis update: ", status);
+        }
+        PrintChassisState(*Chassis_GetState());
+        return;
+    }
+
+    if (StrEqual(argv[1], "stop")) {
+        if (argc != 2) {
+            PrintChassisUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status = Chassis_Stop();
+        WriteStatusLine("chassis stop: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "wheel")) {
+        int32_t left_rpm = 0;
+        int32_t right_rpm = 0;
+        const ChassisState *state = Chassis_GetState();
+        const int32_t max_rpm =
+            static_cast<int32_t>(state->config.max_wheel_rpm);
+
+        if ((argc != 4) ||
+            (!ParseInt32(argv[2], -max_rpm, max_rpm, &left_rpm)) ||
+            (!ParseInt32(argv[3], -max_rpm, max_rpm, &right_rpm))) {
+            PrintChassisUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status =
+            Chassis_SetWheelRpm(left_rpm, right_rpm);
+        WriteStatusLine("chassis wheel: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "vel")) {
+        int32_t linear_mm_s = 0;
+        int32_t angular_mdeg_s = 0;
+
+        if ((argc != 4) ||
+            (!ParseInt32(argv[2],
+                         -kChassisLinearLimitMmS,
+                         kChassisLinearLimitMmS,
+                         &linear_mm_s)) ||
+            (!ParseInt32(argv[3],
+                         -kChassisAngularLimitMdegS,
+                         kChassisAngularLimitMdegS,
+                         &angular_mdeg_s))) {
+            PrintChassisUsage();
+            return;
+        }
+
+        const drivers::DriverStatus status =
+            Chassis_SetVelocity(linear_mm_s, angular_mdeg_s);
+        WriteStatusLine("chassis vel: ", status);
+        return;
+    }
+
+    PrintChassisUsage();
+#else
+    (void) argc;
+    (void) argv;
+    services::Shell_WriteLine("chassis: disabled");
+#endif
+}
+
 void MotorCommand(int argc, const char * const argv[])
 {
 #if FEATURE_ENABLE_MOTOR_DRIVER
@@ -4072,6 +4215,10 @@ void AppShell_RegisterCommands(void)
         "motor",
         "MotorDriver: status|bus|ping|info|reg|set|run",
         MotorCommand);
+    (void) services::Shell_RegisterCommand(
+        "chassis",
+        "Chassis: status|stop|wheel <l_rpm> <r_rpm>|vel <mm_s> <mdeg_s>",
+        ChassisCommand);
 #endif
     (void) services::Shell_RegisterCommand(
         "i2c",

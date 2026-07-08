@@ -5,6 +5,7 @@
 "./algorithm/pid.o"
 "./app/app_main.o"
 "./app/app_shell.o"
+"./app/chassis.o"
 "./app/motor_driver_client.o"
 "./board/board.o"
 "./board/board_button.o"

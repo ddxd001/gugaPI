@@ -1,0 +1,275 @@
+#include "app/chassis.h"
+
+#include "app/motor_driver_client.h"
+#include "config/feature_config.h"
+
+namespace app {
+namespace {
+
+namespace motor = motor_driver_client;
+
+static const uint32_t kDefaultWheelRadiusMm = 32U;
+static const uint32_t kDefaultWheelTrackMm = 160U;
+static const uint32_t kDefaultCountsPerRev = 22400U;
+static const uint32_t kPiMicro = 3141593U;
+
+motor::Client g_motorClient = { motor::TRANSPORT_I2C,
+                                motor::kI2cDefaultAddress };
+
+ChassisState g_state = {
+    false,
+    0,
+    0,
+    { 0, 0, 0, 0, 0U },
+    { 0, 0, 0, 0, 0U },
+    {
+        kDefaultWheelRadiusMm,
+        kDefaultWheelTrackMm,
+        kDefaultCountsPerRev,
+        kDefaultCountsPerRev,
+        static_cast<uint16_t>(motor::kSpeedMaxRpm)
+    },
+    drivers::DRIVER_ERROR_NOT_INITIALIZED
+};
+
+int32_t AbsInt32(int32_t value)
+{
+    return (value < 0) ? -value : value;
+}
+
+drivers::DriverStatus ClampWheelRpm(int32_t rpm, uint16_t max_rpm)
+{
+    return (AbsInt32(rpm) <= static_cast<int32_t>(max_rpm)) ?
+           drivers::DRIVER_OK : drivers::DRIVER_ERROR_INVALID_ARG;
+}
+
+int32_t DivideRoundInt64(int64_t numerator, int64_t denominator)
+{
+    if (denominator == 0) {
+        return 0;
+    }
+    if (numerator >= 0) {
+        numerator += denominator / 2;
+    } else {
+        numerator -= denominator / 2;
+    }
+    return static_cast<int32_t>(numerator / denominator);
+}
+
+int32_t WheelMmPerSecondToRpm(int32_t wheel_mm_s,
+                              uint32_t wheel_radius_mm,
+                              uint32_t counts_per_rev)
+{
+    if (counts_per_rev == 0U) {
+        return 0;
+    }
+
+    const int64_t numerator =
+        static_cast<int64_t>(wheel_mm_s) *
+        static_cast<int64_t>(counts_per_rev) * 60LL * 1000000LL;
+    const int64_t denominator =
+        2LL * static_cast<int64_t>(kPiMicro) *
+        static_cast<int64_t>(wheel_radius_mm) *
+        static_cast<int64_t>(counts_per_rev);
+
+    return DivideRoundInt64(numerator, denominator);
+}
+
+int32_t AngularToWheelDeltaMmPerSecond(int32_t angular_mdeg_s,
+                                       uint32_t wheel_track_mm)
+{
+    const int64_t numerator =
+        static_cast<int64_t>(angular_mdeg_s) *
+        static_cast<int64_t>(wheel_track_mm) *
+        static_cast<int64_t>(kPiMicro);
+    const int64_t denominator = 360000LL * 1000000LL;
+
+    return DivideRoundInt64(numerator, denominator);
+}
+
+drivers::DriverStatus SetOneWheelRpm(bool motor1, int32_t rpm)
+{
+    motor::MotionResult motion = {};
+    const uint16_t target_rpm = static_cast<uint16_t>(AbsInt32(rpm));
+    const bool reverse = (rpm < 0);
+
+    const drivers::DriverStatus status =
+        motor::SetSpeed(&g_motorClient, motor1, target_rpm, reverse, &motion);
+    if (motion.target_status != drivers::DRIVER_OK) {
+        return motion.target_status;
+    }
+    if (!motion.target_ack) {
+        return drivers::DRIVER_ERROR;
+    }
+    if (motion.mode_status != drivers::DRIVER_OK) {
+        return motion.mode_status;
+    }
+    return motion.mode_ack ? status : drivers::DRIVER_ERROR;
+}
+
+drivers::DriverStatus ReadWheelState(bool motor1,
+                                     ChassisWheelState *wheel_state,
+                                     int32_t actual_rpm)
+{
+    motor::EncoderData encoder = {};
+
+    if (wheel_state == 0) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    wheel_state->actual_rpm = actual_rpm;
+    const drivers::DriverStatus status =
+        motor::ReadEncoder(&g_motorClient, motor1, &encoder);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    wheel_state->encoder_count = encoder.count;
+    wheel_state->encoder_counts_per_second = encoder.counts_per_second;
+    wheel_state->encoder_state = encoder.state;
+    return drivers::DRIVER_OK;
+}
+
+void SetLastStatus(drivers::DriverStatus status)
+{
+    g_state.last_status = status;
+}
+
+} /* namespace */
+
+drivers::DriverStatus Chassis_Init(void)
+{
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    motor::Init(&g_motorClient);
+    g_state.initialized = true;
+    g_state.target_linear_mm_s = 0;
+    g_state.target_angular_mdeg_s = 0;
+    g_state.left.target_rpm = 0;
+    g_state.right.target_rpm = 0;
+    g_state.last_status = drivers::DRIVER_OK;
+    return drivers::DRIVER_OK;
+#else
+    g_state.initialized = false;
+    g_state.last_status = drivers::DRIVER_ERROR_UNSUPPORTED;
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+#endif
+}
+
+drivers::DriverStatus Chassis_Stop(void)
+{
+    if (!g_state.initialized) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    motor::StopResult stop_result = {};
+    const drivers::DriverStatus status = motor::Stop(&g_motorClient,
+                                                     &stop_result);
+
+    if (status == drivers::DRIVER_OK) {
+        g_state.target_linear_mm_s = 0;
+        g_state.target_angular_mdeg_s = 0;
+        g_state.left.target_rpm = 0;
+        g_state.right.target_rpm = 0;
+    }
+    SetLastStatus(status);
+    return status;
+}
+
+drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
+                                          int32_t right_rpm)
+{
+    if (!g_state.initialized) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    drivers::DriverStatus status =
+        ClampWheelRpm(left_rpm, g_state.config.max_wheel_rpm);
+    if (status != drivers::DRIVER_OK) {
+        SetLastStatus(status);
+        return status;
+    }
+    status = ClampWheelRpm(right_rpm, g_state.config.max_wheel_rpm);
+    if (status != drivers::DRIVER_OK) {
+        SetLastStatus(status);
+        return status;
+    }
+
+    status = SetOneWheelRpm(true, left_rpm);
+    if (status != drivers::DRIVER_OK) {
+        SetLastStatus(status);
+        return status;
+    }
+
+    status = SetOneWheelRpm(false, right_rpm);
+    if (status != drivers::DRIVER_OK) {
+        SetLastStatus(status);
+        return status;
+    }
+
+    g_state.left.target_rpm = left_rpm;
+    g_state.right.target_rpm = right_rpm;
+    SetLastStatus(drivers::DRIVER_OK);
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus Chassis_SetVelocity(int32_t linear_mm_s,
+                                          int32_t angular_mdeg_s)
+{
+    if (!g_state.initialized) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    const int32_t delta_mm_s =
+        AngularToWheelDeltaMmPerSecond(angular_mdeg_s,
+                                       g_state.config.wheel_track_mm);
+    const int32_t left_mm_s = linear_mm_s - delta_mm_s;
+    const int32_t right_mm_s = linear_mm_s + delta_mm_s;
+    const int32_t left_rpm =
+        WheelMmPerSecondToRpm(left_mm_s,
+                              g_state.config.wheel_radius_mm,
+                              g_state.config.left_counts_per_rev);
+    const int32_t right_rpm =
+        WheelMmPerSecondToRpm(right_mm_s,
+                              g_state.config.wheel_radius_mm,
+                              g_state.config.right_counts_per_rev);
+
+    const drivers::DriverStatus status =
+        Chassis_SetWheelRpm(left_rpm, right_rpm);
+    if (status == drivers::DRIVER_OK) {
+        g_state.target_linear_mm_s = linear_mm_s;
+        g_state.target_angular_mdeg_s = angular_mdeg_s;
+    }
+    SetLastStatus(status);
+    return status;
+}
+
+drivers::DriverStatus Chassis_Update(void)
+{
+    if (!g_state.initialized) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    motor::RpmData rpm = {};
+    drivers::DriverStatus status = motor::ReadRpm(&g_motorClient, &rpm);
+    if (status != drivers::DRIVER_OK) {
+        SetLastStatus(status);
+        return status;
+    }
+
+    status = ReadWheelState(true, &g_state.left, rpm.actual_m1);
+    if (status != drivers::DRIVER_OK) {
+        SetLastStatus(status);
+        return status;
+    }
+
+    status = ReadWheelState(false, &g_state.right, rpm.actual_m2);
+    SetLastStatus(status);
+    return status;
+}
+
+const ChassisState *Chassis_GetState(void)
+{
+    return &g_state;
+}
+
+} /* namespace app */
