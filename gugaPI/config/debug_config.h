@@ -9,7 +9,7 @@
 #define DEBUG_UART_RX_BUFFER_SIZE        (128U)
 #define DEBUG_SHELL_LINE_BUFFER_SIZE     (96U)
 #define DEBUG_SHELL_MAX_ARGS             (8U)
-#define DEBUG_SHELL_MAX_COMMANDS         (16U)
+#define DEBUG_SHELL_MAX_COMMANDS         (24U)
 #define DEBUG_SHELL_ECHO                 (1U)
 
 #if DEBUG_ENABLE_ASSERT

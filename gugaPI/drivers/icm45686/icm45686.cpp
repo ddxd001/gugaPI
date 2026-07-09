@@ -72,6 +72,17 @@ void DrainRxFifo(SPI_Regs *spi)
     }
 }
 
+void WaitIdle(const Icm45686Config *cfg)
+{
+    uint32_t timeout = cfg->timeout_iterations;
+    while (DL_SPI_isBusy(cfg->spi)) {
+        if (timeout == 0U) {
+            break;
+        }
+        timeout--;
+    }
+}
+
 DriverStatus TransferByte(const Icm45686Config *cfg, uint8_t tx, uint8_t *rx)
 {
     uint32_t timeout = cfg->timeout_iterations;
@@ -104,6 +115,24 @@ int16_t CombineBe(uint8_t hi, uint8_t lo)
         (static_cast<uint16_t>(hi) << 8U) | static_cast<uint16_t>(lo));
 }
 
+/* Write a register, then read it back to confirm the value stuck. The device
+ * may reject writes for a short window after soft reset, so retry a few times. */
+DriverStatus WriteVerify(Icm45686Context *ctx, uint8_t reg, uint8_t value)
+{
+    for (uint32_t attempt = 0U; attempt < 5U; attempt++) {
+        DriverStatus status = Icm45686_WriteRegister(ctx, reg, value);
+        if (status != DRIVER_OK) {
+            continue;
+        }
+        uint8_t readback = 0U;
+        status = Icm45686_ReadRegister(ctx, reg, &readback);
+        if ((status == DRIVER_OK) && (readback == value)) {
+            return DRIVER_OK;
+        }
+    }
+    return DRIVER_ERROR;
+}
+
 } /* namespace */
 
 DriverStatus Icm45686_SoftReset(Icm45686Context *ctx)
@@ -113,14 +142,19 @@ DriverStatus Icm45686_SoftReset(Icm45686Context *ctx)
     }
 
     DriverStatus status = Icm45686_WriteRegister(ctx, kRegMisc2, kSoftResetCmd);
-    if (status != DRIVER_OK) {
+    if (status != drivers::DRIVER_OK) {
         return status;
     }
 
-    /* SOFT_RST self-clears; poll WHO_AM_I until the device responds again. */
-    uint8_t who = 0U;
+    /* SOFT_RST self-clears on completion. Wait until REG_MISC2 bit1 clears
+     * AND the device responds with the correct WHO_AM_I, so that subsequent
+     * config writes are accepted reliably. */
     for (uint32_t i = 0U; i < kResetPollRetries; i++) {
-        if ((Icm45686_ReadRegister(ctx, kRegWhoAmI, &who) == DRIVER_OK) &&
+        uint8_t misc2 = 0U;
+        uint8_t who = 0U;
+        if ((Icm45686_ReadRegister(ctx, kRegMisc2, &misc2) == DRIVER_OK) &&
+            ((misc2 & 0x02U) == 0U) &&
+            (Icm45686_ReadRegister(ctx, kRegWhoAmI, &who) == DRIVER_OK) &&
             (who == ICM45686_WHO_AM_I_VALUE)) {
             return DRIVER_OK;
         }
@@ -153,6 +187,7 @@ DriverStatus Icm45686_WriteRegister(Icm45686Context *ctx,
     if (status == DRIVER_OK) {
         status = TransferByte(cfg, value, 0);
     }
+    WaitIdle(cfg);
     Deselect(cfg);
 
     return status;
@@ -182,6 +217,7 @@ DriverStatus Icm45686_ReadBurst(Icm45686Context *ctx,
         status = TransferByte(cfg, 0x00U, &buf[i]);
     }
 
+    WaitIdle(cfg);
     Deselect(cfg);
     return status;
 }
@@ -253,10 +289,11 @@ DriverStatus Icm45686_Init(Icm45686Context *ctx, const Icm45686Config *config)
         return status;
     }
 
-    /* Full scale + ODR before enabling the sensors. */
+    /* Full scale + ODR before enabling the sensors. Use verified writes so a
+     * device that is not yet ready after soft reset is caught here. */
     const uint8_t accel_cfg =
         static_cast<uint8_t>((config->accel_fs << 4U) | (config->accel_odr & 0x0FU));
-    status = Icm45686_WriteRegister(ctx, kRegAccelConfig0, accel_cfg);
+    status = WriteVerify(ctx, kRegAccelConfig0, accel_cfg);
     if (status != DRIVER_OK) {
         ctx->initialized = false;
         return status;
@@ -264,14 +301,14 @@ DriverStatus Icm45686_Init(Icm45686Context *ctx, const Icm45686Config *config)
 
     const uint8_t gyro_cfg =
         static_cast<uint8_t>((config->gyro_fs << 4U) | (config->gyro_odr & 0x0FU));
-    status = Icm45686_WriteRegister(ctx, kRegGyroConfig0, gyro_cfg);
+    status = WriteVerify(ctx, kRegGyroConfig0, gyro_cfg);
     if (status != DRIVER_OK) {
         ctx->initialized = false;
         return status;
     }
 
     /* Enable gyro + accel in Low-Noise mode. */
-    status = Icm45686_WriteRegister(ctx, kRegPwrMgmt0, kPwrGyroAccelLn);
+    status = WriteVerify(ctx, kRegPwrMgmt0, kPwrGyroAccelLn);
     if (status != DRIVER_OK) {
         ctx->initialized = false;
         return status;

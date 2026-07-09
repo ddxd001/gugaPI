@@ -28,5 +28,6 @@
 
 #define FEATURE_ENABLE_GY931             (1U) /* Enable WIT GY931 I2C angle sensor. */
 #define FEATURE_ENABLE_BUTTON_CHASSIS_TEST (1U) /* Button1 chassis wheel test. */
+#define FEATURE_ENABLE_GRAYSCALE         (1U) /* Enable 8-channel grayscale ADC sensor. */
 
 #endif /* CONFIG_FEATURE_CONFIG_H_ */

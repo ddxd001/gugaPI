@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "app/chassis.h"
+#include "app/app_grayscale.h"
 #include "app/app_imu.h"
 #include "app/config_store.h"
 #include "app/motor_driver_client.h"
@@ -11,6 +12,7 @@
 #include "board/board_config.h"
 #include "board/board_fram.h"
 #include "board/board_gy931.h"
+#include "board/board_grayscale.h"
 #include "board/board_ina219.h"
 #include "board/board_imu.h"
 #include "board/board_i2c_bus.h"
@@ -4753,6 +4755,98 @@ void PwmCommand(int argc, const char * const argv[])
     services::Shell_WriteLine("%, no PWM driver registered");
 }
 
+#if FEATURE_ENABLE_GRAYSCALE
+void PrintGrayUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  gray status");
+    services::Shell_WriteLine("  gray read <0..7>");
+    services::Shell_WriteLine("  gray all");
+    services::Shell_WriteLine("  gray data");
+}
+
+void GrayCommand(int argc, const char * const argv[])
+{
+    if ((argc < 2) || (!board::Board_GrayscaleIsReady())) {
+        if (argc < 2) {
+            PrintGrayUsage();
+        } else {
+            services::Shell_WriteLine("gray: not ready");
+        }
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        const AppGrayscaleData *data = App_GrayscaleGetData();
+        services::Shell_WriteString("gray ready=1 valid=");
+        services::Shell_WriteUInt32(data->valid ? 1U : 0U);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "data")) {
+        const AppGrayscaleData *data = App_GrayscaleGetData();
+        if (!data->valid) {
+            services::Shell_WriteLine("gray: no data");
+            return;
+        }
+        services::Shell_WriteString("gray:");
+        for (uint8_t i = 0U; i < 8U; i++) {
+            services::Shell_WriteString(" ");
+            services::Shell_WriteUInt32(data->raw[i]);
+        }
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "read")) {
+        uint32_t channel = 0U;
+        uint16_t raw = 0U;
+        if ((argc != 3) || (!ParseUint32(argv[2], 7U, &channel))) {
+            PrintGrayUsage();
+            return;
+        }
+        const drivers::DriverStatus status =
+            board::Board_GrayscaleReadChannel((uint8_t) channel, &raw);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("gray read: ", status);
+            return;
+        }
+        services::Shell_WriteString("gray ch");
+        services::Shell_WriteUInt32(channel);
+        services::Shell_WriteString("=");
+        services::Shell_WriteUInt32(raw);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "all")) {
+        uint16_t raw[8] = { 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U };
+        const drivers::DriverStatus status = board::Board_GrayscaleReadAll(raw);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("gray all: ", status);
+            return;
+        }
+        services::Shell_WriteString("gray:");
+        for (uint8_t i = 0U; i < 8U; i++) {
+            services::Shell_WriteString(" ");
+            services::Shell_WriteUInt32(raw[i]);
+        }
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    PrintGrayUsage();
+}
+#else
+void GrayCommand(int argc, const char * const argv[])
+{
+    (void) argc;
+    (void) argv;
+    services::Shell_WriteLine("gray: disabled");
+}
+#endif
+
 } /* namespace */
 
 void AppShell_RegisterCommands(void)
@@ -4807,6 +4901,12 @@ void AppShell_RegisterCommands(void)
         "imu",
         "IMU SPI: status|sample|oled on|off|once|icm init|icm whoami|icm sample|icm reg <a>|icm wreg <a> <v>",
         ImuCommand);
+#endif
+#if FEATURE_ENABLE_GRAYSCALE
+    (void) services::Shell_RegisterCommand(
+        "gray",
+        "Grayscale: status|read <0..7>|all|data",
+        GrayCommand);
 #endif
 #if FEATURE_ENABLE_LORA
     (void) services::Shell_RegisterCommand(

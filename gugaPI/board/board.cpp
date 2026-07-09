@@ -5,6 +5,7 @@
 #include "board/board_buzzer.h"
 #include "board/board_config.h"
 #include "board/board_fram.h"
+#include "board/board_grayscale.h"
 #include "board/board_gy931.h"
 #include "board/board_ina219.h"
 #include "board/board_imu.h"
@@ -62,6 +63,9 @@ void Board_Init(void)
 
 #if FEATURE_ENABLE_MOTOR_DRIVER
     (void) Board_MotorDriverInit();
+#endif
+#if FEATURE_ENABLE_GRAYSCALE
+    (void) Board_GrayscaleInit();
 #endif
 }
 

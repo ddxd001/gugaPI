@@ -263,6 +263,34 @@ INA219 configuration:
 | Current LSB | 200 uA | `BOARD_INA219_CURRENT_LSB_UA` |
 | Current sign | Inverted in firmware | `BOARD_INA219_INVERT_CURRENT = 1` |
 
+## Grayscale Sensor (8-channel ADC)
+
+An 8:1 analog multiplexer grayscale array. Three select GPIOs choose one of eight
+phototransistor channels; the selected channel's analog voltage is read by a
+single ADC input.
+
+| Signal | MCU Pin | MCU Peripheral / GPIO | Direction | Notes |
+| --- | --- | --- | --- | --- |
+| SEL0 (bit0) | PC21 | GPIO_GRAY_C (OUTPUT) | MCU output | Channel address bit 0 |
+| SEL1 (bit1) | PC20 | GPIO_GRAY_C (OUTPUT) | MCU output | Channel address bit 1 |
+| SEL2 (bit2) | PA16 | GPIO_GRAY_A (OUTPUT) | MCU output | Channel address bit 2 (MSB) |
+| AOUT | PA15 | ADC1 ADCIN0 (`GRAYSCALE_ADC`) | MCU input | Analog output of selected channel |
+
+Grayscale configuration:
+
+| Field | Value | Notes |
+| --- | --- | --- |
+| Channels | 8 | channel = (PA16<<2) \| (PC20<<1) \| (PC21<<0) |
+| ADC peripheral | ADC1 | PA15 is ADC1 ADCIN0 on MSPM0G3519 |
+| Resolution | 12-bit | Result 0..4095, VREF = VDDA 3.3V |
+| Sample time | 125 us | ULPCLK / 8, tunable in SysConfig if source impedance needs more |
+| Settle time | ~100 us | `BOARD_GRAYSCALE_SETTLE_CYCLES`; after switching select before ADC sample |
+| Select polarity | Active-high | Binary address driven directly on SEL0..SEL2 |
+| SysConfig name | `GRAYSCALE_ADC`, `GPIO_GRAY_C`, `GPIO_GRAY_A` | |
+| Board interface | `board/board_grayscale.h` | |
+| Driver | `drivers/grayscale/` | |
+| Feature switch | `FEATURE_ENABLE_GRAYSCALE` | |
+
 ## ICM-45686 + LIS3MDLTR Shared SPI Module
 
 Use one MSPM0 SPI peripheral for both sensors. SCLK, PICO/MOSI, and POCI/MISO
@@ -311,8 +339,8 @@ SPI bus configuration:
 | Electrical interface | 3.3V CMOS | VDD and VDDIO are both 3.3V |
 | SPI mode | Mode 3 target, CPOL = 1, CPHA = 1 | LIS3MDL requires clock idle high and captures on rising edge; verify ICM-45686 supports same mode |
 | Bit order | MSB first | Required by LIS3MDL SPI protocol |
-| Initial bus speed | 1 MHz | Conservative bring-up value |
-| Max bus speed | 10 MHz until ICM limit is verified | LIS3MDL supports 10 MHz SPI; shared bus limited by slower device |
+| Initial bus speed | 100 kHz | Conservative bring-up value; raise after data reads are stable |
+| Max bus speed | 24 MHz | ICM-45686 datasheet limit; shared bus limited by slower device (LIS3MDL 10 MHz) |
 | Shared signals | SCLK, PICO/MOSI, POCI/MISO | Do not share CS |
 | Separate signals | CS and INT pins | Assign per device below |
 | SysConfig name | `IMU_SPI` | Suggested board-level instance name |
@@ -395,7 +423,7 @@ LIS3MDLTR configuration:
 | Boot CS state | Both CS high | Configure CS GPIOs high before enabling sensor transactions |
 | Transaction rule | Assert exactly one CS at a time | Never select both sensors simultaneously |
 | MISO contention check | Verify inactive device tri-states SDO/MISO | Scope MISO during first bring-up |
-| First firmware speed | 1 MHz | Increase only after WHO_AM_I reads are stable |
+| First firmware speed | 100 kHz | Increase only after WHO_AM_I and burst data reads are stable |
 | Sensor orientation | Same orientation, +X forward | Confirm +Y/+Z direction before sensor fusion |
 
 ## LEDs

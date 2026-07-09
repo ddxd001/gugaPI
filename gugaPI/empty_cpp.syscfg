@@ -14,6 +14,7 @@ const GPIO   = scripting.addModule("/ti/driverlib/GPIO", {}, false);
 const UART   = scripting.addModule("/ti/driverlib/UART", {}, false);
 const I2C    = scripting.addModule("/ti/driverlib/I2C", {}, false);
 const SPI    = scripting.addModule("/ti/driverlib/SPI", {}, false);
+const ADC12  = scripting.addModule("/ti/driverlib/ADC12", {}, false);
 const GPIO1  = GPIO.addInstance();
 const GPIO2  = GPIO.addInstance();
 const GPIO3  = GPIO.addInstance();
@@ -22,12 +23,15 @@ const GPIO5  = GPIO.addInstance();
 const GPIO6  = GPIO.addInstance();
 const GPIO7  = GPIO.addInstance();
 const GPIO8  = GPIO.addInstance();
+const GPIO9  = GPIO.addInstance();
+const GPIO10 = GPIO.addInstance();
 const UART1  = UART.addInstance();
 const UART2  = UART.addInstance();
 const UART3  = UART.addInstance();
 const I2C1   = I2C.addInstance();
 const I2C2   = I2C.addInstance();
 const SPI1   = SPI.addInstance();
+const ADC121 = ADC12.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
@@ -199,7 +203,7 @@ I2C2.peripheral.sclPin.$assign = "PA11";
 I2C2.peripheral.sdaPin.$assign = "PA10";
 
 SPI1.$name                      = "IMU_SPI";
-SPI1.targetBitRate              = 1000000;
+SPI1.targetBitRate              = 100000;
 SPI1.frameFormat                = "MOTO3";
 SPI1.polarity                   = "1";
 SPI1.phase                      = "1";
@@ -207,6 +211,40 @@ SPI1.peripheral.$assign         = "Any";
 SPI1.peripheral.sclkPin.$assign = "PB18";
 SPI1.peripheral.mosiPin.$assign = "PB17";
 SPI1.peripheral.misoPin.$assign = "PB19";
+
+ADC121.$name                       = "GRAYSCALE_ADC";
+ADC121.adcMem0chansel              = "DL_ADC12_INPUT_CHAN_0";
+ADC121.peripheral.$assign          = "ADC1";
+ADC121.peripheral.adcPin0.$assign  = "PA15";
+ADC121.sampClkSrc                  = "DL_ADC12_CLOCK_ULPCLK";
+ADC121.sampClkDiv                  = "DL_ADC12_CLOCK_DIVIDE_8";
+ADC121.sampleTime0                 = "125 us";
+ADC121.enabledInterrupts           = ["DL_ADC12_INTERRUPT_MEM0_RESULT_LOADED"];
+ADC121.resolution                  = "DL_ADC12_SAMP_CONV_RES_12_BIT";
+ADC121.powerDownMode               = "DL_ADC12_POWER_DOWN_MODE_MANUAL";
+ADC121.sampCnt                     = 1;
+
+GPIO9.$name                          = "GPIO_GRAY_C";
+GPIO9.port                           = "PORTC";
+GPIO9.portSegment                    = "Upper";
+GPIO9.associatedPins.create(2);
+GPIO9.associatedPins[0].$name        = "GRAY_SEL0";
+GPIO9.associatedPins[0].direction    = "OUTPUT";
+GPIO9.associatedPins[0].initialValue = "CLEARED";
+GPIO9.associatedPins[0].assignedPin  = "21";
+GPIO9.associatedPins[1].$name        = "GRAY_SEL1";
+GPIO9.associatedPins[1].direction    = "OUTPUT";
+GPIO9.associatedPins[1].initialValue = "CLEARED";
+GPIO9.associatedPins[1].assignedPin  = "20";
+
+GPIO10.$name                          = "GPIO_GRAY_A";
+GPIO10.port                           = "PORTA";
+GPIO10.portSegment                    = "Upper";
+GPIO10.associatedPins.create(1);
+GPIO10.associatedPins[0].$name        = "GRAY_SEL2";
+GPIO10.associatedPins[0].direction    = "OUTPUT";
+GPIO10.associatedPins[0].initialValue = "CLEARED";
+GPIO10.associatedPins[0].assignedPin  = "16";
 
 const Board                       = scripting.addModule("/ti/driverlib/Board", {}, false);
 Board.peripheral.$assign          = "DEBUGSS";

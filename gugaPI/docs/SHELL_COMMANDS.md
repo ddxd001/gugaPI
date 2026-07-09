@@ -623,6 +623,42 @@ Gz:  <ddd.ddd> d/s
 - `Gz`：陀螺仪 Z 轴角速率，°/s（带符号）。
 - 无数据时显示 `IMU no data / run 'imu icm init'`。
 
+## 灰度传感器（8 路 ADC）
+
+8:1 多路复用灰度阵列：3 个选位引脚（PA16=bit2、PC20=bit1、PC21=bit0）选 1 路，PA15（ADC1 ADCIN0）读模拟值（0..4095）。10ms 周期任务缓存全 8 路。
+
+### `gray status`
+
+查看驱动就绪与周期数据有效性。
+```text
+gray status
+```
+
+### `gray read <0..7>`
+
+按需读取单路（切换选位→~100µs 建立→ADC 转换）。
+```text
+gray read 0
+gray read 7
+```
+输出：`gray ch0=1234`（0..4095）。遮挡/照射该路传感器可见数值变化。
+
+### `gray all`
+
+一次性读取全部 8 路（按需，非缓存）。
+```text
+gray all
+```
+输出：`gray: 1234 5678 ...`（8 个值，对应通道 0..7）。
+
+### `gray data`
+
+打印 10ms 周期任务缓存的最新 8 路数据（不触发新转换）。
+```text
+gray data
+```
+未就绪时提示 `gray: no data`。
+
 ## 通用 I2C 诊断
 
 当前注册的 I2C 总线：
