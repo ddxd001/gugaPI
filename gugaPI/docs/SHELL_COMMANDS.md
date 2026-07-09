@@ -659,6 +659,27 @@ gray data
 ```
 未就绪时提示 `gray: no data`。
 
+### `gray oled on [period_ms]`
+
+按 INA219 OLED 显示任务的同样风格，将灰度传感器 8 路 ADC 原始值持续显示到 OLED。开启后会关闭其它传感器的 OLED 周期显示任务。
+```text
+gray oled on
+gray oled on 200
+gray oled off
+gray oled status
+gray oled once
+```
+
+OLED 4 行显示格式：
+```text
+GRAY 200ms
+0-2 1234 1234 1234
+3-5 1234 1234 1234
+6-7 1234 1234
+```
+
+`period_ms` 范围为 50..5000，默认 200ms。`gray oled once` 只刷新一次 OLED，不开启周期任务。
+
 ## 通用 I2C 诊断
 
 当前注册的 I2C 总线：

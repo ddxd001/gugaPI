@@ -54,6 +54,10 @@ static const uint32_t kIna219OledTaskPeriodMs = 50U;
 static const uint32_t kIna219OledDefaultPeriodMs = 500U;
 static const uint32_t kIna219OledMinPeriodMs = 100U;
 static const uint32_t kIna219OledMaxPeriodMs = 5000U;
+static const uint32_t kGrayOledTaskPeriodMs = 50U;
+static const uint32_t kGrayOledDefaultPeriodMs = 200U;
+static const uint32_t kGrayOledMinPeriodMs = 50U;
+static const uint32_t kGrayOledMaxPeriodMs = 5000U;
 static const int32_t kChassisLinearLimitMmS = 5000;
 static const int32_t kChassisAngularLimitMdegS = 720000;
 motor::Client g_motorClient = { motor::TRANSPORT_I2C,
@@ -87,6 +91,14 @@ uint32_t g_imuOledPeriodMs = kImuOledDefaultPeriodMs;
 uint32_t g_imuOledLastUpdateMs = 0U;
 drivers::DriverStatus g_imuOledLastStatus = drivers::DRIVER_OK;
 #endif
+#endif
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_OLED
+bool g_grayOledEnabled = false;
+bool g_grayOledTaskRegistered = false;
+services::SchedulerTaskId g_grayOledTaskId = 0U;
+uint32_t g_grayOledPeriodMs = kGrayOledDefaultPeriodMs;
+uint32_t g_grayOledLastUpdateMs = 0U;
+drivers::DriverStatus g_grayOledLastStatus = drivers::DRIVER_OK;
 #endif
 
 bool StrEqual(const char *left, const char *right)
@@ -439,7 +451,7 @@ void PrintGy931Usage(void)
     services::Shell_WriteLine("  gy931 oled on [period_ms 50..5000]|off|status|once");
 }
 
-#if FEATURE_ENABLE_GY931 && FEATURE_ENABLE_OLED
+#if FEATURE_ENABLE_OLED && (FEATURE_ENABLE_GY931 || FEATURE_ENABLE_INA219 || FEATURE_ENABLE_IMU || FEATURE_ENABLE_GRAYSCALE)
 char *AppendChar(char *cursor, char *end, char ch)
 {
     if (cursor < end) {
@@ -714,6 +726,12 @@ drivers::DriverStatus Gy931OledSetEnabled(bool enabled)
         (void) services::Scheduler_EnableTask(g_ina219OledTaskId, false);
     }
 #endif
+#if FEATURE_ENABLE_GRAYSCALE
+    g_grayOledEnabled = false;
+    if (g_grayOledTaskRegistered) {
+        (void) services::Scheduler_EnableTask(g_grayOledTaskId, false);
+    }
+#endif
     g_gy931OledEnabled = true;
     g_gy931OledLastUpdateMs = services::Time_Millis();
     status = SchedulerStatusToDriverStatus(
@@ -900,6 +918,12 @@ drivers::DriverStatus Ina219OledSetEnabled(bool enabled)
         (void) services::Scheduler_EnableTask(g_gy931OledTaskId, false);
     }
 #endif
+#if FEATURE_ENABLE_GRAYSCALE
+    g_grayOledEnabled = false;
+    if (g_grayOledTaskRegistered) {
+        (void) services::Scheduler_EnableTask(g_grayOledTaskId, false);
+    }
+#endif
     g_ina219OledEnabled = true;
     g_ina219OledLastUpdateMs = services::Time_Millis();
     status = SchedulerStatusToDriverStatus(
@@ -1060,6 +1084,12 @@ drivers::DriverStatus ImuOledSetEnabled(bool enabled)
         (void) services::Scheduler_EnableTask(g_ina219OledTaskId, false);
     }
 #endif
+#if FEATURE_ENABLE_GRAYSCALE
+    g_grayOledEnabled = false;
+    if (g_grayOledTaskRegistered) {
+        (void) services::Scheduler_EnableTask(g_grayOledTaskId, false);
+    }
+#endif
     g_imuOledEnabled = true;
     g_imuOledLastUpdateMs = services::Time_Millis();
     status = SchedulerStatusToDriverStatus(
@@ -1070,6 +1100,198 @@ drivers::DriverStatus ImuOledSetEnabled(bool enabled)
     }
 
     return ImuOledUpdateDisplay();
+}
+#endif
+
+#if FEATURE_ENABLE_GRAYSCALE
+drivers::DriverStatus GrayOledWriteStatusLine(void)
+{
+    char line[kOledTextCols + 1U];
+    char *cursor = line;
+
+    cursor = AppendString(cursor, &line[kOledTextCols], "GRAY ");
+    cursor = AppendUIntDec(cursor, &line[kOledTextCols], g_grayOledPeriodMs);
+    cursor = AppendString(cursor, &line[kOledTextCols], "ms");
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(0U, 0U, line);
+}
+
+drivers::DriverStatus GrayOledWriteRawLine(uint8_t row,
+                                           uint8_t first_channel,
+                                           uint8_t count,
+                                           const uint16_t raw[8])
+{
+    char line[kOledTextCols + 1U];
+    char *cursor = line;
+
+    cursor = AppendUIntDec(cursor, &line[kOledTextCols], first_channel);
+    if (count > 1U) {
+        cursor = AppendChar(cursor, &line[kOledTextCols], '-');
+        cursor = AppendUIntDec(cursor,
+                               &line[kOledTextCols],
+                               (uint32_t) (first_channel + count - 1U));
+    }
+    cursor = AppendChar(cursor, &line[kOledTextCols], ' ');
+
+    for (uint8_t i = 0U; i < count; i++) {
+        if (i != 0U) {
+            cursor = AppendChar(cursor, &line[kOledTextCols], ' ');
+        }
+        cursor = AppendUIntDec(cursor,
+                               &line[kOledTextCols],
+                               raw[first_channel + i]);
+    }
+
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(row, 0U, line);
+}
+
+drivers::DriverStatus GrayOledShowRaw(const uint16_t raw[8])
+{
+    drivers::DriverStatus status = GrayOledWriteStatusLine();
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    status = GrayOledWriteRawLine(1U, 0U, 3U, raw);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    status = GrayOledWriteRawLine(2U, 3U, 3U, raw);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    return GrayOledWriteRawLine(3U, 6U, 2U, raw);
+}
+
+drivers::DriverStatus GrayOledShowError(drivers::DriverStatus read_status)
+{
+    drivers::DriverStatus status = OledTextWriteLine(0U, "GRAY read error");
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    char line[kOledTextCols + 1U];
+    char *cursor = AppendString(line, &line[kOledTextCols], "status: ");
+    cursor = AppendString(cursor, &line[kOledTextCols],
+                          DriverStatusText(read_status));
+    FinishOledLine(line, cursor);
+    status = board::Board_OledWriteText(1U, 0U, line);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    status = OledTextWriteLine(2U, "check PA15/mux");
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    return OledTextWriteLine(3U, "use gray status");
+}
+
+drivers::DriverStatus GrayOledUpdateDisplay(void)
+{
+    if (!board::Board_OledIsReady()) {
+        const drivers::DriverStatus init_status = board::Board_OledInit();
+        if (init_status != drivers::DRIVER_OK) {
+            g_grayOledLastStatus = init_status;
+            return init_status;
+        }
+    }
+
+    uint16_t raw[8] = { 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U };
+    const drivers::DriverStatus read_status = board::Board_GrayscaleReadAll(raw);
+    if (read_status != drivers::DRIVER_OK) {
+        g_grayOledLastStatus = read_status;
+        (void) GrayOledShowError(read_status);
+        return read_status;
+    }
+
+    const drivers::DriverStatus oled_status = GrayOledShowRaw(raw);
+    g_grayOledLastStatus = oled_status;
+    return oled_status;
+}
+
+void GrayOledTask(void)
+{
+    if (!g_grayOledEnabled) {
+        return;
+    }
+
+    const uint32_t now = services::Time_Millis();
+    if (!services::Time_HasElapsed(g_grayOledLastUpdateMs,
+                                   g_grayOledPeriodMs)) {
+        return;
+    }
+
+    g_grayOledLastUpdateMs = now;
+    (void) GrayOledUpdateDisplay();
+}
+
+drivers::DriverStatus GrayOledEnsureTask(void)
+{
+    if (g_grayOledTaskRegistered) {
+        return drivers::DRIVER_OK;
+    }
+
+    const services::SchedulerStatus status = services::Scheduler_AddTask(
+        "gray_oled",
+        GrayOledTask,
+        kGrayOledTaskPeriodMs,
+        0U,
+        &g_grayOledTaskId);
+    if (status != services::SCHEDULER_OK) {
+        return SchedulerStatusToDriverStatus(status);
+    }
+
+    g_grayOledTaskRegistered = true;
+    return SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_grayOledTaskId, false));
+}
+
+drivers::DriverStatus GrayOledSetEnabled(bool enabled)
+{
+    if (!enabled) {
+        g_grayOledEnabled = false;
+        if (!g_grayOledTaskRegistered) {
+            return drivers::DRIVER_OK;
+        }
+        return SchedulerStatusToDriverStatus(
+            services::Scheduler_EnableTask(g_grayOledTaskId, false));
+    }
+
+    drivers::DriverStatus status = GrayOledEnsureTask();
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+#if FEATURE_ENABLE_GY931
+    g_gy931OledEnabled = false;
+    if (g_gy931OledTaskRegistered) {
+        (void) services::Scheduler_EnableTask(g_gy931OledTaskId, false);
+    }
+#endif
+#if FEATURE_ENABLE_INA219
+    g_ina219OledEnabled = false;
+    if (g_ina219OledTaskRegistered) {
+        (void) services::Scheduler_EnableTask(g_ina219OledTaskId, false);
+    }
+#endif
+#if FEATURE_ENABLE_IMU
+    g_imuOledEnabled = false;
+    if (g_imuOledTaskRegistered) {
+        (void) services::Scheduler_EnableTask(g_imuOledTaskId, false);
+    }
+#endif
+
+    g_grayOledEnabled = true;
+    g_grayOledLastUpdateMs = services::Time_Millis();
+    status = SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_grayOledTaskId, true));
+    if (status != drivers::DRIVER_OK) {
+        g_grayOledEnabled = false;
+        return status;
+    }
+
+    return GrayOledUpdateDisplay();
 }
 #endif
 #endif
@@ -4763,6 +4985,7 @@ void PrintGrayUsage(void)
     services::Shell_WriteLine("  gray read <0..7>");
     services::Shell_WriteLine("  gray all");
     services::Shell_WriteLine("  gray data");
+    services::Shell_WriteLine("  gray oled on [period_ms 50..5000]|off|status|once");
 }
 
 void GrayCommand(int argc, const char * const argv[])
@@ -4782,6 +5005,87 @@ void GrayCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(data->valid ? 1U : 0U);
         services::Shell_WriteString("\r\n");
         return;
+    }
+
+    if (StrEqual(argv[1], "oled")) {
+#if FEATURE_ENABLE_OLED
+        uint32_t value = 0U;
+
+        if (argc < 3) {
+            PrintGrayUsage();
+            return;
+        }
+
+        if (StrEqual(argv[2], "on")) {
+            if ((argc != 3) && (argc != 4)) {
+                PrintGrayUsage();
+                return;
+            }
+            if (argc == 4) {
+                if ((!ParseUint32(argv[3],
+                                  kGrayOledMaxPeriodMs,
+                                  &value)) ||
+                    (value < kGrayOledMinPeriodMs)) {
+                    PrintGrayUsage();
+                    return;
+                }
+                g_grayOledPeriodMs = value;
+            }
+
+            const drivers::DriverStatus status = GrayOledSetEnabled(true);
+            services::Shell_WriteString("gray oled: ");
+            services::Shell_WriteString(DriverStatusText(status));
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_grayOledPeriodMs);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if (StrEqual(argv[2], "off")) {
+            if (argc != 3) {
+                PrintGrayUsage();
+                return;
+            }
+
+            const drivers::DriverStatus status = GrayOledSetEnabled(false);
+            WriteStatusLine("gray oled: ", status);
+            return;
+        }
+
+        if (StrEqual(argv[2], "status")) {
+            if (argc != 3) {
+                PrintGrayUsage();
+                return;
+            }
+
+            services::Shell_WriteString("gray oled enabled=");
+            services::Shell_WriteUInt32(g_grayOledEnabled ? 1U : 0U);
+            services::Shell_WriteString(" registered=");
+            services::Shell_WriteUInt32(g_grayOledTaskRegistered ? 1U : 0U);
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_grayOledPeriodMs);
+            services::Shell_WriteString(" last=");
+            services::Shell_WriteString(DriverStatusText(g_grayOledLastStatus));
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if (StrEqual(argv[2], "once")) {
+            if (argc != 3) {
+                PrintGrayUsage();
+                return;
+            }
+
+            WriteStatusLine("gray oled once: ", GrayOledUpdateDisplay());
+            return;
+        }
+
+        PrintGrayUsage();
+        return;
+#else
+        services::Shell_WriteLine("gray oled: oled disabled");
+        return;
+#endif
     }
 
     if (StrEqual(argv[1], "data")) {
@@ -4905,7 +5209,7 @@ void AppShell_RegisterCommands(void)
 #if FEATURE_ENABLE_GRAYSCALE
     (void) services::Shell_RegisterCommand(
         "gray",
-        "Grayscale: status|read <0..7>|all|data",
+        "Grayscale: status|read <0..7>|all|data|oled",
         GrayCommand);
 #endif
 #if FEATURE_ENABLE_LORA
