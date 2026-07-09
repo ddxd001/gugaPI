@@ -154,6 +154,46 @@ drivers::DriverStatus ApplyPersistentMotorConfig(void)
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
 
+    drivers::DriverStatus status =
+        motor::SetCountsPerRev(&g_motorClient,
+                               params->left_counts_per_rev,
+                               params->right_counts_per_rev);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    const uint8_t speed_pid[motor::kSpeedPidLength] = {
+        params->speed_kp_q4_4,
+        params->speed_ki_q4_4,
+        params->speed_kd_q4_4,
+        params->speed_max_duty,
+        params->speed_min_duty
+    };
+    status = motor::SetPid(&g_motorClient,
+                           speed_pid,
+                           motor::kSpeedPidLength);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    uint8_t position_pid[motor::kPositionPidLength] = {
+        params->position_kp_q4_4,
+        params->position_ki_q4_4,
+        params->position_kd_q4_4,
+        0U,
+        0U,
+        0U,
+        0U
+    };
+    motor::EncodeUint16Le(params->position_max_rpm, &position_pid[3]);
+    motor::EncodeUint16Le(params->position_tolerance_counts, &position_pid[5]);
+    status = motor::SetPositionPid(&g_motorClient,
+                                   position_pid,
+                                   motor::kPositionPidLength);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
     const motor::InvertConfig invert = {
         static_cast<uint8_t>(params->motor_output_invert_flags &
                              motor::kInvertValidMask),
