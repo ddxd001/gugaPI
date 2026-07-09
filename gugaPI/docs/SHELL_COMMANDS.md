@@ -473,7 +473,7 @@ ICM-45686 和 LIS3MDLTR 共用 `IMU_SPI`，由 GPIO 手动控制片选：
 
 | 器件 | 片选 | 中断 / 数据就绪 |
 | --- | --- | --- |
-| ICM-45686 | PC7，低电平选中 | INT1 = PC6，INT2/FSYNC = PA31 预留同步 |
+| ICM-45686 | PC7，低电平选中 | INT1 = PC6，INT2 = PA31（开漏中断输入，FSYNC 不用） |
 | LIS3MDLTR | PC8，低电平选中 | DRDY = PA22 |
 
 ### `imu status`
@@ -540,14 +540,88 @@ imu lis whoami=0x3D expected=0x3D
 imu lis reg 0x0F
 ```
 
+### `imu icm init`
+
+对 ICM-45686 执行设备级初始化：软复位（写 `0x02` 到 `REG_MISC2@0x7F`）、轮询 `WHO_AM_I` 等待复位完成、校验 `WHO_AM_I=0xE9`、配置 INT1 推挽、设置加速度/陀螺仪量程与 ODR、`PWR_MGMT0=0x0F` 使能 LN 模式。开机时 `Board_ImuInit` 已自动执行一次；器件异常时可手动重试。
+```text
+imu icm init
+```
+正常返回 `imu icm init: ok`。失败常见原因：SPI 接线/CS、器件未供电、`WHO_AM_I` 读不到 0xE9。
+
+### `imu icm whoami`
+
+读取 ICM-45686 `WHO_AM_I` 寄存器（0x72）。
+```text
+imu icm whoami
+```
+正常：
+```text
+imu icm whoami=0xE9 expected=0xE9
+```
+读不到 0xE9 → 先检查 SPI 物理连接与 `imu status` 的 CS 电平。
+
+### `imu icm sample`
+
+单次突发读取 0x00~0x0D 共 14 字节，按大端解析加速度/陀螺仪/温度原始值（int16）。
+```text
+imu icm sample
+```
+输出（原始值）：
+```text
+imu icm acc=<ax>,<ay>,<az> gyr=<gx>,<gy>,<gz> t=<temp>
+```
+静置时加速度 Z 轴应约为 +1g（量程 ±4g 下 raw ≈ 8192），陀螺仪三轴接近 0，温度 raw 换算 `T=raw/128+25`。
+
 ### `imu icm reg <addr>`
 
-按通用 SPI 读格式读取 ICM-45686 单个寄存器。
+读取 ICM-45686 单个寄存器（7 位地址，自动加读位）。
 ```text
-imu icm reg 0x00
+imu icm reg 0x72
+imu icm reg 0x10
 ```
 
-ICM-45686 的 `WHO_AM_I` 地址和值需要用最终数据手册确认后再固化为专用命令。
+### `imu icm wreg <addr> <val>`
+
+写 ICM-45686 单个寄存器（用于手动调参/调试，谨慎操作）。
+```text
+imu icm wreg 0x1B 0x39
+```
+
+### `imu sample`
+
+打印周期采样任务（10ms 一次，`app_imu`）缓存的最新数据，已按量程换算为 mg / mdps / centi℃，并减去 `ConfigStore` 里的 `imu_accel_bias_*` / `imu_gyro_bias_*` 偏置。
+```text
+imu sample
+```
+输出：
+```text
+imu acc=<mg>,<mg>,<mg> mg gyr=<mdps>,<mdps>,<mdps> mdps t=<cC> cC
+```
+若未就绪会提示 `imu sample: no data (run 'imu icm init')`。
+
+### `imu oled on [period_ms]` / `off` / `status` / `once`
+
+把 IMU 角度数据显示到 OLED（沿用 INA219 的 OLED 方案，与其他 OLED 数据源互斥）。周期采样任务（10ms）算出俯仰/横滚角后，OLED 任务按 `period_ms` 刷新。角度由加速度计算（CORDIC atan2，无浮点），归一化到 0~360°。
+
+```text
+imu oled on
+imu oled on 100
+imu oled off
+imu oled status
+imu oled once
+```
+
+显示（4 行）：
+```text
+IMU 200ms
+Pit: <ddd.ddd> deg
+Rol: <ddd.ddd> deg
+Gz:  <ddd.ddd> d/s
+```
+
+- `Pit`/`Rol`：由加速度计算的俯仰/横滚角，0~360°（"360 度单位"）。
+- `Gz`：陀螺仪 Z 轴角速率，°/s（带符号）。
+- 无数据时显示 `IMU no data / run 'imu icm init'`。
 
 ## 通用 I2C 诊断
 

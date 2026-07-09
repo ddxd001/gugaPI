@@ -3,6 +3,7 @@
 #include <stdint.h>
 
 #include "app/chassis.h"
+#include "app/app_imu.h"
 #include "app/config_store.h"
 #include "app/motor_driver_client.h"
 #include "board/board_buzzer.h"
@@ -70,6 +71,20 @@ services::SchedulerTaskId g_ina219OledTaskId = 0U;
 uint32_t g_ina219OledPeriodMs = kIna219OledDefaultPeriodMs;
 uint32_t g_ina219OledLastUpdateMs = 0U;
 drivers::DriverStatus g_ina219OledLastStatus = drivers::DRIVER_OK;
+
+#if FEATURE_ENABLE_IMU
+static const uint32_t kImuOledTaskPeriodMs = 50U;
+static const uint32_t kImuOledDefaultPeriodMs = 200U;
+static const uint32_t kImuOledMinPeriodMs = 50U;
+static const uint32_t kImuOledMaxPeriodMs = 5000U;
+
+bool g_imuOledEnabled = false;
+bool g_imuOledTaskRegistered = false;
+services::SchedulerTaskId g_imuOledTaskId = 0U;
+uint32_t g_imuOledPeriodMs = kImuOledDefaultPeriodMs;
+uint32_t g_imuOledLastUpdateMs = 0U;
+drivers::DriverStatus g_imuOledLastStatus = drivers::DRIVER_OK;
+#endif
 #endif
 
 bool StrEqual(const char *left, const char *right)
@@ -895,6 +910,166 @@ drivers::DriverStatus Ina219OledSetEnabled(bool enabled)
     return Ina219OledUpdateDisplay();
 }
 #endif
+
+#if FEATURE_ENABLE_IMU
+drivers::DriverStatus ImuOledWriteStatusLine(void)
+{
+    char line[kOledTextCols + 1U];
+    char *cursor = line;
+    cursor = AppendString(cursor, &line[kOledTextCols], "IMU ");
+    cursor = AppendUIntDec(cursor, &line[kOledTextCols], g_imuOledPeriodMs);
+    cursor = AppendString(cursor, &line[kOledTextCols], "ms");
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(0U, 0U, line);
+}
+
+drivers::DriverStatus ImuOledWriteAngleLine(uint8_t row,
+                                            const char *label,
+                                            int32_t angle_mdeg)
+{
+    char line[kOledTextCols + 1U];
+    char *cursor = line;
+    cursor = AppendString(cursor, &line[kOledTextCols], label);
+    cursor = AppendFixedMilliText(cursor, &line[kOledTextCols], angle_mdeg);
+    cursor = AppendString(cursor, &line[kOledTextCols], " deg");
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(row, 0U, line);
+}
+
+drivers::DriverStatus ImuOledShowData(const AppImuData *imu)
+{
+    drivers::DriverStatus status = ImuOledWriteStatusLine();
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    status = ImuOledWriteAngleLine(1U, "Pit: ", imu->pitch_mdeg);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    status = ImuOledWriteAngleLine(2U, "Rol: ", imu->roll_mdeg);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    char line[kOledTextCols + 1U];
+    char *cursor = line;
+    cursor = AppendString(cursor, &line[kOledTextCols], "Gz:  ");
+    cursor = AppendFixedMilliText(cursor, &line[kOledTextCols],
+                                  imu->gyro_mdps[2]);
+    cursor = AppendString(cursor, &line[kOledTextCols], " d/s");
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(3U, 0U, line);
+}
+
+drivers::DriverStatus ImuOledShowError(void)
+{
+    drivers::DriverStatus status = OledTextWriteLine(0U, "IMU no data");
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    (void) OledTextWriteLine(1U, "run 'imu icm init'");
+    return OledTextWriteLine(2U, "then 'imu oled on'");
+}
+
+drivers::DriverStatus ImuOledUpdateDisplay(void)
+{
+    if (!board::Board_OledIsReady()) {
+        const drivers::DriverStatus init_status = board::Board_OledInit();
+        if (init_status != drivers::DRIVER_OK) {
+            g_imuOledLastStatus = init_status;
+            return init_status;
+        }
+    }
+
+    const AppImuData *imu = App_ImuGetData();
+    if ((imu == 0) || (!imu->valid)) {
+        g_imuOledLastStatus = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        (void) ImuOledShowError();
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    const drivers::DriverStatus oled_status = ImuOledShowData(imu);
+    g_imuOledLastStatus = oled_status;
+    return oled_status;
+}
+
+void ImuOledTask(void)
+{
+    if (!g_imuOledEnabled) {
+        return;
+    }
+
+    const uint32_t now = services::Time_Millis();
+    if (!services::Time_HasElapsed(g_imuOledLastUpdateMs,
+                                   g_imuOledPeriodMs)) {
+        return;
+    }
+
+    g_imuOledLastUpdateMs = now;
+    (void) ImuOledUpdateDisplay();
+}
+
+drivers::DriverStatus ImuOledEnsureTask(void)
+{
+    if (g_imuOledTaskRegistered) {
+        return drivers::DRIVER_OK;
+    }
+
+    const services::SchedulerStatus status = services::Scheduler_AddTask(
+        "imu_oled",
+        ImuOledTask,
+        kImuOledTaskPeriodMs,
+        0U,
+        &g_imuOledTaskId);
+    if (status != services::SCHEDULER_OK) {
+        return SchedulerStatusToDriverStatus(status);
+    }
+
+    g_imuOledTaskRegistered = true;
+    return SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_imuOledTaskId, false));
+}
+
+drivers::DriverStatus ImuOledSetEnabled(bool enabled)
+{
+    if (!enabled) {
+        g_imuOledEnabled = false;
+        if (!g_imuOledTaskRegistered) {
+            return drivers::DRIVER_OK;
+        }
+        return SchedulerStatusToDriverStatus(
+            services::Scheduler_EnableTask(g_imuOledTaskId, false));
+    }
+
+    drivers::DriverStatus status = ImuOledEnsureTask();
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+#if FEATURE_ENABLE_GY931
+    g_gy931OledEnabled = false;
+    if (g_gy931OledTaskRegistered) {
+        (void) services::Scheduler_EnableTask(g_gy931OledTaskId, false);
+    }
+#endif
+#if FEATURE_ENABLE_INA219
+    g_ina219OledEnabled = false;
+    if (g_ina219OledTaskRegistered) {
+        (void) services::Scheduler_EnableTask(g_ina219OledTaskId, false);
+    }
+#endif
+    g_imuOledEnabled = true;
+    g_imuOledLastUpdateMs = services::Time_Millis();
+    status = SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_imuOledTaskId, true));
+    if (status != drivers::DRIVER_OK) {
+        g_imuOledEnabled = false;
+        return status;
+    }
+
+    return ImuOledUpdateDisplay();
+}
+#endif
 #endif
 
 void PrintImuUsage(void)
@@ -906,9 +1081,15 @@ void PrintImuUsage(void)
     services::Shell_WriteLine("  imu spi mode <0..3>");
     services::Shell_WriteLine("  imu spi burst [bytes] [byte]");
     services::Shell_WriteLine("  imu spi rx [count 1..16] [tx]");
+    services::Shell_WriteLine("  imu oled on [period_ms]|off|status|once");
     services::Shell_WriteLine("  imu lis whoami");
     services::Shell_WriteLine("  imu lis reg <addr>");
+    services::Shell_WriteLine("  imu sample");
+    services::Shell_WriteLine("  imu icm init");
+    services::Shell_WriteLine("  imu icm whoami");
+    services::Shell_WriteLine("  imu icm sample");
     services::Shell_WriteLine("  imu icm reg <addr>");
+    services::Shell_WriteLine("  imu icm wreg <addr> <val>");
 }
 
 void PrintLoraUsage(void)
@@ -2585,6 +2766,7 @@ void ImuCommand(int argc, const char * const argv[])
 #if FEATURE_ENABLE_IMU
     uint32_t reg = 0U;
     uint8_t value = 0U;
+    uint32_t val_u32 = 0U;
 
     if ((argc < 2) || (!board::Board_ImuIsReady())) {
         if (argc < 2) {
@@ -2798,7 +2980,147 @@ void ImuCommand(int argc, const char * const argv[])
         return;
     }
 
+    if (StrEqual(argv[1], "oled")) {
+#if FEATURE_ENABLE_OLED
+        if (argc < 3) {
+            PrintImuUsage();
+            return;
+        }
+
+        if (StrEqual(argv[2], "on")) {
+            if ((argc != 3) && (argc != 4)) {
+                PrintImuUsage();
+                return;
+            }
+            if (argc == 4) {
+                if ((!ParseUint32(argv[3], kImuOledMaxPeriodMs, &val_u32)) ||
+                    (val_u32 < kImuOledMinPeriodMs)) {
+                    PrintImuUsage();
+                    return;
+                }
+                g_imuOledPeriodMs = val_u32;
+            }
+
+            const drivers::DriverStatus status = ImuOledSetEnabled(true);
+            services::Shell_WriteString("imu oled: ");
+            services::Shell_WriteString(DriverStatusText(status));
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_imuOledPeriodMs);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if (StrEqual(argv[2], "off")) {
+            if (argc != 3) {
+                PrintImuUsage();
+                return;
+            }
+            WriteStatusLine("imu oled: ", ImuOledSetEnabled(false));
+            return;
+        }
+
+        if (StrEqual(argv[2], "status")) {
+            if (argc != 3) {
+                PrintImuUsage();
+                return;
+            }
+            services::Shell_WriteString("imu oled enabled=");
+            services::Shell_WriteUInt32(g_imuOledEnabled ? 1U : 0U);
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_imuOledPeriodMs);
+            services::Shell_WriteString(" last=");
+            services::Shell_WriteString(DriverStatusText(g_imuOledLastStatus));
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if (StrEqual(argv[2], "once")) {
+            if (argc != 3) {
+                PrintImuUsage();
+                return;
+            }
+            WriteStatusLine("imu oled once: ", ImuOledUpdateDisplay());
+            return;
+        }
+
+        PrintImuUsage();
+        return;
+#else
+        services::Shell_WriteLine("imu oled: oled disabled");
+        return;
+#endif
+    }
+
+    if (StrEqual(argv[1], "sample")) {
+        const AppImuData *imu = App_ImuGetData();
+        if (!imu->valid) {
+            services::Shell_WriteLine("imu sample: no data (run 'imu icm init')");
+            return;
+        }
+        services::Shell_WriteString("imu acc=");
+        WriteInt32(imu->accel_mg[0]);
+        services::Shell_WriteString(",");
+        WriteInt32(imu->accel_mg[1]);
+        services::Shell_WriteString(",");
+        WriteInt32(imu->accel_mg[2]);
+        services::Shell_WriteString(" mg gyr=");
+        WriteInt32(imu->gyro_mdps[0]);
+        services::Shell_WriteString(",");
+        WriteInt32(imu->gyro_mdps[1]);
+        services::Shell_WriteString(",");
+        WriteInt32(imu->gyro_mdps[2]);
+        services::Shell_WriteString(" mdps t=");
+        WriteInt32(imu->temp_centi_c);
+        services::Shell_WriteString(" cC\r\n");
+        return;
+    }
+
     if (StrEqual(argv[1], "icm")) {
+        if ((argc == 3) && StrEqual(argv[2], "whoami")) {
+            const drivers::DriverStatus status =
+                board::Board_Icm45686ReadWhoAmI(&value);
+            if (status != drivers::DRIVER_OK) {
+                WriteStatusLine("imu icm whoami: ", status);
+                return;
+            }
+            services::Shell_WriteString("imu icm whoami=");
+            WriteHex8(value);
+            services::Shell_WriteString(" expected=0xE9\r\n");
+            return;
+        }
+
+        if ((argc == 3) && StrEqual(argv[2], "init")) {
+            const drivers::DriverStatus status = board::Board_Icm45686Init();
+            WriteStatusLine("imu icm init: ", status);
+            return;
+        }
+
+        if ((argc == 3) && StrEqual(argv[2], "sample")) {
+            drivers::Icm45686SensorData raw = {};
+            const drivers::DriverStatus status =
+                board::Board_Icm45686ReadSensors(&raw);
+            if (status != drivers::DRIVER_OK) {
+                WriteStatusLine("imu icm sample: ", status);
+                return;
+            }
+            services::Shell_WriteString("imu icm acc=");
+            WriteInt32(raw.accel_x);
+            services::Shell_WriteString(",");
+            WriteInt32(raw.accel_y);
+            services::Shell_WriteString(",");
+            WriteInt32(raw.accel_z);
+            services::Shell_WriteString(" gyr=");
+            WriteInt32(raw.gyro_x);
+            services::Shell_WriteString(",");
+            WriteInt32(raw.gyro_y);
+            services::Shell_WriteString(",");
+            WriteInt32(raw.gyro_z);
+            services::Shell_WriteString(" t=");
+            WriteInt32(raw.temp);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
         if ((argc == 4) && StrEqual(argv[2], "reg") &&
             ParseUint32(argv[3], 0x7FU, &reg)) {
             const drivers::DriverStatus status =
@@ -2807,12 +3129,21 @@ void ImuCommand(int argc, const char * const argv[])
                 WriteStatusLine("imu icm reg: ", status);
                 return;
             }
-
             services::Shell_WriteString("imu icm reg ");
             WriteHex8((uint8_t) reg);
             services::Shell_WriteString(" = ");
             WriteHex8(value);
             services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if ((argc == 5) && StrEqual(argv[2], "wreg") &&
+            ParseUint32(argv[3], 0x7FU, &reg) &&
+            ParseUint32(argv[4], 0xFFU, &val_u32)) {
+            const drivers::DriverStatus status =
+                board::Board_Icm45686WriteRegister((uint8_t) reg,
+                                                   (uint8_t) val_u32);
+            WriteStatusLine("imu icm wreg: ", status);
             return;
         }
 
@@ -4474,7 +4805,7 @@ void AppShell_RegisterCommands(void)
 #if FEATURE_ENABLE_IMU
     (void) services::Shell_RegisterCommand(
         "imu",
-        "IMU SPI: status|lis whoami|lis reg <addr>|icm reg <addr>",
+        "IMU SPI: status|sample|oled on|off|once|icm init|icm whoami|icm sample|icm reg <a>|icm wreg <a> <v>",
         ImuCommand);
 #endif
 #if FEATURE_ENABLE_LORA

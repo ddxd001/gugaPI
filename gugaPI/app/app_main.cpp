@@ -1,5 +1,6 @@
 #include "app/app_main.h"
 
+#include "app/app_imu.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
 #include "board/board_button.h"
@@ -199,6 +200,16 @@ void App_Init(void)
 #if FEATURE_ENABLE_MOTOR_DRIVER
     (void) ConfigStore_Load();
     (void) Chassis_Init();
+#endif
+#if FEATURE_ENABLE_IMU
+    App_ImuInit();
+    if (services::Scheduler_AddTask("imu",
+                                    App_ImuUpdate,
+                                    10U,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
 #endif
 #if FEATURE_ENABLE_BUTTONS
     if (services::Scheduler_AddTask("buttons",

@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "drivers/common/driver_status.h"
+#include "drivers/icm45686/icm45686.h"
 
 namespace board {
 
@@ -35,7 +36,18 @@ drivers::DriverStatus Board_ImuSpiSampleIcm(uint8_t tx,
 drivers::DriverStatus Board_ImuGetLineStatus(BoardImuLineStatus *status);
 drivers::DriverStatus Board_Lis3mdlReadRegister(uint8_t reg, uint8_t *value);
 drivers::DriverStatus Board_Lis3mdlReadWhoAmI(uint8_t *value);
+
+/* ICM-45686 device-level access (delegated to drivers::icm45686). */
+drivers::DriverStatus Board_Icm45686Init(void);
+bool Board_Icm45686IsReady(void);
 drivers::DriverStatus Board_Icm45686ReadRegister(uint8_t reg, uint8_t *value);
+drivers::DriverStatus Board_Icm45686WriteRegister(uint8_t reg, uint8_t value);
+drivers::DriverStatus Board_Icm45686ReadBurst(uint8_t reg,
+                                              uint8_t *buf,
+                                              uint16_t len);
+drivers::DriverStatus Board_Icm45686ReadWhoAmI(uint8_t *value);
+drivers::DriverStatus Board_Icm45686ReadSensors(drivers::Icm45686SensorData *data);
+const drivers::Icm45686Config *Board_Icm45686GetConfig(void);
 
 } /* namespace board */
 

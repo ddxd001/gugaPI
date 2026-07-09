@@ -13,6 +13,19 @@ static const uint32_t kWiggleDelayCycles = 64U;
 
 static bool g_imuReady = false;
 
+static const drivers::Icm45686Config kIcmConfig = {
+    BOARD_IMU_SPI_INST,
+    BOARD_IMU_ICM45686_CS_PORT,
+    BOARD_IMU_ICM45686_CS_PIN,
+    BOARD_IMU_SPI_TIMEOUT_ITERATIONS,
+    drivers::ICM45686_ACCEL_FS_4G,
+    drivers::ICM45686_GYRO_FS_1000DPS,
+    drivers::ICM45686_ODR_100HZ,
+    drivers::ICM45686_ODR_100HZ,
+};
+
+static drivers::Icm45686Context g_icmCtx = { &kIcmConfig, false };
+
 DL_SPI_FRAME_FORMAT SpiModeToFrameFormat(uint8_t mode)
 {
     switch (mode) {
@@ -123,6 +136,12 @@ drivers::DriverStatus Board_ImuInit(void)
                          BOARD_IMU_ICM45686_CS_PIN | BOARD_IMU_LIS3MDL_CS_PIN);
     DeselectAll();
     g_imuReady = true;
+
+    /* Device-level init: soft reset, WHO_AM_I check, sensor configuration.
+     * Runs against the SPI peripheral configured above. Failure (e.g. device
+     * absent) is returned but does not clear the SPI-ready flag so that the
+     * shell diagnostics and `imu init` retry still work. */
+    (void) drivers::Icm45686_Init(&g_icmCtx, &kIcmConfig);
     return drivers::DRIVER_OK;
 }
 
@@ -353,20 +372,46 @@ drivers::DriverStatus Board_Lis3mdlReadWhoAmI(uint8_t *value)
     return Board_Lis3mdlReadRegister(kLis3mdlWhoAmIRegister, value);
 }
 
+drivers::DriverStatus Board_Icm45686Init(void)
+{
+    return drivers::Icm45686_Init(&g_icmCtx, &kIcmConfig);
+}
+
+bool Board_Icm45686IsReady(void)
+{
+    return drivers::Icm45686_IsReady(&g_icmCtx);
+}
+
 drivers::DriverStatus Board_Icm45686ReadRegister(uint8_t reg, uint8_t *value)
 {
-    if (!g_imuReady) {
-        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
-    }
+    return drivers::Icm45686_ReadRegister(&g_icmCtx, reg, value);
+}
 
-    DrainRxFifo();
-    SelectIcm45686();
-    const drivers::DriverStatus status = ReadRegisterWithCommand(
-        (uint8_t) (kSpiReadMask | reg),
-        value);
-    DeselectAll();
+drivers::DriverStatus Board_Icm45686WriteRegister(uint8_t reg, uint8_t value)
+{
+    return drivers::Icm45686_WriteRegister(&g_icmCtx, reg, value);
+}
 
-    return status;
+drivers::DriverStatus Board_Icm45686ReadBurst(uint8_t reg,
+                                              uint8_t *buf,
+                                              uint16_t len)
+{
+    return drivers::Icm45686_ReadBurst(&g_icmCtx, reg, buf, len);
+}
+
+drivers::DriverStatus Board_Icm45686ReadWhoAmI(uint8_t *value)
+{
+    return drivers::Icm45686_ReadWhoAmI(&g_icmCtx, value);
+}
+
+drivers::DriverStatus Board_Icm45686ReadSensors(drivers::Icm45686SensorData *data)
+{
+    return drivers::Icm45686_ReadSensors(&g_icmCtx, data);
+}
+
+const drivers::Icm45686Config *Board_Icm45686GetConfig(void)
+{
+    return &kIcmConfig;
 }
 
 } /* namespace board */

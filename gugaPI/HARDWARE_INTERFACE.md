@@ -284,7 +284,7 @@ the same information.
 | ICM-45686 CS MCU pin | PC7 | MCU package pin / schematic net name |
 | LIS3MDLTR CS MCU pin | PC8 | MCU package pin / schematic net name |
 | ICM-45686 INT1 MCU pin | PC6 | Use as data-ready interrupt |
-| ICM-45686 INT2 / FSYNC MCU pin | PA31 | Use as FSYNC sync input / reserved; do not use as INT2 in first driver |
+| ICM-45686 INT2 MCU pin | PA31 | Use as INT2 interrupt input (open-drain output from sensor; sensor-side internal pull-up default on). FSYNC input mode not used. |
 | LIS3MDLTR DRDY MCU pin | PA22 | Data-ready input |
 | Sensor VDD net and voltage | 3.3V | Regulator net name still TBD |
 | Sensor VDDIO net and voltage | 3.3V | Matches MSPM0 IO domain |
@@ -328,7 +328,7 @@ SPI bus configuration:
 | SDO / MISO | TBD | PB19 | TBD | IMU_SPI_POCI / MISO | MCU input | N/A | None | Shared with LIS3MDLTR |
 | nCS / CSB | TBD | PC7 | TBD | GPIO output | MCU output | Low = selected | External 10k pull-up to 3.3V | Keep high during boot until SPI is ready |
 | INT1 | TBD | PC6 | TBD | GPIO input / interrupt | Sensor output | Configurable / TBD | TBD | Configure as data-ready interrupt |
-| INT2 / FSYNC | TBD | PA31 | TBD | GPIO input / timer sync TBD | Sync input / reserved | N/A for first driver | TBD | Same physical ICM-45686 pin; reserve for FSYNC, do not use as INT2 initially |
+| INT2 | TBD | PA31 | TBD | GPIO input | Sensor output (open-drain) | Active low (configurable) | Sensor-side internal pull-up default on; add external pull-up if sharing an open-drain bus | Same physical pin as FSYNC; used as INT2 interrupt input. MCU side is a no-pull input (sensor internal pull-up holds the line). Currently only polled in `imu status`; ISR not yet wired. |
 | AUX / other | Not connected | Not connected | N/A | Not connected | N/A | N/A | N/A | No other auxiliary pins connected |
 | VDD | 3.3V | N/A | N/A | Power | N/A | N/A | N/A | Sensor core supply |
 | VDDIO | 3.3V | N/A | N/A | Power | N/A | N/A | N/A | SPI IO supply |
@@ -341,10 +341,10 @@ ICM-45686 configuration:
 | Device | ICM-45686 | 6-axis IMU |
 | Bus | Shared SPI | Same SPI peripheral as LIS3MDLTR |
 | Chip select | PC7 | Dedicated GPIO, not shared |
-| WHO_AM_I / device ID | TBD | Fill from datasheet or bring-up read |
-| SPI read/write command format | TBD | Fill register address bit convention from datasheet |
+| WHO_AM_I / device ID | 0xE9 @ reg 0x72 | Confirmed from ICM-45686 datasheet DS-000489 |
+| SPI read/write command format | MSB=1 read, MSB=0 write; 7-bit addr; MSB-first; burst auto-increment; big-endian data | Confirmed from datasheet section 9.1 |
 | Interrupt use | INT1 on PC6 for data-ready | INT polarity/function is register-configurable; verify from ICM-45686 datasheet during driver work |
-| FSYNC | PA31 reserved for sync input | Same physical pin as INT2; first driver should not use it as INT2 |
+| INT2 interrupt | PA31 used as INT2 interrupt input | Open-drain output from sensor; sensor internal pull-up default-enabled (regs `pads_int2_pe_trim_d2a[0]` / `pads_int2_pud_trim_d2a[0]`). MCU pin configured as INPUT (no pull). FSYNC input mode not used. |
 | Reset line | Not connected / TBD | Fill only if schematic has a reset pin connection |
 | Axis orientation | Same as LIS3MDLTR, +X forward | Confirm +Y/+Z direction before sensor fusion |
 
