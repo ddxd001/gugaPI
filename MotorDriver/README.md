@@ -152,7 +152,7 @@ bit2 AT_TARGET
 - `motor m1 posrel <deg>` 使用相对角度，以执行命令时的当前位置为基准。
 - `position` / `speed 0` 使用位置专用低速控制：位置误差 -> 内部 command RPM -> 位置专用 PWM，不再经过速度 PID 的 `SPEED_MIN_DUTY`。
 - 进入目标区后输出为 coast；如果外力让误差超过 `POSITION_EXIT_TOL`，固件会重新给 PWM 拉回目标位置。这不是机械抱死。
-- M1 在 `run duty > 0` 和非零 `speed` 下使用 TIMG6 边沿计数测 RPM，避免高速 GPIO 中断占满 MCU；停止后约 3 秒恢复 GPIO 正交计数。M1 的 `speed 0`/`position` 使用 GPIO 正交计数。M2 使用 TIMG8 QEI 硬件计数。
+- M1 使用 TIMG9 QEI 硬件计数，M2 使用 TIMG8 QEI 硬件计数；两个电机的 count、CPS、RPM 都来自 A/B 双相正交解码。
 
 ## Watchdog 规则
 
@@ -267,7 +267,7 @@ motor m2 coast
 motor stop
 ```
 
-开环 `run` 只用于驱动输出测试。M1 在 `run duty > 0` 和非零 `speed` 下不使用 GPIO 编码器中断，而是用 TIMG6 对 A 相边沿计数估算 RPM；退出高速模式后约 3 秒再恢复 GPIO 正交计数，避免惯性转动期间影响通信。M2 使用 TIMG8 QEI 硬件计数，不依赖 GPIO 编码器中断。
+开环 `run` 只用于驱动输出测试。M1 使用 TIMG9 QEI 硬件计数，M2 使用 TIMG8 QEI 硬件计数；两路都不依赖 GPIO 编码器中断。
 
 串口调试：
 

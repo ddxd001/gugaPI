@@ -104,6 +104,14 @@ button
 | button2 | PB20 | 低电平按下 |
 | button3 | PB23 | 低电平按下 |
 
+当前按键快捷功能：
+
+| 按键 | 动作 |
+| --- | --- |
+| button1 | 等效 `ina219 oled on 100` |
+| button2 | 等效 `gy931 oled on 100` |
+| button3 | 等效 `gray oled on 100` |
+
 ## FRAM
 
 ### `fram status`

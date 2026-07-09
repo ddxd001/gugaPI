@@ -20,6 +20,12 @@ struct SchedulerTaskInfo {
     const char *name;
     uint32_t period_ms;
     uint32_t next_run_ms;
+    uint32_t run_count;
+    uint32_t last_runtime_us;
+    uint32_t max_runtime_us;
+    uint32_t last_late_ms;
+    uint32_t max_late_ms;
+    uint32_t timeout_count;
     bool enabled;
 };
 
@@ -32,6 +38,8 @@ SchedulerStatus Scheduler_AddTask(const char *name,
 SchedulerStatus Scheduler_EnableTask(SchedulerTaskId id, bool enabled);
 SchedulerStatus Scheduler_GetTaskInfo(SchedulerTaskId id,
                                       SchedulerTaskInfo *out_info);
+SchedulerStatus Scheduler_ResetTaskStats(SchedulerTaskId id);
+void Scheduler_ResetAllStats(void);
 void Scheduler_Run(void);
 
 } /* namespace services */

@@ -2,6 +2,7 @@
 
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
+#include "app/app_shell.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
 #include "board/board_button.h"
@@ -12,6 +13,7 @@
 #include "drivers/common/driver_status.h"
 #include "services/debug_uart.h"
 #include "services/fault.h"
+#include "services/log.h"
 #include "services/scheduler.h"
 #include "services/time.h"
 
@@ -144,6 +146,13 @@ void App_DebugUartCounterTask(void)
 
 #if FEATURE_ENABLE_BUTTONS
 const uint32_t BUTTON_SCAN_PERIOD_MS = 5U;
+const uint32_t BUTTON_OLED_SELECT_PERIOD_MS = 10U;
+const uint32_t BUTTON_OLED_SELECT_DISPLAY_PERIOD_MS = 100U;
+static bool g_buttonOledLastPressed[board::BOARD_BUTTON_COUNT] = {
+    false,
+    false,
+    false
+};
 
 void App_ButtonScanTask(void)
 {
@@ -152,6 +161,66 @@ void App_ButtonScanTask(void)
         services::Fault_Set(services::FAULT_UNKNOWN);
     }
 }
+
+#if FEATURE_ENABLE_OLED
+void App_ButtonOledSelectTask(void)
+{
+    bool pressed[board::BOARD_BUTTON_COUNT] = { false, false, false };
+    for (uint32_t i = 0U; i < (uint32_t) board::BOARD_BUTTON_COUNT; i++) {
+        const board::BoardButtonId id = (board::BoardButtonId) i;
+        pressed[i] = board::Board_ButtonIsPressed(id);
+    }
+
+#if FEATURE_ENABLE_INA219
+    if (pressed[board::BOARD_BUTTON_1] &&
+        (!g_buttonOledLastPressed[board::BOARD_BUTTON_1])) {
+        const drivers::DriverStatus status = app::AppShell_EnableIna219Oled(
+            BUTTON_OLED_SELECT_DISPLAY_PERIOD_MS);
+#if FEATURE_ENABLE_BUTTON_OLED_LOG
+        LOG_INFO(status == drivers::DRIVER_OK ?
+                 "button1: ina219 oled on" :
+                 "button1: ina219 oled failed");
+#else
+        (void) status;
+#endif
+    }
+#endif
+
+#if FEATURE_ENABLE_GY931
+    if (pressed[board::BOARD_BUTTON_2] &&
+        (!g_buttonOledLastPressed[board::BOARD_BUTTON_2])) {
+        const drivers::DriverStatus status = app::AppShell_EnableGy931Oled(
+            BUTTON_OLED_SELECT_DISPLAY_PERIOD_MS);
+#if FEATURE_ENABLE_BUTTON_OLED_LOG
+        LOG_INFO(status == drivers::DRIVER_OK ?
+                 "button2: gy931 oled on" :
+                 "button2: gy931 oled failed");
+#else
+        (void) status;
+#endif
+    }
+#endif
+
+#if FEATURE_ENABLE_GRAYSCALE
+    if (pressed[board::BOARD_BUTTON_3] &&
+        (!g_buttonOledLastPressed[board::BOARD_BUTTON_3])) {
+        const drivers::DriverStatus status = app::AppShell_EnableGrayOled(
+            BUTTON_OLED_SELECT_DISPLAY_PERIOD_MS);
+#if FEATURE_ENABLE_BUTTON_OLED_LOG
+        LOG_INFO(status == drivers::DRIVER_OK ?
+                 "button3: gray oled on" :
+                 "button3: gray oled failed");
+#else
+        (void) status;
+#endif
+    }
+#endif
+
+    for (uint32_t i = 0U; i < (uint32_t) board::BOARD_BUTTON_COUNT; i++) {
+        g_buttonOledLastPressed[i] = pressed[i];
+    }
+}
+#endif
 #endif
 
 #if FEATURE_ENABLE_BUTTONS && FEATURE_ENABLE_MOTOR_DRIVER && \
@@ -226,6 +295,15 @@ void App_Init(void)
     if (services::Scheduler_AddTask("buttons",
                                     App_ButtonScanTask,
                                     BUTTON_SCAN_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
+#if FEATURE_ENABLE_BUTTONS && FEATURE_ENABLE_OLED
+    if (services::Scheduler_AddTask("button_oled",
+                                    App_ButtonOledSelectTask,
+                                    BUTTON_OLED_SELECT_PERIOD_MS,
                                     0U,
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);

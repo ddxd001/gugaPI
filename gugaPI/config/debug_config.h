@@ -1,6 +1,7 @@
 #ifndef CONFIG_DEBUG_CONFIG_H_
 #define CONFIG_DEBUG_CONFIG_H_
 
+#include "config/feature_config.h"
 #include "services/fault.h"
 
 #define DEBUG_ENABLE_ASSERT              (1U)
@@ -10,7 +11,11 @@
 #define DEBUG_SHELL_LINE_BUFFER_SIZE     (96U)
 #define DEBUG_SHELL_MAX_ARGS             (8U)
 #define DEBUG_SHELL_MAX_COMMANDS         (24U)
-#define DEBUG_SHELL_ECHO                 (1U)
+#ifndef FEATURE_ENABLE_SHELL_ECHO
+#define FEATURE_ENABLE_SHELL_ECHO        (1U)
+#endif
+
+#define DEBUG_SHELL_ECHO                 (FEATURE_ENABLE_SHELL_ECHO)
 
 #if DEBUG_ENABLE_ASSERT
 #define APP_ASSERT(expr)                                                   \

@@ -35,14 +35,18 @@ namespace {
 namespace motor = motor_driver_client;
 
 static const uint16_t kFramShellMaxReadBytes = 32U;
+#if FEATURE_ENABLE_LORA
 static const uint16_t kLoraShellMaxReadBytes = 64U;
+#endif
 static const uint16_t kMotorShellMaxReadBytes = 64U;
+#if FEATURE_ENABLE_IMU
 static const uint32_t kImuPinWiggleDefaultLoops = 20000U;
 static const uint32_t kImuPinWiggleMaxLoops = 1000000U;
 static const uint32_t kImuSpiBurstDefaultBytes = 4096U;
 static const uint32_t kImuSpiBurstMaxBytes = 1000000U;
 static const uint32_t kImuSpiSampleDefaultBytes = 8U;
 static const uint32_t kImuSpiSampleMaxBytes = 16U;
+#endif
 static const uint8_t kOledTextRows = 4U;
 static const uint8_t kOledTextCols = 21U;
 static const uint8_t kGy931MaxReadWords = drivers::GY931_MAX_READ_WORDS;
@@ -221,6 +225,7 @@ bool ParseInt32(const char *text,
     return true;
 }
 
+#if FEATURE_ENABLE_SHELL_DIAGNOSTICS
 bool ParsePercent(const char *text, uint8_t *outValue)
 {
     uint32_t value = 0U;
@@ -232,6 +237,7 @@ bool ParsePercent(const char *text, uint8_t *outValue)
     *outValue = (uint8_t) value;
     return true;
 }
+#endif
 
 bool ParseOnOff(const char *text, bool *outValue)
 {
@@ -1296,6 +1302,7 @@ drivers::DriverStatus GrayOledSetEnabled(bool enabled)
 #endif
 #endif
 
+#if FEATURE_ENABLE_IMU
 void PrintImuUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -1315,7 +1322,9 @@ void PrintImuUsage(void)
     services::Shell_WriteLine("  imu icm reg <addr>");
     services::Shell_WriteLine("  imu icm wreg <addr> <val>");
 }
+#endif
 
+#if FEATURE_ENABLE_LORA
 void PrintLoraUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -1327,6 +1336,7 @@ void PrintLoraUsage(void)
     services::Shell_WriteLine("  lora clear");
     services::Shell_WriteLine("  lora test");
 }
+#endif
 
 void PrintMotorUsage(void)
 {
@@ -1631,6 +1641,7 @@ void PrintParamStatus(void)
 }
 
 
+#if FEATURE_ENABLE_SHELL_DIAGNOSTICS
 void PrintI2cUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -1643,6 +1654,7 @@ void PrintI2cUsage(void)
     services::Shell_WriteLine("  i2c write <bus> <addr> <reg8> <byte...>");
     services::Shell_WriteLine("  i2c test <bus> [start end]");
 }
+#endif
 void VersionCommand(int argc, const char * const argv[])
 {
     (void) argc;
@@ -1665,6 +1677,7 @@ void ResetCommand(int argc, const char * const argv[])
     NVIC_SystemReset();
 }
 
+#if FEATURE_ENABLE_STATUS_LED
 void PrintLedUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -1790,7 +1803,9 @@ void LedCommand(int argc, const char * const argv[])
 
     WriteStatusLine("led: ", status);
 }
+#endif
 
+#if FEATURE_ENABLE_BUZZER
 void BuzzerCommand(int argc, const char * const argv[])
 {
     if (argc != 2) {
@@ -1817,12 +1832,155 @@ void BuzzerCommand(int argc, const char * const argv[])
 
     services::Shell_WriteLine("usage: buzzer on|off");
 }
+#endif
+
+#if FEATURE_ENABLE_BUTTONS
+void PrintButtonUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  button");
+    services::Shell_WriteLine("  button watch [duration_ms 100..30000]");
+    services::Shell_WriteLine("  button scan [duration_ms 100..30000]");
+}
+
+void PrintButtonGpioSnapshot(void)
+{
+    services::Shell_WriteString("gpioB din=");
+    WriteHex32(GPIO_BUTTON_B_PORT->DIN31_0);
+    services::Shell_WriteString(" pb20=");
+    services::Shell_WriteString(
+        (DL_GPIO_readPins(BOARD_BUTTON2_PORT, BOARD_BUTTON2_PIN) != 0U) ?
+        "H" : "L");
+    services::Shell_WriteString(" pb23=");
+    services::Shell_WriteString(
+        (DL_GPIO_readPins(BOARD_BUTTON3_PORT, BOARD_BUTTON3_PIN) != 0U) ?
+        "H" : "L");
+    services::Shell_WriteString(" gpioC din=");
+    WriteHex32(GPIO_BUTTON_C_PORT->DIN31_0);
+    services::Shell_WriteString(" pc9=");
+    services::Shell_WriteString(
+        (DL_GPIO_readPins(BOARD_BUTTON1_PORT, BOARD_BUTTON1_PIN) != 0U) ?
+        "H" : "L");
+    services::Shell_WriteString(" iomux23=");
+    WriteHex32(IOMUX->SECCFG.PINCM[GPIO_BUTTON_B_BUTTON3_IOMUX]);
+    services::Shell_WriteString("\r\n");
+}
+
+void ButtonWatchCommand(uint32_t duration_ms)
+{
+    const uint32_t start_ms = services::Time_Millis();
+    uint32_t last_gpio_b = GPIO_BUTTON_B_PORT->DIN31_0;
+    uint32_t last_gpio_c = GPIO_BUTTON_C_PORT->DIN31_0;
+
+    services::Shell_WriteLine("button watch: press/release buttons now");
+    PrintButtonGpioSnapshot();
+
+    while (!services::Time_HasElapsed(start_ms, duration_ms)) {
+        const uint32_t gpio_b = GPIO_BUTTON_B_PORT->DIN31_0;
+        const uint32_t gpio_c = GPIO_BUTTON_C_PORT->DIN31_0;
+        if ((gpio_b != last_gpio_b) || (gpio_c != last_gpio_c)) {
+            services::Shell_WriteString("t=");
+            services::Shell_WriteUInt32(services::Time_Millis() - start_ms);
+            services::Shell_WriteString(" ");
+            PrintButtonGpioSnapshot();
+            last_gpio_b = gpio_b;
+            last_gpio_c = gpio_c;
+        }
+    }
+
+    services::Shell_WriteLine("button watch: done");
+}
+
+void PrintChangedBits(const char *port_name, uint32_t before, uint32_t after)
+{
+    const uint32_t changed = before ^ after;
+    if (changed == 0U) {
+        return;
+    }
+
+    services::Shell_WriteString(port_name);
+    services::Shell_WriteString(" before=");
+    WriteHex32(before);
+    services::Shell_WriteString(" after=");
+    WriteHex32(after);
+    services::Shell_WriteString(" changed:");
+    for (uint8_t bit = 0U; bit < 32U; bit++) {
+        const uint32_t mask = (uint32_t) 1U << bit;
+        if ((changed & mask) != 0U) {
+            services::Shell_WriteString(" ");
+            services::Shell_WriteUInt32(bit);
+            services::Shell_WriteString((after & mask) != 0U ? "=H" : "=L");
+        }
+    }
+    services::Shell_WriteString("\r\n");
+}
+
+void ButtonScanCommand(uint32_t duration_ms)
+{
+    const uint32_t start_ms = services::Time_Millis();
+    uint32_t last_gpio_a = GPIOA->DIN31_0;
+    uint32_t last_gpio_b = GPIOB->DIN31_0;
+    uint32_t last_gpio_c = GPIOC->DIN31_0;
+
+    services::Shell_WriteLine("button scan: press/release button3 now");
+    services::Shell_WriteString("initial A=");
+    WriteHex32(last_gpio_a);
+    services::Shell_WriteString(" B=");
+    WriteHex32(last_gpio_b);
+    services::Shell_WriteString(" C=");
+    WriteHex32(last_gpio_c);
+    services::Shell_WriteString("\r\n");
+
+    while (!services::Time_HasElapsed(start_ms, duration_ms)) {
+        const uint32_t gpio_a = GPIOA->DIN31_0;
+        const uint32_t gpio_b = GPIOB->DIN31_0;
+        const uint32_t gpio_c = GPIOC->DIN31_0;
+        if ((gpio_a != last_gpio_a) ||
+            (gpio_b != last_gpio_b) ||
+            (gpio_c != last_gpio_c)) {
+            services::Shell_WriteString("t=");
+            services::Shell_WriteUInt32(services::Time_Millis() - start_ms);
+            services::Shell_WriteString("\r\n");
+            PrintChangedBits("GPIOA", last_gpio_a, gpio_a);
+            PrintChangedBits("GPIOB", last_gpio_b, gpio_b);
+            PrintChangedBits("GPIOC", last_gpio_c, gpio_c);
+            last_gpio_a = gpio_a;
+            last_gpio_b = gpio_b;
+            last_gpio_c = gpio_c;
+        }
+    }
+
+    services::Shell_WriteLine("button scan: done");
+}
+#endif
 
 void ButtonCommand(int argc, const char * const argv[])
 {
 #if FEATURE_ENABLE_BUTTONS
+    if ((argc >= 2) && (StrEqual(argv[1], "watch") ||
+                        StrEqual(argv[1], "scan"))) {
+        uint32_t duration_ms = 5000U;
+        if (argc == 3) {
+            if ((!ParseUint32(argv[2], 30000U, &duration_ms)) ||
+                (duration_ms < 100U)) {
+                PrintButtonUsage();
+                return;
+            }
+        } else if (argc != 2) {
+            PrintButtonUsage();
+            return;
+        }
+
+        if (StrEqual(argv[1], "watch")) {
+            ButtonWatchCommand(duration_ms);
+        } else {
+            ButtonScanCommand(duration_ms);
+        }
+        return;
+    }
+
     if (argc != 1) {
-        services::Shell_WriteLine("usage: button");
+        PrintButtonUsage();
         return;
     }
 
@@ -1850,6 +2008,20 @@ void ButtonCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(board::Board_ButtonWasReleased(id) ? 1U : 0U);
         services::Shell_WriteString("\r\n");
     }
+
+    services::Shell_WriteString("button gpioB din=");
+    WriteHex32(GPIO_BUTTON_B_PORT->DIN31_0);
+    services::Shell_WriteString(" pb20=");
+    services::Shell_WriteString(
+        (DL_GPIO_readPins(BOARD_BUTTON2_PORT, BOARD_BUTTON2_PIN) != 0U) ?
+        "H" : "L");
+    services::Shell_WriteString(" pb23=");
+    services::Shell_WriteString(
+        (DL_GPIO_readPins(BOARD_BUTTON3_PORT, BOARD_BUTTON3_PIN) != 0U) ?
+        "H" : "L");
+    services::Shell_WriteString(" iomux23=");
+    WriteHex32(IOMUX->SECCFG.PINCM[GPIO_BUTTON_B_BUTTON3_IOMUX]);
+    services::Shell_WriteString("\r\n");
 #else
     (void) argc;
     (void) argv;
@@ -2921,6 +3093,7 @@ void Ina219Command(int argc, const char * const argv[])
 }
 
 
+#if FEATURE_ENABLE_SHELL_DIAGNOSTICS
 const drivers::I2cDiagBusConfig *FindI2cBusOrPrint(const char *name)
 {
     const drivers::I2cDiagBusConfig *bus = board::Board_I2cBusFind(name);
@@ -2984,10 +3157,11 @@ bool ParseI2cRange(int argc,
 
     return true;
 }
+#endif
 
+#if FEATURE_ENABLE_IMU
 void ImuCommand(int argc, const char * const argv[])
 {
-#if FEATURE_ENABLE_IMU
     uint32_t reg = 0U;
     uint8_t value = 0U;
     uint32_t val_u32 = 0U;
@@ -3376,13 +3550,10 @@ void ImuCommand(int argc, const char * const argv[])
     }
 
     PrintImuUsage();
-#else
-    (void) argc;
-    (void) argv;
-    services::Shell_WriteLine("imu: disabled");
-#endif
 }
+#endif
 
+#if FEATURE_ENABLE_SHELL_DIAGNOSTICS
 void PrintI2cStatus(const drivers::I2cDiagBusConfig *bus)
 {
     drivers::I2cDiagBusStatus status = { 0U, false, false };
@@ -3671,6 +3842,9 @@ void I2cCommand(int argc, const char * const argv[])
 
     PrintI2cUsage();
 }
+#endif
+
+#if FEATURE_ENABLE_LORA
 drivers::DriverStatus LoraWriteArgs(int argc,
                                     const char * const argv[],
                                     bool append_newline,
@@ -3722,7 +3896,6 @@ drivers::DriverStatus LoraWriteArgs(int argc,
 
 void LoraCommand(int argc, const char * const argv[])
 {
-#if FEATURE_ENABLE_LORA
     uint32_t value = 0U;
 
     if ((argc < 2) || (!board::Board_LoraIsReady())) {
@@ -3891,12 +4064,8 @@ void LoraCommand(int argc, const char * const argv[])
     }
 
     PrintLoraUsage();
-#else
-    (void) argc;
-    (void) argv;
-    services::Shell_WriteLine("lora: disabled");
-#endif
 }
+#endif
 
 drivers::DriverStatus MotorWriteArgs(int argc,
                                      const char * const argv[],
@@ -4955,6 +5124,7 @@ void MotorCommand(int argc, const char * const argv[])
 #endif
 }
 
+#if FEATURE_ENABLE_SHELL_DIAGNOSTICS
 void AdcCommand(int argc, const char * const argv[])
 {
     (void) argc;
@@ -4976,6 +5146,65 @@ void PwmCommand(int argc, const char * const argv[])
     services::Shell_WriteUInt32(duty);
     services::Shell_WriteLine("%, no PWM driver registered");
 }
+#endif
+
+#if FEATURE_ENABLE_SCHEDULER_STATS
+void PrintSchedulerUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  sched");
+    services::Shell_WriteLine("  sched reset");
+}
+
+void SchedulerCommand(int argc, const char * const argv[])
+{
+    if (argc == 2) {
+        if (StrEqual(argv[1], "reset")) {
+            services::Scheduler_ResetAllStats();
+            services::Shell_WriteLine("sched reset: ok");
+            return;
+        }
+
+        PrintSchedulerUsage();
+        return;
+    }
+
+    if (argc != 1) {
+        PrintSchedulerUsage();
+        return;
+    }
+
+    for (uint32_t i = 0U; i < BOARD_SCHEDULER_MAX_TASKS; i++) {
+        services::SchedulerTaskInfo info = {};
+        if (services::Scheduler_GetTaskInfo((services::SchedulerTaskId) i,
+                                            &info) != services::SCHEDULER_OK) {
+            continue;
+        }
+
+        services::Shell_WriteString("sched ");
+        services::Shell_WriteUInt32(i);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteString(info.name == 0 ? "-" : info.name);
+        services::Shell_WriteString(" en=");
+        services::Shell_WriteUInt32(info.enabled ? 1U : 0U);
+        services::Shell_WriteString(" per_ms=");
+        services::Shell_WriteUInt32(info.period_ms);
+        services::Shell_WriteString(" run=");
+        services::Shell_WriteUInt32(info.run_count);
+        services::Shell_WriteString(" last_us=");
+        services::Shell_WriteUInt32(info.last_runtime_us);
+        services::Shell_WriteString(" max_us=");
+        services::Shell_WriteUInt32(info.max_runtime_us);
+        services::Shell_WriteString(" late_ms=");
+        services::Shell_WriteUInt32(info.last_late_ms);
+        services::Shell_WriteString(" max_late_ms=");
+        services::Shell_WriteUInt32(info.max_late_ms);
+        services::Shell_WriteString(" timeout=");
+        services::Shell_WriteUInt32(info.timeout_count);
+        services::Shell_WriteString("\r\n");
+    }
+}
+#endif
 
 #if FEATURE_ENABLE_GRAYSCALE
 void PrintGrayUsage(void)
@@ -5153,6 +5382,54 @@ void GrayCommand(int argc, const char * const argv[])
 
 } /* namespace */
 
+drivers::DriverStatus AppShell_EnableIna219Oled(uint32_t period_ms)
+{
+#if FEATURE_ENABLE_INA219 && FEATURE_ENABLE_OLED
+    if ((period_ms < kIna219OledMinPeriodMs) ||
+        (period_ms > kIna219OledMaxPeriodMs)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    g_ina219OledPeriodMs = period_ms;
+    return Ina219OledSetEnabled(true);
+#else
+    (void) period_ms;
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+#endif
+}
+
+drivers::DriverStatus AppShell_EnableGy931Oled(uint32_t period_ms)
+{
+#if FEATURE_ENABLE_GY931 && FEATURE_ENABLE_OLED
+    if ((period_ms < kGy931OledMinPeriodMs) ||
+        (period_ms > kGy931OledMaxPeriodMs)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    g_gy931OledPeriodMs = period_ms;
+    return Gy931OledSetEnabled(true);
+#else
+    (void) period_ms;
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+#endif
+}
+
+drivers::DriverStatus AppShell_EnableGrayOled(uint32_t period_ms)
+{
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_OLED
+    if ((period_ms < kGrayOledMinPeriodMs) ||
+        (period_ms > kGrayOledMaxPeriodMs)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    g_grayOledPeriodMs = period_ms;
+    return GrayOledSetEnabled(true);
+#else
+    (void) period_ms;
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+#endif
+}
+
 void AppShell_RegisterCommands(void)
 {
     (void) services::Shell_RegisterCommand("version",
@@ -5161,12 +5438,21 @@ void AppShell_RegisterCommands(void)
     (void) services::Shell_RegisterCommand("reset",
                                            "Reset the MCU",
                                            ResetCommand);
+#if FEATURE_ENABLE_SCHEDULER_STATS
+    (void) services::Shell_RegisterCommand("sched",
+                                           "Scheduler runtime stats",
+                                           SchedulerCommand);
+#endif
+#if FEATURE_ENABLE_STATUS_LED
     (void) services::Shell_RegisterCommand("led",
                                            "Control LEDs: led <1|2|3|all> on|off|toggle|status",
                                            LedCommand);
+#endif
+#if FEATURE_ENABLE_BUZZER
     (void) services::Shell_RegisterCommand("buzzer",
                                            "Control buzzer: buzzer on|off",
                                            BuzzerCommand);
+#endif
 #if FEATURE_ENABLE_BUTTONS
     (void) services::Shell_RegisterCommand("button",
                                            "Show button states",
@@ -5228,6 +5514,7 @@ void AppShell_RegisterCommands(void)
         "Chassis: status|stop|wheel <l_rpm> <r_rpm>|vel <mm_s> <mdeg_s>",
         ChassisCommand);
 #endif
+#if FEATURE_ENABLE_SHELL_DIAGNOSTICS
     (void) services::Shell_RegisterCommand(
         "i2c",
         "I2C diag: list|status|recover|scan|probe|read|write|test",
@@ -5238,6 +5525,7 @@ void AppShell_RegisterCommands(void)
     (void) services::Shell_RegisterCommand("pwm",
                                            "Set PWM placeholder: pwm 0..100",
                                            PwmCommand);
+#endif
 }
 
 } /* namespace app */

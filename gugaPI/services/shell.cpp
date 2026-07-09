@@ -197,10 +197,12 @@ void Shell_Init(void)
     g_lineLength = 0U;
     g_ignoreNextLf = false;
 
+#if FEATURE_ENABLE_SHELL_BANNER
     if (DebugUart_IsReady()) {
         Shell_WriteString("\r\ngugaPI debug shell\r\n");
         Shell_PrintPrompt();
     }
+#endif
 #endif
 }
 
@@ -265,7 +267,7 @@ void Shell_WriteUInt32(uint32_t value)
 
 void Shell_PrintPrompt(void)
 {
-#if FEATURE_ENABLE_SHELL
+#if FEATURE_ENABLE_SHELL && FEATURE_ENABLE_SHELL_PROMPT
     Shell_WriteString("> ");
 #endif
 }

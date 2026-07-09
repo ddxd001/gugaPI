@@ -22,6 +22,27 @@ uint32_t Time_Millis(void)
     return g_millis;
 }
 
+uint32_t Time_Micros(void)
+{
+    uint32_t millis_before = 0U;
+    uint32_t millis_after = 0U;
+    uint32_t systick_value = 0U;
+
+    do {
+        millis_before = g_millis;
+        systick_value = SysTick->VAL;
+        millis_after = g_millis;
+    } while (millis_before != millis_after);
+
+    const uint32_t ticks_per_us = CPUCLK_FREQ / 1000000U;
+    const uint32_t reload_ticks = SysTick->LOAD + 1U;
+    const uint32_t elapsed_ticks = reload_ticks - systick_value;
+    const uint32_t elapsed_us =
+        (ticks_per_us == 0U) ? 0U : (elapsed_ticks / ticks_per_us);
+
+    return (millis_before * 1000U) + elapsed_us;
+}
+
 bool Time_HasElapsed(uint32_t start_ms, uint32_t interval_ms)
 {
     return ((uint32_t) (Time_Millis() - start_ms) >= interval_ms);
