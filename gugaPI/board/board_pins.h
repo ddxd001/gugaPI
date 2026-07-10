@@ -59,7 +59,7 @@
 #define BOARD_BUTTON_ACTIVE_LOW         (1U)
 #define BOARD_BUTTON_DEBOUNCE_MS        (20U)
 
-/* LoRa 串口透传：芯片封装 20 脚 PB0/UART0_TX 接 LoRa RX，21 脚 PB1/UART0_RX 接 LoRa TX。 */
+/* LoRa 串口透传：PA14/UART3_TX 接 LoRa RX，PA13/UART3_RX 接 LoRa TX。 */
 #define BOARD_LORA_UART_INST            LORA_UART_INST
 #define BOARD_LORA_UART_IRQN            LORA_UART_INST_INT_IRQN
 #define BOARD_LORA_TX_PORT              GPIO_LORA_UART_TX_PORT

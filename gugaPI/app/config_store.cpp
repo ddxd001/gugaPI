@@ -185,19 +185,19 @@ void SetDefaults(ConfigStoreParams *params)
 {
     (void) memset(params, 0, sizeof(*params));
 
-    params->left_counts_per_rev = 22400U;
-    params->right_counts_per_rev = 22400U;
+    params->left_counts_per_rev = 364U;
+    params->right_counts_per_rev = 364U;
     params->wheel_radius_mm = 32U;
     params->wheel_track_mm = 160U;
     params->max_wheel_rpm = 1000U;
-    params->motor_output_invert_flags = 0U;
-    params->motor_encoder_invert_flags = 0U;
+    params->motor_output_invert_flags = 0x01U;
+    params->motor_encoder_invert_flags = 0x01U;
 
     params->speed_kp_q4_4 = 1U;
     params->speed_ki_q4_4 = 1U;
     params->speed_kd_q4_4 = 0U;
-    params->speed_max_duty = 100U;
-    params->speed_min_duty = 0U;
+    params->speed_max_duty = 50U;
+    params->speed_min_duty = 6U;
 
     params->position_kp_q4_4 = 15U;
     params->position_ki_q4_4 = 0U;

@@ -21,7 +21,7 @@ void ConfigureLoraRxPullUp(void)
 
 static uint8_t g_loraRxBuffer[BOARD_LORA_RX_BUFFER_SIZE];
 
-/* LoRa 接线：20 脚 PB0/UART0_TX 接模块 RX，21 脚 PB1/UART0_RX 接模块 TX。 */
+/* LoRa 接线：PA14/UART3_TX 接模块 RX，PA13/UART3_RX 接模块 TX。 */
 static const drivers::LoraUartConfig g_loraConfig = {
     BOARD_LORA_UART_INST,
     BOARD_LORA_UART_IRQN,

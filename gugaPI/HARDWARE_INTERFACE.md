@@ -37,14 +37,14 @@ PB19 / SPIx_POCI <-------| IMU_SPI POCI/MISO    |---- ICM-45686 SDO, LIS3MDLTR S
 PC7              --------| ICM45686_CS          |---- ICM-45686 CS
 PC8              --------| LIS3MDLTR_CS         |---- LIS3MDLTR CS
                          |                      |
-PB0 / UART0_TX  -------->| LORA_UART TX         |---- LoRa RX
-PB1 / UART0_RX  <--------| LORA_UART RX         |---- LoRa TX
+PB0 / UART0_TX  -------->| DEBUG_UART TX        |---- USB-UART RX / PC RX
+PB1 / UART0_RX  <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
                          |                      |
 PA8 / UART1_TX  -------->| MOTOR_UART TX        |---- MotorDriver RX
 PA9 / UART1_RX  <--------| MOTOR_UART RX        |---- MotorDriver TX
                          |                      |
-PA14 / UART3_TX -------->| DEBUG_UART TX        |---- USB-UART RX / PC RX
-PA13 / UART3_RX <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
+PA14 / UART3_TX -------->| LORA_UART TX         |---- LoRa RX
+PA13 / UART3_RX <--------| LORA_UART RX         |---- LoRa TX
                          |                      |
 PA27             --------| LED1                 |---- Active-low LED
 PA26             --------| LED2                 |---- Active-low LED
@@ -73,8 +73,8 @@ All external UART/I2C modules must share GND with gugaPI.
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| DEBUG_UART_TX | PA14 | UART3_TX | USB-UART RX / PC RX | MCU output | N/A | 115200 8N1 |
-| DEBUG_UART_RX | PA13 | UART3_RX | USB-UART TX / PC TX | MCU input | Not configured in board code | 115200 8N1 |
+| DEBUG_UART_TX | PB0 | UART0_TX | USB-UART RX / PC RX | MCU output | N/A | 115200 8N1 |
+| DEBUG_UART_RX | PB1 | UART0_RX | USB-UART TX / PC TX | MCU input | Not configured in board code | 115200 8N1 |
 
 UART configuration:
 
@@ -93,8 +93,8 @@ UART configuration:
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| LORA_UART_TX | PB0 | UART0_TX | LoRa module RX | MCU output | N/A | Board comments identify this as package pin 20 |
-| LORA_UART_RX | PB1 | UART0_RX | LoRa module TX | MCU input | Internal pull-up enabled in `Board_LoraInit()` | Board comments identify this as package pin 21 |
+| LORA_UART_TX | PA14 | UART3_TX | LoRa module RX | MCU output | N/A | Moved from PB0 so UART0 can host the shell |
+| LORA_UART_RX | PA13 | UART3_RX | LoRa module TX | MCU input | Internal pull-up enabled in `Board_LoraInit()` | Moved from PB1 so UART0 can host the shell |
 | LORA_GND | GND | N/A | LoRa module GND | N/A | N/A | Common ground required |
 
 LoRa UART configuration:
@@ -474,8 +474,8 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 
 | Interface | MCU Instance | TX | RX | Baud | External Peer | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| DEBUG_UART | UART3 | PA14 | PA13 | 115200 | USB-UART / PC | Shell and logs |
-| LORA_UART | UART0 | PB0 | PB1 | 115200 | LoRa module | Raw transparent serial |
+| DEBUG_UART | UART0 | PB0 | PB1 | 115200 | USB-UART / PC | Shell and logs |
+| LORA_UART | UART3 | PA14 | PA13 | 115200 | LoRa module | Raw transparent serial |
 | MOTOR_UART | UART1 | PA8 | PA9 | 115200 | MotorDriver | Binary motor control protocol |
 
 ## SPI Bus Summary

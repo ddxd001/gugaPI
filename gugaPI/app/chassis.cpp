@@ -30,6 +30,8 @@ ChassisState g_state = {
     drivers::DRIVER_ERROR_NOT_INITIALIZED
 };
 
+bool g_motionLeaseActive = false;
+
 int32_t AbsInt32(int32_t value)
 {
     return (value < 0) ? -value : value;
@@ -133,6 +135,23 @@ void SetLastStatus(drivers::DriverStatus status)
     g_state.last_status = status;
 }
 
+void ClearMotionCommandState(void)
+{
+    g_motionLeaseActive = false;
+    g_state.target_linear_mm_s = 0;
+    g_state.target_angular_mdeg_s = 0;
+    g_state.left.target_rpm = 0;
+    g_state.right.target_rpm = 0;
+}
+
+drivers::DriverStatus StopMotorsForSafety(void)
+{
+    motor::StopResult stop_result = {};
+
+    ClearMotionCommandState();
+    return motor::Stop(&g_motorClient, &stop_result);
+}
+
 void RefreshConfig(void)
 {
     const ConfigStoreParams *params = ConfigStore_Get();
@@ -211,14 +230,12 @@ drivers::DriverStatus Chassis_Init(void)
     motor::Init(&g_motorClient);
     RefreshConfig();
     g_state.initialized = true;
-    g_state.target_linear_mm_s = 0;
-    g_state.target_angular_mdeg_s = 0;
-    g_state.left.target_rpm = 0;
-    g_state.right.target_rpm = 0;
+    ClearMotionCommandState();
     g_state.last_status = ApplyPersistentMotorConfig();
     return g_state.last_status;
 #else
     g_state.initialized = false;
+    ClearMotionCommandState();
     g_state.last_status = drivers::DRIVER_ERROR_UNSUPPORTED;
     return drivers::DRIVER_ERROR_UNSUPPORTED;
 #endif
@@ -230,18 +247,18 @@ drivers::DriverStatus Chassis_Stop(void)
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
 
-    motor::StopResult stop_result = {};
-    const drivers::DriverStatus status = motor::Stop(&g_motorClient,
-                                                     &stop_result);
-
-    if (status == drivers::DRIVER_OK) {
-        g_state.target_linear_mm_s = 0;
-        g_state.target_angular_mdeg_s = 0;
-        g_state.left.target_rpm = 0;
-        g_state.right.target_rpm = 0;
-    }
+    const drivers::DriverStatus status = StopMotorsForSafety();
     SetLastStatus(status);
     return status;
+}
+
+drivers::DriverStatus RefreshOneWheelRpm(bool motor1, int32_t rpm)
+{
+    bool ack = false;
+    return motor::WriteTargetRpm(&g_motorClient,
+                                 motor1,
+                                 static_cast<uint16_t>(AbsInt32(rpm)),
+                                 &ack);
 }
 
 drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
@@ -266,16 +283,21 @@ drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
 
     status = SetOneWheelRpm(true, left_rpm);
     if (status != drivers::DRIVER_OK) {
+        (void) StopMotorsForSafety();
         SetLastStatus(status);
         return status;
     }
 
     status = SetOneWheelRpm(false, right_rpm);
     if (status != drivers::DRIVER_OK) {
+        (void) StopMotorsForSafety();
         SetLastStatus(status);
         return status;
     }
 
+    g_motionLeaseActive = true;
+    g_state.target_linear_mm_s = 0;
+    g_state.target_angular_mdeg_s = 0;
     g_state.left.target_rpm = left_rpm;
     g_state.right.target_rpm = right_rpm;
     SetLastStatus(drivers::DRIVER_OK);
@@ -312,6 +334,31 @@ drivers::DriverStatus Chassis_SetVelocity(int32_t linear_mm_s,
     }
     SetLastStatus(status);
     return status;
+}
+
+drivers::DriverStatus Chassis_Service(void)
+{
+    if (!g_state.initialized) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    if (!g_motionLeaseActive) {
+        return drivers::DRIVER_OK;
+    }
+
+    drivers::DriverStatus status =
+        RefreshOneWheelRpm(true, g_state.left.target_rpm);
+    if (status == drivers::DRIVER_OK) {
+        status = RefreshOneWheelRpm(false, g_state.right.target_rpm);
+    }
+    if (status != drivers::DRIVER_OK) {
+        (void) StopMotorsForSafety();
+        SetLastStatus(status);
+        return status;
+    }
+
+    SetLastStatus(drivers::DRIVER_OK);
+    return drivers::DRIVER_OK;
 }
 
 drivers::DriverStatus Chassis_Update(void)

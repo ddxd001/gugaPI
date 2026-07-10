@@ -68,6 +68,8 @@ static const uint32_t kPositionMaxRpm = 1000U;
 static const uint32_t kPositionToleranceMax = 65535U;
 static const uint32_t kPositionSettleMsMax = 2550U;
 static const int32_t kPositionDegreeLimit = 360000;
+static const uint8_t kI2cWriteVerifyAttempts = 5U;
+static const uint32_t kI2cWriteVerifyDelayCycles = 8000U;
 
 enum Transport : uint8_t {
     TRANSPORT_UART = 0U,
@@ -548,6 +550,77 @@ inline drivers::DriverStatus WriteRegisters(Client *client,
     return Request(client, kCmdWrite, reg, data, length, response);
 }
 
+inline bool BytesEqual(const uint8_t *left,
+                       const uint8_t *right,
+                       uint8_t length)
+{
+    for (uint8_t i = 0U; i < length; i++) {
+        if (left[i] != right[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+inline drivers::DriverStatus VerifyRegisters(Client *client,
+                                             uint8_t reg,
+                                             const uint8_t *expected,
+                                             uint8_t length)
+{
+    if ((client == 0) || (expected == 0) || (length == 0U) ||
+        (length > kMaxPayloadLength) ||
+        ((uint16_t) reg + (uint16_t) length > 256U)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    const uint8_t attempts =
+        (client->transport == TRANSPORT_I2C) ? kI2cWriteVerifyAttempts : 1U;
+    drivers::DriverStatus last_status = drivers::DRIVER_ERROR;
+
+    for (uint8_t attempt = 0U; attempt < attempts; attempt++) {
+        Frame verify = {};
+        last_status = ReadRegisters(client, reg, length, &verify);
+        if (last_status == drivers::DRIVER_OK) {
+            if ((verify.length == length) &&
+                BytesEqual(verify.data, expected, length)) {
+                return drivers::DRIVER_OK;
+            }
+            last_status = drivers::DRIVER_ERROR;
+        }
+
+        if (attempt + 1U < attempts) {
+            delay_cycles(kI2cWriteVerifyDelayCycles);
+        }
+    }
+
+    return last_status;
+}
+
+inline drivers::DriverStatus WriteRegistersChecked(Client *client,
+                                                   uint8_t reg,
+                                                   const uint8_t *data,
+                                                   uint8_t length,
+                                                   Frame *response)
+{
+    if ((client == 0) || (response == 0)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    const drivers::DriverStatus status =
+        WriteRegisters(client, reg, data, length, response);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    if (!StatusOkResponse(*response)) {
+        return drivers::DRIVER_ERROR;
+    }
+
+    if (client->transport == TRANSPORT_I2C) {
+        return VerifyRegisters(client, reg, data, length);
+    }
+    return drivers::DRIVER_OK;
+}
+
 inline drivers::DriverStatus Ping(Client *client, bool *ok)
 {
     Frame response = {};
@@ -691,13 +764,12 @@ inline drivers::DriverStatus SetCountsPerRev(Client *client,
     EncodeUint32Le(m2_counts_per_rev, &data[4]);
 
     const drivers::DriverStatus status =
-        WriteRegisters(client, kRegCountsPerRev, data, kCountsPerRevLength,
-                       &response);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-    return StatusOkResponse(response) ? drivers::DRIVER_OK
-                                      : drivers::DRIVER_ERROR;
+        WriteRegistersChecked(client,
+                              kRegCountsPerRev,
+                              data,
+                              kCountsPerRevLength,
+                              &response);
+    return status;
 }
 
 inline drivers::DriverStatus ReadInvertConfig(Client *client,
@@ -737,16 +809,12 @@ inline drivers::DriverStatus SetInvertConfig(Client *client,
     };
 
     const drivers::DriverStatus status =
-        WriteRegisters(client,
-                       kRegOutputInvertFlags,
-                       data,
-                       kInvertConfigLength,
-                       &response);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-    return StatusOkResponse(response) ? drivers::DRIVER_OK
-                                      : drivers::DRIVER_ERROR;
+        WriteRegistersChecked(client,
+                              kRegOutputInvertFlags,
+                              data,
+                              kInvertConfigLength,
+                              &response);
+    return status;
 }
 
 inline drivers::DriverStatus ReadPid(Client *client, SpeedPid *pid)
@@ -779,12 +847,9 @@ inline drivers::DriverStatus SetPid(Client *client,
 {
     Frame response = {};
     const drivers::DriverStatus status =
-        WriteRegisters(client, kRegSpeedPid, pid_bytes, length, &response);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-    return StatusOkResponse(response) ? drivers::DRIVER_OK
-                                      : drivers::DRIVER_ERROR;
+        WriteRegistersChecked(client, kRegSpeedPid, pid_bytes, length,
+                              &response);
+    return status;
 }
 
 inline void DecodePositionPid(const uint8_t *data, PositionPid *pid)
@@ -863,12 +928,9 @@ inline drivers::DriverStatus SetPositionPid(Client *client,
 {
     Frame response = {};
     const drivers::DriverStatus status =
-        WriteRegisters(client, kRegPositionPid, pid_bytes, length, &response);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-    return StatusOkResponse(response) ? drivers::DRIVER_OK
-                                      : drivers::DRIVER_ERROR;
+        WriteRegistersChecked(client, kRegPositionPid, pid_bytes, length,
+                              &response);
+    return status;
 }
 
 inline drivers::DriverStatus ReadPositionControl(Client *client,
@@ -901,16 +963,12 @@ inline drivers::DriverStatus SetPositionControl(Client *client,
 {
     Frame response = {};
     const drivers::DriverStatus status =
-        WriteRegisters(client,
-                       kRegPositionControl,
-                       control_bytes,
-                       length,
-                       &response);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-    return StatusOkResponse(response) ? drivers::DRIVER_OK
-                                      : drivers::DRIVER_ERROR;
+        WriteRegistersChecked(client,
+                              kRegPositionControl,
+                              control_bytes,
+                              length,
+                              &response);
+    return status;
 }
 
 inline drivers::DriverStatus WriteMode(Client *client,
@@ -921,19 +979,15 @@ inline drivers::DriverStatus WriteMode(Client *client,
 {
     Frame response = {};
     const drivers::DriverStatus status =
-        WriteRegisters(client,
-                       motor1 ? kRegM1Mode : kRegM2Mode,
-                       data,
-                       length,
-                       &response);
+        WriteRegistersChecked(client,
+                              motor1 ? kRegM1Mode : kRegM2Mode,
+                              data,
+                              length,
+                              &response);
     if (ack != 0) {
-        *ack = (status == drivers::DRIVER_OK) && StatusOkResponse(response);
+        *ack = (status == drivers::DRIVER_OK);
     }
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-    return StatusOkResponse(response) ? drivers::DRIVER_OK
-                                      : drivers::DRIVER_ERROR;
+    return status;
 }
 
 inline drivers::DriverStatus WriteTargetRpm(Client *client,
@@ -946,19 +1000,15 @@ inline drivers::DriverStatus WriteTargetRpm(Client *client,
     EncodeUint16Le(rpm, data);
 
     const drivers::DriverStatus status =
-        WriteRegisters(client,
-                       motor1 ? kRegM1TargetRpm : kRegM2TargetRpm,
-                       data,
-                       static_cast<uint8_t>(sizeof(data)),
-                       &response);
+        WriteRegistersChecked(client,
+                              motor1 ? kRegM1TargetRpm : kRegM2TargetRpm,
+                              data,
+                              static_cast<uint8_t>(sizeof(data)),
+                              &response);
     if (ack != 0) {
-        *ack = (status == drivers::DRIVER_OK) && StatusOkResponse(response);
+        *ack = (status == drivers::DRIVER_OK);
     }
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-    return StatusOkResponse(response) ? drivers::DRIVER_OK
-                                      : drivers::DRIVER_ERROR;
+    return status;
 }
 
 inline drivers::DriverStatus WriteTargetPosition(Client *client,
@@ -971,19 +1021,16 @@ inline drivers::DriverStatus WriteTargetPosition(Client *client,
     EncodeInt32Le(target_count, data);
 
     const drivers::DriverStatus status =
-        WriteRegisters(client,
-                       motor1 ? kRegM1TargetPosition : kRegM2TargetPosition,
-                       data,
-                       static_cast<uint8_t>(sizeof(data)),
-                       &response);
+        WriteRegistersChecked(client,
+                              motor1 ? kRegM1TargetPosition :
+                                       kRegM2TargetPosition,
+                              data,
+                              static_cast<uint8_t>(sizeof(data)),
+                              &response);
     if (ack != 0) {
-        *ack = (status == drivers::DRIVER_OK) && StatusOkResponse(response);
+        *ack = (status == drivers::DRIVER_OK);
     }
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-    return StatusOkResponse(response) ? drivers::DRIVER_OK
-                                      : drivers::DRIVER_ERROR;
+    return status;
 }
 
 inline void InitMotionResult(MotionResult *result)

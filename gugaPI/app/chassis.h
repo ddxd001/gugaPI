@@ -39,6 +39,7 @@ drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
                                           int32_t right_rpm);
 drivers::DriverStatus Chassis_SetVelocity(int32_t linear_mm_s,
                                           int32_t angular_mdeg_s);
+drivers::DriverStatus Chassis_Service(void);
 drivers::DriverStatus Chassis_Update(void);
 const ChassisState *Chassis_GetState(void);
 

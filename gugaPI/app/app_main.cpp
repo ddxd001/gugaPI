@@ -31,6 +31,15 @@ enum OutputTestState {
 };
 #endif
 
+#if FEATURE_ENABLE_MOTOR_DRIVER
+const uint32_t CHASSIS_SERVICE_PERIOD_MS = 100U;
+
+void App_ChassisServiceTask(void)
+{
+    (void) app::Chassis_Service();
+}
+#endif
+
 #if FEATURE_ENABLE_STATUS_LED && FEATURE_ENABLE_LED_TEST
 const uint32_t STATUS_LED_ON_TIME_MS = 500U;
 const uint32_t STATUS_LED_OFF_TIME_MS = 500U;
@@ -270,6 +279,13 @@ void App_Init(void)
 #if FEATURE_ENABLE_MOTOR_DRIVER
     (void) ConfigStore_Load();
     (void) Chassis_Init();
+    if (services::Scheduler_AddTask("chassis",
+                                    App_ChassisServiceTask,
+                                    CHASSIS_SERVICE_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
 #endif
 #if FEATURE_ENABLE_IMU
     App_ImuInit();
