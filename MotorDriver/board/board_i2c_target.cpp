@@ -13,6 +13,8 @@ constexpr uint32_t kErrorDroppedWrite = 0x00000002U;
 constexpr uint32_t kErrorTxUnderflow = 0x00000004U;
 constexpr uint32_t kErrorArbitrationLost = 0x00000008U;
 constexpr uint32_t kErrorInterruptOverflow = 0x00000010U;
+constexpr uint32_t kErrorBusStuckRecovery = 0x00000020U;
+constexpr uint32_t kBusStuckRecoveryMs = 50U;
 
 const protocol::RegisterMap *g_registers = 0;
 volatile uint8_t g_selected_reg = 0U;
@@ -27,6 +29,9 @@ volatile uint8_t g_write_length[kWriteQueueLength];
 volatile uint8_t g_write_data[kWriteQueueLength][protocol::kMaxPayloadLength];
 volatile uint32_t g_dropped_writes = 0U;
 volatile uint32_t g_error_flags = 0U;
+uint32_t g_sda_low_since_ms = 0U;
+uint32_t g_recovery_count = 0U;
+bool g_sda_low_tracking = false;
 
 void ResetRxTransaction(void)
 {
@@ -127,19 +132,8 @@ void ConfigureI2cPinsWithPullUps(void)
     DL_GPIO_enableHiZ(BOARD_I2C_SCL_IOMUX);
 }
 
-}  // namespace
-
-void BoardI2cTarget_Init(const protocol::RegisterMap *registers)
+void ConfigureTargetPeripheral(void)
 {
-    g_registers = registers;
-    g_selected_reg = 0U;
-    ResetRxTransaction();
-    g_write_head = 0U;
-    g_write_tail = 0U;
-    g_write_count = 0U;
-    g_dropped_writes = 0U;
-    g_error_flags = 0U;
-
     DL_I2C_disableTarget(BOARD_I2C_INST);
     ConfigureI2cPinsWithPullUps();
     DL_I2C_setTargetAddressingMode(BOARD_I2C_INST,
@@ -157,7 +151,74 @@ void BoardI2cTarget_Init(const protocol::RegisterMap *registers)
                            DL_I2C_INTERRUPT_TARGET_STOP |
                            DL_I2C_TARGET_INTERRUPT_OVERFLOW);
     DL_I2C_enableTarget(BOARD_I2C_INST);
+}
+
+void RecoverTargetPeripheral(void)
+{
+    NVIC_DisableIRQ(BOARD_I2C_IRQN);
+    DL_I2C_disableTarget(BOARD_I2C_INST);
+    DL_I2C_reset(BOARD_I2C_INST);
+    DL_I2C_enablePower(BOARD_I2C_INST);
+    delay_cycles(POWER_STARTUP_DELAY);
+    SYSCFG_DL_I2C_CONTROL_init();
+
+    ResetRxTransaction();
+    g_write_head = 0U;
+    g_write_tail = 0U;
+    g_write_count = 0U;
+    ConfigureTargetPeripheral();
+
+    g_error_flags |= kErrorBusStuckRecovery;
+    g_recovery_count++;
+    g_sda_low_tracking = false;
+    NVIC_ClearPendingIRQ(BOARD_I2C_IRQN);
     NVIC_EnableIRQ(BOARD_I2C_IRQN);
+}
+
+}  // namespace
+
+void BoardI2cTarget_Init(const protocol::RegisterMap *registers)
+{
+    g_registers = registers;
+    g_selected_reg = 0U;
+    ResetRxTransaction();
+    g_write_head = 0U;
+    g_write_tail = 0U;
+    g_write_count = 0U;
+    g_dropped_writes = 0U;
+    g_error_flags = 0U;
+    g_sda_low_since_ms = 0U;
+    g_recovery_count = 0U;
+    g_sda_low_tracking = false;
+
+    ConfigureTargetPeripheral();
+    NVIC_EnableIRQ(BOARD_I2C_IRQN);
+}
+
+bool BoardI2cTarget_Process(uint32_t now_ms)
+{
+    const bool scl_high =
+        (DL_GPIO_readPins(BOARD_I2C_SCL_PORT, BOARD_I2C_SCL_PIN) != 0U);
+    const bool sda_high =
+        (DL_GPIO_readPins(BOARD_I2C_SDA_PORT, BOARD_I2C_SDA_PIN) != 0U);
+
+    if ((!scl_high) || sda_high) {
+        g_sda_low_tracking = false;
+        return false;
+    }
+
+    if (!g_sda_low_tracking) {
+        g_sda_low_since_ms = now_ms;
+        g_sda_low_tracking = true;
+        return false;
+    }
+
+    if ((now_ms - g_sda_low_since_ms) < kBusStuckRecoveryMs) {
+        return false;
+    }
+
+    RecoverTargetPeripheral();
+    return true;
 }
 
 bool BoardI2cTarget_TakeWrite(BoardI2cTargetWrite *write)
@@ -202,6 +263,11 @@ uint32_t BoardI2cTarget_DroppedWrites(void)
 uint32_t BoardI2cTarget_ErrorFlags(void)
 {
     return g_error_flags;
+}
+
+uint32_t BoardI2cTarget_RecoveryCount(void)
+{
+    return g_recovery_count;
 }
 
 void BoardI2cTarget_IrqHandler(void)

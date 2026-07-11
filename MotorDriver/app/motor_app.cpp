@@ -254,6 +254,12 @@ void MotorApp_Process(void)
     const MotorFeedback feedback = SyncEncoderRegisters();
     ProcessSerialRx();
     ProcessI2cWrites();
+    if (board::BoardI2cTarget_Process(Millis())) {
+        g_timeout_active = true;
+        g_watchdog_armed = false;
+        g_registers.ForceCoastOnTimeout();
+        g_output_dirty = true;
+    }
     CheckWatchdog();
     UpdateEncoderModes();
 

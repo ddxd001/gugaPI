@@ -11,6 +11,7 @@ static const uint16_t kControllerFifoBytes = 8U;
 bool IsConfigValid(const I2cDiagBusConfig *config)
 {
     return (config != 0) && (config->name != 0) && (config->i2c != 0) &&
+           (config->init != 0) &&
            (config->timeout_iterations > 0U) &&
            (config->scl_port != 0) && (config->scl_pin != 0U) &&
            (config->sda_port != 0) && (config->sda_pin != 0U);
@@ -146,6 +147,16 @@ void ReleaseI2cBus(const I2cDiagBusConfig *config)
     delay_cycles(kI2cErrataDelayCycles);
 }
 
+void ReinitializeController(const I2cDiagBusConfig *config)
+{
+    DL_I2C_disableController(config->i2c);
+    DL_I2C_reset(config->i2c);
+    DL_I2C_enablePower(config->i2c);
+    delay_cycles(POWER_STARTUP_DELAY);
+    config->init();
+    delay_cycles(kI2cErrataDelayCycles);
+}
+
 void DriveLineLow(GPIO_Regs *port, uint32_t pin)
 {
     DL_GPIO_clearPins(port, pin);
@@ -202,20 +213,26 @@ DriverStatus I2cDiag_RecoverBus(const I2cDiagBusConfig *config)
 
     // 生成一个软件 STOP：SDA 低 -> SCL 高 -> SDA 高。
     DriveLineLow(config->sda_port, config->sda_pin);
+    DriveLineLow(config->sda_port, config->sda_pin);
     delay_cycles(kBusRecoveryDelayCycles);
     ReleaseLine(config->scl_port, config->scl_pin);
     delay_cycles(kBusRecoveryDelayCycles);
     ReleaseLine(config->sda_port, config->sda_pin);
     delay_cycles(kBusRecoveryDelayCycles);
 
-    const bool recovered = RecoveryLinesHigh(config);
+    const bool gpio_recovered = RecoveryLinesHigh(config);
 
     RestoreI2cPins(config);
-    ResetTransfer(config->i2c);
-    DL_I2C_enableController(config->i2c);
-    delay_cycles(kI2cErrataDelayCycles);
+    ReinitializeController(config);
 
-    return recovered ? DRIVER_OK : DRIVER_ERROR_BUSY;
+    const bool peripheral_recovered =
+        (DL_I2C_getSCLStatus(config->i2c) ==
+         DL_I2C_CONTROLLER_SCL_HIGH) &&
+        (DL_I2C_getSDAStatus(config->i2c) ==
+         DL_I2C_CONTROLLER_SDA_HIGH);
+
+    return (gpio_recovered && peripheral_recovered) ? DRIVER_OK :
+                                                     DRIVER_ERROR_BUSY;
 }
 
 DriverStatus I2cDiag_ProbeAddress(const I2cDiagBusConfig *config,

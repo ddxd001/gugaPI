@@ -957,6 +957,36 @@ motor info
 | `ctrl` | 控制标志 |
 | `i2c` | MotorDriver I2C 地址 |
 
+### `motor rpm`
+
+读取两路速度环状态。MotorDriver 固件版本 2 及以上会额外显示内部控制遥测。
+
+```text
+motor rpm
+```
+
+字段含义：
+
+| 字段 | 含义 |
+| --- | --- |
+| `target` | 主控请求的最终目标转速 |
+| `control` | 经过加减速斜坡后的当前控制目标 |
+| `actual` | 编码器实测转速 |
+| `error` | 控制目标减去方向对齐后的实测转速 |
+| `integral_q4` | 速度 PID 积分状态，Q4 格式 |
+| `duty` | 速度控制器最终输出占空比 |
+
+### `motor ramp [accel_rpm_s decel_rpm_s]`
+
+查看或设置 MotorDriver 内部目标转速斜坡，单位为 RPM/s。参数为 `0` 时对应方向立即跟随请求目标，不执行斜坡限制。
+
+```text
+motor ramp
+motor ramp 600 900
+```
+
+普通目标转速变化受斜坡限制；停车、故障和控制器禁用仍立即清除输出。
+
 ### `motor reg <addr> <len>`
 
 读取 MotorDriver 寄存器。

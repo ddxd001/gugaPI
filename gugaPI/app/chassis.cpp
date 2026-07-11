@@ -10,6 +10,8 @@ namespace {
 namespace motor = motor_driver_client;
 
 static const uint32_t kPiMicro = 3141593U;
+static const bool kLeftWheelMotor1 = false;
+static const bool kRightWheelMotor1 = true;
 
 motor::Client g_motorClient = { motor::TRANSPORT_I2C,
                                 motor::kI2cDefaultAddress };
@@ -35,6 +37,12 @@ bool g_motionLeaseActive = false;
 int32_t AbsInt32(int32_t value)
 {
     return (value < 0) ? -value : value;
+}
+
+bool HasSameNonzeroDirection(int32_t current_rpm, int32_t next_rpm)
+{
+    return ((current_rpm > 0) && (next_rpm > 0)) ||
+           ((current_rpm < 0) && (next_rpm < 0));
 }
 
 drivers::DriverStatus ClampWheelRpm(int32_t rpm, uint16_t max_rpm)
@@ -175,8 +183,8 @@ drivers::DriverStatus ApplyPersistentMotorConfig(void)
 
     drivers::DriverStatus status =
         motor::SetCountsPerRev(&g_motorClient,
-                               params->left_counts_per_rev,
-                               params->right_counts_per_rev);
+                               params->right_counts_per_rev,
+                               params->left_counts_per_rev);
     if (status != drivers::DRIVER_OK) {
         return status;
     }
@@ -252,13 +260,21 @@ drivers::DriverStatus Chassis_Stop(void)
     return status;
 }
 
-drivers::DriverStatus RefreshOneWheelRpm(bool motor1, int32_t rpm)
+drivers::DriverStatus SetOneWheelTargetRpm(bool motor1, int32_t rpm)
 {
     bool ack = false;
     return motor::WriteTargetRpm(&g_motorClient,
                                  motor1,
                                  static_cast<uint16_t>(AbsInt32(rpm)),
                                  &ack);
+}
+
+drivers::DriverStatus RefreshOneWheelLease(bool motor1, int32_t rpm)
+{
+    return motor::RefreshTargetRpmLease(
+        &g_motorClient,
+        motor1,
+        static_cast<uint16_t>(AbsInt32(rpm)));
 }
 
 drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
@@ -281,14 +297,23 @@ drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
         return status;
     }
 
-    status = SetOneWheelRpm(true, left_rpm);
+    const bool refresh_only =
+        g_motionLeaseActive &&
+        HasSameNonzeroDirection(g_state.left.target_rpm, left_rpm) &&
+        HasSameNonzeroDirection(g_state.right.target_rpm, right_rpm);
+
+    status = refresh_only ?
+        SetOneWheelTargetRpm(kLeftWheelMotor1, left_rpm) :
+        SetOneWheelRpm(kLeftWheelMotor1, left_rpm);
     if (status != drivers::DRIVER_OK) {
         (void) StopMotorsForSafety();
         SetLastStatus(status);
         return status;
     }
 
-    status = SetOneWheelRpm(false, right_rpm);
+    status = refresh_only ?
+        SetOneWheelTargetRpm(kRightWheelMotor1, right_rpm) :
+        SetOneWheelRpm(kRightWheelMotor1, right_rpm);
     if (status != drivers::DRIVER_OK) {
         (void) StopMotorsForSafety();
         SetLastStatus(status);
@@ -347,9 +372,10 @@ drivers::DriverStatus Chassis_Service(void)
     }
 
     drivers::DriverStatus status =
-        RefreshOneWheelRpm(true, g_state.left.target_rpm);
+        RefreshOneWheelLease(kLeftWheelMotor1, g_state.left.target_rpm);
     if (status == drivers::DRIVER_OK) {
-        status = RefreshOneWheelRpm(false, g_state.right.target_rpm);
+        status = RefreshOneWheelLease(kRightWheelMotor1,
+                                      g_state.right.target_rpm);
     }
     if (status != drivers::DRIVER_OK) {
         (void) StopMotorsForSafety();
@@ -375,13 +401,17 @@ drivers::DriverStatus Chassis_Update(void)
         return status;
     }
 
-    status = ReadWheelState(true, &g_state.left, rpm.actual_m1);
+    status = ReadWheelState(kLeftWheelMotor1,
+                            &g_state.left,
+                            rpm.actual_m2);
     if (status != drivers::DRIVER_OK) {
         SetLastStatus(status);
         return status;
     }
 
-    status = ReadWheelState(false, &g_state.right, rpm.actual_m2);
+    status = ReadWheelState(kRightWheelMotor1,
+                            &g_state.right,
+                            rpm.actual_m1);
     SetLastStatus(status);
     return status;
 }

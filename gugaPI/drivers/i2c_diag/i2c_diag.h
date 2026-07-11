@@ -18,6 +18,7 @@ static const uint16_t I2C_DIAG_MAX_BLOCK_WRITE_BYTES = 32U;
 struct I2cDiagBusConfig {
     const char *name;
     I2C_Regs *i2c;
+    void (*init)(void);
     uint32_t timeout_iterations;
     GPIO_Regs *scl_port;
     uint32_t scl_pin;

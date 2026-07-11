@@ -18,6 +18,7 @@ static const uint8_t kCmdWrite = 0x02U;
 static const uint8_t kCmdHeartbeat = 0x03U;
 static const uint8_t kResponseFlag = 0x80U;
 static const uint8_t kStatusOk = 0x00U;
+static const uint8_t kSpeedControlTelemetryMinFirmwareVersion = 0x02U;
 static const uint8_t kMaxPayloadLength = 32U;
 static const uint32_t kResponseWaitIterations = 5000000U;
 static const char * const kI2cBusName = "motor";
@@ -41,6 +42,8 @@ static const uint8_t kRegM2TargetPosition = 0x54U;
 static const uint8_t kRegPositionBlock = 0x50U;
 static const uint8_t kRegPositionPid = 0x60U;
 static const uint8_t kRegPositionControl = 0x68U;
+static const uint8_t kRegSpeedControlTelemetry = 0x6DU;
+static const uint8_t kRegSpeedRamp = 0x7BU;
 
 static const uint8_t kDeviceInfoLength = 6U;
 static const uint8_t kInvertConfigLength = 2U;
@@ -51,6 +54,8 @@ static const uint8_t kCountsPerRevLength = 8U;
 static const uint8_t kPositionBlockLength = 29U;
 static const uint8_t kPositionPidLength = 7U;
 static const uint8_t kPositionControlLength = 5U;
+static const uint8_t kSpeedControlTelemetryLength = 14U;
+static const uint8_t kSpeedRampLength = 4U;
 
 static const uint8_t kModeCoast = 0U;
 static const uint8_t kModeRun = 1U;
@@ -63,6 +68,7 @@ static const uint8_t kInvertM2 = 0x02U;
 static const uint8_t kInvertValidMask = kInvertM1 | kInvertM2;
 
 static const uint32_t kSpeedMaxRpm = 1000U;
+static const uint32_t kSpeedRampMaxRpmPerSecond = 65535U;
 static const uint32_t kCountsPerRevMax = 100000000U;
 static const uint32_t kPositionMaxRpm = 1000U;
 static const uint32_t kPositionToleranceMax = 65535U;
@@ -126,6 +132,22 @@ struct SpeedPid {
     uint8_t kd_q4_4;
     uint8_t max_duty;
     uint8_t min_duty;
+};
+
+struct SpeedControlTelemetry {
+    uint16_t control_m1;
+    uint16_t control_m2;
+    int16_t error_m1;
+    int16_t error_m2;
+    int16_t integral_m1_q4;
+    int16_t integral_m2_q4;
+    uint8_t duty_m1;
+    uint8_t duty_m2;
+};
+
+struct SpeedRamp {
+    uint16_t accel_rpm_per_s;
+    uint16_t decel_rpm_per_s;
 };
 
 struct PositionPid {
@@ -728,6 +750,101 @@ inline drivers::DriverStatus ReadRpm(Client *client, RpmData *rpm)
     return drivers::DRIVER_OK;
 }
 
+inline drivers::DriverStatus ReadSpeedControlTelemetry(
+    Client *client,
+    SpeedControlTelemetry *telemetry)
+{
+    Frame response = {};
+    if (telemetry == 0) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    DeviceInfo info = {};
+    drivers::DriverStatus status = ReadInfo(client, &info);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    if (info.firmware_version < kSpeedControlTelemetryMinFirmwareVersion) {
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+    }
+
+    status = ReadRegisters(
+        client,
+        kRegSpeedControlTelemetry,
+        kSpeedControlTelemetryLength,
+        &response);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    if (response.length != kSpeedControlTelemetryLength) {
+        return drivers::DRIVER_ERROR;
+    }
+
+    telemetry->control_m1 = DecodeUint16Le(&response.data[0]);
+    telemetry->control_m2 = DecodeUint16Le(&response.data[2]);
+    telemetry->error_m1 = DecodeInt16Le(&response.data[4]);
+    telemetry->error_m2 = DecodeInt16Le(&response.data[6]);
+    telemetry->integral_m1_q4 = DecodeInt16Le(&response.data[8]);
+    telemetry->integral_m2_q4 = DecodeInt16Le(&response.data[10]);
+    telemetry->duty_m1 = response.data[12];
+    telemetry->duty_m2 = response.data[13];
+    return drivers::DRIVER_OK;
+}
+
+inline drivers::DriverStatus ReadSpeedRamp(Client *client, SpeedRamp *ramp)
+{
+    Frame response = {};
+    if (ramp == 0) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    DeviceInfo info = {};
+    drivers::DriverStatus status = ReadInfo(client, &info);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    if (info.firmware_version < kSpeedControlTelemetryMinFirmwareVersion) {
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+    }
+
+    status = ReadRegisters(client, kRegSpeedRamp, kSpeedRampLength, &response);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    if (response.length != kSpeedRampLength) {
+        return drivers::DRIVER_ERROR;
+    }
+
+    ramp->accel_rpm_per_s = DecodeUint16Le(&response.data[0]);
+    ramp->decel_rpm_per_s = DecodeUint16Le(&response.data[2]);
+    return drivers::DRIVER_OK;
+}
+
+inline drivers::DriverStatus SetSpeedRamp(Client *client,
+                                          const SpeedRamp &ramp)
+{
+    Frame response = {};
+    DeviceInfo info = {};
+    drivers::DriverStatus status = ReadInfo(client, &info);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    if (info.firmware_version < kSpeedControlTelemetryMinFirmwareVersion) {
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+    }
+
+    uint8_t data[kSpeedRampLength] = { 0U, 0U, 0U, 0U };
+    EncodeUint16Le(ramp.accel_rpm_per_s, &data[0]);
+    EncodeUint16Le(ramp.decel_rpm_per_s, &data[2]);
+
+    status = WriteRegistersChecked(client,
+                                   kRegSpeedRamp,
+                                   data,
+                                   kSpeedRampLength,
+                                   &response);
+    return status;
+}
+
 inline drivers::DriverStatus ReadCountsPerRev(Client *client,
                                               CountsPerRev *counts)
 {
@@ -1009,6 +1126,27 @@ inline drivers::DriverStatus WriteTargetRpm(Client *client,
         *ack = (status == drivers::DRIVER_OK);
     }
     return status;
+}
+
+inline drivers::DriverStatus RefreshTargetRpmLease(Client *client,
+                                                   bool motor1,
+                                                   uint16_t rpm)
+{
+    Frame response = {};
+    uint8_t data[2] = { 0U, 0U };
+    EncodeUint16Le(rpm, data);
+
+    const drivers::DriverStatus status =
+        WriteRegisters(client,
+                       motor1 ? kRegM1TargetRpm : kRegM2TargetRpm,
+                       data,
+                       static_cast<uint8_t>(sizeof(data)),
+                       &response);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    return StatusOkResponse(response) ? drivers::DRIVER_OK :
+                                       drivers::DRIVER_ERROR;
 }
 
 inline drivers::DriverStatus WriteTargetPosition(Client *client,

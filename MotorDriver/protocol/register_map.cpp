@@ -35,6 +35,8 @@ void RegisterMap::Init(void)
     registers_[REG_SPEED_KD_Q4_4] = 0U;
     registers_[REG_SPEED_MAX_DUTY] = 50U;
     registers_[REG_SPEED_MIN_DUTY] = 6U;
+    StoreUint16(REG_SPEED_ACCEL_RPM_PER_S_0, 600U);
+    StoreUint16(REG_SPEED_DECEL_RPM_PER_S_0, 900U);
     registers_[REG_POSITION_KP_Q4_4] = 20U;
     registers_[REG_POSITION_KI_Q4_4] = 0U;
     registers_[REG_POSITION_KD_Q4_4] = 0U;
@@ -190,6 +192,22 @@ void RegisterMap::UpdateMeasuredRpm(int16_t m1_rpm, int16_t m2_rpm)
     StoreInt16(REG_M2_MEASURED_RPM_0, m2_rpm);
 }
 
+void RegisterMap::UpdateSpeedControlTelemetry(bool motor1,
+                                              uint16_t control_rpm,
+                                              int16_t error_rpm,
+                                              int16_t integral_q4,
+                                              uint8_t duty)
+{
+    StoreUint16(motor1 ? REG_M1_CONTROL_RPM_0 : REG_M2_CONTROL_RPM_0,
+                control_rpm);
+    StoreInt16(motor1 ? REG_M1_SPEED_ERROR_0 : REG_M2_SPEED_ERROR_0,
+               error_rpm);
+    StoreInt16(motor1 ? REG_M1_SPEED_INTEGRAL_0 :
+                        REG_M2_SPEED_INTEGRAL_0,
+               integral_q4);
+    registers_[motor1 ? REG_M1_CONTROL_DUTY : REG_M2_CONTROL_DUTY] = duty;
+}
+
 void RegisterMap::SetMotorDutyFromControl(bool motor1, uint8_t duty)
 {
     SetMotorOutputFromControl(
@@ -320,6 +338,16 @@ uint8_t RegisterMap::SpeedMaxDuty(void) const
 uint8_t RegisterMap::SpeedMinDuty(void) const
 {
     return registers_[REG_SPEED_MIN_DUTY];
+}
+
+uint16_t RegisterMap::SpeedAccelRpmPerSecond(void) const
+{
+    return LoadUint16(REG_SPEED_ACCEL_RPM_PER_S_0);
+}
+
+uint16_t RegisterMap::SpeedDecelRpmPerSecond(void) const
+{
+    return LoadUint16(REG_SPEED_DECEL_RPM_PER_S_0);
 }
 
 uint32_t RegisterMap::M1CountsPerRev(void) const
@@ -618,6 +646,10 @@ bool RegisterMap::ApplyWriteTo(uint8_t *target, uint8_t reg, uint8_t value) cons
     case REG_POSITION_EXIT_TOLERANCE_0:
     case REG_POSITION_EXIT_TOLERANCE_1:
     case REG_POSITION_SETTLE_10MS:
+    case REG_SPEED_ACCEL_RPM_PER_S_0:
+    case REG_SPEED_ACCEL_RPM_PER_S_1:
+    case REG_SPEED_DECEL_RPM_PER_S_0:
+    case REG_SPEED_DECEL_RPM_PER_S_1:
         target[reg] = value;
         return true;
 
@@ -695,6 +727,10 @@ bool RegisterMap::IsControlRegister(uint8_t reg) const
     case REG_POSITION_EXIT_TOLERANCE_0:
     case REG_POSITION_EXIT_TOLERANCE_1:
     case REG_POSITION_SETTLE_10MS:
+    case REG_SPEED_ACCEL_RPM_PER_S_0:
+    case REG_SPEED_ACCEL_RPM_PER_S_1:
+    case REG_SPEED_DECEL_RPM_PER_S_0:
+    case REG_SPEED_DECEL_RPM_PER_S_1:
         return true;
     default:
         return false;

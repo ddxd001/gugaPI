@@ -1349,6 +1349,7 @@ void PrintMotorUsage(void)
     services::Shell_WriteLine("  motor enc");
     services::Shell_WriteLine("  motor enc reset");
     services::Shell_WriteLine("  motor rpm");
+    services::Shell_WriteLine("  motor ramp [accel_rpm_s decel_rpm_s]");
     services::Shell_WriteLine("  motor cfg");
     services::Shell_WriteLine("  motor cfg <m1_counts_per_rev> <m2_counts_per_rev>");
     services::Shell_WriteLine("  motor invert");
@@ -1417,18 +1418,43 @@ void PrintMotorEncoderLine(const char *prefix, const motor::EncoderData &encoder
     services::Shell_WriteString("\r\n");
 }
 
-void PrintMotorRpmBlock(const motor::RpmData &rpm)
+void PrintMotorRpmBlock(const motor::RpmData &rpm,
+                        const motor::SpeedControlTelemetry *telemetry)
 {
     services::Shell_WriteString("motor rpm m1 target=");
     services::Shell_WriteUInt32(rpm.target_m1);
+    if (telemetry != 0) {
+        services::Shell_WriteString(" control=");
+        services::Shell_WriteUInt32(telemetry->control_m1);
+    }
     services::Shell_WriteString(" actual=");
     WriteInt32(rpm.actual_m1);
+    if (telemetry != 0) {
+        services::Shell_WriteString(" error=");
+        WriteInt32(telemetry->error_m1);
+        services::Shell_WriteString(" integral_q4=");
+        WriteInt32(telemetry->integral_m1_q4);
+        services::Shell_WriteString(" duty=");
+        services::Shell_WriteUInt32(telemetry->duty_m1);
+    }
     services::Shell_WriteString("\r\n");
 
     services::Shell_WriteString("motor rpm m2 target=");
     services::Shell_WriteUInt32(rpm.target_m2);
+    if (telemetry != 0) {
+        services::Shell_WriteString(" control=");
+        services::Shell_WriteUInt32(telemetry->control_m2);
+    }
     services::Shell_WriteString(" actual=");
     WriteInt32(rpm.actual_m2);
+    if (telemetry != 0) {
+        services::Shell_WriteString(" error=");
+        WriteInt32(telemetry->error_m2);
+        services::Shell_WriteString(" integral_q4=");
+        WriteInt32(telemetry->integral_m2_q4);
+        services::Shell_WriteString(" duty=");
+        services::Shell_WriteUInt32(telemetry->duty_m2);
+    }
     services::Shell_WriteString("\r\n");
 }
 
@@ -4413,6 +4439,7 @@ void MotorCommand(int argc, const char * const argv[])
 
     if (StrEqual(argv[1], "rpm")) {
         motor::RpmData rpm = {};
+        motor::SpeedControlTelemetry telemetry = {};
 
         if (argc != 2) {
             PrintMotorUsage();
@@ -4426,7 +4453,51 @@ void MotorCommand(int argc, const char * const argv[])
             return;
         }
 
-        PrintMotorRpmBlock(rpm);
+        const drivers::DriverStatus telemetry_status =
+            motor::ReadSpeedControlTelemetry(&g_motorClient, &telemetry);
+        PrintMotorRpmBlock(rpm,
+                           (telemetry_status == drivers::DRIVER_OK) ?
+                               &telemetry : 0);
+        return;
+    }
+
+    if (StrEqual(argv[1], "ramp")) {
+        motor::SpeedRamp ramp = {};
+
+        if (argc == 2) {
+            const drivers::DriverStatus status =
+                motor::ReadSpeedRamp(&g_motorClient, &ramp);
+            if (status != drivers::DRIVER_OK) {
+                WriteStatusLine("motor ramp: ", status);
+                return;
+            }
+
+            services::Shell_WriteString("motor ramp accel_rpm_s=");
+            services::Shell_WriteUInt32(ramp.accel_rpm_per_s);
+            services::Shell_WriteString(" decel_rpm_s=");
+            services::Shell_WriteUInt32(ramp.decel_rpm_per_s);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        uint32_t accel_rpm_per_s = 0U;
+        uint32_t decel_rpm_per_s = 0U;
+        if ((argc != 4) ||
+            (!ParseUint32(argv[2],
+                          motor::kSpeedRampMaxRpmPerSecond,
+                          &accel_rpm_per_s)) ||
+            (!ParseUint32(argv[3],
+                          motor::kSpeedRampMaxRpmPerSecond,
+                          &decel_rpm_per_s))) {
+            PrintMotorUsage();
+            return;
+        }
+
+        ramp.accel_rpm_per_s = static_cast<uint16_t>(accel_rpm_per_s);
+        ramp.decel_rpm_per_s = static_cast<uint16_t>(decel_rpm_per_s);
+        const drivers::DriverStatus status =
+            motor::SetSpeedRamp(&g_motorClient, ramp);
+        WriteStatusLine("motor ramp: ", status);
         return;
     }
 
