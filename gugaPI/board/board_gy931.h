@@ -21,6 +21,10 @@ drivers::DriverStatus Board_Gy931ReadSample(drivers::Gy931Sample *sample);
 drivers::DriverStatus Board_Gy931ReadRawRegisters(uint8_t start_reg,
                                                   int16_t *words,
                                                   uint8_t word_count);
+drivers::DriverStatus Board_Gy931ReadAlgorithm(
+    drivers::Gy931Algorithm *algorithm);
+drivers::DriverStatus Board_Gy931SetAlgorithmTemporary(
+    drivers::Gy931Algorithm algorithm);
 bool Board_Gy931IsReady(void);
 uint8_t Board_Gy931Address(void);
 

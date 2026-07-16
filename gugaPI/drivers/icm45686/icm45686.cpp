@@ -109,10 +109,11 @@ DriverStatus TransferByte(const Icm45686Config *cfg, uint8_t tx, uint8_t *rx)
     return DRIVER_OK;
 }
 
-int16_t CombineBe(uint8_t hi, uint8_t lo)
+int16_t CombineLe(uint8_t lo, uint8_t hi)
 {
     return static_cast<int16_t>(
-        (static_cast<uint16_t>(hi) << 8U) | static_cast<uint16_t>(lo));
+        static_cast<uint16_t>(lo) |
+        (static_cast<uint16_t>(hi) << 8U));
 }
 
 /* Write a register, then read it back to confirm the value stuck. The device
@@ -243,13 +244,13 @@ DriverStatus Icm45686_ReadSensors(Icm45686Context *ctx, Icm45686SensorData *data
         return status;
     }
 
-    data->accel_x = CombineBe(buf[0], buf[1]);
-    data->accel_y = CombineBe(buf[2], buf[3]);
-    data->accel_z = CombineBe(buf[4], buf[5]);
-    data->gyro_x  = CombineBe(buf[6], buf[7]);
-    data->gyro_y  = CombineBe(buf[8], buf[9]);
-    data->gyro_z  = CombineBe(buf[10], buf[11]);
-    data->temp    = CombineBe(buf[12], buf[13]);
+    data->accel_x = CombineLe(buf[0], buf[1]);
+    data->accel_y = CombineLe(buf[2], buf[3]);
+    data->accel_z = CombineLe(buf[4], buf[5]);
+    data->gyro_x  = CombineLe(buf[6], buf[7]);
+    data->gyro_y  = CombineLe(buf[8], buf[9]);
+    data->gyro_z  = CombineLe(buf[10], buf[11]);
+    data->temp    = CombineLe(buf[12], buf[13]);
     return DRIVER_OK;
 }
 

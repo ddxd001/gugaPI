@@ -5,6 +5,7 @@ namespace {
 
 static const uint8_t kGy931SampleStartReg = GY931_REG_AX;
 static const uint8_t kGy931SampleWords = 12U;
+static const uint16_t kGy931UnlockKey = 0xB588U;
 
 bool IsAddressValid(uint8_t address)
 {
@@ -57,6 +58,25 @@ DriverStatus ReadWords(const Gy931Config *config,
     }
 
     return DRIVER_OK;
+}
+
+DriverStatus WriteWord(const Gy931Config *config,
+                       uint8_t reg,
+                       uint16_t value)
+{
+    if (!IsConfigValid(config)) {
+        return DRIVER_ERROR_INVALID_ARG;
+    }
+
+    const uint8_t data[2] = {
+        static_cast<uint8_t>(value & 0xFFU),
+        static_cast<uint8_t>((value >> 8U) & 0xFFU)
+    };
+    return SoftI2c_WriteReg8(config->i2c,
+                             config->i2c_address,
+                             reg,
+                             data,
+                             static_cast<uint16_t>(sizeof(data)));
 }
 
 void FillScaledSample(Gy931Sample *sample)
@@ -162,6 +182,61 @@ DriverStatus Gy931_ReadRawRegisters(Gy931Context *ctx,
     }
 
     return ReadWords(ctx->config, start_reg, words, word_count);
+}
+
+DriverStatus Gy931_ReadAlgorithm(Gy931Context *ctx,
+                                 Gy931Algorithm *algorithm)
+{
+    int16_t value = 0;
+
+    if ((!IsContextReady(ctx)) || (algorithm == 0)) {
+        return DRIVER_ERROR_INVALID_ARG;
+    }
+
+    const DriverStatus status = ReadWords(ctx->config,
+                                          GY931_REG_AXIS6,
+                                          &value,
+                                          1U);
+    if (status != DRIVER_OK) {
+        return status;
+    }
+    if ((value != static_cast<int16_t>(GY931_ALGORITHM_9_AXIS)) &&
+        (value != static_cast<int16_t>(GY931_ALGORITHM_6_AXIS))) {
+        return DRIVER_ERROR;
+    }
+
+    *algorithm = static_cast<Gy931Algorithm>(value);
+    return DRIVER_OK;
+}
+
+DriverStatus Gy931_SetAlgorithmTemporary(Gy931Context *ctx,
+                                         Gy931Algorithm algorithm)
+{
+    if ((!IsContextReady(ctx)) ||
+        ((algorithm != GY931_ALGORITHM_9_AXIS) &&
+         (algorithm != GY931_ALGORITHM_6_AXIS))) {
+        return DRIVER_ERROR_INVALID_ARG;
+    }
+
+    DriverStatus status = WriteWord(ctx->config,
+                                    GY931_REG_KEY,
+                                    kGy931UnlockKey);
+    if (status != DRIVER_OK) {
+        return status;
+    }
+    status = WriteWord(ctx->config,
+                       GY931_REG_AXIS6,
+                       static_cast<uint16_t>(algorithm));
+    if (status != DRIVER_OK) {
+        return status;
+    }
+
+    Gy931Algorithm readback = GY931_ALGORITHM_9_AXIS;
+    status = Gy931_ReadAlgorithm(ctx, &readback);
+    if (status != DRIVER_OK) {
+        return status;
+    }
+    return (readback == algorithm) ? DRIVER_OK : DRIVER_ERROR;
 }
 
 bool Gy931_IsReady(const Gy931Context *ctx)

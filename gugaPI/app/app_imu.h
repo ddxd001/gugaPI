@@ -12,6 +12,7 @@ struct AppImuData {
     int32_t temp_centi_c;   /* temperature in centi-degrees Celsius */
     int32_t pitch_mdeg;     /* tilt pitch in milli-degrees, 0..360000 */
     int32_t roll_mdeg;      /* tilt roll in milli-degrees, 0..360000 */
+    int32_t yaw_mdeg;       /* relative yaw from gyro Z, -180000..180000 */
     bool valid;
 };
 

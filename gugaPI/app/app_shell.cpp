@@ -452,6 +452,7 @@ void PrintGy931Usage(void)
     services::Shell_WriteLine("  gy931 scan [start end]");
     services::Shell_WriteLine("  gy931 addr [0x08..0x77]");
     services::Shell_WriteLine("  gy931 angle");
+    services::Shell_WriteLine("  gy931 algorithm [6axis|9axis]");
     services::Shell_WriteLine("  gy931 sample");
     services::Shell_WriteLine("  gy931 raw <reg> <words 1..16>");
     services::Shell_WriteLine("  gy931 oled on [period_ms 50..5000]|off|status|once");
@@ -983,14 +984,7 @@ drivers::DriverStatus ImuOledShowData(const AppImuData *imu)
         return status;
     }
 
-    char line[kOledTextCols + 1U];
-    char *cursor = line;
-    cursor = AppendString(cursor, &line[kOledTextCols], "Gz:  ");
-    cursor = AppendFixedMilliText(cursor, &line[kOledTextCols],
-                                  imu->gyro_mdps[2]);
-    cursor = AppendString(cursor, &line[kOledTextCols], " d/s");
-    FinishOledLine(line, cursor);
-    return board::Board_OledWriteText(3U, 0U, line);
+    return ImuOledWriteAngleLine(3U, "Yaw: ", imu->yaw_mdeg);
 }
 
 drivers::DriverStatus ImuOledShowError(void)
@@ -2705,6 +2699,44 @@ void Gy931Command(int argc, const char * const argv[])
         return;
     }
 
+    if (StrEqual(argv[1], "algorithm")) {
+        if ((argc != 2) && (argc != 3)) {
+            PrintGy931Usage();
+            return;
+        }
+
+        drivers::Gy931Algorithm algorithm =
+            drivers::GY931_ALGORITHM_9_AXIS;
+        drivers::DriverStatus status = drivers::DRIVER_OK;
+        if (argc == 3) {
+            if (StrEqual(argv[2], "6axis")) {
+                algorithm = drivers::GY931_ALGORITHM_6_AXIS;
+            } else if (StrEqual(argv[2], "9axis")) {
+                algorithm = drivers::GY931_ALGORITHM_9_AXIS;
+            } else {
+                PrintGy931Usage();
+                return;
+            }
+            status = board::Board_Gy931SetAlgorithmTemporary(algorithm);
+            if (status != drivers::DRIVER_OK) {
+                WriteStatusLine("gy931 algorithm: ", status);
+                return;
+            }
+        }
+
+        status = board::Board_Gy931ReadAlgorithm(&algorithm);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("gy931 algorithm: ", status);
+            return;
+        }
+        services::Shell_WriteString("gy931 algorithm=");
+        services::Shell_WriteString(
+            (algorithm == drivers::GY931_ALGORITHM_6_AXIS) ?
+                "6axis" : "9axis");
+        services::Shell_WriteLine(" temporary=1");
+        return;
+    }
+
     if (StrEqual(argv[1], "sample")) {
         drivers::Gy931Sample sample;
 
@@ -3495,7 +3527,9 @@ void ImuCommand(int argc, const char * const argv[])
         WriteInt32(imu->gyro_mdps[2]);
         services::Shell_WriteString(" mdps t=");
         WriteInt32(imu->temp_centi_c);
-        services::Shell_WriteString(" cC\r\n");
+        services::Shell_WriteString(" cC yaw=");
+        WriteFixedMilli(imu->yaw_mdeg);
+        services::Shell_WriteString(" deg\r\n");
         return;
     }
 

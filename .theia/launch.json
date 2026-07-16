@@ -1,4 +1,4 @@
-﻿{
+{
     "version": "0.2.0",
     "configurations": [
         {
@@ -23,6 +23,15 @@
             "projectInfo": {
                 "name": "MotorDriver",
                 "resourceId": "/MotorDriver"
+            }
+        },
+        {
+            "name": "TEST",
+            "type": "ccs-debug",
+            "request": "launch",
+            "projectInfo": {
+                "name": "TEST",
+                "resourceId": "/TEST"
             }
         }
     ]

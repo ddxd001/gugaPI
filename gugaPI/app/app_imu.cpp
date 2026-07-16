@@ -4,11 +4,17 @@
 #include "board/board_imu.h"
 #include "drivers/common/driver_status.h"
 #include "drivers/icm45686/icm45686.h"
+#include "services/time.h"
 
 namespace app {
 namespace {
 
-AppImuData g_data = { { 0, 0, 0 }, { 0, 0, 0 }, 0, 0, 0, false };
+AppImuData g_data = { { 0, 0, 0 }, { 0, 0, 0 }, 0, 0, 0, 0, false };
+uint32_t g_lastUpdateUs = 0U;
+int64_t g_yawRemainder = 0LL;
+
+static const uint32_t kMaxYawIntegrationIntervalUs = 100000U;
+static const int64_t kMicrosPerSecond = 1000000LL;
 
 /* CORDIC vectoring-mode atan2. Returns atan2(y, x) in milli-degrees,
  * range [-180000, 180000]. No floating point / libm dependency. */
@@ -60,10 +66,48 @@ int32_t Normalize360(int32_t angle_mdeg)
     return angle_mdeg;
 }
 
+int32_t NormalizeSigned180(int32_t angle_mdeg)
+{
+    while (angle_mdeg > 180000) {
+        angle_mdeg -= 360000;
+    }
+    while (angle_mdeg <= -180000) {
+        angle_mdeg += 360000;
+    }
+    return angle_mdeg;
+}
+
+void UpdateYaw(uint32_t now_us)
+{
+    if (g_lastUpdateUs == 0U) {
+        g_lastUpdateUs = now_us;
+        return;
+    }
+
+    const uint32_t elapsed_us = now_us - g_lastUpdateUs;
+    g_lastUpdateUs = now_us;
+    if ((elapsed_us == 0U) ||
+        (elapsed_us > kMaxYawIntegrationIntervalUs)) {
+        g_yawRemainder = 0LL;
+        return;
+    }
+
+    const int64_t scaled_delta =
+        static_cast<int64_t>(g_data.gyro_mdps[2]) * elapsed_us +
+        g_yawRemainder;
+    const int32_t delta_mdeg =
+        static_cast<int32_t>(scaled_delta / kMicrosPerSecond);
+    g_yawRemainder = scaled_delta % kMicrosPerSecond;
+    g_data.yaw_mdeg = NormalizeSigned180(g_data.yaw_mdeg + delta_mdeg);
+}
+
 } /* namespace */
 
 void App_ImuInit(void)
 {
+    g_data.yaw_mdeg = 0;
+    g_lastUpdateUs = 0U;
+    g_yawRemainder = 0LL;
     g_data.valid = false;
 }
 
@@ -118,6 +162,7 @@ void App_ImuUpdate(void)
         Normalize360(Atan2MilliDeg(-g_data.accel_mg[0], g_data.accel_mg[2]));
     g_data.roll_mdeg =
         Normalize360(Atan2MilliDeg(g_data.accel_mg[1], g_data.accel_mg[2]));
+    UpdateYaw(services::Time_Micros());
     g_data.valid = true;
 }
 

@@ -346,6 +346,18 @@ gy931 angle
 gy931 angle raw=123,-45,1000 deg=0.675,-0.247,5.493
 ```
 
+### `gy931 algorithm [6axis|9axis]`
+
+查看或临时切换姿态解算算法。`6axis` 使用加速度计和陀螺仪积分输出相对航向，`9axis` 使用磁场参与解算绝对航向。切换命令会解锁并读回校验 `AXIS6(0x24)`，但不会执行保存，传感器重新上电后恢复其已保存配置。
+
+```text
+gy931 algorithm
+gy931 algorithm 6axis
+gy931 algorithm 9axis
+```
+
+六轴模式不受磁场干扰，但 yaw 会随时间漂移，适合持续时间较短的直行保持和相对角度转弯。
+
 ### `gy931 sample`
 
 一次读取加速度、角速度、磁场原始值和角度。
@@ -603,13 +615,13 @@ imu sample
 ```
 输出：
 ```text
-imu acc=<mg>,<mg>,<mg> mg gyr=<mdps>,<mdps>,<mdps> mdps t=<cC> cC
+imu acc=<mg>,<mg>,<mg> mg gyr=<mdps>,<mdps>,<mdps> mdps t=<cC> cC yaw=<deg> deg
 ```
 若未就绪会提示 `imu sample: no data (run 'imu icm init')`。
 
 ### `imu oled on [period_ms]` / `off` / `status` / `once`
 
-把 IMU 角度数据显示到 OLED（沿用 INA219 的 OLED 方案，与其他 OLED 数据源互斥）。周期采样任务（10ms）算出俯仰/横滚角后，OLED 任务按 `period_ms` 刷新。角度由加速度计算（CORDIC atan2，无浮点），归一化到 0~360°。
+把 IMU 角度数据显示到 OLED（沿用 INA219 的 OLED 方案，与其他 OLED 数据源互斥）。周期采样任务（10ms）算出俯仰/横滚角并积分 Z 轴角速度得到相对 Yaw，OLED 任务按 `period_ms` 刷新。
 
 ```text
 imu oled on
@@ -624,11 +636,11 @@ imu oled once
 IMU 200ms
 Pit: <ddd.ddd> deg
 Rol: <ddd.ddd> deg
-Gz:  <ddd.ddd> d/s
+Yaw: <ddd.ddd> deg
 ```
 
 - `Pit`/`Rol`：由加速度计算的俯仰/横滚角，0~360°（"360 度单位"）。
-- `Gz`：陀螺仪 Z 轴角速率，°/s（带符号）。
+- `Yaw`：陀螺仪 Z 轴按真实采样间隔积分得到的相对角度，范围 -180°~180°。
 - 无数据时显示 `IMU no data / run 'imu icm init'`。
 
 ## 灰度传感器（8 路 ADC）
