@@ -50,6 +50,9 @@ typedef struct {
     uint16_t dutyCpermille;
     uint16_t encoderRaw;
     uint16_t targetPositionRaw;
+    uint16_t electricalAngleSample;
+    uint16_t electricalAnglePredicted;
+    int32_t electricalVelocityQ16;
 } MOTOR_FOC_Status;
 
 void MOTOR_FOC_initialize(void);

@@ -64,7 +64,8 @@ low-side shunts are observable. The `i` command reports the latest synchronized
 sample plus the signed average and absolute peak from the latest 256-sample
 (12.8 ms) window.
 
-The d-axis reference is zero. The speed PI includes output anti-windup and
+The d-axis reference is zero. Each new alignment restores the conservative
+25 RPM speed target. The speed PI includes output anti-windup and
 releases stored torque when braking or reversing. It generates a q-axis current request
 limited to about 250 mA. Three consecutive phase samples above about 600 mA
 cause an immediate high-impedance protection stop. These are conservative
@@ -80,9 +81,12 @@ through 0xFF. This provides AGC, diagnostics, magnetic magnitude, and the
 14-bit absolute angle. While FOC is active, a shorter read of 0xFE/0xFF updates
 the electrical angle continuously. At each start the rotor aligns to the alpha
 axis and firmware derives the electrical offset from the measured mechanical
-angle. Position mode limits its generated speed target to 50 RPM and uses a
-four-count encoder deadband. An encoder update gap longer than 50 ms stops the
-bridge in Hi-Z; the interval allows one blocking 115200-baud status line.
+angle. Position mode limits its generated speed target to 50 RPM and switches
+to a current-limited position/velocity controller inside 128 encoder counts
+(about 2.81 degrees). An encoder update gap longer than 5 ms stops the
+bridge in Hi-Z. Runtime angle reads use a 1 kHz non-blocking I2C state machine,
+the current loop predicts electrical angle between samples, and UART TX uses a
+non-blocking software queue serviced from the main loop.
 
 ## First-Power Safety
 

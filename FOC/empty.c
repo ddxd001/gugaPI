@@ -24,6 +24,8 @@
 #define ENCODER_I2C_TRANSFER_EVENTS                                      \
     (DL_I2C_INTERRUPT_CONTROLLER_TX_DONE |                              \
         DL_I2C_INTERRUPT_CONTROLLER_RX_DONE | ENCODER_I2C_ERROR_EVENTS)
+#define ENCODER_FAST_PERIOD_TICKS       (20U)  /* 1 kHz at 20 kHz ADC tick. */
+#define ENCODER_FAST_TIMEOUT_TICKS      (40U)  /* 2 ms transaction timeout. */
 #define CAN_DEBUG_BIT_RATE             (500000U)
 #define CAN_DEBUG_TX_ID                (0x321U)
 #define CAN_DEBUG_TX_BUFFER            (0U)
@@ -33,6 +35,11 @@
         DL_MCAN_INTR_SRC_BUS_OFF_STATUS |                               \
         DL_MCAN_INTR_SRC_PROTOCOL_ERR_ARB |                             \
         DL_MCAN_INTR_SRC_PROTOCOL_ERR_DATA)
+#define UART_TX_BUFFER_SIZE             (1024U)
+#define CURRENT_ISR_PERIOD_TICKS        \
+    (CURRENT_SAMPLE_TIMER_INST_LOAD_VALUE + 1U)
+#define CURRENT_ISR_BUDGET_TICKS        \
+    ((CURRENT_ISR_PERIOD_TICKS * 3U) / 4U)
 
 static volatile bool gFaultInterrupt;
 static bool gFaultReported;
@@ -51,6 +58,12 @@ typedef struct {
     uint16_t magnitude;
     uint16_t angle;
 } AS5048B_Sample;
+
+typedef enum {
+    ENCODER_FAST_IDLE = 0,
+    ENCODER_FAST_WAIT_TX,
+    ENCODER_FAST_WAIT_RX
+} EncoderFastState;
 
 static volatile CurrentAdcSample gCurrentOffset;
 static volatile CurrentAdcSample gCurrentLatest;
@@ -76,7 +89,23 @@ static volatile int16_t gCurrentAverageC;
 static volatile uint16_t gCurrentPeakA;
 static volatile uint16_t gCurrentPeakB;
 static volatile uint16_t gCurrentPeakC;
+static volatile uint32_t gCurrentIsrLastTicks;
+static volatile uint32_t gCurrentIsrMaxTicks;
+static volatile uint32_t gCurrentIsrBudgetExceededCount;
 static uint32_t gEncoderI2CStartDelayCycles = 3U;
+static EncoderFastState gEncoderFastState;
+static uint8_t gEncoderFastData[2];
+static uint8_t gEncoderFastRxCount;
+static uint32_t gEncoderFastStartTick;
+static uint32_t gEncoderFastNextTick;
+static uint32_t gEncoderFastLastCompleteTick;
+static uint32_t gEncoderFastRequestCount;
+static uint32_t gEncoderFastSuccessCount;
+static uint32_t gEncoderFastErrorCount;
+static uint32_t gEncoderFastTimeoutCount;
+static uint32_t gEncoderFastMissedPeriodCount;
+static uint32_t gEncoderFastMaxIntervalTicks;
+static bool gEncoderFastPaused;
 
 static volatile uint32_t gCanInterruptStatus;
 static volatile bool gCanServicePending;
@@ -90,9 +119,58 @@ static uint8_t gCanTxSequence;
 static bool gCanLastRxValid;
 static DL_MCAN_RxBufElement gCanLastRx;
 
+static void serviceEncoderFast(void);
+
+static uint8_t gUartTxBuffer[UART_TX_BUFFER_SIZE];
+static volatile uint16_t gUartTxHead;
+static volatile uint16_t gUartTxTail;
+static volatile uint32_t gUartTxDroppedCount;
+
+static uint16_t uartNextTxIndex(uint16_t index)
+{
+    index++;
+    if (index >= UART_TX_BUFFER_SIZE) {
+        index = 0U;
+    }
+    return index;
+}
+
+static void initializeDebugUartAsync(void)
+{
+    NVIC_DisableIRQ(DEBUG_UART_INST_INT_IRQN);
+    DL_UART_Main_disableInterrupt(
+        DEBUG_UART_INST, DL_UART_MAIN_INTERRUPT_TX);
+    DL_UART_Main_clearInterruptStatus(
+        DEBUG_UART_INST, DL_UART_MAIN_INTERRUPT_TX);
+
+    gUartTxHead = 0U;
+    gUartTxTail = 0U;
+    gUartTxDroppedCount = 0U;
+    NVIC_ClearPendingIRQ(DEBUG_UART_INST_INT_IRQN);
+}
+
+static void serviceDebugUartTx(void)
+{
+    while ((gUartTxTail != gUartTxHead) &&
+        !DL_UART_Main_isTXFIFOFull(DEBUG_UART_INST)) {
+        DL_UART_Main_transmitData(
+            DEBUG_UART_INST, gUartTxBuffer[gUartTxTail]);
+        gUartTxTail = uartNextTxIndex(gUartTxTail);
+    }
+}
+
 static void uartPutChar(char character)
 {
-    DL_UART_transmitDataBlocking(DEBUG_UART_INST, (uint8_t) character);
+    uint16_t nextHead = uartNextTxIndex(gUartTxHead);
+
+    if (nextHead == gUartTxTail) {
+        gUartTxDroppedCount++;
+        return;
+    }
+
+    gUartTxBuffer[gUartTxHead] = (uint8_t) character;
+    gUartTxHead = nextHead;
+    serviceDebugUartTx();
 }
 
 static void uartPutString(const char *string)
@@ -164,6 +242,39 @@ static void uartPutThreeDigits(uint16_t value)
     uartPutChar((char) ('0' + ((value / 100U) % 10U)));
     uartPutChar((char) ('0' + ((value / 10U) % 10U)));
     uartPutChar((char) ('0' + (value % 10U)));
+}
+
+static uint16_t uartGetTxQueuedCount(void)
+{
+    uint16_t head;
+    uint16_t tail;
+    uint32_t interruptState = __get_PRIMASK();
+
+    __disable_irq();
+    head = gUartTxHead;
+    tail = gUartTxTail;
+    if (interruptState == 0U) {
+        __enable_irq();
+    }
+
+    if (head >= tail) {
+        return (uint16_t) (head - tail);
+    }
+    return (uint16_t) (UART_TX_BUFFER_SIZE - tail + head);
+}
+
+static void printUartStatus(void)
+{
+    const uint16_t queuedCount = uartGetTxQueuedCount();
+    const uint32_t droppedCount = gUartTxDroppedCount;
+
+    uartPutString("UART TX async queued=");
+    uartPutUnsigned(queuedCount);
+    uartPutString(" dropped=");
+    uartPutUnsigned(droppedCount);
+    uartPutString(" capacity=");
+    uartPutUnsigned(UART_TX_BUFFER_SIZE - 1U);
+    uartPutString(".\r\n");
 }
 
 static void initializeCanDebug(void)
@@ -385,6 +496,19 @@ static void initializeEncoderI2C(void)
     if (gEncoderI2CStartDelayCycles == 0U) {
         gEncoderI2CStartDelayCycles = 3U;
     }
+
+    gEncoderFastState = ENCODER_FAST_IDLE;
+    gEncoderFastRxCount = 0U;
+    gEncoderFastStartTick = 0U;
+    gEncoderFastNextTick = 0U;
+    gEncoderFastLastCompleteTick = 0U;
+    gEncoderFastRequestCount = 0U;
+    gEncoderFastSuccessCount = 0U;
+    gEncoderFastErrorCount = 0U;
+    gEncoderFastTimeoutCount = 0U;
+    gEncoderFastMissedPeriodCount = 0U;
+    gEncoderFastMaxIntervalTicks = 0U;
+    gEncoderFastPaused = false;
 }
 
 static void resetEncoderI2CTransfer(void)
@@ -445,14 +569,33 @@ static bool readEncoderRegisters(
     uint8_t startRegister, uint8_t *data, uint8_t length)
 {
     uint8_t index;
+    uint32_t pauseTimeout;
+    bool restoreFastSampler;
+    bool success = false;
 
     if ((data == NULL) || (length == 0U) || (length > 8U)) {
         return false;
     }
 
+    /* Let an in-flight fast transaction finish before borrowing the bus. */
+    restoreFastSampler = !gEncoderFastPaused;
+    gEncoderFastPaused = true;
+    pauseTimeout = ENCODER_I2C_TIMEOUT_LOOPS;
+    while ((gEncoderFastState != ENCODER_FAST_IDLE) &&
+        (pauseTimeout > 0U)) {
+        serviceEncoderFast();
+        pauseTimeout--;
+    }
+    if (gEncoderFastState != ENCODER_FAST_IDLE) {
+        resetEncoderI2CTransfer();
+        gEncoderFastState = ENCODER_FAST_IDLE;
+        gEncoderFastRxCount = 0U;
+        goto cleanup;
+    }
+
     resetEncoderI2CTransfer();
     if (!waitEncoderI2CIdle()) {
-        return false;
+        goto cleanup;
     }
 
     /* Random read: write register address, retain the bus for RESTART. */
@@ -463,7 +606,7 @@ static bool readEncoderRegisters(
         DL_I2C_CONTROLLER_ACK_DISABLE);
     delay_cycles(gEncoderI2CStartDelayCycles);
     if (!waitEncoderI2CEvent(DL_I2C_INTERRUPT_CONTROLLER_TX_DONE)) {
-        return false;
+        goto cleanup;
     }
 
     /* Repeated START, sequentially read AGC through angle-low, then STOP. */
@@ -481,11 +624,11 @@ static bool readEncoderRegisters(
                 ENCODER_I2C_INST, ENCODER_I2C_ERROR_EVENTS);
             if ((events & ENCODER_I2C_ERROR_EVENTS) != 0U) {
                 resetEncoderI2CTransfer();
-                return false;
+                goto cleanup;
             }
             if (timeout == 0U) {
                 resetEncoderI2CTransfer();
-                return false;
+                goto cleanup;
             }
             timeout--;
         }
@@ -493,10 +636,18 @@ static bool readEncoderRegisters(
     }
 
     if (!waitEncoderI2CEvent(DL_I2C_INTERRUPT_CONTROLLER_RX_DONE)) {
-        return false;
+        goto cleanup;
     }
 
-    return waitEncoderI2CIdle();
+    success = waitEncoderI2CIdle();
+
+cleanup:
+    gEncoderFastNextTick = gCurrentSampleSequence +
+        ENCODER_FAST_PERIOD_TICKS;
+    if (restoreFastSampler) {
+        gEncoderFastPaused = false;
+    }
+    return success;
 }
 
 static bool readEncoderSample(AS5048B_Sample *sample)
@@ -525,18 +676,186 @@ static bool isEncoderSampleValid(const AS5048B_Sample *sample)
         ((sample->diagnostics & 0x0EU) == 0U);
 }
 
-static bool readEncoderAngle(uint16_t *angle)
+static bool encoderFastDeadlineReached(uint32_t now, uint32_t deadline)
 {
-    uint8_t data[2];
+    return ((int32_t) (now - deadline) >= 0);
+}
 
-    if ((angle == NULL) ||
-        !readEncoderRegisters(AS5048B_REG_ANGLE, data, 2U)) {
+static void encoderFastAbort(bool timeout, uint32_t now)
+{
+    resetEncoderI2CTransfer();
+    gEncoderFastState = ENCODER_FAST_IDLE;
+    gEncoderFastRxCount = 0U;
+    gEncoderFastErrorCount++;
+    if (timeout) {
+        gEncoderFastTimeoutCount++;
+    }
+    gEncoderFastNextTick = now + ENCODER_FAST_PERIOD_TICKS;
+}
+
+static bool encoderFastStart(uint32_t now)
+{
+    uint32_t status;
+
+    resetEncoderI2CTransfer();
+    status = DL_I2C_getControllerStatus(ENCODER_I2C_INST);
+    if (((status & DL_I2C_CONTROLLER_STATUS_ERROR) != 0U) ||
+        ((status & DL_I2C_CONTROLLER_STATUS_IDLE) == 0U)) {
+        encoderFastAbort(false, now);
         return false;
     }
 
-    *angle = ((uint16_t) data[0] << 6) |
-        ((uint16_t) data[1] & 0x3FU);
+    DL_I2C_transmitControllerData(ENCODER_I2C_INST, AS5048B_REG_ANGLE);
+    DL_I2C_startControllerTransferAdvanced(ENCODER_I2C_INST,
+        AS5048B_I2C_ADDRESS, DL_I2C_CONTROLLER_DIRECTION_TX, 1U,
+        DL_I2C_CONTROLLER_START_ENABLE, DL_I2C_CONTROLLER_STOP_DISABLE,
+        DL_I2C_CONTROLLER_ACK_DISABLE);
+    delay_cycles(gEncoderI2CStartDelayCycles);
+
+    gEncoderFastRequestCount++;
+    gEncoderFastStartTick = now;
+    gEncoderFastRxCount = 0U;
+    gEncoderFastState = ENCODER_FAST_WAIT_TX;
     return true;
+}
+
+static void encoderFastComplete(uint32_t now)
+{
+    uint16_t angle = ((uint16_t) gEncoderFastData[0] << 6) |
+        ((uint16_t) gEncoderFastData[1] & 0x3FU);
+
+    if (gEncoderFastSuccessCount != 0U) {
+        uint32_t interval = now - gEncoderFastLastCompleteTick;
+        if (interval > gEncoderFastMaxIntervalTicks) {
+            gEncoderFastMaxIntervalTicks = interval;
+        }
+    }
+
+    gEncoderFastLastCompleteTick = now;
+    gEncoderFastSuccessCount++;
+    gEncoderFastState = ENCODER_FAST_IDLE;
+    gEncoderFastNextTick += ENCODER_FAST_PERIOD_TICKS;
+    if (encoderFastDeadlineReached(now, gEncoderFastNextTick)) {
+        uint32_t lateTicks = now - gEncoderFastNextTick;
+        gEncoderFastMissedPeriodCount +=
+            1U + (lateTicks / ENCODER_FAST_PERIOD_TICKS);
+        gEncoderFastNextTick = now + ENCODER_FAST_PERIOD_TICKS;
+    }
+
+    MOTOR_FOC_onEncoderSample(angle, true, now);
+}
+
+static void serviceEncoderFast(void)
+{
+    uint32_t now = gCurrentSampleSequence;
+    uint32_t events;
+
+    if (gEncoderFastState == ENCODER_FAST_IDLE) {
+        if (gEncoderFastPaused) {
+            return;
+        }
+        if (encoderFastDeadlineReached(now, gEncoderFastNextTick)) {
+            (void) encoderFastStart(now);
+        }
+        return;
+    }
+
+    events = DL_I2C_getRawInterruptStatus(ENCODER_I2C_INST,
+        ENCODER_I2C_TRANSFER_EVENTS);
+    if ((events & ENCODER_I2C_ERROR_EVENTS) != 0U) {
+        encoderFastAbort(false, now);
+        return;
+    }
+    if ((now - gEncoderFastStartTick) > ENCODER_FAST_TIMEOUT_TICKS) {
+        encoderFastAbort(true, now);
+        return;
+    }
+
+    if (gEncoderFastState == ENCODER_FAST_WAIT_TX) {
+        if ((events & DL_I2C_INTERRUPT_CONTROLLER_TX_DONE) == 0U) {
+            return;
+        }
+
+        DL_I2C_clearInterruptStatus(
+            ENCODER_I2C_INST, DL_I2C_INTERRUPT_CONTROLLER_TX_DONE);
+        DL_I2C_startControllerTransferAdvanced(ENCODER_I2C_INST,
+            AS5048B_I2C_ADDRESS, DL_I2C_CONTROLLER_DIRECTION_RX, 2U,
+            DL_I2C_CONTROLLER_START_ENABLE, DL_I2C_CONTROLLER_STOP_ENABLE,
+            DL_I2C_CONTROLLER_ACK_DISABLE);
+        delay_cycles(gEncoderI2CStartDelayCycles);
+        gEncoderFastState = ENCODER_FAST_WAIT_RX;
+        return;
+    }
+
+    while ((gEncoderFastRxCount < 2U) &&
+        !DL_I2C_isControllerRXFIFOEmpty(ENCODER_I2C_INST)) {
+        gEncoderFastData[gEncoderFastRxCount++] =
+            DL_I2C_receiveControllerData(ENCODER_I2C_INST);
+    }
+
+    if ((events & DL_I2C_INTERRUPT_CONTROLLER_RX_DONE) != 0U) {
+        DL_I2C_clearInterruptStatus(
+            ENCODER_I2C_INST, DL_I2C_INTERRUPT_CONTROLLER_RX_DONE);
+        if (gEncoderFastRxCount == 2U) {
+            encoderFastComplete(now);
+        } else {
+            encoderFastAbort(false, now);
+        }
+    }
+}
+
+static const char *encoderFastStateName(void)
+{
+    switch (gEncoderFastState) {
+        case ENCODER_FAST_WAIT_TX:
+            return "WAIT_TX";
+        case ENCODER_FAST_WAIT_RX:
+            return "WAIT_RX";
+        default:
+            return "IDLE";
+    }
+}
+
+static void printEncoderFastStatus(void)
+{
+    uint32_t now = gCurrentSampleSequence;
+    MOTOR_FOC_Status motor;
+
+    MOTOR_FOC_getStatus(&motor);
+
+    uartPutString("ENC fast state=");
+    uartPutString(encoderFastStateName());
+    uartPutString(" req/ok/err/to/miss=");
+    uartPutUnsigned(gEncoderFastRequestCount);
+    uartPutChar('/');
+    uartPutUnsigned(gEncoderFastSuccessCount);
+    uartPutChar('/');
+    uartPutUnsigned(gEncoderFastErrorCount);
+    uartPutChar('/');
+    uartPutUnsigned(gEncoderFastTimeoutCount);
+    uartPutChar('/');
+    uartPutUnsigned(gEncoderFastMissedPeriodCount);
+    uartPutString(" max_interval_us=");
+    uartPutUnsigned(gEncoderFastMaxIntervalTicks * 50U);
+    uartPutString(" age_us=");
+    uartPutUnsigned((now - gEncoderFastLastCompleteTick) * 50U);
+    uartPutString(" eangle=");
+    uartPutUnsigned(motor.electricalAngleSample);
+    uartPutChar('/');
+    uartPutUnsigned(motor.electricalAnglePredicted);
+    uartPutString(" evel_q16=");
+    uartPutSigned(motor.electricalVelocityQ16);
+    uartPutString(".\r\n");
+}
+
+static void resetEncoderFastRuntimeTiming(void)
+{
+    uint32_t now = gCurrentSampleSequence;
+
+    gEncoderFastLastCompleteTick = now;
+    gEncoderFastMaxIntervalTicks = 0U;
+    gEncoderFastMissedPeriodCount = 0U;
+    gEncoderFastNextTick = now;
 }
 
 static bool printEncoderStatus(void)
@@ -544,6 +863,13 @@ static bool printEncoderStatus(void)
     AS5048B_Sample sample;
     uint32_t angleMilliDegrees;
     bool valid;
+
+    if (MOTOR_FOC_isActive()) {
+        uartPutString(
+            "AS5048B full diagnostic rejected while FOC is active.\r\n");
+        printEncoderFastStatus();
+        return false;
+    }
 
     if (!readEncoderSample(&sample)) {
         uartPutString(
@@ -555,11 +881,6 @@ static bool printEncoderStatus(void)
     angleMilliDegrees =
         (((uint32_t) sample.angle * 22500U) + 512U) / 1024U;
     valid = isEncoderSampleValid(&sample);
-
-    if (MOTOR_FOC_isActive()) {
-        MOTOR_FOC_onEncoderSample(
-            sample.angle, valid, gCurrentSampleSequence);
-    }
 
     uartPutString("ENC angle=");
     uartPutUnsigned(angleMilliDegrees / 1000U);
@@ -802,6 +1123,34 @@ static void printCurrentCalibrationFailure(void)
     uartPutString(".\r\n");
 }
 
+static void printCurrentIsrTiming(void)
+{
+    uint32_t lastTicks;
+    uint32_t maxTicks;
+    uint32_t budgetExceeded;
+    uint32_t interruptState = __get_PRIMASK();
+
+    __disable_irq();
+    lastTicks = gCurrentIsrLastTicks;
+    maxTicks = gCurrentIsrMaxTicks;
+    budgetExceeded = gCurrentIsrBudgetExceededCount;
+    if (interruptState == 0U) {
+        __enable_irq();
+    }
+
+    uartPutString("ADC ISR last/max/budget_ticks=");
+    uartPutUnsigned(lastTicks);
+    uartPutChar('/');
+    uartPutUnsigned(maxTicks);
+    uartPutChar('/');
+    uartPutUnsigned(CURRENT_ISR_BUDGET_TICKS);
+    uartPutString(" max_ns=");
+    uartPutUnsigned((maxTicks * 1000U + 16U) / 32U);
+    uartPutString(" budget_exceeded=");
+    uartPutUnsigned(budgetExceeded);
+    uartPutString(".\r\n");
+}
+
 static void printFaultStatus(void)
 {
     DRV8323RS_FaultStatus fault = DRV8323RS_readFaults();
@@ -916,6 +1265,7 @@ static bool startFocMotor(void)
 
     uartPutString("FOC rotor alignment (keep shaft unloaded)...\r\n");
     for (millisecond = 0U; millisecond < 500U; millisecond++) {
+        serviceDebugUartTx();
         delay_cycles(CPUCLK_FREQ / 1000U);
         if (MOTOR_FOC_getState() != MOTOR_FOC_STATE_ALIGNING) {
             uartPutString("FOC alignment aborted by protection.\r\n");
@@ -937,6 +1287,7 @@ static bool startFocMotor(void)
 
     MOTOR_FOC_onEncoderSample(
         encoder.angle, true, gCurrentSampleSequence);
+    resetEncoderFastRuntimeTiming();
     uartPutString("FOC closed-loop started; electrical_offset=");
     uartPutHex16(MOTOR_FOC_getElectricalOffset());
     uartPutString(".\r\n");
@@ -993,7 +1344,9 @@ static void printHelp(void)
     uartPutString("x=stop/coast\r\n");
     uartPutString("f=fault/status  c=clear fault  i=current ADC\r\n");
     uartPutString("a=AS5048B angle/status  z=zero current ADC (stopped)\r\n");
-    uartPutString("t=send CAN 0x321 debug frame  n=CAN status/last RX  h=help\r\n");
+    uartPutString("t=send CAN 0x321 debug frame  n=CAN status/last RX\r\n");
+    uartPutString("e=encoder fast sampler  j=ADC ISR timing\r\n");
+    uartPutString("u=UART TX queue status  h=help\r\n");
 }
 
 static void processCommand(uint8_t command)
@@ -1134,6 +1487,16 @@ static void processCommand(uint8_t command)
             printEncoderStatus();
             break;
 
+        case 'e':
+        case 'E':
+            printEncoderFastStatus();
+            break;
+
+        case 'j':
+        case 'J':
+            printCurrentIsrTiming();
+            break;
+
         case 't':
         case 'T':
             (void) sendCanDebugFrame();
@@ -1142,6 +1505,11 @@ static void processCommand(uint8_t command)
         case 'n':
         case 'N':
             printCanDebugStatus();
+            break;
+
+        case 'u':
+        case 'U':
+            printUartStatus();
             break;
 
         case 'h':
@@ -1163,6 +1531,7 @@ static void processCommand(uint8_t command)
 int main(void)
 {
     SYSCFG_DL_init();
+    initializeDebugUartAsync();
     initializeEncoderI2C();
     initializeCanDebug();
     uartPutString("\r\nBoot: peripherals initialized.\r\n");
@@ -1198,7 +1567,9 @@ int main(void)
     while (1) {
         MOTOR_FOC_StopReason stopReason = MOTOR_FOC_getStopReason();
 
+        serviceDebugUartTx();
         serviceCanDebug();
+        serviceEncoderFast();
 
         if (gFaultInterrupt && !gFaultReported) {
             gFaultReported = true;
@@ -1220,15 +1591,9 @@ int main(void)
             processCommand(DL_UART_receiveData(DEBUG_UART_INST));
         }
 
-        if (MOTOR_FOC_isActive()) {
-            uint16_t angle;
-
-            if (readEncoderAngle(&angle)) {
-                MOTOR_FOC_onEncoderSample(
-                    angle, true, gCurrentSampleSequence);
-            }
-        } else {
-            delay_cycles(CPUCLK_FREQ / 1000U);
+        if (!MOTOR_FOC_isActive()) {
+            /* The 20 kHz ADC interrupt wakes the cooperative I/O services. */
+            __WFI();
         }
     }
 }
@@ -1248,6 +1613,9 @@ void GROUP1_IRQHandler(void)
 
 void CURRENT_ADC0_INST_IRQHandler(void)
 {
+    uint32_t isrEntryCount =
+        DL_TimerG_getTimerCount(CURRENT_SAMPLE_TIMER_INST);
+
     if (DL_ADC12_getPendingInterrupt(CURRENT_ADC0_INST) ==
         DL_ADC12_IIDX_MEM1_RESULT_LOADED) {
         uint16_t rawA = DL_ADC12_getMemResult(
@@ -1315,6 +1683,22 @@ void CURRENT_ADC0_INST_IRQHandler(void)
                 gCurrentWindowPeakA = 0U;
                 gCurrentWindowPeakB = 0U;
                 gCurrentWindowPeakC = 0U;
+            }
+        }
+
+        {
+            uint32_t isrExitCount =
+                DL_TimerG_getTimerCount(CURRENT_SAMPLE_TIMER_INST);
+            uint32_t elapsedTicks = (isrEntryCount >= isrExitCount) ?
+                (isrEntryCount - isrExitCount) :
+                (isrEntryCount + CURRENT_ISR_PERIOD_TICKS - isrExitCount);
+
+            gCurrentIsrLastTicks = elapsedTicks;
+            if (elapsedTicks > gCurrentIsrMaxTicks) {
+                gCurrentIsrMaxTicks = elapsedTicks;
+            }
+            if (elapsedTicks > CURRENT_ISR_BUDGET_TICKS) {
+                gCurrentIsrBudgetExceededCount++;
             }
         }
     }

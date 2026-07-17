@@ -13,8 +13,10 @@
 #define MOTOR_POLE_PAIRS                   (14U)
 #define CURRENT_LOOP_HZ                    (20000U)
 #define ENCODER_SPEED_WINDOW_TICKS         (200U)  /* 10 ms. */
-/* 50 ms accommodates one blocking 115200-baud diagnostic status line. */
-#define ENCODER_STALE_TICKS                (1000U)
+/* Fast sampling is 1 kHz; stop after five missed samples. */
+#define ENCODER_STALE_TICKS                (100U)  /* 5 ms. */
+#define ELECTRICAL_PREDICTION_MAX_TICKS    (40U)   /* 2 ms. */
+#define ELECTRICAL_VELOCITY_FILTER_SHIFT   (3U)
 
 /* 1 ADC count is approximately 2.015 mA with 20 mOhm and 20 V/V. */
 #define IQ_REFERENCE_LIMIT_COUNTS          (124)   /* About 250 mA. */
@@ -23,13 +25,17 @@
 
 /* The speed PI runs at 100 Hz and stores its integral in Q6 current counts. */
 #define SPEED_INTEGRAL_SHIFT               (6)
-#define SPEED_INTEGRAL_RELEASE_RPM         (5)
+#define SPEED_MEASUREMENT_FILTER_SHIFT      (3U)
+#define POSITION_INTEGRAL_RELEASE_RPM       (5)
 
 /* 100 Hz single-turn position loop: position error -> limited speed target. */
 #define ENCODER_COUNTS_PER_REVOLUTION      (16384)
 #define POSITION_COUNTS_PER_RPM            (10)
 #define POSITION_SPEED_LIMIT_RPM           (50)
-#define POSITION_DEADBAND_COUNTS           (4)
+#define POSITION_DIRECT_ZONE_COUNTS         (128)
+#define POSITION_DIRECT_ERROR_DIVISOR       (4)
+#define POSITION_DIRECT_DAMPING_PER_RPM     (2)
+#define POSITION_DIRECT_IQ_LIMIT_COUNTS     (32)
 
 /* Current PI output is in PWM delta counts, with Q8 coefficients/state. */
 #define CURRENT_KP_Q8                      (384)   /* 1.5 PWM/count. */
@@ -59,12 +65,16 @@ static volatile MOTOR_FOC_StopReason gStopReason;
 
 static volatile uint16_t gEncoderRaw;
 static volatile uint16_t gElectricalAngle;
+static volatile uint16_t gPredictedElectricalAngle;
+static volatile int32_t gElectricalVelocityQ16;
+static volatile uint32_t gElectricalAngleSampleTick;
 static volatile uint16_t gElectricalOffset;
 static volatile uint32_t gLastEncoderSampleTick;
 static volatile bool gEncoderReady;
 
 static uint16_t gPreviousEncoderRaw;
 static uint32_t gPreviousEncoderTick;
+static bool gElectricalVelocityReady;
 static int32_t gSpeedWindowDelta;
 static uint32_t gSpeedWindowTicks;
 static volatile int32_t gMeasuredRpm;
@@ -99,6 +109,30 @@ static int32_t clampSigned(int32_t value, int32_t minimum, int32_t maximum)
 static int32_t absoluteSigned(int32_t value)
 {
     return (value < 0) ? -value : value;
+}
+
+/*
+ * Integer division truncates toward zero.  A conventional
+ * current += (target - current) / 2^shift filter can therefore get stuck
+ * forever when the remaining difference is smaller than 2^shift.  Force a
+ * one-count final approach so zero speed and zero predicted velocity are
+ * actually reachable.
+ */
+static int32_t approachFilteredValue(
+    int32_t current, int32_t target, uint32_t shift)
+{
+    int32_t difference = target - current;
+    int32_t step;
+
+    if (difference == 0) {
+        return current;
+    }
+
+    step = difference / (1L << shift);
+    if (step == 0) {
+        step = (difference > 0) ? 1 : -1;
+    }
+    return current + step;
 }
 
 static int32_t wrapEncoderError(int32_t error)
@@ -288,6 +322,20 @@ static void updateSpeedController(void)
     int32_t integralLimitQ6 =
         (IQ_REFERENCE_LIMIT_COUNTS << SPEED_INTEGRAL_SHIFT);
 
+    if ((gControlMode == MOTOR_FOC_MODE_POSITION) &&
+        (absoluteSigned(gPositionErrorCounts) <=
+            POSITION_DIRECT_ZONE_COUNTS)) {
+        int32_t directIq =
+            (gPositionErrorCounts / POSITION_DIRECT_ERROR_DIVISOR) -
+            (gMeasuredRpm * POSITION_DIRECT_DAMPING_PER_RPM);
+
+        gSpeedIntegralQ6 = 0;
+        gIqReferenceCounts = clampSigned(directIq,
+            -POSITION_DIRECT_IQ_LIMIT_COUNTS,
+            POSITION_DIRECT_IQ_LIMIT_COUNTS);
+        return;
+    }
+
     /* At a zero-speed command, remove residual integral once almost stopped. */
     if ((gControlMode == MOTOR_FOC_MODE_SPEED) &&
         (gTargetRpm == 0) && (absoluteSigned(gMeasuredRpm) <= 1)) {
@@ -296,21 +344,18 @@ static void updateSpeedController(void)
         return;
     }
 
-    /*
-     * Release stored torque if the measured speed has crossed the target by a
-     * useful margin. This gives prompt braking without reacting to +/-1 RPM
-     * encoder quantization around a loaded steady-state operating point.
-     */
-    if (((error <= -SPEED_INTEGRAL_RELEASE_RPM) &&
-            (gSpeedIntegralQ6 > 0)) ||
-        ((error >= SPEED_INTEGRAL_RELEASE_RPM) &&
-            (gSpeedIntegralQ6 < 0))) {
+    /* Position commands change direction as the shaft crosses the target. */
+    if ((gControlMode == MOTOR_FOC_MODE_POSITION) &&
+        ((((error <= -POSITION_INTEGRAL_RELEASE_RPM) &&
+              (gSpeedIntegralQ6 > 0))) ||
+         ((error >= POSITION_INTEGRAL_RELEASE_RPM) &&
+              (gSpeedIntegralQ6 < 0)))) {
         gSpeedIntegralQ6 = 0;
     }
 
-    /* Conservative 100 Hz outer loop; output is q-axis current in ADC counts. */
+    /* 100 Hz outer loop; one current count/RPM gives useful active damping. */
     /* Q6 integral retains sub-count torque commands at low target speeds. */
-    proportional = error / 2;
+    proportional = error;
     candidateIntegralQ6 = clampSigned(
         gSpeedIntegralQ6 + error, -integralLimitQ6, integralLimitQ6);
     candidateOutput = proportional +
@@ -337,7 +382,7 @@ static void updatePositionController(void)
         (int32_t) gTargetPositionRaw - (int32_t) gEncoderRaw);
     gPositionErrorCounts = error;
 
-    if (absoluteSigned(error) <= POSITION_DEADBAND_COUNTS) {
+    if (absoluteSigned(error) <= POSITION_DIRECT_ZONE_COUNTS) {
         speedTarget = 0;
     } else {
         speedTarget = error / POSITION_COUNTS_PER_RPM;
@@ -385,9 +430,13 @@ void MOTOR_FOC_initialize(void)
     gEncoderReady = false;
     gEncoderRaw = 0U;
     gElectricalAngle = 0U;
+    gPredictedElectricalAngle = 0U;
+    gElectricalVelocityQ16 = 0;
+    gElectricalAngleSampleTick = 0U;
     gElectricalOffset = 0U;
     gLastEncoderSampleTick = 0U;
     gControlMode = MOTOR_FOC_MODE_SPEED;
+    gElectricalVelocityReady = false;
     gTargetPositionRaw = 0U;
     gTargetRpm = MOTOR_FOC_DEFAULT_TARGET_RPM;
     resetControlState();
@@ -438,7 +487,11 @@ bool MOTOR_FOC_beginAlignment(void)
 
     gStopReason = MOTOR_FOC_STOP_NONE;
     gEncoderReady = false;
+    gElectricalVelocityReady = false;
+    gElectricalVelocityQ16 = 0;
     gControlMode = MOTOR_FOC_MODE_SPEED;
+    /* Every run starts from the same conservative, known speed command. */
+    gTargetRpm = MOTOR_FOC_DEFAULT_TARGET_RPM;
     resetControlState();
 
     /* A small stationary alpha-axis field establishes electrical angle zero. */
@@ -463,12 +516,25 @@ bool MOTOR_FOC_finishAlignment(
     mechanicalAngle = (uint32_t) encoderRaw << 2;
     gElectricalOffset = (uint16_t)
         (0U - (uint16_t) (mechanicalAngle * MOTOR_POLE_PAIRS));
-    gEncoderRaw = encoderRaw;
-    gElectricalAngle = (uint16_t)
-        ((mechanicalAngle * MOTOR_POLE_PAIRS) + gElectricalOffset);
-    gLastEncoderSampleTick = currentSampleSequence;
+    {
+        uint16_t electricalAngle = (uint16_t)
+            ((mechanicalAngle * MOTOR_POLE_PAIRS) + gElectricalOffset);
+        uint32_t interruptState = __get_PRIMASK();
+
+        __disable_irq();
+        gEncoderRaw = encoderRaw;
+        gElectricalAngle = electricalAngle;
+        gPredictedElectricalAngle = electricalAngle;
+        gElectricalVelocityQ16 = 0;
+        gElectricalAngleSampleTick = currentSampleSequence;
+        gLastEncoderSampleTick = currentSampleSequence;
+        if (interruptState == 0U) {
+            __enable_irq();
+        }
+    }
     gPreviousEncoderRaw = encoderRaw;
     gPreviousEncoderTick = currentSampleSequence;
+    gElectricalVelocityReady = false;
     gEncoderReady = true;
     resetControlState();
     gState = MOTOR_FOC_STATE_RUNNING;
@@ -481,6 +547,8 @@ void MOTOR_FOC_stop(void)
     gState = MOTOR_FOC_STATE_STOPPED;
     gStopReason = MOTOR_FOC_STOP_COMMAND;
     gEncoderReady = false;
+    gElectricalVelocityReady = false;
+    gElectricalVelocityQ16 = 0;
     gControlMode = MOTOR_FOC_MODE_SPEED;
     resetControlState();
 }
@@ -491,6 +559,8 @@ void MOTOR_FOC_emergencyStop(MOTOR_FOC_StopReason reason)
     gState = MOTOR_FOC_STATE_FAULT;
     gStopReason = reason;
     gEncoderReady = false;
+    gElectricalVelocityReady = false;
+    gElectricalVelocityQ16 = 0;
     gIqReferenceCounts = 0;
 }
 
@@ -498,20 +568,33 @@ void MOTOR_FOC_onEncoderSample(
     uint16_t encoderRaw, bool valid, uint32_t currentSampleSequence)
 {
     int32_t delta;
+    int32_t electricalVelocityQ16;
+    int32_t rpm = 0;
+    uint16_t electricalAngle;
     uint32_t elapsed;
+    uint32_t interruptState;
+    bool updateOuterControllers;
 
     if (!valid) {
         return;
     }
 
     encoderRaw &= 0x3FFFU;
-    gEncoderRaw = encoderRaw;
-    gElectricalAngle = (uint16_t)
+    electricalAngle = (uint16_t)
         ((((uint32_t) encoderRaw << 2) * MOTOR_POLE_PAIRS) +
             gElectricalOffset);
-    gLastEncoderSampleTick = currentSampleSequence;
 
     if ((gState != MOTOR_FOC_STATE_RUNNING) || !gEncoderReady) {
+        interruptState = __get_PRIMASK();
+        __disable_irq();
+        gEncoderRaw = encoderRaw;
+        gElectricalAngle = electricalAngle;
+        gPredictedElectricalAngle = electricalAngle;
+        gElectricalAngleSampleTick = currentSampleSequence;
+        gLastEncoderSampleTick = currentSampleSequence;
+        if (interruptState == 0U) {
+            __enable_irq();
+        }
         return;
     }
 
@@ -531,15 +614,48 @@ void MOTOR_FOC_onEncoderSample(
     gPreviousEncoderTick = currentSampleSequence;
     gSpeedWindowDelta += delta;
     gSpeedWindowTicks += elapsed;
+    electricalVelocityQ16 = gElectricalVelocityQ16;
+    updateOuterControllers = false;
 
     if (gSpeedWindowTicks >= ENCODER_SPEED_WINDOW_TICKS) {
-        int32_t rpm = (int32_t)
+        int32_t windowElectricalVelocityQ16 = (int32_t)
+            (((int64_t) gSpeedWindowDelta * 4LL *
+                (int64_t) MOTOR_POLE_PAIRS * 65536LL) /
+                (int64_t) gSpeedWindowTicks);
+
+        rpm = (int32_t)
             (((int64_t) gSpeedWindowDelta * CURRENT_LOOP_HZ * 60) /
                 ((int64_t) 16384 * gSpeedWindowTicks));
 
-        gMeasuredRpm += (rpm - gMeasuredRpm) / 4;
+        if (gElectricalVelocityReady) {
+            electricalVelocityQ16 = approachFilteredValue(
+                gElectricalVelocityQ16, windowElectricalVelocityQ16,
+                ELECTRICAL_VELOCITY_FILTER_SHIFT);
+        } else {
+            electricalVelocityQ16 = windowElectricalVelocityQ16;
+            gElectricalVelocityReady = true;
+        }
+
+        gMeasuredRpm = approachFilteredValue(
+            gMeasuredRpm, rpm, SPEED_MEASUREMENT_FILTER_SHIFT);
         gSpeedWindowDelta = 0;
         gSpeedWindowTicks = 0U;
+        updateOuterControllers = true;
+    }
+
+    interruptState = __get_PRIMASK();
+    __disable_irq();
+    gEncoderRaw = encoderRaw;
+    gElectricalAngle = electricalAngle;
+    gPredictedElectricalAngle = electricalAngle;
+    gElectricalVelocityQ16 = electricalVelocityQ16;
+    gElectricalAngleSampleTick = currentSampleSequence;
+    gLastEncoderSampleTick = currentSampleSequence;
+    if (interruptState == 0U) {
+        __enable_irq();
+    }
+
+    if (updateOuterControllers) {
         if (gControlMode == MOTOR_FOC_MODE_POSITION) {
             updatePositionController();
         }
@@ -564,6 +680,10 @@ void MOTOR_FOC_currentLoopISR(int16_t phaseACounts, int16_t phaseBCounts,
     int32_t qError;
     int32_t dOutputQ8;
     int32_t qOutputQ8;
+    int32_t electricalVelocityQ16;
+    uint16_t electricalAngle;
+    uint32_t electricalAngleSampleTick;
+    uint32_t predictionTicks;
 
     if ((gState != MOTOR_FOC_STATE_ALIGNING) &&
         (gState != MOTOR_FOC_STATE_RUNNING)) {
@@ -592,6 +712,17 @@ void MOTOR_FOC_currentLoopISR(int16_t phaseACounts, int16_t phaseBCounts,
         return;
     }
 
+    electricalAngle = gElectricalAngle;
+    electricalVelocityQ16 = gElectricalVelocityQ16;
+    electricalAngleSampleTick = gElectricalAngleSampleTick;
+    predictionTicks = currentSampleSequence - electricalAngleSampleTick;
+    if (predictionTicks > ELECTRICAL_PREDICTION_MAX_TICKS) {
+        predictionTicks = ELECTRICAL_PREDICTION_MAX_TICKS;
+    }
+    electricalAngle = (uint16_t) ((int32_t) electricalAngle +
+        (int32_t) (((int64_t) electricalVelocityQ16 * predictionTicks) >> 16));
+    gPredictedElectricalAngle = electricalAngle;
+
     /*
      * This board's SOA/SOB/SOC polarity was verified during six-step tests:
      * positive phase current produces ADC above the calibrated VREF/2 zero.
@@ -611,8 +742,8 @@ void MOTOR_FOC_currentLoopISR(int16_t phaseACounts, int16_t phaseBCounts,
     alphaCurrent = phaseA;
     betaCurrent = ((phaseB - phaseC) * 18919) >> 15; /* 1/sqrt(3). */
 
-    sine = sinQ15(gElectricalAngle);
-    cosine = sinQ15((uint16_t) (gElectricalAngle + 16384U));
+    sine = sinQ15(electricalAngle);
+    cosine = sinQ15((uint16_t) (electricalAngle + 16384U));
     dCurrent = ((alphaCurrent * cosine) + (betaCurrent * sine)) >> 15;
     qCurrent = ((-alphaCurrent * sine) + (betaCurrent * cosine)) >> 15;
     gLastIdCounts = dCurrent;
@@ -633,7 +764,7 @@ void MOTOR_FOC_currentLoopISR(int16_t phaseACounts, int16_t phaseBCounts,
     qOutputQ8 = clampSigned((qError * CURRENT_KP_Q8) + gIqIntegralQ8,
         -CURRENT_VOLTAGE_LIMIT_Q8, CURRENT_VOLTAGE_LIMIT_Q8);
 
-    applyDqVoltage(dOutputQ8 >> 8, qOutputQ8 >> 8, gElectricalAngle);
+    applyDqVoltage(dOutputQ8 >> 8, qOutputQ8 >> 8, electricalAngle);
 }
 
 bool MOTOR_FOC_isRunning(void)
@@ -810,6 +941,9 @@ void MOTOR_FOC_getStatus(MOTOR_FOC_Status *status)
     status->measuredRpm = gMeasuredRpm;
     status->encoderRaw = gEncoderRaw;
     status->targetPositionRaw = gTargetPositionRaw;
+    status->electricalAngleSample = gElectricalAngle;
+    status->electricalAnglePredicted = gPredictedElectricalAngle;
+    status->electricalVelocityQ16 = gElectricalVelocityQ16;
     iqReferenceCounts = gIqReferenceCounts;
     idCounts = gLastIdCounts;
     iqCounts = gLastIqCounts;
