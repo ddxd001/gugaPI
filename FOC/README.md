@@ -3,7 +3,8 @@
 MSPM0G3507 + DRV8323RS + AS5048B encoder-sensored FOC project using DriverLib.
 
 The DRV8323RS is configured through SPI for 3x PWM mode. TIMA0 generates three
-center-aligned 20 kHz waveforms on PA22/PA3/PA12. The AS5048B supplies the
+center-aligned 20 kHz waveforms on PA22/PA3/PA12. All three compare values use
+shadow registers loaded together at the timer zero event. The AS5048B supplies the
 14-bit rotor angle, a 20 kHz inner loop regulates d/q current, and a 100 Hz
 speed loop regulates mechanical speed. An optional 100 Hz position loop drives
 the speed loop using the shortest single-turn angle error. The commissioning
@@ -61,8 +62,11 @@ VREF/2 offset and 20 V/V gain, assumes 20 milliohm shunts, and calibrates zero-c
 offsets at startup using the CAL pin. TIMG0 is phase-locked to TIMA0 and triggers
 ADC0 and ADC1 together at 20 kHz during the all-low PWM interval, where the
 low-side shunts are observable. The `i` command reports the latest synchronized
-sample plus the signed average and absolute peak from the latest 256-sample
-(12.8 ms) window.
+sample plus a signed average and diagnostic peak from 64 samples selected at
+5 kHz over each 12.8 ms window. The 600 mA software protection still evaluates
+every 20 kHz sample. The ADC0 completion ISR verifies that ADC1 has produced the
+matching phase-C sample before running the current loop. The `j` command reports
+pairing failures, ADC overflow conditions, ISR reentry, and execution time.
 
 The d-axis reference is zero. Each new alignment restores the conservative
 25 RPM speed target. The speed PI includes output anti-windup and

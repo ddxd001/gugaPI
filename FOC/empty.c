@@ -12,7 +12,8 @@
 #define CURRENT_SHUNT_MILLIOHMS   (20U)
 #define CURRENT_CSA_GAIN          (20U)
 #define CURRENT_CALIBRATION_SAMPLES (64U)
-#define CURRENT_AVERAGE_SAMPLES     (256U)
+#define CURRENT_DIAGNOSTIC_DECIMATION (4U)
+#define CURRENT_AVERAGE_SAMPLES      (64U)
 #define AS5048B_I2C_ADDRESS          (0x40U)
 #define AS5048B_REG_AGC              (0xFAU)
 #define AS5048B_REG_ANGLE            (0xFEU)
@@ -40,6 +41,9 @@
     (CURRENT_SAMPLE_TIMER_INST_LOAD_VALUE + 1U)
 #define CURRENT_ISR_BUDGET_TICKS        \
     ((CURRENT_ISR_PERIOD_TICKS * 3U) / 4U)
+#define CURRENT_ADC_ERROR_INTERRUPTS     \
+    (DL_ADC12_INTERRUPT_OVERFLOW | DL_ADC12_INTERRUPT_TRIG_OVF |          \
+        DL_ADC12_INTERRUPT_UNDERFLOW)
 
 static volatile bool gFaultInterrupt;
 static bool gFaultReported;
@@ -77,6 +81,7 @@ static volatile uint32_t gCurrentCalibrationSumB;
 static volatile uint32_t gCurrentCalibrationSumC;
 
 static volatile uint16_t gCurrentWindowCount;
+static volatile uint8_t gCurrentDiagnosticDecimationCount;
 static volatile int32_t gCurrentWindowSumA;
 static volatile int32_t gCurrentWindowSumB;
 static volatile int32_t gCurrentWindowSumC;
@@ -92,6 +97,17 @@ static volatile uint16_t gCurrentPeakC;
 static volatile uint32_t gCurrentIsrLastTicks;
 static volatile uint32_t gCurrentIsrMaxTicks;
 static volatile uint32_t gCurrentIsrBudgetExceededCount;
+static volatile bool gCurrentIsrActive;
+static volatile uint32_t gCurrentIsrReentryCount;
+static volatile uint32_t gCurrentAdcValidSampleCount;
+static volatile uint32_t gCurrentAdcPairMissCount;
+static volatile uint32_t gCurrentAdcUnexpectedIrqCount;
+static volatile uint32_t gCurrentAdc0OverflowCount;
+static volatile uint32_t gCurrentAdc0TriggerOverflowCount;
+static volatile uint32_t gCurrentAdc0UnderflowCount;
+static volatile uint32_t gCurrentAdc1OverflowCount;
+static volatile uint32_t gCurrentAdc1TriggerOverflowCount;
+static volatile uint32_t gCurrentAdc1UnderflowCount;
 static uint32_t gEncoderI2CStartDelayCycles = 3U;
 static EncoderFastState gEncoderFastState;
 static uint8_t gEncoderFastData[2];
@@ -937,7 +953,23 @@ static void startCurrentSampling(void)
     NVIC_DisableIRQ(CURRENT_ADC0_INST_INT_IRQN);
     DL_TimerG_stopCounter(CURRENT_SAMPLE_TIMER_INST);
     DL_ADC12_clearInterruptStatus(CURRENT_ADC0_INST,
-        DL_ADC12_INTERRUPT_MEM1_RESULT_LOADED);
+        DL_ADC12_INTERRUPT_MEM1_RESULT_LOADED |
+            CURRENT_ADC_ERROR_INTERRUPTS);
+    DL_ADC12_clearInterruptStatus(CURRENT_ADC1_INST,
+        DL_ADC12_INTERRUPT_MEM0_RESULT_LOADED |
+            CURRENT_ADC_ERROR_INTERRUPTS);
+
+    gCurrentIsrActive = false;
+    gCurrentIsrReentryCount = 0U;
+    gCurrentAdcValidSampleCount = 0U;
+    gCurrentAdcPairMissCount = 0U;
+    gCurrentAdcUnexpectedIrqCount = 0U;
+    gCurrentAdc0OverflowCount = 0U;
+    gCurrentAdc0TriggerOverflowCount = 0U;
+    gCurrentAdc0UnderflowCount = 0U;
+    gCurrentAdc1OverflowCount = 0U;
+    gCurrentAdc1TriggerOverflowCount = 0U;
+    gCurrentAdc1UnderflowCount = 0U;
 
     NVIC_ClearPendingIRQ(CURRENT_ADC0_INST_INT_IRQN);
     NVIC_EnableIRQ(CURRENT_ADC0_INST_INT_IRQN);
@@ -952,6 +984,7 @@ static void resetCurrentStatistics(void)
 
     __disable_irq();
     gCurrentWindowCount = 0U;
+    gCurrentDiagnosticDecimationCount = 0U;
     gCurrentWindowSumA = 0;
     gCurrentWindowSumB = 0;
     gCurrentWindowSumC = 0;
@@ -1128,12 +1161,32 @@ static void printCurrentIsrTiming(void)
     uint32_t lastTicks;
     uint32_t maxTicks;
     uint32_t budgetExceeded;
+    uint32_t validSamples;
+    uint32_t pairMisses;
+    uint32_t unexpectedIrqs;
+    uint32_t reentries;
+    uint32_t adc0Overflow;
+    uint32_t adc0TriggerOverflow;
+    uint32_t adc0Underflow;
+    uint32_t adc1Overflow;
+    uint32_t adc1TriggerOverflow;
+    uint32_t adc1Underflow;
     uint32_t interruptState = __get_PRIMASK();
 
     __disable_irq();
     lastTicks = gCurrentIsrLastTicks;
     maxTicks = gCurrentIsrMaxTicks;
     budgetExceeded = gCurrentIsrBudgetExceededCount;
+    validSamples = gCurrentAdcValidSampleCount;
+    pairMisses = gCurrentAdcPairMissCount;
+    unexpectedIrqs = gCurrentAdcUnexpectedIrqCount;
+    reentries = gCurrentIsrReentryCount;
+    adc0Overflow = gCurrentAdc0OverflowCount;
+    adc0TriggerOverflow = gCurrentAdc0TriggerOverflowCount;
+    adc0Underflow = gCurrentAdc0UnderflowCount;
+    adc1Overflow = gCurrentAdc1OverflowCount;
+    adc1TriggerOverflow = gCurrentAdc1TriggerOverflowCount;
+    adc1Underflow = gCurrentAdc1UnderflowCount;
     if (interruptState == 0U) {
         __enable_irq();
     }
@@ -1148,7 +1201,27 @@ static void printCurrentIsrTiming(void)
     uartPutUnsigned((maxTicks * 1000U + 16U) / 32U);
     uartPutString(" budget_exceeded=");
     uartPutUnsigned(budgetExceeded);
-    uartPutString(".\r\n");
+    uartPutString(".\r\nADC sync valid/pair_miss/unexpected/reentry=");
+    uartPutUnsigned(validSamples);
+    uartPutChar('/');
+    uartPutUnsigned(pairMisses);
+    uartPutChar('/');
+    uartPutUnsigned(unexpectedIrqs);
+    uartPutChar('/');
+    uartPutUnsigned(reentries);
+    uartPutString(" adc0_ovf/trig/under=");
+    uartPutUnsigned(adc0Overflow);
+    uartPutChar('/');
+    uartPutUnsigned(adc0TriggerOverflow);
+    uartPutChar('/');
+    uartPutUnsigned(adc0Underflow);
+    uartPutString(" adc1_ovf/trig/under=");
+    uartPutUnsigned(adc1Overflow);
+    uartPutChar('/');
+    uartPutUnsigned(adc1TriggerOverflow);
+    uartPutChar('/');
+    uartPutUnsigned(adc1Underflow);
+    uartPutString(" pwm_update=zero.\r\n");
 }
 
 static void printFaultStatus(void)
@@ -1615,9 +1688,59 @@ void CURRENT_ADC0_INST_IRQHandler(void)
 {
     uint32_t isrEntryCount =
         DL_TimerG_getTimerCount(CURRENT_SAMPLE_TIMER_INST);
+    uint32_t adc0Status = DL_ADC12_getRawInterruptStatus(
+        CURRENT_ADC0_INST,
+        DL_ADC12_INTERRUPT_MEM1_RESULT_LOADED |
+            CURRENT_ADC_ERROR_INTERRUPTS);
+    uint32_t adc1Status;
 
-    if (DL_ADC12_getPendingInterrupt(CURRENT_ADC0_INST) ==
-        DL_ADC12_IIDX_MEM1_RESULT_LOADED) {
+    if (gCurrentIsrActive) {
+        gCurrentIsrReentryCount++;
+    }
+    gCurrentIsrActive = true;
+
+    if ((adc0Status & DL_ADC12_INTERRUPT_OVERFLOW) != 0U) {
+        gCurrentAdc0OverflowCount++;
+    }
+    if ((adc0Status & DL_ADC12_INTERRUPT_TRIG_OVF) != 0U) {
+        gCurrentAdc0TriggerOverflowCount++;
+    }
+    if ((adc0Status & DL_ADC12_INTERRUPT_UNDERFLOW) != 0U) {
+        gCurrentAdc0UnderflowCount++;
+    }
+    DL_ADC12_clearInterruptStatus(CURRENT_ADC0_INST,
+        adc0Status & CURRENT_ADC_ERROR_INTERRUPTS);
+
+    if ((adc0Status & DL_ADC12_INTERRUPT_MEM1_RESULT_LOADED) == 0U) {
+        gCurrentAdcUnexpectedIrqCount++;
+        goto isrExit;
+    }
+    DL_ADC12_clearInterruptStatus(CURRENT_ADC0_INST,
+        DL_ADC12_INTERRUPT_MEM1_RESULT_LOADED);
+    gCurrentSampleSequence++;
+
+    adc1Status = DL_ADC12_getRawInterruptStatus(CURRENT_ADC1_INST,
+        DL_ADC12_INTERRUPT_MEM0_RESULT_LOADED |
+            CURRENT_ADC_ERROR_INTERRUPTS);
+    if ((adc1Status & DL_ADC12_INTERRUPT_OVERFLOW) != 0U) {
+        gCurrentAdc1OverflowCount++;
+    }
+    if ((adc1Status & DL_ADC12_INTERRUPT_TRIG_OVF) != 0U) {
+        gCurrentAdc1TriggerOverflowCount++;
+    }
+    if ((adc1Status & DL_ADC12_INTERRUPT_UNDERFLOW) != 0U) {
+        gCurrentAdc1UnderflowCount++;
+    }
+    DL_ADC12_clearInterruptStatus(CURRENT_ADC1_INST,
+        adc1Status & CURRENT_ADC_ERROR_INTERRUPTS);
+
+    /* Never combine fresh A/B values with a stale phase-C result. */
+    if ((adc1Status & DL_ADC12_INTERRUPT_MEM0_RESULT_LOADED) == 0U) {
+        gCurrentAdcPairMissCount++;
+        goto isrExit;
+    }
+
+    {
         uint16_t rawA = DL_ADC12_getMemResult(
             CURRENT_ADC0_INST, CURRENT_ADC0_ADCMEM_0); /* PA24, SOA */
         uint16_t rawB = DL_ADC12_getMemResult(
@@ -1625,10 +1748,12 @@ void CURRENT_ADC0_INST_IRQHandler(void)
         uint16_t rawC = DL_ADC12_getMemResult(
             CURRENT_ADC1_INST, CURRENT_ADC1_ADCMEM_0); /* PA15, SOC */
 
+        DL_ADC12_clearInterruptStatus(CURRENT_ADC1_INST,
+            DL_ADC12_INTERRUPT_MEM0_RESULT_LOADED);
         gCurrentLatest.phaseA = rawA;
         gCurrentLatest.phaseB = rawB;
         gCurrentLatest.phaseC = rawC;
-        gCurrentSampleSequence++;
+        gCurrentAdcValidSampleCount++;
 
         if (gCurrentCalibrationActive) {
             if (gCurrentCalibrationCount < CURRENT_CALIBRATION_SAMPLES) {
@@ -1644,64 +1769,80 @@ void CURRENT_ADC0_INST_IRQHandler(void)
                 (int32_t) gCurrentOffset.phaseB;
             int32_t deltaC = (int32_t) rawC -
                 (int32_t) gCurrentOffset.phaseC;
-            uint16_t magnitudeA = absoluteDelta(deltaA);
-            uint16_t magnitudeB = absoluteDelta(deltaB);
-            uint16_t magnitudeC = absoluteDelta(deltaC);
 
             MOTOR_FOC_currentLoopISR((int16_t) deltaA, (int16_t) deltaB,
                 (int16_t) deltaC, gCurrentSampleSequence);
 
-            gCurrentWindowSumA += deltaA;
-            gCurrentWindowSumB += deltaB;
-            gCurrentWindowSumC += deltaC;
-            if (magnitudeA > gCurrentWindowPeakA) {
-                gCurrentWindowPeakA = magnitudeA;
-            }
-            if (magnitudeB > gCurrentWindowPeakB) {
-                gCurrentWindowPeakB = magnitudeB;
-            }
-            if (magnitudeC > gCurrentWindowPeakC) {
-                gCurrentWindowPeakC = magnitudeC;
+            /* Diagnostic averages are decimated; protection above is not. */
+            if (gCurrentDiagnosticDecimationCount == 0U) {
+                uint16_t magnitudeA = absoluteDelta(deltaA);
+                uint16_t magnitudeB = absoluteDelta(deltaB);
+                uint16_t magnitudeC = absoluteDelta(deltaC);
+
+                gCurrentWindowSumA += deltaA;
+                gCurrentWindowSumB += deltaB;
+                gCurrentWindowSumC += deltaC;
+                if (magnitudeA > gCurrentWindowPeakA) {
+                    gCurrentWindowPeakA = magnitudeA;
+                }
+                if (magnitudeB > gCurrentWindowPeakB) {
+                    gCurrentWindowPeakB = magnitudeB;
+                }
+                if (magnitudeC > gCurrentWindowPeakC) {
+                    gCurrentWindowPeakC = magnitudeC;
+                }
+
+                gCurrentWindowCount++;
+                if (gCurrentWindowCount >= CURRENT_AVERAGE_SAMPLES) {
+                    gCurrentAverageA = (int16_t)
+                        (gCurrentWindowSumA /
+                            (int32_t) CURRENT_AVERAGE_SAMPLES);
+                    gCurrentAverageB = (int16_t)
+                        (gCurrentWindowSumB /
+                            (int32_t) CURRENT_AVERAGE_SAMPLES);
+                    gCurrentAverageC = (int16_t)
+                        (gCurrentWindowSumC /
+                            (int32_t) CURRENT_AVERAGE_SAMPLES);
+                    gCurrentPeakA = gCurrentWindowPeakA;
+                    gCurrentPeakB = gCurrentWindowPeakB;
+                    gCurrentPeakC = gCurrentWindowPeakC;
+
+                    gCurrentWindowCount = 0U;
+                    gCurrentWindowSumA = 0;
+                    gCurrentWindowSumB = 0;
+                    gCurrentWindowSumC = 0;
+                    gCurrentWindowPeakA = 0U;
+                    gCurrentWindowPeakB = 0U;
+                    gCurrentWindowPeakC = 0U;
+                }
             }
 
-            gCurrentWindowCount++;
-            if (gCurrentWindowCount >= CURRENT_AVERAGE_SAMPLES) {
-                gCurrentAverageA = (int16_t)
-                    (gCurrentWindowSumA / (int32_t) CURRENT_AVERAGE_SAMPLES);
-                gCurrentAverageB = (int16_t)
-                    (gCurrentWindowSumB / (int32_t) CURRENT_AVERAGE_SAMPLES);
-                gCurrentAverageC = (int16_t)
-                    (gCurrentWindowSumC / (int32_t) CURRENT_AVERAGE_SAMPLES);
-                gCurrentPeakA = gCurrentWindowPeakA;
-                gCurrentPeakB = gCurrentWindowPeakB;
-                gCurrentPeakC = gCurrentWindowPeakC;
-
-                gCurrentWindowCount = 0U;
-                gCurrentWindowSumA = 0;
-                gCurrentWindowSumB = 0;
-                gCurrentWindowSumC = 0;
-                gCurrentWindowPeakA = 0U;
-                gCurrentWindowPeakB = 0U;
-                gCurrentWindowPeakC = 0U;
+            gCurrentDiagnosticDecimationCount++;
+            if (gCurrentDiagnosticDecimationCount >=
+                CURRENT_DIAGNOSTIC_DECIMATION) {
+                gCurrentDiagnosticDecimationCount = 0U;
             }
         }
 
-        {
-            uint32_t isrExitCount =
-                DL_TimerG_getTimerCount(CURRENT_SAMPLE_TIMER_INST);
-            uint32_t elapsedTicks = (isrEntryCount >= isrExitCount) ?
-                (isrEntryCount - isrExitCount) :
-                (isrEntryCount + CURRENT_ISR_PERIOD_TICKS - isrExitCount);
+    }
 
-            gCurrentIsrLastTicks = elapsedTicks;
-            if (elapsedTicks > gCurrentIsrMaxTicks) {
-                gCurrentIsrMaxTicks = elapsedTicks;
-            }
-            if (elapsedTicks > CURRENT_ISR_BUDGET_TICKS) {
-                gCurrentIsrBudgetExceededCount++;
-            }
+isrExit:
+    {
+        uint32_t isrExitCount =
+            DL_TimerG_getTimerCount(CURRENT_SAMPLE_TIMER_INST);
+        uint32_t elapsedTicks = (isrEntryCount >= isrExitCount) ?
+            (isrEntryCount - isrExitCount) :
+            (isrEntryCount + CURRENT_ISR_PERIOD_TICKS - isrExitCount);
+
+        gCurrentIsrLastTicks = elapsedTicks;
+        if (elapsedTicks > gCurrentIsrMaxTicks) {
+            gCurrentIsrMaxTicks = elapsedTicks;
+        }
+        if (elapsedTicks > CURRENT_ISR_BUDGET_TICKS) {
+            gCurrentIsrBudgetExceededCount++;
         }
     }
+    gCurrentIsrActive = false;
 }
 
 void CAN_DEBUG_INST_IRQHandler(void)

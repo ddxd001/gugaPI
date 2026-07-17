@@ -264,12 +264,6 @@ static void initializeThreePhasePwm(void)
     DL_TimerA_setClockConfig(TIMA0, (DL_TimerA_ClockConfig *) &clockConfig);
     DL_TimerA_initPWMMode(TIMA0, (DL_TimerA_PWMConfig *) &pwmConfig);
 
-    for (channel = 1U; channel <= 3U; channel++) {
-        DL_TimerA_setCaptCompUpdateMethod(TIMA0,
-            DL_TIMER_CC_UPDATE_METHOD_IMMEDIATE,
-            (DL_TIMER_CC_INDEX) channel);
-    }
-
     DL_TimerA_setCCPDirection(TIMA0,
         DL_TIMER_CC1_OUTPUT | DL_TIMER_CC2_OUTPUT | DL_TIMER_CC3_OUTPUT);
 
@@ -294,6 +288,18 @@ static void initializeThreePhasePwm(void)
     gCompareA = PWM_LOAD_COUNTS;
     gCompareB = PWM_LOAD_COUNTS;
     gCompareC = PWM_LOAD_COUNTS;
+
+    /*
+     * Subsequent duty writes go to the three shadow registers.  Hardware
+     * transfers all channels just after the same counter-zero event, so no
+     * phase can change compare value halfway through an up/down PWM cycle.
+     */
+    for (channel = 1U; channel <= 3U; channel++) {
+        DL_TimerA_setCaptCompUpdateMethod(TIMA0,
+            DL_TIMER_CC_UPDATE_METHOD_ZERO_EVT,
+            (DL_TIMER_CC_INDEX) channel);
+    }
+
     DL_TimerA_enableClock(TIMA0);
     DL_TimerA_startCounter(TIMA0);
 }
