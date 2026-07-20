@@ -109,15 +109,17 @@ DriverStatus TransferByte(const Icm45686Config *cfg, uint8_t tx, uint8_t *rx)
     return DRIVER_OK;
 }
 
-/* ICM-45686 sensor registers are big-endian: the first byte of a burst from
- * ACCEL_DATA_X1 (the high byte register, "..._X1") is the high byte. Combine
- * as (hi << 8) | lo. The previous little-endian decode silently byte-swapped
- * every accel/gyro/temp sample (see HARDWARE_INTERFACE.md). */
-int16_t CombineBe(uint8_t hi, uint8_t lo)
+/* ICM-45686 sensor data is LITTLE-ENDIAN by default: the first byte of a
+ * burst from ACCEL_DATA_X1 (0x00) is the LOW byte of each 16-bit register.
+ * The datasheet (DS-000489 sec 14) makes endianness configurable, but that
+ * mode is not enabled here, so decode as little-endian. Verified on hardware:
+ * accel_z 0x40,0x20 -> 0x2040 = 8256 ~= 1 g at +-4g; temp 0x38,0x04 ->
+ * 0x0438 = 1080 -> ~33 C. (Big-endian gives 2 g / 137 C, which is wrong.) */
+int16_t CombineLe(uint8_t lo, uint8_t hi)
 {
     return static_cast<int16_t>(
-        (static_cast<uint16_t>(hi) << 8U) |
-        static_cast<uint16_t>(lo));
+        static_cast<uint16_t>(lo) |
+        (static_cast<uint16_t>(hi) << 8U));
 }
 
 /* Write a register, then read it back to confirm the value stuck. The device
@@ -248,13 +250,13 @@ DriverStatus Icm45686_ReadSensors(Icm45686Context *ctx, Icm45686SensorData *data
         return status;
     }
 
-    data->accel_x = CombineBe(buf[0], buf[1]);
-    data->accel_y = CombineBe(buf[2], buf[3]);
-    data->accel_z = CombineBe(buf[4], buf[5]);
-    data->gyro_x  = CombineBe(buf[6], buf[7]);
-    data->gyro_y  = CombineBe(buf[8], buf[9]);
-    data->gyro_z  = CombineBe(buf[10], buf[11]);
-    data->temp    = CombineBe(buf[12], buf[13]);
+    data->accel_x = CombineLe(buf[0], buf[1]);
+    data->accel_y = CombineLe(buf[2], buf[3]);
+    data->accel_z = CombineLe(buf[4], buf[5]);
+    data->gyro_x  = CombineLe(buf[6], buf[7]);
+    data->gyro_y  = CombineLe(buf[8], buf[9]);
+    data->gyro_z  = CombineLe(buf[10], buf[11]);
+    data->temp    = CombineLe(buf[12], buf[13]);
     return DRIVER_OK;
 }
 
