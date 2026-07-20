@@ -17,6 +17,9 @@ bool DebugUart_ReadByte(uint8_t *out_byte);
 uint16_t DebugUart_GetRxAvailable(void);
 uint32_t DebugUart_GetRxDroppedCount(void);
 void DebugUart_ClearRxBuffer(void);
+void DebugUart_TxPump(void);
+uint16_t DebugUart_GetTxPending(void);
+uint32_t DebugUart_GetTxDroppedCount(void);
 void DebugUart_IrqHandler(void);
 
 } /* namespace services */

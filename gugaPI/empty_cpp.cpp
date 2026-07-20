@@ -235,5 +235,6 @@ int main(void)
         services::Scheduler_Run();
         app::App_Run();
         services::Shell_Process();
+        services::DebugUart_TxPump();
     }
 }

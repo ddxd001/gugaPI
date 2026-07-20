@@ -22,8 +22,10 @@
 #include "board/board_oled.h"
 #include "board/board_pins.h"
 #include "config/feature_config.h"
+#include "config/debug_config.h"
 #include "drivers/common/driver_status.h"
 #include "drivers/i2c_diag/i2c_diag.h"
+#include "services/debug_uart.h"
 #include "services/scheduler.h"
 #include "services/shell.h"
 #include "services/time.h"
@@ -5311,6 +5313,26 @@ void SchedulerCommand(int argc, const char * const argv[])
 }
 #endif
 
+#if FEATURE_ENABLE_DEBUG_UART
+void TxStatCommand(int argc, const char * const argv[])
+{
+    (void) argc;
+    (void) argv;
+
+    services::Shell_WriteString("UART TX queued=");
+    services::Shell_WriteUInt32(services::DebugUart_GetTxPending());
+    services::Shell_WriteString(" dropped=");
+    services::Shell_WriteUInt32(services::DebugUart_GetTxDroppedCount());
+    services::Shell_WriteString(" capacity=");
+    services::Shell_WriteUInt32(DEBUG_UART_TX_BUFFER_SIZE - 1U);
+    services::Shell_WriteString(" rx_avail=");
+    services::Shell_WriteUInt32(services::DebugUart_GetRxAvailable());
+    services::Shell_WriteString(" rx_dropped=");
+    services::Shell_WriteUInt32(services::DebugUart_GetRxDroppedCount());
+    services::Shell_WriteString("\r\n");
+}
+#endif
+
 #if FEATURE_ENABLE_GRAYSCALE
 void PrintGrayUsage(void)
 {
@@ -5547,6 +5569,11 @@ void AppShell_RegisterCommands(void)
     (void) services::Shell_RegisterCommand("sched",
                                            "Scheduler runtime stats",
                                            SchedulerCommand);
+#endif
+#if FEATURE_ENABLE_DEBUG_UART
+    (void) services::Shell_RegisterCommand("txstat",
+                                           "Debug UART TX/RX queue stats",
+                                           TxStatCommand);
 #endif
 #if FEATURE_ENABLE_STATUS_LED
     (void) services::Shell_RegisterCommand("led",
