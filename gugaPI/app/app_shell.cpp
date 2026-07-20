@@ -6,6 +6,7 @@
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
 #include "app/config_store.h"
+#include "app/heading.h"
 #include "app/motor_driver_client.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
@@ -4294,6 +4295,90 @@ void ChassisCommand(int argc, const char * const argv[])
 #endif
 }
 
+void PrintHeadingUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  heading status");
+    services::Shell_WriteLine("  heading hold <base_rpm>");
+    services::Shell_WriteLine("  heading turn <deg -180..180>");
+    services::Shell_WriteLine("  heading stop");
+}
+
+const char *HeadingModeText(app::HeadingMode mode)
+{
+    switch (mode) {
+    case app::HEADING_HOLD:
+        return "hold";
+    case app::HEADING_TURN:
+        return "turn";
+    default:
+        return "idle";
+    }
+}
+
+void HeadingCommand(int argc, const char * const argv[])
+{
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+    if (argc < 2) {
+        PrintHeadingUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        const app::HeadingState *st = app::Heading_GetState();
+        services::Shell_WriteString("heading mode=");
+        services::Shell_WriteString(HeadingModeText(st->mode));
+        services::Shell_WriteString(" target=");
+        WriteInt32(st->target_yaw_mdeg / 1000);
+        services::Shell_WriteString("deg error=");
+        WriteInt32(st->error_mdeg / 1000);
+        services::Shell_WriteString("deg corr=");
+        WriteInt32(st->correction_rpm);
+        services::Shell_WriteString("rpm at_target=");
+        services::Shell_WriteUInt32(st->at_target ? 1U : 0U);
+        services::Shell_WriteString(" last=");
+        services::Shell_WriteString(DriverStatusText(st->last_status));
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "stop")) {
+        WriteStatusLine("heading stop: ", app::Heading_Stop());
+        return;
+    }
+
+    if (StrEqual(argv[1], "hold")) {
+        int32_t base_rpm = 0;
+        const app::ChassisState *cs = app::Chassis_GetState();
+        const int32_t max_rpm =
+            static_cast<int32_t>(cs->config.max_wheel_rpm);
+        if ((argc != 3) ||
+            (!ParseInt32(argv[2], -max_rpm, max_rpm, &base_rpm))) {
+            PrintHeadingUsage();
+            return;
+        }
+        WriteStatusLine("heading hold: ", app::Heading_HoldStart(base_rpm));
+        return;
+    }
+
+    if (StrEqual(argv[1], "turn")) {
+        int32_t deg = 0;
+        if ((argc != 3) || (!ParseInt32(argv[2], -180, 180, &deg))) {
+            PrintHeadingUsage();
+            return;
+        }
+        WriteStatusLine("heading turn: ", app::Heading_TurnStart(deg));
+        return;
+    }
+
+    PrintHeadingUsage();
+#else
+    (void) argc;
+    (void) argv;
+    services::Shell_WriteLine("heading: disabled");
+#endif
+}
+
 void MotorCommand(int argc, const char * const argv[])
 {
 #if FEATURE_ENABLE_MOTOR_DRIVER
@@ -5675,6 +5760,12 @@ void AppShell_RegisterCommands(void)
         "chassis",
         "Chassis: status|stat|stop|wheel <l_rpm> <r_rpm>|vel <mm_s> <mdeg_s>",
         ChassisCommand);
+#endif
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+    (void) services::Shell_RegisterCommand(
+        "heading",
+        "Heading: status|hold <base_rpm>|turn <deg>|stop",
+        HeadingCommand);
 #endif
 #if FEATURE_ENABLE_SHELL_DIAGNOSTICS
     (void) services::Shell_RegisterCommand(

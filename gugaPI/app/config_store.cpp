@@ -11,10 +11,11 @@ namespace {
 
 static const uint16_t kFramAddress = 0x0000U;
 static const uint32_t kMagic = 0x47504643U; /* "CFPG" little-endian */
-static const uint16_t kVersion = 2U;
+static const uint16_t kVersion = 3U;
 static const uint16_t kLegacyVersion = 1U;
 static const uint16_t kLegacyPayloadLength = 66U;
-static const uint16_t kPayloadLength = 68U;
+static const uint16_t kV2PayloadLength = 68U; /* v2 layout length (motor_invert guard) */
+static const uint16_t kPayloadLength = 90U;  /* v3: +6 heading fields (5xi32 + 1xu16 = 22) */
 static const uint16_t kHeaderLength = 8U;
 static const uint16_t kCrcLength = 4U;
 static const uint16_t kImageLength =
@@ -97,7 +98,19 @@ static const ParamDescriptor kParamDescriptors[] = {
     { "imu_gyro_bias_y_mdps", PARAM_I32,
       PARAM_OFFSET(imu_gyro_bias_y_mdps), -2000000, 2000000 },
     { "imu_gyro_bias_z_mdps", PARAM_I32,
-      PARAM_OFFSET(imu_gyro_bias_z_mdps), -2000000, 2000000 }
+      PARAM_OFFSET(imu_gyro_bias_z_mdps), -2000000, 2000000 },
+
+    { "heading_kp", PARAM_I32, PARAM_OFFSET(heading_kp), 0, 100000 },
+    { "heading_max_correction_rpm", PARAM_I32,
+      PARAM_OFFSET(heading_max_correction_rpm), 0, 500 },
+    { "heading_turn_max_rpm", PARAM_I32,
+      PARAM_OFFSET(heading_turn_max_rpm), 0, 1000 },
+    { "heading_turn_min_rpm", PARAM_I32,
+      PARAM_OFFSET(heading_turn_min_rpm), 0, 500 },
+    { "heading_tolerance_mdeg", PARAM_I32,
+      PARAM_OFFSET(heading_tolerance_mdeg), 0, 90000 },
+    { "heading_settle_ms", PARAM_U16,
+      PARAM_OFFSET(heading_settle_ms), 0, 5000 }
 };
 
 #undef PARAM_OFFSET
@@ -204,6 +217,16 @@ void SetDefaults(ConfigStoreParams *params)
     params->position_kd_q4_4 = 0U;
     params->position_max_rpm = 8U;
     params->position_tolerance_counts = 50U;
+
+    /* IMU heading closed-loop (conservative bring-up values).
+     * correction_rpm = error_mdeg * heading_kp / 1e6, so heading_kp=1000
+     * means 1 RPM per degree of error. */
+    params->heading_kp = 1000;               /* 1 RPM/deg */
+    params->heading_max_correction_rpm = 30;
+    params->heading_turn_max_rpm = 60;
+    params->heading_turn_min_rpm = 20;
+    params->heading_tolerance_mdeg = 3000;  /* 3 deg */
+    params->heading_settle_ms = 300U;
 }
 
 uint8_t *AppendU8(uint8_t *cursor, uint8_t value)
@@ -287,7 +310,14 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     cursor = AppendI32(cursor, params.imu_accel_bias_z_mg);
     cursor = AppendI32(cursor, params.imu_gyro_bias_x_mdps);
     cursor = AppendI32(cursor, params.imu_gyro_bias_y_mdps);
-    (void) AppendI32(cursor, params.imu_gyro_bias_z_mdps);
+    cursor = AppendI32(cursor, params.imu_gyro_bias_z_mdps);
+
+    cursor = AppendI32(cursor, params.heading_kp);
+    cursor = AppendI32(cursor, params.heading_max_correction_rpm);
+    cursor = AppendI32(cursor, params.heading_turn_max_rpm);
+    cursor = AppendI32(cursor, params.heading_turn_min_rpm);
+    cursor = AppendI32(cursor, params.heading_tolerance_mdeg);
+    (void) AppendU16(cursor, params.heading_settle_ms);
 }
 
 void DecodePayload(const uint8_t *payload,
@@ -303,7 +333,7 @@ void DecodePayload(const uint8_t *payload,
     cursor = ReadU32Field(cursor, &params->wheel_radius_mm);
     cursor = ReadU32Field(cursor, &params->wheel_track_mm);
     cursor = ReadU16Field(cursor, &params->max_wheel_rpm);
-    if (payload_length >= kPayloadLength) {
+    if (payload_length >= kV2PayloadLength) {
         cursor = ReadU8Field(cursor, &params->motor_output_invert_flags);
         cursor = ReadU8Field(cursor, &params->motor_encoder_invert_flags);
     }
@@ -329,7 +359,19 @@ void DecodePayload(const uint8_t *payload,
     cursor = ReadI32Field(cursor, &params->imu_accel_bias_z_mg);
     cursor = ReadI32Field(cursor, &params->imu_gyro_bias_x_mdps);
     cursor = ReadI32Field(cursor, &params->imu_gyro_bias_y_mdps);
-    (void) ReadI32Field(cursor, &params->imu_gyro_bias_z_mdps);
+    cursor = ReadI32Field(cursor, &params->imu_gyro_bias_z_mdps);
+
+    /* v3 heading fields - only present in v3 (>= 90 byte) layouts; v1/v2
+     * keep the SetDefaults values. */
+    if (payload_length >= kPayloadLength) {
+        cursor = ReadI32Field(cursor, &params->heading_kp);
+        cursor = ReadI32Field(cursor, &params->heading_max_correction_rpm);
+        cursor = ReadI32Field(cursor, &params->heading_turn_max_rpm);
+        cursor = ReadI32Field(cursor, &params->heading_turn_min_rpm);
+        cursor = ReadI32Field(cursor, &params->heading_tolerance_mdeg);
+        (void) ReadU16Field(cursor, &params->heading_settle_ms);
+    }
+    (void) cursor;
 }
 
 bool ValidateParams(const ConfigStoreParams &params)
@@ -433,8 +475,10 @@ drivers::DriverStatus ConfigStore_Load(void)
 
     const bool current_layout =
         (version == kVersion) && (length == kPayloadLength);
-    const bool legacy_layout =
+    const bool legacy_v1 =
         (version == kLegacyVersion) && (length == kLegacyPayloadLength);
+    const bool legacy_v2 = (version == 2U) && (length == kV2PayloadLength);
+    const bool legacy_layout = legacy_v1 || legacy_v2;
 
     if ((magic != kMagic) || ((!current_layout) && (!legacy_layout))) {
         g_status.loaded_from_fram = false;

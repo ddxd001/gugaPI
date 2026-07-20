@@ -39,6 +39,14 @@ struct ConfigStoreParams {
     int32_t imu_gyro_bias_x_mdps;
     int32_t imu_gyro_bias_y_mdps;
     int32_t imu_gyro_bias_z_mdps;
+
+    /* IMU heading closed-loop (v3). Sourced from ICM-45686 gyro yaw. */
+    int32_t heading_kp;                  /* gain: correction_rpm = error_mdeg * heading_kp / 1e6 */
+    int32_t heading_max_correction_rpm;  /* HOLD differential clamp */
+    int32_t heading_turn_max_rpm;        /* TURN max wheel speed */
+    int32_t heading_turn_min_rpm;         /* TURN min wheel speed (friction) */
+    int32_t heading_tolerance_mdeg;      /* TURN target tolerance */
+    uint16_t heading_settle_ms;          /* TURN settle time at target */
 };
 
 struct ConfigStoreStatus {

@@ -5,6 +5,7 @@
 #include "app/app_shell.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
+#include "app/heading.h"
 #include "board/board_button.h"
 
 #include "board/board_buzzer.h"
@@ -51,6 +52,15 @@ void App_ChassisServiceTask(void)
 void App_ChassisFeedbackTask(void)
 {
     (void) app::Chassis_Update();
+}
+#endif
+
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+const uint32_t HEADING_PERIOD_MS = 50U;
+
+void App_HeadingTask(void)
+{
+    app::Heading_Update();
 }
 #endif
 
@@ -305,6 +315,16 @@ void App_Init(void)
     if (services::Scheduler_AddTask("chassis_fb",
                                     App_ChassisFeedbackTask,
                                     CHASSIS_FEEDBACK_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+    Heading_Init();
+    if (services::Scheduler_AddTask("heading",
+                                    App_HeadingTask,
+                                    HEADING_PERIOD_MS,
                                     0U,
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);
