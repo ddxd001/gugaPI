@@ -8,6 +8,7 @@
 #include "board/board_pins.h"
 #include "drivers/common/driver_status.h"
 #include "drivers/i2c_diag/i2c_diag.h"
+#include "services/time.h"
 
 namespace app {
 namespace motor_driver_client {
@@ -20,7 +21,11 @@ static const uint8_t kResponseFlag = 0x80U;
 static const uint8_t kStatusOk = 0x00U;
 static const uint8_t kSpeedControlTelemetryMinFirmwareVersion = 0x02U;
 static const uint8_t kMaxPayloadLength = 32U;
-static const uint32_t kResponseWaitIterations = 5000000U;
+/* Overall deadline for a UART response frame (SOF search through CRC),
+ * measured from the first byte. Bounds the main-loop hang if the slave is
+ * silent or streams garbage; the old per-byte 5e6-iteration busy-wait had
+ * no total bound. */
+static const uint32_t kResponseTimeoutMs = 50U;
 static const char * const kI2cBusName = "motor";
 static const uint8_t kI2cDefaultAddress = BOARD_MOTOR_DRIVER_I2C_ADDRESS;
 
@@ -379,13 +384,18 @@ inline drivers::DriverStatus SendFrame(uint8_t cmd,
     return RawWriteByte(crc);
 }
 
-inline bool ReadByteWait(uint8_t *value, uint32_t wait_iterations)
+inline bool ReadByteDeadline(uint8_t *value,
+                             uint32_t start_ms,
+                             uint32_t timeout_ms)
 {
-    while (wait_iterations > 0U) {
+    /* Poll for one byte, bounded by an overall frame deadline measured from
+     * start_ms. Replaces the old per-byte 5,000,000-iteration busy-wait that
+     * had no total bound and could hang the main loop if the slave streamed
+     * non-SOF bytes forever. */
+    while (!services::Time_HasElapsed(start_ms, timeout_ms)) {
         if (RawReadByte(value)) {
             return true;
         }
-        wait_iterations--;
     }
     return false;
 }
@@ -396,20 +406,21 @@ inline drivers::DriverStatus ReceiveFrame(Frame *frame)
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
 
+    const uint32_t start_ms = services::Time_Millis();
     uint8_t value = 0U;
     uint8_t crc = 0U;
 
     do {
-        if (!ReadByteWait(&value, kResponseWaitIterations)) {
+        if (!ReadByteDeadline(&value, start_ms, kResponseTimeoutMs)) {
             return drivers::DRIVER_ERROR_TIMEOUT;
         }
     } while (value != kSof);
 
     crc = Crc8Update(0U, value);
 
-    if (!ReadByteWait(&frame->cmd, kResponseWaitIterations) ||
-        !ReadByteWait(&frame->reg, kResponseWaitIterations) ||
-        !ReadByteWait(&frame->length, kResponseWaitIterations)) {
+    if (!ReadByteDeadline(&frame->cmd, start_ms, kResponseTimeoutMs) ||
+        !ReadByteDeadline(&frame->reg, start_ms, kResponseTimeoutMs) ||
+        !ReadByteDeadline(&frame->length, start_ms, kResponseTimeoutMs)) {
         return drivers::DRIVER_ERROR_TIMEOUT;
     }
 
@@ -422,14 +433,14 @@ inline drivers::DriverStatus ReceiveFrame(Frame *frame)
     }
 
     for (uint8_t i = 0U; i < frame->length; i++) {
-        if (!ReadByteWait(&frame->data[i], kResponseWaitIterations)) {
+        if (!ReadByteDeadline(&frame->data[i], start_ms, kResponseTimeoutMs)) {
             return drivers::DRIVER_ERROR_TIMEOUT;
         }
         crc = Crc8Update(crc, frame->data[i]);
     }
 
     uint8_t received_crc = 0U;
-    if (!ReadByteWait(&received_crc, kResponseWaitIterations)) {
+    if (!ReadByteDeadline(&received_crc, start_ms, kResponseTimeoutMs)) {
         return drivers::DRIVER_ERROR_TIMEOUT;
     }
 
@@ -1438,8 +1449,18 @@ inline drivers::DriverStatus Stop(Client *client, StopResult *result)
     StopResult local_result = { drivers::DRIVER_OK, drivers::DRIVER_OK };
     MotionResult motion = {};
 
+    /* Coast both wheels; retry each once on failure so a transient bus glitch
+     * does not leave a wheel driving. Both wheels are always attempted (no
+     * short-circuit) so a partial failure still releases the other wheel. */
     local_result.m1_status = SetCoast(client, true, &motion);
+    if (local_result.m1_status != drivers::DRIVER_OK) {
+        local_result.m1_status = SetCoast(client, true, &motion);
+    }
+
     local_result.m2_status = SetCoast(client, false, &motion);
+    if (local_result.m2_status != drivers::DRIVER_OK) {
+        local_result.m2_status = SetCoast(client, false, &motion);
+    }
 
     if (result != 0) {
         *result = local_result;
