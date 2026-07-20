@@ -370,7 +370,7 @@ ICM-45686 configuration:
 | Bus | Shared SPI | Same SPI peripheral as LIS3MDLTR |
 | Chip select | PC7 | Dedicated GPIO, not shared |
 | WHO_AM_I / device ID | 0xE9 @ reg 0x72 | Confirmed from ICM-45686 datasheet DS-000489 |
-| SPI read/write command format | MSB=1 read, MSB=0 write; 7-bit addr; MSB-first; burst auto-increment; big-endian data | Confirmed from datasheet section 9.1 |
+| SPI read/write command format | MSB=1 read, MSB=0 write; 7-bit addr; MSB-first; burst auto-increment | SPI bit order from datasheet section 9.1. 16-bit register data is LITTLE-ENDIAN by default (first byte of a burst is the low byte); big-endian is configurable via datasheet section 14 but is NOT enabled here. Verified on hardware: accel_z raw 0x40,0x20 -> 0x2040 ~= 1 g, temp 0x38,0x04 -> ~33 C. |
 | Interrupt use | INT1 on PC6 for data-ready | INT polarity/function is register-configurable; verify from ICM-45686 datasheet during driver work |
 | INT2 interrupt | PA31 used as INT2 interrupt input | Open-drain output from sensor; sensor internal pull-up default-enabled (regs `pads_int2_pe_trim_d2a[0]` / `pads_int2_pud_trim_d2a[0]`). MCU pin configured as INPUT (no pull). FSYNC input mode not used. |
 | Reset line | Not connected / TBD | Fill only if schematic has a reset pin connection |
