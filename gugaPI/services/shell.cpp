@@ -215,6 +215,14 @@ bool Shell_RegisterCommand(const char *name,
         return false;
     }
 
+    /* Reject a duplicate name instead of silently registering an unreachable
+     * second entry (ExecuteLine returns on the first match). */
+    for (uint32_t i = 0U; i < DEBUG_SHELL_MAX_COMMANDS; i++) {
+        if (g_commands[i].used && (StrEqual(g_commands[i].name, name))) {
+            return false;
+        }
+    }
+
     for (uint32_t i = 0U; i < DEBUG_SHELL_MAX_COMMANDS; i++) {
         if (!g_commands[i].used) {
             g_commands[i].name = name;

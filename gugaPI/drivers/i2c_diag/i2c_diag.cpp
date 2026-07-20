@@ -213,7 +213,6 @@ DriverStatus I2cDiag_RecoverBus(const I2cDiagBusConfig *config)
 
     // 生成一个软件 STOP：SDA 低 -> SCL 高 -> SDA 高。
     DriveLineLow(config->sda_port, config->sda_pin);
-    DriveLineLow(config->sda_port, config->sda_pin);
     delay_cycles(kBusRecoveryDelayCycles);
     ReleaseLine(config->scl_port, config->scl_pin);
     delay_cycles(kBusRecoveryDelayCycles);
