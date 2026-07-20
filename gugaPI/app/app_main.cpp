@@ -34,6 +34,10 @@ enum OutputTestState {
 #if FEATURE_ENABLE_MOTOR_DRIVER
 const uint32_t CHASSIS_SERVICE_PERIOD_MS = 100U;
 
+static services::SchedulerTaskId g_chassisTaskId = 0U;
+static bool g_chassisTaskRegistered = false;
+static bool g_faultStopHandled = false;
+
 void App_ChassisServiceTask(void)
 {
     (void) app::Chassis_Service();
@@ -283,8 +287,10 @@ void App_Init(void)
                                     App_ChassisServiceTask,
                                     CHASSIS_SERVICE_PERIOD_MS,
                                     0U,
-                                    0) != services::SCHEDULER_OK) {
+                                    &g_chassisTaskId) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);
+    } else {
+        g_chassisTaskRegistered = true;
     }
 #endif
 #if FEATURE_ENABLE_IMU
@@ -372,8 +378,31 @@ void App_Run(void)
 {
     g_appState.uptime_ms = services::Time_Millis();
 
-    if (services::Fault_Get() != services::FAULT_NONE) {
+    if (services::Fault_HasFault()) {
         g_appState.mode = APP_MODE_FAULT;
+#if FEATURE_ENABLE_MOTOR_DRIVER
+        /* Stop the chassis once on transition into fault and suppress the
+         * motion/lease task so a faulted system cannot keep driving. The
+         * MotorDriver watchdog also times out (lease no longer refreshed)
+         * and coasts both wheels as a backstop. */
+        if (!g_faultStopHandled) {
+            g_faultStopHandled = true;
+            (void) Chassis_Stop();
+            if (g_chassisTaskRegistered) {
+                (void) services::Scheduler_EnableTask(g_chassisTaskId, false);
+            }
+        }
+#endif
+    } else {
+        g_appState.mode = APP_MODE_RUNNING;
+#if FEATURE_ENABLE_MOTOR_DRIVER
+        if (g_faultStopHandled) {
+            g_faultStopHandled = false;
+            if (g_chassisTaskRegistered) {
+                (void) services::Scheduler_EnableTask(g_chassisTaskId, true);
+            }
+        }
+#endif
     }
 }
 

@@ -139,10 +139,10 @@ drivers::DriverStatus Board_ImuInit(void)
 
     /* Device-level init: soft reset, WHO_AM_I check, sensor configuration.
      * Runs against the SPI peripheral configured above. Failure (e.g. device
-     * absent) is returned but does not clear the SPI-ready flag so that the
-     * shell diagnostics and `imu init` retry still work. */
-    (void) drivers::Icm45686_Init(&g_icmCtx, &kIcmConfig);
-    return drivers::DRIVER_OK;
+     * absent) is returned to the caller (Board_Init reports it) but does not
+     * clear the SPI-ready flag, so shell diagnostics and `imu init` retry
+     * still work. */
+    return drivers::Icm45686_Init(&g_icmCtx, &kIcmConfig);
 }
 
 bool Board_ImuIsReady(void)

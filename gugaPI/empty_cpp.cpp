@@ -35,7 +35,9 @@
 #include "app/app_main.h"
 #include "app/app_shell.h"
 #include "board/board.h"
+#include "board/board_led.h"
 #include "config/feature_config.h"
+#include "drivers/common/driver_status.h"
 #include "services/debug_uart.h"
 #include "services/fault.h"
 #include "services/log.h"
@@ -216,6 +218,28 @@ extern "C" void SYSCFG_DL_init(void)
 }
 #endif
 
+/* Observable panic: blink the status LED (and attempt one log line) instead
+ * of a silent hang. Registered with services::Fault so the services layer does
+ * not need to depend on board/app. Owns the loop; Fault_Panic hangs if this
+ * ever returns. */
+static void PanicHandler(services::FaultCode code)
+{
+    (void) code;
+#if FEATURE_ENABLE_LOG
+    services::Log_Error("panic");
+#endif
+    for (;;) {
+#if FEATURE_ENABLE_STATUS_LED
+        (void) board::Board_StatusLedOn();
+#endif
+        delay_cycles(8000000U); /* ~200 ms at 40 MHz */
+#if FEATURE_ENABLE_STATUS_LED
+        (void) board::Board_StatusLedOff();
+#endif
+        delay_cycles(8000000U);
+    }
+}
+
 int main(void)
 {
     SYSCFG_DL_init();
@@ -223,9 +247,24 @@ int main(void)
     services::Fault_Init();
     services::Scheduler_Init();
     services::Time_Init();
-    board::Board_Init();
     services::DebugUart_Init();
     services::Log_Init();
+    services::Fault_SetPanicHandler(&PanicHandler);
+
+    /* Board_Init runs after the log is ready so device init failures can be
+     * reported. It returns the first failing driver; the name is surfaced on
+     * the console and latched as a fault so App_Run stops the chassis. */
+    if (board::Board_Init() != drivers::DRIVER_OK) {
+        const char *failed = board::Board_GetFailedDriver();
+        LOG_ERROR("board init failed");
+        if (failed != 0) {
+            services::DebugUart_WriteString("  failed: ");
+            services::DebugUart_WriteString(failed);
+            services::DebugUart_WriteString("\r\n");
+        }
+        services::Fault_Set(services::FAULT_DRIVER_INIT);
+    }
+
     services::Shell_Init();
     app::AppShell_RegisterCommands();
     app::App_Init();
