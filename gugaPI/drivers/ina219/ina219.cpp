@@ -3,10 +3,11 @@
 namespace drivers {
 namespace {
 
-/* INA219 register map (auto-increment burst read from 0x00 covers all six):
- *   0x00 config, 0x01 shunt_voltage, 0x02 bus_voltage,
- *   0x03 power, 0x04 current, 0x05 calibration */
 static const uint8_t kRegisterConfig = 0x00U;
+static const uint8_t kRegisterShuntVoltage = 0x01U;
+static const uint8_t kRegisterBusVoltage = 0x02U;
+static const uint8_t kRegisterPower = 0x03U;
+static const uint8_t kRegisterCurrent = 0x04U;
 static const uint8_t kRegisterCalibration = 0x05U;
 static const uint16_t kConfigReset = 0x8000U;
 // INA219 校准公式：CAL = 0.04096 / (current_LSB * Rshunt)，这里用 uA/mΩ 避免浮点。
@@ -284,63 +285,6 @@ DriverStatus ReadRegisterInternal(Ina219Context *ctx,
     return DRIVER_OK;
 }
 
-/* Burst read of `count` bytes starting at `start_reg` in a single I2C
- * transaction (INA219 auto-increments its register pointer on multi-byte
- * reads). Used so a full register snapshot is atomic instead of 6 separate
- * transactions that can straddle a conversion boundary. */
-DriverStatus ReadBurstInternal(Ina219Context *ctx,
-                               uint8_t start_reg,
-                               uint8_t *buf,
-                               uint8_t count)
-{
-    uint8_t tx = start_reg;
-    I2C_Regs *i2c = ctx->config->i2c;
-    DriverStatus status = WaitForIdle(i2c, ctx->config->timeout_iterations);
-
-    if (status != DRIVER_OK) {
-        ReleaseI2cBus(ctx->config);
-        return status;
-    }
-
-    ResetTransfer(i2c);
-
-    if (DL_I2C_fillControllerTXFIFO(i2c, &tx, 1U) != 1U) {
-        ReleaseI2cBus(ctx->config);
-        return DRIVER_ERROR_BUSY;
-    }
-
-    DL_I2C_enableControllerReadOnTXEmpty(i2c);
-    DL_I2C_startControllerTransferAdvanced(i2c,
-                                           ctx->i2c_address,
-                                           DL_I2C_CONTROLLER_DIRECTION_RX,
-                                           count,
-                                           DL_I2C_CONTROLLER_START_ENABLE,
-                                           DL_I2C_CONTROLLER_STOP_ENABLE,
-                                           DL_I2C_CONTROLLER_ACK_DISABLE);
-    delay_cycles(kI2cErrataDelayCycles);
-
-    for (uint8_t i = 0U; i < count; i++) {
-        status = WaitForRxData(i2c, ctx->config->timeout_iterations);
-        if (status != DRIVER_OK) {
-            DL_I2C_disableControllerReadOnTXEmpty(i2c);
-            ReleaseI2cBus(ctx->config);
-            return status;
-        }
-
-        buf[i] = DL_I2C_receiveControllerData(i2c);
-    }
-
-    status = WaitWhileBusy(i2c, ctx->config->timeout_iterations);
-    DL_I2C_disableControllerReadOnTXEmpty(i2c);
-
-    if (status != DRIVER_OK) {
-        ReleaseI2cBus(ctx->config);
-        return status;
-    }
-
-    return DRIVER_OK;
-}
-
 } /* namespace */
 
 DriverStatus Ina219_Init(Ina219Context *ctx, const Ina219Config *config)
@@ -475,6 +419,7 @@ DriverStatus Ina219_WriteRegister(Ina219Context *ctx,
 DriverStatus Ina219_ReadRawRegisters(Ina219Context *ctx,
                                       Ina219RawRegisters *raw)
 {
+    uint16_t value = 0U;
     DriverStatus status = CheckContext(ctx);
 
     if (status != DRIVER_OK) {
@@ -485,22 +430,40 @@ DriverStatus Ina219_ReadRawRegisters(Ina219Context *ctx,
         return DRIVER_ERROR_INVALID_ARG;
     }
 
-    /* Single burst read of config..calibration (6 contiguous 16-bit registers,
-     * 12 bytes) so the snapshot is atomic - the previous version issued 6
-     * separate transactions and could mix conversion N and N+1. */
-    uint8_t buf[12] = { 0U };
-    status = ReadBurstInternal(ctx, kRegisterConfig, buf, sizeof(buf));
+    /* NOTE: a single auto-increment burst read of all six registers would be
+     * atomic, but the MSPM0 I2C controller mis-reads the burst on this board
+     * (returns 0xFF for some registers, bus voltage saturates). The 6-read
+     * path is correct; the minor non-atomicity (a conversion can complete
+     * between reads) is acceptable. Revisit burst only after validating the
+     * DriverLib advanced-transfer sequence. */
+    status = ReadRegisterInternal(ctx, kRegisterConfig, &raw->config);
     if (status != DRIVER_OK) {
         return status;
     }
 
-    raw->config         = (uint16_t)(((uint16_t) buf[0] << 8U) | buf[1]);
-    raw->shunt_voltage  = (int16_t) (((uint16_t) buf[2] << 8U) | buf[3]);
-    raw->bus_voltage    = (uint16_t)(((uint16_t) buf[4] << 8U) | buf[5]);
-    raw->power          = (uint16_t)(((uint16_t) buf[6] << 8U) | buf[7]);
-    raw->current        = (int16_t) (((uint16_t) buf[8] << 8U) | buf[9]);
-    raw->calibration    = (uint16_t)(((uint16_t) buf[10] << 8U) | buf[11]);
-    return DRIVER_OK;
+    status = ReadRegisterInternal(ctx, kRegisterShuntVoltage, &value);
+    if (status != DRIVER_OK) {
+        return status;
+    }
+    raw->shunt_voltage = (int16_t) value;
+
+    status = ReadRegisterInternal(ctx, kRegisterBusVoltage, &raw->bus_voltage);
+    if (status != DRIVER_OK) {
+        return status;
+    }
+
+    status = ReadRegisterInternal(ctx, kRegisterPower, &raw->power);
+    if (status != DRIVER_OK) {
+        return status;
+    }
+
+    status = ReadRegisterInternal(ctx, kRegisterCurrent, &value);
+    if (status != DRIVER_OK) {
+        return status;
+    }
+    raw->current = (int16_t) value;
+
+    return ReadRegisterInternal(ctx, kRegisterCalibration, &raw->calibration);
 }
 
 DriverStatus Ina219_ReadMeasurement(Ina219Context *ctx,
