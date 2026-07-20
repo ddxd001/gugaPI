@@ -1379,6 +1379,7 @@ void PrintChassisUsage(void)
 {
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  chassis status");
+    services::Shell_WriteLine("  chassis stat");
     services::Shell_WriteLine("  chassis stop");
     services::Shell_WriteLine("  chassis wheel <left_rpm> <right_rpm>");
     services::Shell_WriteLine(
@@ -4202,6 +4203,35 @@ void ChassisCommand(int argc, const char * const argv[])
         return;
     }
 
+    if (StrEqual(argv[1], "stat")) {
+        /* One-line summary from the cached state (refreshed by the chassis_fb
+         * periodic task). Does not force an I2C round-trip, so it is useful to
+         * confirm the feedback task is keeping actual_rpm fresh. */
+        if (argc != 2) {
+            PrintChassisUsage();
+            return;
+        }
+
+        const ChassisState *state = Chassis_GetState();
+        if (state == 0) {
+            services::Shell_WriteLine("chassis stat: no state");
+            return;
+        }
+
+        services::Shell_WriteString("chassis stat: L tgt=");
+        WriteInt32(state->left.target_rpm);
+        services::Shell_WriteString(" act=");
+        WriteInt32(state->left.actual_rpm);
+        services::Shell_WriteString(" R tgt=");
+        WriteInt32(state->right.target_rpm);
+        services::Shell_WriteString(" act=");
+        WriteInt32(state->right.actual_rpm);
+        services::Shell_WriteString(" last=");
+        services::Shell_WriteString(DriverStatusText(state->last_status));
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
     if (StrEqual(argv[1], "stop")) {
         if (argc != 2) {
             PrintChassisUsage();
@@ -5643,7 +5673,7 @@ void AppShell_RegisterCommands(void)
         MotorCommand);
     (void) services::Shell_RegisterCommand(
         "chassis",
-        "Chassis: status|stop|wheel <l_rpm> <r_rpm>|vel <mm_s> <mdeg_s>",
+        "Chassis: status|stat|stop|wheel <l_rpm> <r_rpm>|vel <mm_s> <mdeg_s>",
         ChassisCommand);
 #endif
 #if FEATURE_ENABLE_SHELL_DIAGNOSTICS

@@ -33,6 +33,7 @@ enum OutputTestState {
 
 #if FEATURE_ENABLE_MOTOR_DRIVER
 const uint32_t CHASSIS_SERVICE_PERIOD_MS = 100U;
+const uint32_t CHASSIS_FEEDBACK_PERIOD_MS = 20U;
 
 static services::SchedulerTaskId g_chassisTaskId = 0U;
 static bool g_chassisTaskRegistered = false;
@@ -41,6 +42,15 @@ static bool g_faultStopHandled = false;
 void App_ChassisServiceTask(void)
 {
     (void) app::Chassis_Service();
+}
+
+/* Periodic feedback: keep ChassisState.actual_rpm / encoder fresh at 20 ms so
+ * any future heading/position controller reads current state without each
+ * caller having to do its own on-demand I2C round-trip. Read-only telemetry,
+ * left running during fault for diagnostics. */
+void App_ChassisFeedbackTask(void)
+{
+    (void) app::Chassis_Update();
 }
 #endif
 
@@ -291,6 +301,13 @@ void App_Init(void)
         services::Fault_Set(services::FAULT_UNKNOWN);
     } else {
         g_chassisTaskRegistered = true;
+    }
+    if (services::Scheduler_AddTask("chassis_fb",
+                                    App_ChassisFeedbackTask,
+                                    CHASSIS_FEEDBACK_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
     }
 #endif
 #if FEATURE_ENABLE_IMU
