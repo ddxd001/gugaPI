@@ -8,7 +8,10 @@
 #define DEBUG_ENABLE_RUNTIME_CHECKS      (1U)
 
 #define DEBUG_UART_RX_BUFFER_SIZE        (128U)
-#define DEBUG_UART_TX_BUFFER_SIZE        (512U)
+/* Sized to hold the largest synchronous burst (the `help` listing is ~1.5 KB)
+ * so non-blocking WriteChar does not drop boot/help output. SRAM is plentiful
+ * (SRAM_BANK0 uses ~3 KB of 64 KB). */
+#define DEBUG_UART_TX_BUFFER_SIZE        (4096U)
 #define DEBUG_SHELL_LINE_BUFFER_SIZE     (96U)
 #define DEBUG_SHELL_MAX_ARGS             (8U)
 #define DEBUG_SHELL_MAX_COMMANDS         (24U)
