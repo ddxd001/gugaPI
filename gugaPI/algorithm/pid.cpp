@@ -55,15 +55,31 @@ float PID_Update(PIDController *pid,
     }
 
     const float error = target - measured;
-    pid->integral += error * dt_seconds;
-
+    const float proportional = pid->kp * error;
     const float derivative = (error - pid->previous_error) / dt_seconds;
-    const float output = (pid->kp * error) +
-                         (pid->ki * pid->integral) +
-                         (pid->kd * derivative);
+
+    const float raw_output = proportional +
+                             (pid->ki * pid->integral) +
+                             (pid->kd * derivative);
+    const float output = Clamp(raw_output, pid->output_min, pid->output_max);
+
+    /* Conditional integration (anti-windup): accumulate the integral only
+     * when the output is not saturating, or when the error is driving the
+     * output back toward the usable range. Without this the integral ran
+     * away while the actuator was saturated and was slow to unwind on error
+     * reversal, causing overshoot and sluggish recovery. */
+    const bool saturating_high = raw_output > output;
+    const bool saturating_low = raw_output < output;
+    const bool error_unwinds_saturation =
+        (saturating_high && (error < 0.0f)) ||
+        (saturating_low && (error > 0.0f));
+
+    if ((!saturating_high && !saturating_low) || error_unwinds_saturation) {
+        pid->integral += error * dt_seconds;
+    }
 
     pid->previous_error = error;
-    return Clamp(output, pid->output_min, pid->output_max);
+    return output;
 }
 
 } /* namespace algorithm */

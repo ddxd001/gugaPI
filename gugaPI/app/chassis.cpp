@@ -36,7 +36,11 @@ bool g_motionLeaseActive = false;
 
 int32_t AbsInt32(int32_t value)
 {
-    return (value < 0) ? -value : value;
+    /* -INT32_MIN overflows int32_t (UB); saturate to INT32_MAX instead. */
+    if (value < 0) {
+        return (value == INT32_MIN) ? INT32_MAX : -value;
+    }
+    return value;
 }
 
 bool HasSameNonzeroDirection(int32_t current_rpm, int32_t next_rpm)
@@ -262,6 +266,9 @@ drivers::DriverStatus Chassis_Stop(void)
 
 drivers::DriverStatus SetOneWheelTargetRpm(bool motor1, int32_t rpm)
 {
+    /* Precondition: |rpm| <= max_wheel_rpm (uint16) was enforced by the caller
+     * (Chassis_SetWheelRpm clamps via ClampWheelRpm), so the uint16 cast cannot
+     * truncate a live value. */
     bool ack = false;
     return motor::WriteTargetRpm(&g_motorClient,
                                  motor1,
