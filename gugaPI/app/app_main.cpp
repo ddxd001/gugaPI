@@ -3,6 +3,7 @@
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
 #include "app/app_shell.h"
+#include "app/action.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
 #include "app/heading.h"
@@ -61,6 +62,13 @@ const uint32_t HEADING_PERIOD_MS = 50U;
 void App_HeadingTask(void)
 {
     app::Heading_Update();
+}
+
+const uint32_t ACTION_PERIOD_MS = 50U;
+
+void App_ActionTask(void)
+{
+    app::ActionRunner_Update();
 }
 #endif
 
@@ -325,6 +333,14 @@ void App_Init(void)
     if (services::Scheduler_AddTask("heading",
                                     App_HeadingTask,
                                     HEADING_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+    ActionRunner_Init();
+    if (services::Scheduler_AddTask("action",
+                                    App_ActionTask,
+                                    ACTION_PERIOD_MS,
                                     0U,
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);

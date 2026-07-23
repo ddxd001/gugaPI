@@ -5,6 +5,7 @@
 #include "app/chassis.h"
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
+#include "app/action.h"
 #include "app/config_store.h"
 #include "app/heading.h"
 #include "app/motor_driver_client.h"
@@ -4379,6 +4380,151 @@ void HeadingCommand(int argc, const char * const argv[])
 #endif
 }
 
+void PrintRunUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  run clear");
+    services::Shell_WriteLine("  run drive <rpm> <ms>");
+    services::Shell_WriteLine("  run turn <deg -180..180>");
+    services::Shell_WriteLine("  run wait <ms>");
+    services::Shell_WriteLine("  run start");
+    services::Shell_WriteLine("  run cancel");
+    services::Shell_WriteLine("  run status");
+}
+
+const char *ActionTypeText(app::ActionType t)
+{
+    switch (t) {
+    case app::ACTION_DRIVE:
+        return "drive";
+    case app::ACTION_TURN:
+        return "turn";
+    case app::ACTION_WAIT:
+        return "wait";
+    case app::ACTION_STOP:
+        return "stop";
+    default:
+        return "none";
+    }
+}
+
+const char *ActionStatusText(app::ActionStatus s)
+{
+    switch (s) {
+    case app::ACTION_RUNNING:
+        return "running";
+    case app::ACTION_DONE:
+        return "done";
+    case app::ACTION_FAILED:
+        return "failed";
+    default:
+        return "pending";
+    }
+}
+
+void RunCommand(int argc, const char * const argv[])
+{
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+    if (argc < 2) {
+        PrintRunUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        if (argc != 2) {
+            PrintRunUsage();
+            return;
+        }
+        const app::ActionRunnerState *st = app::ActionRunner_GetState();
+        services::Shell_WriteString("run ");
+        services::Shell_WriteUInt32(st->current);
+        services::Shell_WriteString("/");
+        services::Shell_WriteUInt32(st->count);
+        services::Shell_WriteString(" running=");
+        services::Shell_WriteUInt32(st->running ? 1U : 0U);
+        services::Shell_WriteString(" overall=");
+        services::Shell_WriteString(ActionStatusText(st->overall));
+        if (st->current < st->count) {
+            services::Shell_WriteString(" cur=");
+            services::Shell_WriteString(ActionTypeText(st->actions[st->current].type));
+            services::Shell_WriteString("/");
+            services::Shell_WriteString(ActionStatusText(st->actions[st->current].status));
+        }
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "clear")) {
+        if (argc != 2) {
+            PrintRunUsage();
+            return;
+        }
+        WriteStatusLine("run clear: ", app::ActionRunner_Clear());
+        return;
+    }
+
+    if (StrEqual(argv[1], "start")) {
+        if (argc != 2) {
+            PrintRunUsage();
+            return;
+        }
+        WriteStatusLine("run start: ", app::ActionRunner_Start());
+        return;
+    }
+
+    if (StrEqual(argv[1], "cancel")) {
+        if (argc != 2) {
+            PrintRunUsage();
+            return;
+        }
+        WriteStatusLine("run cancel: ", app::ActionRunner_Cancel());
+        return;
+    }
+
+    if (StrEqual(argv[1], "drive")) {
+        int32_t rpm = 0;
+        uint32_t ms = 0U;
+        const app::ChassisState *cs = app::Chassis_GetState();
+        const int32_t max_rpm =
+            static_cast<int32_t>(cs->config.max_wheel_rpm);
+        if ((argc != 4) ||
+            (!ParseInt32(argv[2], -max_rpm, max_rpm, &rpm)) ||
+            (!ParseUint32(argv[3], 30000U, &ms))) {
+            PrintRunUsage();
+            return;
+        }
+        WriteStatusLine("run drive: ", app::ActionRunner_AddDrive(rpm, ms));
+        return;
+    }
+
+    if (StrEqual(argv[1], "turn")) {
+        int32_t deg = 0;
+        if ((argc != 3) || (!ParseInt32(argv[2], -180, 180, &deg))) {
+            PrintRunUsage();
+            return;
+        }
+        WriteStatusLine("run turn: ", app::ActionRunner_AddTurn(deg));
+        return;
+    }
+
+    if (StrEqual(argv[1], "wait")) {
+        uint32_t ms = 0U;
+        if ((argc != 3) || (!ParseUint32(argv[2], 30000U, &ms))) {
+            PrintRunUsage();
+            return;
+        }
+        WriteStatusLine("run wait: ", app::ActionRunner_AddWait(ms));
+        return;
+    }
+
+    PrintRunUsage();
+#else
+    (void) argc;
+    (void) argv;
+    services::Shell_WriteLine("run: disabled");
+#endif
+}
+
 void MotorCommand(int argc, const char * const argv[])
 {
 #if FEATURE_ENABLE_MOTOR_DRIVER
@@ -5766,6 +5912,10 @@ void AppShell_RegisterCommands(void)
         "heading",
         "Heading: status|hold <base_rpm>|turn <deg>|stop",
         HeadingCommand);
+    (void) services::Shell_RegisterCommand(
+        "run",
+        "ActionRunner: clear|drive <rpm> <ms>|turn <deg>|wait <ms>|start|cancel|status",
+        RunCommand);
 #endif
 #if FEATURE_ENABLE_SHELL_DIAGNOSTICS
     (void) services::Shell_RegisterCommand(
