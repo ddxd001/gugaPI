@@ -2,6 +2,7 @@
 
 #include "app/chassis.h"
 #include "app/heading.h"
+#include "app/linefollow.h"
 #include "drivers/common/driver_status.h"
 #include "services/fault.h"
 #include "services/time.h"
@@ -12,6 +13,7 @@ namespace {
 static const uint8_t kMaxActions = 16U;
 static const uint32_t kActionDriveSafetyMs = 30000U;  /* per-drive runaway cap */
 static const uint32_t kActionTurnTimeoutMs = 12000U;  /* backup of heading's 8s */
+static const uint32_t kActionLineFollowTimeoutMs = 30000U; /* per-follow cap */
 static const uint32_t kSequenceTimeoutMs = 30000U;     /* whole-sequence cap */
 
 ActionRunnerState g_state = {
@@ -35,6 +37,8 @@ bool StartAction(Action *a)
         (void) Heading_Stop();
         (void) Chassis_Stop();
         return true;
+    case ACTION_LINE_FOLLOW:
+        return (LF_Start(a->param1, a->param2) == drivers::DRIVER_OK);
     default:
         return false;
     }
@@ -72,6 +76,16 @@ ActionStatus UpdateAction(Action *a)
         return ((now - a->start_ms) >= a->param2) ? ACTION_DONE : ACTION_RUNNING;
     case ACTION_STOP:
         return ACTION_DONE;
+    case ACTION_LINE_FOLLOW: {
+        const LFState *lf = LF_GetState();
+        if (lf->mode == LF_IDLE) {
+            return services::Fault_HasFault() ? ACTION_FAILED : ACTION_DONE;
+        }
+        if ((now - a->start_ms) > kActionLineFollowTimeoutMs) {
+            return ACTION_FAILED;
+        }
+        return ACTION_RUNNING;
+    }
     default:
         return ACTION_FAILED;
     }
@@ -158,6 +172,12 @@ drivers::DriverStatus ActionRunner_AddWait(uint32_t duration_ms)
 drivers::DriverStatus ActionRunner_AddStop(void)
 {
     return AddAction(ACTION_STOP, 0, 0U);
+}
+
+drivers::DriverStatus ActionRunner_AddLineFollow(int32_t base_rpm,
+                                                   uint32_t duration_ms)
+{
+    return AddAction(ACTION_LINE_FOLLOW, base_rpm, duration_ms);
 }
 
 drivers::DriverStatus ActionRunner_Start(void)

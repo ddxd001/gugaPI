@@ -10,10 +10,11 @@ namespace app {
 
 enum ActionType {
     ACTION_NONE = 0,
-    ACTION_DRIVE,   /* timed straight drive with heading hold */
-    ACTION_TURN,    /* turn by relative angle */
-    ACTION_WAIT,    /* timed wait (motors stopped) */
-    ACTION_STOP     /* stop chassis + heading */
+    ACTION_DRIVE,        /* timed straight drive with heading hold */
+    ACTION_TURN,         /* turn by relative angle */
+    ACTION_WAIT,         /* timed wait (motors stopped) */
+    ACTION_STOP,         /* stop chassis + heading */
+    ACTION_LINE_FOLLOW   /* timed line-follow drive */
 };
 
 enum ActionStatus {
@@ -25,8 +26,8 @@ enum ActionStatus {
 
 struct Action {
     ActionType type;
-    int32_t param1;       /* DRIVE: base_rpm; TURN: delta_deg */
-    uint32_t param2;      /* DRIVE/WAIT: duration_ms */
+    int32_t param1;       /* DRIVE: base_rpm; TURN: delta_deg; LINE_FOLLOW: base_rpm */
+    uint32_t param2;      /* DRIVE/WAIT/LINE_FOLLOW: duration_ms */
     ActionStatus status;
     uint32_t start_ms;
 };
@@ -50,6 +51,8 @@ drivers::DriverStatus ActionRunner_AddDrive(int32_t rpm, uint32_t duration_ms);
 drivers::DriverStatus ActionRunner_AddTurn(int32_t delta_deg);
 drivers::DriverStatus ActionRunner_AddWait(uint32_t duration_ms);
 drivers::DriverStatus ActionRunner_AddStop(void);
+drivers::DriverStatus ActionRunner_AddLineFollow(int32_t base_rpm,
+                                                 uint32_t duration_ms);
 drivers::DriverStatus ActionRunner_Start(void);
 drivers::DriverStatus ActionRunner_Cancel(void);
 void ActionRunner_Update(void);

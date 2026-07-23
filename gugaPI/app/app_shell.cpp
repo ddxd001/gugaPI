@@ -8,6 +8,7 @@
 #include "app/action.h"
 #include "app/config_store.h"
 #include "app/heading.h"
+#include "app/linefollow.h"
 #include "app/motor_driver_client.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
@@ -4517,11 +4518,143 @@ void RunCommand(int argc, const char * const argv[])
         return;
     }
 
+    if (StrEqual(argv[1], "follow")) {
+        int32_t rpm = 0;
+        uint32_t ms = 0U;
+        const app::ChassisState *cs = app::Chassis_GetState();
+        const int32_t max_rpm =
+            static_cast<int32_t>(cs->config.max_wheel_rpm);
+        if ((argc != 4) ||
+            (!ParseInt32(argv[2], -max_rpm, max_rpm, &rpm)) ||
+            (!ParseUint32(argv[3], 30000U, &ms))) {
+            PrintRunUsage();
+            return;
+        }
+        WriteStatusLine("run follow: ", app::ActionRunner_AddLineFollow(rpm, ms));
+        return;
+    }
+
     PrintRunUsage();
 #else
     (void) argc;
     (void) argv;
     services::Shell_WriteLine("run: disabled");
+#endif
+}
+
+void PrintLFUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  lf status");
+    services::Shell_WriteLine("  lf cal");
+    services::Shell_WriteLine("  lf start <rpm> <ms>");
+    services::Shell_WriteLine("  lf stop");
+    services::Shell_WriteLine("  lf kp <val>");
+    services::Shell_WriteLine("  lf maxcorr <val>");
+    services::Shell_WriteLine("  lf losttimeout <ms>");
+}
+
+void LFCommand(int argc, const char * const argv[])
+{
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+    if (argc < 2) {
+        PrintLFUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        const app::LFState *st = app::LF_GetState();
+        services::Shell_WriteString("lf mode=");
+        services::Shell_WriteString(st->mode == app::LF_FOLLOW ? "follow" :
+                                    (st->mode == app::LF_CAL ? "cal" : "idle"));
+        services::Shell_WriteString(" cal=");
+        services::Shell_WriteUInt32(st->calibrated ? 1U : 0U);
+        services::Shell_WriteString(" error=");
+        WriteInt32(st->error_mpos);
+        services::Shell_WriteString(" corr=");
+        WriteInt32(st->correction_rpm);
+        services::Shell_WriteString(" lost=");
+        services::Shell_WriteUInt32(st->lost ? 1U : 0U);
+        services::Shell_WriteString(" kp=");
+        WriteInt32(st->kp);
+        services::Shell_WriteString(" maxcorr=");
+        WriteInt32(st->max_correction_rpm);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "cal")) {
+        if (argc != 2) {
+            PrintLFUsage();
+            return;
+        }
+        WriteStatusLine("lf cal: ", app::LF_CalibrateStart());
+        return;
+    }
+
+    if (StrEqual(argv[1], "stop")) {
+        if (argc != 2) {
+            PrintLFUsage();
+            return;
+        }
+        WriteStatusLine("lf stop: ", app::LF_Stop());
+        return;
+    }
+
+    if (StrEqual(argv[1], "start")) {
+        int32_t rpm = 0;
+        uint32_t ms = 0U;
+        const app::ChassisState *cs = app::Chassis_GetState();
+        const int32_t max_rpm =
+            static_cast<int32_t>(cs->config.max_wheel_rpm);
+        if ((argc != 4) ||
+            (!ParseInt32(argv[2], -max_rpm, max_rpm, &rpm)) ||
+            (!ParseUint32(argv[3], 30000U, &ms))) {
+            PrintLFUsage();
+            return;
+        }
+        WriteStatusLine("lf start: ", app::LF_Start(rpm, ms));
+        return;
+    }
+
+    if (StrEqual(argv[1], "kp")) {
+        int32_t v = 0;
+        if ((argc != 3) || (!ParseInt32(argv[2], 0, 1000000, &v))) {
+            PrintLFUsage();
+            return;
+        }
+        app::LF_SetKp(v);
+        services::Shell_WriteLine("lf kp: ok");
+        return;
+    }
+
+    if (StrEqual(argv[1], "maxcorr")) {
+        int32_t v = 0;
+        if ((argc != 3) || (!ParseInt32(argv[2], 0, 500, &v))) {
+            PrintLFUsage();
+            return;
+        }
+        app::LF_SetMaxCorrection(v);
+        services::Shell_WriteLine("lf maxcorr: ok");
+        return;
+    }
+
+    if (StrEqual(argv[1], "losttimeout")) {
+        uint32_t v = 0U;
+        if ((argc != 3) || (!ParseUint32(argv[2], 10000U, &v))) {
+            PrintLFUsage();
+            return;
+        }
+        app::LF_SetLostTimeout(v);
+        services::Shell_WriteLine("lf losttimeout: ok");
+        return;
+    }
+
+    PrintLFUsage();
+#else
+    (void) argc;
+    (void) argv;
+    services::Shell_WriteLine("lf: disabled");
 #endif
 }
 
@@ -5914,8 +6047,14 @@ void AppShell_RegisterCommands(void)
         HeadingCommand);
     (void) services::Shell_RegisterCommand(
         "run",
-        "ActionRunner: clear|drive <rpm> <ms>|turn <deg>|wait <ms>|start|cancel|status",
+        "ActionRunner: clear|drive <rpm> <ms>|turn <deg>|wait <ms>|follow <rpm> <ms>|start|cancel|status",
         RunCommand);
+#endif
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+    (void) services::Shell_RegisterCommand(
+        "lf",
+        "LineFollow: status|cal|start <rpm> <ms>|stop|kp <val>|maxcorr <val>|losttimeout <ms>",
+        LFCommand);
 #endif
 #if FEATURE_ENABLE_SHELL_DIAGNOSTICS
     (void) services::Shell_RegisterCommand(

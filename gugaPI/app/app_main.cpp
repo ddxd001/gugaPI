@@ -7,6 +7,7 @@
 #include "app/chassis.h"
 #include "app/config_store.h"
 #include "app/heading.h"
+#include "app/linefollow.h"
 #include "board/board_button.h"
 
 #include "board/board_buzzer.h"
@@ -69,6 +70,15 @@ const uint32_t ACTION_PERIOD_MS = 50U;
 void App_ActionTask(void)
 {
     app::ActionRunner_Update();
+}
+#endif
+
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+const uint32_t LINEFOLLOW_PERIOD_MS = 50U;
+
+void App_LineFollowTask(void)
+{
+    app::LF_Update();
 }
 #endif
 
@@ -341,6 +351,16 @@ void App_Init(void)
     if (services::Scheduler_AddTask("action",
                                     App_ActionTask,
                                     ACTION_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+    app::LF_Init();
+    if (services::Scheduler_AddTask("linefollow",
+                                    App_LineFollowTask,
+                                    LINEFOLLOW_PERIOD_MS,
                                     0U,
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);
