@@ -3,6 +3,7 @@
 #include "app/config_store.h"
 #include "app/motor_driver_client.h"
 #include "config/feature_config.h"
+#include "services/fault.h"
 
 namespace app {
 namespace {
@@ -285,9 +286,12 @@ drivers::DriverStatus RefreshOneWheelLease(bool motor1, int32_t rpm)
 }
 
 drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
-                                          int32_t right_rpm)
+                                           int32_t right_rpm)
 {
     if (!g_state.initialized) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    if (services::Fault_HasFault()) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
     RefreshConfig();

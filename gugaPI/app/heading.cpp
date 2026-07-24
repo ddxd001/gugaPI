@@ -104,6 +104,11 @@ void Heading_Init(void)
 
 drivers::DriverStatus Heading_HoldStart(int32_t base_rpm)
 {
+    if (services::Fault_HasFault()) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
     const AppImuData *imu = App_ImuGetData();
     if ((imu == 0) || (!imu->valid)) {
         g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
@@ -127,6 +132,11 @@ drivers::DriverStatus Heading_TurnStart(int32_t delta_deg)
     if ((delta_deg < -180) || (delta_deg > 180)) {
         g_state.last_status = drivers::DRIVER_ERROR_INVALID_ARG;
         return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    if (services::Fault_HasFault()) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
 
     const AppImuData *imu = App_ImuGetData();
