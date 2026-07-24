@@ -443,15 +443,15 @@ lf losttimeout <ms>   # 设置丢线超时（100..10000 ms）
 
 ### 9.2 调车遥测
 
-状态：`待开始`
+状态：`代码完成`
 
-实现内容（未实现）：
+实现内容：
 
-- 支持按固定频率输出 CSV 格式数据。
-- 输出时间、动作状态、目标速度、实际速度、目标航向、当前航向和航向误差。
-- 支持快速关闭遥测，避免比赛模式串口负载。
-
-> 当前可通过 `chassis stat`、`heading status`、`lf status`、`run status` 手动查看状态，但尚无周期 CSV 输出。
+- FireWater 协议（VOFA+ 兼容）周期输出 CSV 数据，支持实时画图。
+- 通道：`t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,err,corr`
+- `telem on [period_ms]` 开启（默认 100ms = 10Hz，范围 50..5000ms）
+- `telem off` 关闭，`telem status` 查看状态
+- TX 环形缓冲 > 3000 字节时自动丢帧，避免阻塞控制循环
 
 ### 9.3 比赛模式
 
@@ -535,6 +535,7 @@ lf losttimeout <ms>   # 设置丢线超时（100..10000 ms）
 | 2026-07-25 | 阶段一 | 速度环地面回归 | 恒速 60/80/150/300 RPM 稳态误差 ≤10%，阶跃超调 2.3%，20 次启停无故障，全部通过 |
 | 2026-07-25 | 阶段二 | 陀螺仪零偏标定 | Z=12 mdps，30 秒漂移 0.222°（0.0074°/s），已保存 FRAM |
 | 2026-07-25 | 阶段六 | 实现比赛模式 | 状态机 ARMED→RUNNING→ARMED，按键/Shell 启动，LED/蜂鸣器指示，编译通过 |
+| 2026-07-25 | 阶段六 | 实现 FireWater 遥测 | VOFA+ 兼容 CSV 输出，11 通道，telem on/off/status 命令 |
 
 ## 13. 下一步
 

@@ -111,6 +111,15 @@ uint32_t g_grayOledLastUpdateMs = 0U;
 drivers::DriverStatus g_grayOledLastStatus = drivers::DRIVER_OK;
 #endif
 
+/* FireWater telemetry (VOFA+ protocol). Outputs comma-separated ASCII data
+ * at a configurable rate for real-time plotting. */
+bool g_telemEnabled = false;
+bool g_telemTaskRegistered = false;
+services::SchedulerTaskId g_telemTaskId = 0U;
+uint32_t g_telemPeriodMs = 100U;
+uint32_t g_telemLastUpdateMs = 0U;
+bool g_telemHeaderSent = false;
+
 bool StrEqual(const char *left, const char *right)
 {
     if ((left == 0) || (right == 0)) {
@@ -6056,6 +6065,184 @@ void CompCommand(int argc, const char * const argv[])
     PrintCompUsage();
 }
 
+/* ===== FireWater telemetry (VOFA+ protocol) ===== */
+
+void TelemSendHeader(void)
+{
+    services::DebugUart_WriteString(
+        "#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,err,corr\n");
+}
+
+void TelemSendData(void)
+{
+    const uint32_t now = services::Time_Millis();
+    const app::AppState *app = app::App_GetState();
+    const app::ChassisState *cs = app::Chassis_GetState();
+    const app::HeadingState *hs = app::Heading_GetState();
+    const app::ActionRunnerState *as = app::ActionRunner_GetState();
+
+    /* t */
+    services::Shell_WriteUInt32(now);
+    /* mode */
+    services::Shell_WriteString(",");
+    WriteInt32(static_cast<int32_t>(app->mode));
+    /* step */
+    services::Shell_WriteString(",");
+    WriteInt32(as->running ? static_cast<int32_t>(as->current) : -1);
+    /* L_tgt, L_act */
+    services::Shell_WriteString(",");
+    WriteInt32(cs->left.target_rpm);
+    services::Shell_WriteString(",");
+    WriteInt32(cs->left.actual_rpm);
+    /* R_tgt, R_act */
+    services::Shell_WriteString(",");
+    WriteInt32(cs->right.target_rpm);
+    services::Shell_WriteString(",");
+    WriteInt32(cs->right.actual_rpm);
+    /* yaw_tgt, yaw, err (milli-deg -> deg) */
+    services::Shell_WriteString(",");
+    WriteFixedMilli(hs->target_yaw_mdeg);
+    services::Shell_WriteString(",");
+    {
+        const app::AppImuData *imu = app::App_ImuGetData();
+        WriteFixedMilli((imu != 0) ? imu->yaw_mdeg : 0);
+    }
+    services::Shell_WriteString(",");
+    WriteFixedMilli(hs->error_mdeg);
+    /* corr */
+    services::Shell_WriteString(",");
+    WriteInt32(hs->correction_rpm);
+    services::Shell_WriteString("\n");
+}
+
+void TelemTask(void)
+{
+    if (!g_telemEnabled) {
+        return;
+    }
+
+    const uint32_t now = services::Time_Millis();
+    if (!services::Time_HasElapsed(g_telemLastUpdateMs, g_telemPeriodMs)) {
+        return;
+    }
+    g_telemLastUpdateMs = now;
+
+    /* Drop data if TX ring is nearly full to avoid blocking */
+    if (services::DebugUart_GetTxPending() > 3000U) {
+        return;
+    }
+
+    if (!g_telemHeaderSent) {
+        TelemSendHeader();
+        g_telemHeaderSent = true;
+    }
+
+    TelemSendData();
+}
+
+drivers::DriverStatus TelemEnsureTask(void)
+{
+    if (g_telemTaskRegistered) {
+        return drivers::DRIVER_OK;
+    }
+
+    const services::SchedulerStatus status = services::Scheduler_AddTask(
+        "telem",
+        TelemTask,
+        10U,
+        0U,
+        &g_telemTaskId);
+    if (status != services::SCHEDULER_OK) {
+        return SchedulerStatusToDriverStatus(status);
+    }
+
+    g_telemTaskRegistered = true;
+    return SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_telemTaskId, false));
+}
+
+drivers::DriverStatus TelemSetEnabled(bool enabled)
+{
+    if (!enabled) {
+        g_telemEnabled = false;
+        if (g_telemTaskRegistered) {
+            (void) services::Scheduler_EnableTask(g_telemTaskId, false);
+        }
+        return drivers::DRIVER_OK;
+    }
+
+    const drivers::DriverStatus status = TelemEnsureTask();
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    g_telemHeaderSent = false;
+    g_telemEnabled = true;
+    g_telemLastUpdateMs = services::Time_Millis();
+    return SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_telemTaskId, true));
+}
+
+void PrintTelemUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  telem on [period_ms 50..5000]");
+    services::Shell_WriteLine("  telem off");
+    services::Shell_WriteLine("  telem status");
+}
+
+void TelemCommand(int argc, const char * const argv[])
+{
+    if (argc < 2) {
+        PrintTelemUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "on")) {
+        if (argc == 3) {
+            uint32_t period = 0U;
+            if ((!ParseUint32(argv[2], 5000U, &period)) ||
+                (period < 50U)) {
+                PrintTelemUsage();
+                return;
+            }
+            g_telemPeriodMs = period;
+        }
+        const drivers::DriverStatus status = TelemSetEnabled(true);
+        services::Shell_WriteString("telem: ");
+        services::Shell_WriteString(DriverStatusText(status));
+        services::Shell_WriteString(" period_ms=");
+        services::Shell_WriteUInt32(g_telemPeriodMs);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "off")) {
+        if (argc != 2) {
+            PrintTelemUsage();
+            return;
+        }
+        const drivers::DriverStatus status = TelemSetEnabled(false);
+        WriteStatusLine("telem off: ", status);
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        if (argc != 2) {
+            PrintTelemUsage();
+            return;
+        }
+        services::Shell_WriteString("telem enabled=");
+        services::Shell_WriteUInt32(g_telemEnabled ? 1U : 0U);
+        services::Shell_WriteString(" period_ms=");
+        services::Shell_WriteUInt32(g_telemPeriodMs);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    PrintTelemUsage();
+}
+
 void AppShell_RegisterCommands(void)
 {
     (void) services::Shell_RegisterCommand("version",
@@ -6165,6 +6352,10 @@ void AppShell_RegisterCommands(void)
         "comp",
         "Competition: start|stop|status",
         CompCommand);
+    (void) services::Shell_RegisterCommand(
+        "telem",
+        "Telemetry (FireWater/VOFA+): on [period_ms]|off|status",
+        TelemCommand);
 #if FEATURE_ENABLE_SHELL_DIAGNOSTICS
     (void) services::Shell_RegisterCommand(
         "i2c",
