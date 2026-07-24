@@ -1565,6 +1565,52 @@ param load
 param reset
 ```
 
+## 比赛模式
+
+比赛模式状态机：`ARMED`（安全静止）→ `RUNNING`（序列执行中）→ `ARMED`。在比赛配置（`FEATURE_PROFILE_COMPETITION=1`）下上电自动进入 ARMED；开发配置下可用 `comp arm` 手动进入。
+
+LED 指示：ARMED 慢闪（1Hz）、RUNNING 常亮、FAULT 快闪（5Hz）+ 蜂鸣器。
+
+### `comp arm`
+
+从开发模式进入比赛武装状态。停止底盘，禁用 chassis 任务。仅在 `dev-running` 模式下可用。
+
+```text
+comp arm
+```
+
+### `comp start`
+
+启动比赛序列。需要预先用 `run add` 加载指令序列。可通过按键 1 替代。仅在 `armed` 模式下可用。
+
+```text
+comp start
+```
+
+### `comp stop`
+
+取消比赛序列并返回武装状态。可通过按键 1 替代。仅在 `running` 模式下可用。
+
+```text
+comp stop
+```
+
+### `comp status`
+
+查看当前比赛模式状态。
+
+```text
+comp status
+```
+
+输出示例：
+
+```text
+comp mode=armed
+```
+
+模式值：`armed`（安全静止）、`running`（序列执行中）、`fault`（故障锁定）、`dev-running`（开发模式）。
+
 ## ADC 和 PWM 占位命令
 
 ### `adc`

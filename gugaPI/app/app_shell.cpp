@@ -5,6 +5,7 @@
 #include "app/chassis.h"
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
+#include "app/app_main.h"
 #include "app/action.h"
 #include "app/config_store.h"
 #include "app/heading.h"
@@ -5986,6 +5987,75 @@ drivers::DriverStatus AppShell_EnableGrayOled(uint32_t period_ms)
 #endif
 }
 
+void PrintCompUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  comp arm");
+    services::Shell_WriteLine("  comp start");
+    services::Shell_WriteLine("  comp stop");
+    services::Shell_WriteLine("  comp status");
+}
+
+const char *AppModeText(app::AppMode mode)
+{
+    switch (mode) {
+    case app::APP_MODE_COMPETITION_ARMED: return "armed";
+    case app::APP_MODE_COMPETITION_RUNNING: return "running";
+    case app::APP_MODE_FAULT: return "fault";
+    case app::APP_MODE_RUNNING: return "dev-running";
+    default: return "idle";
+    }
+}
+
+void CompCommand(int argc, const char * const argv[])
+{
+    if (argc < 2) {
+        PrintCompUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "arm")) {
+        if (argc != 2) {
+            PrintCompUsage();
+            return;
+        }
+        WriteStatusLine("comp arm: ", app::App_CompetitionArm());
+        return;
+    }
+
+    if (StrEqual(argv[1], "start")) {
+        if (argc != 2) {
+            PrintCompUsage();
+            return;
+        }
+        WriteStatusLine("comp start: ", app::App_CompetitionStart());
+        return;
+    }
+
+    if (StrEqual(argv[1], "stop")) {
+        if (argc != 2) {
+            PrintCompUsage();
+            return;
+        }
+        WriteStatusLine("comp stop: ", app::App_CompetitionStop());
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        if (argc != 2) {
+            PrintCompUsage();
+            return;
+        }
+        const app::AppState *st = app::App_GetState();
+        services::Shell_WriteString("comp mode=");
+        services::Shell_WriteString(AppModeText(st->mode));
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    PrintCompUsage();
+}
+
 void AppShell_RegisterCommands(void)
 {
     (void) services::Shell_RegisterCommand("version",
@@ -6091,6 +6161,10 @@ void AppShell_RegisterCommands(void)
         "LineFollow: status|cal|start <rpm> <ms>|stop|kp <val>|maxcorr <val>|losttimeout <ms>",
         LFCommand);
 #endif
+    (void) services::Shell_RegisterCommand(
+        "comp",
+        "Competition: start|stop|status",
+        CompCommand);
 #if FEATURE_ENABLE_SHELL_DIAGNOSTICS
     (void) services::Shell_RegisterCommand(
         "i2c",

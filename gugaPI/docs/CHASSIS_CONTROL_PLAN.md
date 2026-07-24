@@ -455,16 +455,18 @@ lf losttimeout <ms>   # 设置丢线超时（100..10000 ms）
 
 ### 9.3 比赛模式
 
-状态：`待开始`
+状态：`代码完成`
 
-实现内容（未实现）：
+实现内容：
 
-- 上电后保持安全静止。
-- 按键或明确命令启动比赛序列。
-- 关闭非必要日志和诊断任务。
-- 故障后锁定停车，必须明确复位才能重新启动。
-
-> 当前 `feature_config.h` 默认使用开发配置（`FEATURE_PROFILE_COMPETITION=0`），比赛配置文件已存在但尚未完善。
+- 编译时：`feature_competition_config.h` 开启 IMU/LED/BUZZER，关闭 LoRa/诊断/调试日志。
+- 运行时状态机：`APP_MODE_COMPETITION_ARMED`（安全静止）→ `APP_MODE_COMPETITION_RUNNING`（序列执行中）→ ARMED。
+- 上电后保持安全静止（比赛配置下 chassis 任务禁用，电机 coast）。
+- 按键 1 或 `comp start` 启动比赛序列（ActionRunner）。
+- `comp stop` 或按键 1 取消序列，返回 ARMED。
+- `comp arm` 从开发模式进入比赛模式（测试用）。
+- 故障后锁定停车（FAULT），必须 `reset` 复位。
+- LED 指示：ARMED 慢闪（1Hz）、RUNNING 常亮、FAULT 快闪（5Hz）+ 蜂鸣器。
 
 ## 10. 系统级回归测试
 
@@ -531,6 +533,8 @@ lf losttimeout <ms>   # 设置丢线超时（100..10000 ms）
 | 2026-07-25 | 阶段二 | 航向闭环硬件验收 | HOLD 最大误差 1.63°，TURN 最大误差 2.88°，左右对称 ≤ 1.06°，全部通过 |
 | 2026-07-25 | 阶段四 | ActionRunner 联调 | L 形路径顺序执行、on_timeout 跳转、cancel 中途取消，全部通过 |
 | 2026-07-25 | 阶段一 | 速度环地面回归 | 恒速 60/80/150/300 RPM 稳态误差 ≤10%，阶跃超调 2.3%，20 次启停无故障，全部通过 |
+| 2026-07-25 | 阶段二 | 陀螺仪零偏标定 | Z=12 mdps，30 秒漂移 0.222°（0.0074°/s），已保存 FRAM |
+| 2026-07-25 | 阶段六 | 实现比赛模式 | 状态机 ARMED→RUNNING→ARMED，按键/Shell 启动，LED/蜂鸣器指示，编译通过 |
 
 ## 13. 下一步
 

@@ -223,7 +223,11 @@ void App_ButtonOledSelectTask(void)
     }
 
 #if FEATURE_ENABLE_INA219
-    if (pressed[board::BOARD_BUTTON_1] &&
+    /* Skip button 1 OLED in competition modes (button 1 is used for
+     * competition start/stop by the competition status task). */
+    if ((app::App_GetState()->mode != app::APP_MODE_COMPETITION_ARMED) &&
+        (app::App_GetState()->mode != app::APP_MODE_COMPETITION_RUNNING) &&
+        pressed[board::BOARD_BUTTON_1] &&
         (!g_buttonOledLastPressed[board::BOARD_BUTTON_1])) {
         const drivers::DriverStatus status = app::AppShell_EnableIna219Oled(
             BUTTON_OLED_SELECT_DISPLAY_PERIOD_MS);
@@ -305,18 +309,80 @@ void App_ButtonChassisTestTask(void)
     }
 }
 #endif
+
+#if FEATURE_ENABLE_STATUS_LED || FEATURE_ENABLE_BUZZER
+const uint32_t COMP_STATUS_PERIOD_MS = 10U;
+
+/* Competition status task: button 1 start/stop + LED/buzzer indication.
+ * LED: ARMED = slow blink (1 Hz), RUNNING = solid on, FAULT = fast blink (5 Hz).
+ * Buzzer: FAULT only. Button 1 toggles competition in ARMED/RUNNING modes. */
+void App_CompetitionStatusTask(void)
+{
+    const uint32_t now = services::Time_Millis();
+    const app::AppMode mode = app::App_GetState()->mode;
+
+    /* Button 1: start/stop competition (edge-triggered) */
+    if (board::Board_ButtonWasPressed(board::BOARD_BUTTON_1)) {
+        if (mode == app::APP_MODE_COMPETITION_ARMED) {
+            (void) app::App_CompetitionStart();
+        } else if (mode == app::APP_MODE_COMPETITION_RUNNING) {
+            (void) app::App_CompetitionStop();
+        }
+    }
+
+    /* LED status indication */
+#if FEATURE_ENABLE_STATUS_LED
+    if (!board::Board_StatusLedIsReady()) {
+        /* skip if LED not initialized */
+    } else if (mode == app::APP_MODE_FAULT) {
+        if (((now / 100U) & 1U) == 0U) {
+            (void) board::Board_StatusLedOn();
+        } else {
+            (void) board::Board_StatusLedOff();
+        }
+    } else if (mode == app::APP_MODE_COMPETITION_ARMED) {
+        if (((now / 500U) & 1U) == 0U) {
+            (void) board::Board_StatusLedOn();
+        } else {
+            (void) board::Board_StatusLedOff();
+        }
+    } else if (mode == app::APP_MODE_COMPETITION_RUNNING) {
+        (void) board::Board_StatusLedOn();
+    }
+#endif
+
+    /* Buzzer: fault alert only */
+#if FEATURE_ENABLE_BUZZER
+    if (board::Board_BuzzerIsReady()) {
+        if (mode == app::APP_MODE_FAULT) {
+            (void) board::Board_BuzzerOn();
+        } else {
+            (void) board::Board_BuzzerOff();
+        }
+    }
+#endif
+}
+#endif
 } /* namespace */
 
 namespace app {
 
 static AppState g_appState = {
-    APP_MODE_IDLE,
+#if FEATURE_PROFILE_COMPETITION
+    APP_MODE_COMPETITION_ARMED,
+#else
+    APP_MODE_RUNNING,
+#endif
     0U
 };
 
 void App_Init(void)
 {
+#if FEATURE_PROFILE_COMPETITION
+    g_appState.mode = APP_MODE_COMPETITION_ARMED;
+#else
     g_appState.mode = APP_MODE_RUNNING;
+#endif
     g_appState.uptime_ms = 0U;
 #if FEATURE_ENABLE_MOTOR_DRIVER
     (void) ConfigStore_Load();
@@ -445,6 +511,16 @@ void App_Init(void)
         services::Fault_Set(services::FAULT_UNKNOWN);
     }
 #endif
+
+#if FEATURE_ENABLE_STATUS_LED || FEATURE_ENABLE_BUZZER
+    if (services::Scheduler_AddTask("comp_status",
+                                    App_CompetitionStatusTask,
+                                    COMP_STATUS_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
 }
 
 void App_Run(void)
@@ -454,34 +530,104 @@ void App_Run(void)
     if (services::Fault_HasFault()) {
         g_appState.mode = APP_MODE_FAULT;
 #if FEATURE_ENABLE_MOTOR_DRIVER
-        /* Stop the chassis once on transition into fault and suppress the
-         * motion/lease task so a faulted system cannot keep driving. The
-         * MotorDriver watchdog also times out (lease no longer refreshed)
-         * and coasts both wheels as a backstop. */
         if (!g_faultStopHandled) {
             g_faultStopHandled = true;
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+            (void) Heading_Stop();
+#endif
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+            (void) LF_Stop();
+#endif
             (void) Chassis_Stop();
             if (g_chassisTaskRegistered) {
                 (void) services::Scheduler_EnableTask(g_chassisTaskId, false);
             }
         }
 #endif
-    } else {
-        g_appState.mode = APP_MODE_RUNNING;
-#if FEATURE_ENABLE_MOTOR_DRIVER
-        if (g_faultStopHandled) {
-            g_faultStopHandled = false;
-            if (g_chassisTaskRegistered) {
-                (void) services::Scheduler_EnableTask(g_chassisTaskId, true);
-            }
-        }
-#endif
+        return;
     }
+
+    if (g_faultStopHandled) {
+        g_faultStopHandled = false;
+    }
+
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    switch (g_appState.mode) {
+    case APP_MODE_COMPETITION_ARMED:
+        if (g_chassisTaskRegistered) {
+            (void) services::Scheduler_EnableTask(g_chassisTaskId, false);
+        }
+        break;
+
+    case APP_MODE_COMPETITION_RUNNING:
+        if (g_chassisTaskRegistered) {
+            (void) services::Scheduler_EnableTask(g_chassisTaskId, true);
+        }
+        if (!ActionRunner_GetState()->running) {
+            g_appState.mode = APP_MODE_COMPETITION_ARMED;
+            (void) Chassis_Stop();
+        }
+        break;
+
+    default:
+        g_appState.mode = APP_MODE_RUNNING;
+        if (g_chassisTaskRegistered) {
+            (void) services::Scheduler_EnableTask(g_chassisTaskId, true);
+        }
+        break;
+    }
+#else
+    g_appState.mode = APP_MODE_RUNNING;
+#endif
 }
 
 const AppState *App_GetState(void)
 {
     return &g_appState;
+}
+
+drivers::DriverStatus App_CompetitionArm(void)
+{
+    if (g_appState.mode != APP_MODE_RUNNING) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    if (services::Fault_HasFault()) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    (void) Chassis_Stop();
+#endif
+    g_appState.mode = APP_MODE_COMPETITION_ARMED;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus App_CompetitionStart(void)
+{
+    if (g_appState.mode != APP_MODE_COMPETITION_ARMED) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    if (services::Fault_HasFault()) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    if (ActionRunner_GetState()->count == 0U) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    const drivers::DriverStatus status = ActionRunner_Start();
+    if (status == drivers::DRIVER_OK) {
+        g_appState.mode = APP_MODE_COMPETITION_RUNNING;
+    }
+    return status;
+}
+
+drivers::DriverStatus App_CompetitionStop(void)
+{
+    if (g_appState.mode != APP_MODE_COMPETITION_RUNNING) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    (void) ActionRunner_Cancel();
+    (void) Chassis_Stop();
+    g_appState.mode = APP_MODE_COMPETITION_ARMED;
+    return drivers::DRIVER_OK;
 }
 
 } /* namespace app */
