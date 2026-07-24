@@ -263,9 +263,18 @@ void Heading_Update(void)
 
         g_state.at_target = false;
         int32_t speed = GainToRpm(abs_err, params->heading_kp);
-        speed = ClampInt32(speed,
-                           params->heading_turn_min_rpm,
-                           params->heading_turn_max_rpm);
+        if (abs_err > 20000) {
+            /* Far from target (> 20°): apply min/max clamp to overcome
+             * static friction and limit top speed. */
+            speed = ClampInt32(speed,
+                               params->heading_turn_min_rpm,
+                               params->heading_turn_max_rpm);
+        } else {
+            /* Near target (≤ 20°): allow natural proportional deceleration.
+             * Only clamp max; let speed drop below min so the car slows
+             * down before entering the tolerance zone, reducing overshoot. */
+            speed = ClampInt32(speed, 0, params->heading_turn_max_rpm);
+        }
         speed *= kYawSign;
         g_state.correction_rpm = speed;
         const int32_t dir = (error >= 0) ? 1 : -1;
