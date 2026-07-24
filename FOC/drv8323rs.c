@@ -1,5 +1,6 @@
 #include "drv8323rs.h"
 
+#include "foc_config.h"
 #include "ti_msp_dl_config.h"
 
 enum {
@@ -20,11 +21,11 @@ enum {
  * - latched OCP, 100 ns extra dead time, 4 us deglitch, 0.75 V VDS limit
  */
 #define DRV_DRIVER_CONTROL_3X_PWM      (0x0020U)
-#define DRV_GATE_DRIVE_HS_BRINGUP      (0x0322U)
-#define DRV_GATE_DRIVE_LS_BRINGUP      (0x0122U)
-#define DRV_OCP_CONTROL_BRINGUP        (0x0119U)
+#define DRV_GATE_DRIVE_HS_BRINGUP      FOC_CFG_DRV_GATE_DRIVE_HS
+#define DRV_GATE_DRIVE_LS_BRINGUP      FOC_CFG_DRV_GATE_DRIVE_LS
+#define DRV_OCP_CONTROL_BRINGUP        FOC_CFG_DRV_OCP_CONTROL
 /* VREF/2 bidirectional sensing, 20 V/V gain, 1 V sense-OCP threshold. */
-#define DRV_CSA_CONTROL_CURRENT_SENSE  (0x0283U)
+#define DRV_CSA_CONTROL_CURRENT_SENSE  FOC_CFG_DRV_CSA_CONTROL
 #define DRV_REGISTER_DATA_MASK         (0x07FFU)
 
 static void delayUs(uint32_t microseconds)

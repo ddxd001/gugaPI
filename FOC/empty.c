@@ -5,16 +5,18 @@
 #include <stdint.h>
 
 #include "drv8323rs.h"
+#include "foc_config.h"
 #include "motor_open_loop.h"
 
-#define ADC_REFERENCE_MV          (3300U)
-#define ADC_FULL_SCALE_COUNTS     (4095U)
-#define CURRENT_SHUNT_MILLIOHMS   (20U)
-#define CURRENT_CSA_GAIN          (20U)
-#define CURRENT_CALIBRATION_SAMPLES (64U)
+#define ADC_REFERENCE_MV          FOC_CFG_ADC_REFERENCE_MV
+#define ADC_FULL_SCALE_COUNTS     FOC_CFG_ADC_FULL_SCALE_COUNTS
+#define CURRENT_SHUNT_MILLIOHMS   FOC_CFG_CURRENT_SHUNT_MILLIOHMS
+#define CURRENT_CSA_GAIN          FOC_CFG_CURRENT_CSA_GAIN
+#define CURRENT_CALIBRATION_SAMPLES \
+    FOC_CFG_CURRENT_CALIBRATION_SAMPLES
 #define CURRENT_DIAGNOSTIC_DECIMATION (4U)
 #define CURRENT_AVERAGE_SAMPLES      (64U)
-#define AS5048B_I2C_ADDRESS          (0x40U)
+#define AS5048B_I2C_ADDRESS          FOC_CFG_ENCODER_I2C_ADDRESS
 #define AS5048B_REG_AGC              (0xFAU)
 #define AS5048B_REG_ANGLE            (0xFEU)
 #define AS5048B_READOUT_LENGTH       (6U)
@@ -25,8 +27,8 @@
 #define ENCODER_I2C_TRANSFER_EVENTS                                      \
     (DL_I2C_INTERRUPT_CONTROLLER_TX_DONE |                              \
         DL_I2C_INTERRUPT_CONTROLLER_RX_DONE | ENCODER_I2C_ERROR_EVENTS)
-#define ENCODER_FAST_PERIOD_TICKS       (20U)  /* 1 kHz at 20 kHz ADC tick. */
-#define ENCODER_FAST_TIMEOUT_TICKS      (40U)  /* 2 ms transaction timeout. */
+#define ENCODER_FAST_PERIOD_TICKS       FOC_CFG_ENCODER_FAST_PERIOD_TICKS
+#define ENCODER_FAST_TIMEOUT_TICKS      FOC_CFG_ENCODER_FAST_TIMEOUT_TICKS
 #define CAN_DEBUG_BIT_RATE             (500000U)
 #define CAN_DEBUG_TX_ID                (0x321U)
 #define CAN_DEBUG_TX_BUFFER            (0U)
@@ -119,6 +121,7 @@ static uint32_t gEncoderFastRequestCount;
 static uint32_t gEncoderFastSuccessCount;
 static uint32_t gEncoderFastErrorCount;
 static uint32_t gEncoderFastTimeoutCount;
+static uint32_t gEncoderFastRecoveryCount;
 static uint32_t gEncoderFastMissedPeriodCount;
 static uint32_t gEncoderFastMaxIntervalTicks;
 static bool gEncoderFastPaused;
@@ -522,6 +525,7 @@ static void initializeEncoderI2C(void)
     gEncoderFastSuccessCount = 0U;
     gEncoderFastErrorCount = 0U;
     gEncoderFastTimeoutCount = 0U;
+    gEncoderFastRecoveryCount = 0U;
     gEncoderFastMissedPeriodCount = 0U;
     gEncoderFastMaxIntervalTicks = 0U;
     gEncoderFastPaused = false;
@@ -534,6 +538,22 @@ static void resetEncoderI2CTransfer(void)
     DL_I2C_flushControllerRXFIFO(ENCODER_I2C_INST);
     DL_I2C_clearInterruptStatus(
         ENCODER_I2C_INST, ENCODER_I2C_TRANSFER_EVENTS);
+}
+
+static void recoverEncoderI2CController(void)
+{
+    /*
+     * A transfer reset clears FIFOs but does not always release a controller
+     * left BUSY after a timeout.  Reset the peripheral power domain and apply
+     * the generated 400 kHz controller configuration again.
+     */
+    DL_I2C_disableController(ENCODER_I2C_INST);
+    DL_I2C_reset(ENCODER_I2C_INST);
+    DL_I2C_enablePower(ENCODER_I2C_INST);
+    delay_cycles(POWER_STARTUP_DELAY);
+    SYSCFG_DL_ENCODER_I2C_init();
+    resetEncoderI2CTransfer();
+    gEncoderFastRecoveryCount++;
 }
 
 static bool waitEncoderI2CIdle(void)
@@ -699,7 +719,7 @@ static bool encoderFastDeadlineReached(uint32_t now, uint32_t deadline)
 
 static void encoderFastAbort(bool timeout, uint32_t now)
 {
-    resetEncoderI2CTransfer();
+    recoverEncoderI2CController();
     gEncoderFastState = ENCODER_FAST_IDLE;
     gEncoderFastRxCount = 0U;
     gEncoderFastErrorCount++;
@@ -765,6 +785,15 @@ static void serviceEncoderFast(void)
 {
     uint32_t now = gCurrentSampleSequence;
     uint32_t events;
+
+    if (!MOTOR_FOC_isRunning()) {
+        if (gEncoderFastState != ENCODER_FAST_IDLE) {
+            resetEncoderI2CTransfer();
+            gEncoderFastState = ENCODER_FAST_IDLE;
+            gEncoderFastRxCount = 0U;
+        }
+        return;
+    }
 
     if (gEncoderFastState == ENCODER_FAST_IDLE) {
         if (gEncoderFastPaused) {
@@ -851,6 +880,8 @@ static void printEncoderFastStatus(void)
     uartPutUnsigned(gEncoderFastTimeoutCount);
     uartPutChar('/');
     uartPutUnsigned(gEncoderFastMissedPeriodCount);
+    uartPutString(" recover=");
+    uartPutUnsigned(gEncoderFastRecoveryCount);
     uartPutString(" max_interval_us=");
     uartPutUnsigned(gEncoderFastMaxIntervalTicks * 50U);
     uartPutString(" age_us=");

@@ -4,43 +4,52 @@
 #include "ti_msp_dl_config.h"
 
 /* TIMA0 runs center-aligned: LOAD=800 gives a 1600-count, 20 kHz period. */
-#define PWM_PERIOD_COUNTS                  (1600U)
+#define PWM_PERIOD_COUNTS                  FOC_CFG_PWM_PERIOD_COUNTS
 #define PWM_LOAD_COUNTS                    (PWM_PERIOD_COUNTS / 2U)
 #define PWM_NEUTRAL_COMPARE                (PWM_LOAD_COUNTS / 2U)
-#define PWM_MAX_PHASE_DELTA                (200)
-#define ALIGN_ALPHA_VOLTAGE                (64)
+#define PWM_MAX_PHASE_DELTA                FOC_CFG_PWM_MAX_PHASE_DELTA
+#define ALIGN_ALPHA_VOLTAGE                FOC_CFG_ALIGNMENT_ALPHA_VOLTAGE
 
-#define MOTOR_POLE_PAIRS                   (14U)
-#define CURRENT_LOOP_HZ                    (20000U)
-#define ENCODER_SPEED_WINDOW_TICKS         (200U)  /* 10 ms. */
+#define MOTOR_POLE_PAIRS                   FOC_CFG_MOTOR_POLE_PAIRS
+#define CURRENT_LOOP_HZ                    FOC_CFG_CURRENT_LOOP_HZ
+#define ENCODER_SPEED_WINDOW_TICKS         FOC_CFG_SPEED_WINDOW_TICKS
 /* Fast sampling is 1 kHz; stop after five missed samples. */
-#define ENCODER_STALE_TICKS                (100U)  /* 5 ms. */
-#define ELECTRICAL_PREDICTION_MAX_TICKS    (40U)   /* 2 ms. */
-#define ELECTRICAL_VELOCITY_FILTER_SHIFT   (3U)
+#define ENCODER_STALE_TICKS                FOC_CFG_ENCODER_STALE_TICKS
+#define ELECTRICAL_PREDICTION_MAX_TICKS    \
+    FOC_CFG_ELECTRICAL_PREDICTION_MAX_TICKS
+#define ELECTRICAL_VELOCITY_FILTER_SHIFT   \
+    FOC_CFG_ELECTRICAL_VELOCITY_FILTER_SHIFT
 
 /* 1 ADC count is approximately 2.015 mA with 20 mOhm and 20 V/V. */
-#define IQ_REFERENCE_LIMIT_COUNTS          (124)   /* About 250 mA. */
-#define HARD_CURRENT_LIMIT_COUNTS          (298)   /* About 600 mA. */
-#define HARD_CURRENT_TRIP_SAMPLES          (3U)
+#define IQ_REFERENCE_LIMIT_COUNTS          FOC_CFG_IQ_REFERENCE_LIMIT_COUNTS
+#define HARD_CURRENT_LIMIT_COUNTS          FOC_CFG_HARD_CURRENT_LIMIT_COUNTS
+#define HARD_CURRENT_TRIP_SAMPLES          FOC_CFG_HARD_CURRENT_TRIP_SAMPLES
 
 /* The speed PI runs at 100 Hz and stores its integral in Q6 current counts. */
-#define SPEED_INTEGRAL_SHIFT               (6)
-#define SPEED_MEASUREMENT_FILTER_SHIFT      (3U)
-#define POSITION_INTEGRAL_RELEASE_RPM       (5)
+#define SPEED_INTEGRAL_SHIFT               FOC_CFG_SPEED_INTEGRAL_SHIFT
+#define SPEED_MEASUREMENT_FILTER_SHIFT     \
+    FOC_CFG_SPEED_MEASUREMENT_FILTER_SHIFT
+#define POSITION_INTEGRAL_RELEASE_RPM      \
+    FOC_CFG_POSITION_INTEGRAL_RELEASE_RPM
 
 /* 100 Hz single-turn position loop: position error -> limited speed target. */
-#define ENCODER_COUNTS_PER_REVOLUTION      (16384)
-#define POSITION_COUNTS_PER_RPM            (10)
-#define POSITION_SPEED_LIMIT_RPM           (50)
-#define POSITION_DIRECT_ZONE_COUNTS         (128)
-#define POSITION_DIRECT_ERROR_DIVISOR       (4)
-#define POSITION_DIRECT_DAMPING_PER_RPM     (2)
-#define POSITION_DIRECT_IQ_LIMIT_COUNTS     (32)
+#define ENCODER_COUNTS_PER_REVOLUTION      \
+    FOC_CFG_ENCODER_COUNTS_PER_REVOLUTION
+#define POSITION_COUNTS_PER_RPM            FOC_CFG_POSITION_COUNTS_PER_RPM
+#define POSITION_SPEED_LIMIT_RPM           FOC_CFG_POSITION_SPEED_LIMIT_RPM
+#define POSITION_DIRECT_ZONE_COUNTS        \
+    FOC_CFG_POSITION_DIRECT_ZONE_COUNTS
+#define POSITION_DIRECT_ERROR_DIVISOR      \
+    FOC_CFG_POSITION_DIRECT_ERROR_DIVISOR
+#define POSITION_DIRECT_DAMPING_PER_RPM    \
+    FOC_CFG_POSITION_DIRECT_DAMPING_PER_RPM
+#define POSITION_DIRECT_IQ_LIMIT_COUNTS    \
+    FOC_CFG_POSITION_DIRECT_IQ_LIMIT_COUNTS
 
 /* Current PI output is in PWM delta counts, with Q8 coefficients/state. */
-#define CURRENT_KP_Q8                      (384)   /* 1.5 PWM/count. */
-#define CURRENT_KI_Q8                      (1)     /* 0.0039/sample. */
-#define CURRENT_VOLTAGE_LIMIT              (160)
+#define CURRENT_KP_Q8                      FOC_CFG_CURRENT_KP_Q8
+#define CURRENT_KI_Q8                      FOC_CFG_CURRENT_KI_Q8
+#define CURRENT_VOLTAGE_LIMIT              FOC_CFG_CURRENT_VOLTAGE_LIMIT
 #define CURRENT_VOLTAGE_LIMIT_Q8           (CURRENT_VOLTAGE_LIMIT << 8)
 
 #define THREE_PHASE_ENABLE_MASK            \
@@ -109,6 +118,31 @@ static int32_t clampSigned(int32_t value, int32_t minimum, int32_t maximum)
 static int32_t absoluteSigned(int32_t value)
 {
     return (value < 0) ? -value : value;
+}
+
+static bool limitDqVoltageVector(int32_t *dVoltageQ8, int32_t *qVoltageQ8)
+{
+    int32_t absoluteD = absoluteSigned(*dVoltageQ8);
+    int32_t absoluteQ = absoluteSigned(*qVoltageQ8);
+    int32_t maximum = (absoluteD > absoluteQ) ? absoluteD : absoluteQ;
+    int32_t minimum = (absoluteD > absoluteQ) ? absoluteQ : absoluteD;
+    int32_t conservativeMagnitude = maximum + (minimum / 2);
+
+    /*
+     * max(|d|, |q|) + min(|d|, |q|)/2 is a cheap upper bound on the
+     * Euclidean magnitude.  Scaling both axes by the same factor preserves
+     * the voltage-vector direction and guarantees it remains inside the
+     * configured circular limit without a square root in the 20 kHz ISR.
+     */
+    if (conservativeMagnitude <= CURRENT_VOLTAGE_LIMIT_Q8) {
+        return false;
+    }
+
+    *dVoltageQ8 = (int32_t) (((int64_t) *dVoltageQ8 *
+        CURRENT_VOLTAGE_LIMIT_Q8) / conservativeMagnitude);
+    *qVoltageQ8 = (int32_t) (((int64_t) *qVoltageQ8 *
+        CURRENT_VOLTAGE_LIMIT_Q8) / conservativeMagnitude);
+    return true;
 }
 
 /*
@@ -684,8 +718,11 @@ void MOTOR_FOC_currentLoopISR(int16_t phaseACounts, int16_t phaseBCounts,
     int32_t qCurrent;
     int32_t dError;
     int32_t qError;
+    int32_t candidateIdIntegralQ8;
+    int32_t candidateIqIntegralQ8;
     int32_t dOutputQ8;
     int32_t qOutputQ8;
+    bool voltageSaturated;
     int32_t electricalVelocityQ16;
     uint16_t electricalAngle;
     uint32_t electricalAngleSampleTick;
@@ -758,17 +795,32 @@ void MOTOR_FOC_currentLoopISR(int16_t phaseACounts, int16_t phaseBCounts,
     dError = -dCurrent;
     qError = gIqReferenceCounts - qCurrent;
 
-    gIdIntegralQ8 = clampSigned(
+    candidateIdIntegralQ8 = clampSigned(
         gIdIntegralQ8 + (dError * CURRENT_KI_Q8),
         -CURRENT_VOLTAGE_LIMIT_Q8, CURRENT_VOLTAGE_LIMIT_Q8);
-    gIqIntegralQ8 = clampSigned(
+    candidateIqIntegralQ8 = clampSigned(
         gIqIntegralQ8 + (qError * CURRENT_KI_Q8),
         -CURRENT_VOLTAGE_LIMIT_Q8, CURRENT_VOLTAGE_LIMIT_Q8);
 
-    dOutputQ8 = clampSigned((dError * CURRENT_KP_Q8) + gIdIntegralQ8,
-        -CURRENT_VOLTAGE_LIMIT_Q8, CURRENT_VOLTAGE_LIMIT_Q8);
-    qOutputQ8 = clampSigned((qError * CURRENT_KP_Q8) + gIqIntegralQ8,
-        -CURRENT_VOLTAGE_LIMIT_Q8, CURRENT_VOLTAGE_LIMIT_Q8);
+    dOutputQ8 = (dError * CURRENT_KP_Q8) + candidateIdIntegralQ8;
+    qOutputQ8 = (qError * CURRENT_KP_Q8) + candidateIqIntegralQ8;
+    voltageSaturated = limitDqVoltageVector(&dOutputQ8, &qOutputQ8);
+
+    /*
+     * Keep the candidate integral unless saturation and the error are driving
+     * the requested vector farther outward.  Error opposing the saturated
+     * vector is still allowed to unwind the integrators.
+     */
+    if (!voltageSaturated ||
+        ((((int64_t) dError * dOutputQ8) +
+             ((int64_t) qError * qOutputQ8)) <= 0)) {
+        gIdIntegralQ8 = candidateIdIntegralQ8;
+        gIqIntegralQ8 = candidateIqIntegralQ8;
+    } else {
+        dOutputQ8 = (dError * CURRENT_KP_Q8) + gIdIntegralQ8;
+        qOutputQ8 = (qError * CURRENT_KP_Q8) + gIqIntegralQ8;
+        (void) limitDqVoltageVector(&dOutputQ8, &qOutputQ8);
+    }
 
     applyDqVoltage(dOutputQ8 >> 8, qOutputQ8 >> 8, electricalAngle);
 }

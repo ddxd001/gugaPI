@@ -4,16 +4,16 @@
 
 | 项目 | 内容 |
 | --- | --- |
-| 文档版本 | Final v1.0 |
-| 交接日期 | 2026-07-16 |
-| 工程目录 | `D:\M0\empty_LP_MSPM0G3507_nortos_ticlang` |
+| 文档版本 | v1.1 |
+| 交接日期 | 2026-07-17 |
+| 工程目录 | `C:\Users\DdXd\workspace_ccstheia\FOC` |
 | MCU | MSPM0G3507，VQFN-32（RHB） |
 | 栅极驱动器 | DRV8323RS |
 | 编码器 | AS5048B-HTSP-500，14 位绝对式磁编码器 |
 | CAN 收发器 | TCAN3413DDFR，3.3 V CAN FD 收发器 |
 | 验证状态 | 电流环、速度环、单圈位置环已完成空载验证；500 kbit/s CAN 已完成实机双向收发验证 |
-| 当前固件 | [Debug/empty_LP_MSPM0G3507_nortos_ticlang.out](./Debug/empty_LP_MSPM0G3507_nortos_ticlang.out) |
-| 版本管理 | 当前目录尚未初始化 Git 仓库，接手后应优先建立版本基线 |
+| 当前固件 | [Debug/FOC.out](./Debug/FOC.out) |
+| 版本管理 | GitHub `ddxd001/gugaPI`，当前开发分支 `feature/chassis-control` |
 
 本文档描述的是当前可运行调试版本。电机额定参数、母线条件和负载条件尚未完整记录，因此当前电流限制和 PI 参数属于保守调试参数，不应直接视为量产参数。
 
@@ -56,6 +56,7 @@ DRV8323RS三路20 kHz中心对齐PWM
 
 | 文件 | 作用 |
 | --- | --- |
+| [foc_config.h](./foc_config.h) | 电机/编码器、功率级、采样换算、保护限值及控制环参数的集中配置入口 |
 | [empty.c](./empty.c) | 主程序、UART 命令、CAN 调试收发、AS5048B I2C、ADC 校准/统计、故障报告和中断入口 |
 | [motor_open_loop.c](./motor_open_loop.c) | FOC、电流环、速度环、位置环、SVPWM 和保护逻辑 |
 | [motor_open_loop.h](./motor_open_loop.h) | 电机控制接口、状态结构和命令步进参数 |
@@ -283,8 +284,14 @@ FAULT1=0x0000 FAULT2=0x0000 nFAULT=1
 | 软件停止 | `x` 后三相 INL 拉低，电机滑行 |
 
 UART TX 已改为 1 KiB 非阻塞队列，AS5048B 快速角度读取不再等待 I2C 完成。
-COM4 实测 1 kHz 采样在 25 RPM 运行时零错误、零超时，最大间隔 2.2 ms。
+快速采样器只在 FOC 运行时工作；I2C 事务失败或超时会复位并重新初始化 I2C0，
+避免控制器卡死及停止状态下重复失败。`e` 命令的 `recover` 字段记录恢复次数。
+COM4 参数迁移回归中累计 `17715/17715` 次读取成功、零错误和零超时，最大间隔
+2.6 ms；25/50 RPM、位置保持和 `+10°` 定位均无 nFAULT。
 TIMA0 三相比较值使用 `ZERO_EVT` 影子寄存器，在同一计数器零点装载。
+d/q 电流 PI 输出采用保持方向的联合矢量限幅；饱和且误差继续向外推动时冻结
+积分，解除饱和方向仍可积分回退。实机回归 ISR 最大 `1035/1200 tick`，未超出
+20 kHz 电流环预算。
 
 ## 8. 串口命令
 
@@ -537,11 +544,11 @@ Boot: CAN initialized (500 kbps classic, PA26 TX, PA27 RX, PA23 STB=LOW).
 - 当前 CAN 仅用于手动调试，未实现固定周期遥测、命令解析、节点 ID、应用层协议或 CANopen。
 - 当前 CAN 时钟由内部 SYSOSC 经 PLL 生成；进入长线、高噪声或严格量产容差场景前，应复核整个温度/电压范围的时钟容差和总线误码率。
 - TCAN3413 STB 已连接 PA23，但当前固件固定输出低电平，仅使用 Normal 模式，尚未提供待机切换命令和唤醒策略。
-- 当前工程没有 Git 历史，无法通过 commit 追溯修改。
+- 工程已纳入 Git；提交前应排除工作区级 `.theia/launch.json` 等无关的 CCS 自动改动。
 
 ## 13. 接手后优先事项
 
-1. 初始化 Git 仓库并提交当前可运行基线，同时保存当前 `.out`、串口日志和硬件版本号。
+1. 每个通过构建、烧录和实机回归的阶段提交到 `feature/chassis-control`，并保存关键串口日志和硬件版本号。
 2. 补录电机型号、极对数确认方法、相电阻、相电感、Kv、额定/峰值电流和允许温升。
 3. 补录母线标称/最大电压、电源限流值、MOSFET 型号、采样电阻精度和 PCB 版本。
 4. 在 25、50、100、200 RPM 下完成空载与分级负载的 `f`/`i` 数据表。

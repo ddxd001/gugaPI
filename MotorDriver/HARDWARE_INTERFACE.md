@@ -103,8 +103,8 @@ UART response format:
 
 | DRV8701 Pin / Signal | MCU Pin | MCU Peripheral | Direction | Active Level | Notes |
 | --- | --- | --- | --- | --- | --- |
-| IN1 / PH | PA24 |  | MCU output | TBD by test |  |
-| IN2 / EN | PA25 | PWM | MCU output |  | TIMG12_CCP1 |
+| IN1 / PH | PB24 |  | MCU output | TBD by test |  |
+| IN2 / EN | PA23 | PWM | MCU output |  | TIMG0_CCP0 (shared with M1) |
 | nSLEEP | Not connected | Hardware fixed | N/A | Default enabled | MCU cannot put DRV8701 into sleep |
 | nFAULT | Not connected | Hardware fixed | N/A | Low = fault | MCU cannot read DRV8701 fault directly |
 | MODE | Not present | Fixed by DRV8701E variant | N/A | PH/EN interface | No MCU connection required |
@@ -118,7 +118,7 @@ UART response format:
 | Motor | Timer Instance | PWM Channel | MCU Pin | Frequency | Duty Range | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | Motor 1 | TIMG0 | CCP1 | PA6 | 20 kHz target | 0 - 100% | DRV8701 EN input |
-| Motor 2 | TIMG12 | CCP1 | PA25 | 20 kHz target | 0 - 100% | DRV8701 EN input |
+| Motor 2 | TIMG0 | CCP0 | PA23 | 20 kHz target | 0 - 100% | DRV8701 EN input, shared timer with M1 |
 
 ## ADC / Current Sense
 

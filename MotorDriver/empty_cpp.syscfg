@@ -19,7 +19,6 @@ const GPIO2  = GPIO.addInstance();
 const GPIO3  = GPIO.addInstance();
 const I2C1   = I2C.addInstance();
 const PWM1   = PWM.addInstance();
-const PWM2   = PWM.addInstance();
 const UART1  = UART.addInstance();
 
 /**
@@ -40,9 +39,9 @@ GPIO2.$name                          = "GPIO_M2_PH";
 GPIO2.associatedPins[0].$name        = "M2_PH";
 GPIO2.associatedPins[0].direction    = "OUTPUT";
 GPIO2.associatedPins[0].initialValue = "CLEARED";
-GPIO2.associatedPins[0].assignedPort = "PORTA";
+GPIO2.associatedPins[0].assignedPort = "PORTB";
 GPIO2.associatedPins[0].assignedPin  = "24";
-GPIO2.associatedPins[0].pin.$assign  = "PA24";
+GPIO2.associatedPins[0].pin.$assign  = "PB24";
 
 GPIO3.$name                               = "GPIO_ENCODER";
 GPIO3.associatedPins.create(4);
@@ -84,21 +83,16 @@ I2C1.peripheral.sdaPin.$assign = "PA18";
 I2C1.sclPinConfig.internalResistor = "PULL_UP";
 I2C1.sdaPinConfig.internalResistor = "PULL_UP";
 
-PWM1.$name                      = "PWM_M1_EN";
-PWM1.ccIndex                    = [1];
+PWM1.$name                      = "PWM_MOTORS";
+PWM1.ccIndex                    = [0, 1];
 PWM1.timerCount                 = 1600;
 PWM1.peripheral.$assign         = "TIMG0";
+PWM1.peripheral.ccp0Pin.$assign = "PA23";
 PWM1.peripheral.ccp1Pin.$assign = "PA6";
+PWM1.PWM_CHANNEL_0.$name        = "PWM_M2_EN_CHANNEL";
+PWM1.PWM_CHANNEL_0.dutyCycle    = 0;
 PWM1.PWM_CHANNEL_1.$name        = "PWM_M1_EN_CHANNEL";
 PWM1.PWM_CHANNEL_1.dutyCycle    = 0;
-
-PWM2.$name                      = "PWM_M2_EN";
-PWM2.ccIndex                    = [1];
-PWM2.timerCount                 = 1600;
-PWM2.peripheral.$assign         = "TIMG12";
-PWM2.peripheral.ccp1Pin.$assign = "PA25";
-PWM2.PWM_CHANNEL_1.$name        = "PWM_M2_EN_CHANNEL";
-PWM2.PWM_CHANNEL_1.dutyCycle    = 0;
 
 UART1.$name                    = "UART_CONTROL";
 UART1.rxFifoThreshold          = "DL_UART_RX_FIFO_LEVEL_ONE_ENTRY";

@@ -4,16 +4,18 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "foc_config.h"
+
 /*
  * The file name is retained so the existing CCS managed build keeps working,
  * but this interface now implements encoder-sensored FOC rather than the old
  * six-step open-loop commutator.
  */
 
-#define MOTOR_FOC_DEFAULT_TARGET_RPM       (25)
-#define MOTOR_FOC_TARGET_RPM_STEP          (25)
-#define MOTOR_FOC_MAX_TARGET_RPM           (400)
-#define MOTOR_FOC_POSITION_STEP_DEGREES    (10)
+#define MOTOR_FOC_DEFAULT_TARGET_RPM       FOC_CFG_DEFAULT_TARGET_RPM
+#define MOTOR_FOC_TARGET_RPM_STEP          FOC_CFG_TARGET_RPM_STEP
+#define MOTOR_FOC_MAX_TARGET_RPM           FOC_CFG_MAX_TARGET_RPM
+#define MOTOR_FOC_POSITION_STEP_DEGREES    FOC_CFG_POSITION_STEP_DEGREES
 
 typedef enum {
     MOTOR_FOC_MODE_SPEED = 0,

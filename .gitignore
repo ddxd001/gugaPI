@@ -26,3 +26,7 @@ Thumbs.db
 
 # 本地参考资料与临时文件（数据手册截图等，不纳入版本库）
 FOC/tmp/
+
+# 机器特定的本地配置（含绝对路径和本地权限设置）
+.claude/settings.local.json
+.theia/launch.json

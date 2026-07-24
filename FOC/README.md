@@ -92,6 +92,14 @@ bridge in Hi-Z. Runtime angle reads use a 1 kHz non-blocking I2C state machine,
 the current loop predicts electrical angle between samples, and UART TX uses a
 non-blocking software queue serviced from the main loop.
 
+Motor, power-stage, sensor, timing, current-limit, and loop-tuning constants are
+centralized in `foc_config.h`. Update that file instead of scattering tuning
+values across the driver and control modules, then repeat the build, flash, and
+bench regression described in the development plan. If a runtime encoder I2C
+transaction fails or times out, firmware resets and reinitializes I2C0 before
+the next request. The fast sampler is inactive while FOC is stopped, preventing
+an idle bus fault from becoming a retry/error avalanche.
+
 ## First-Power Safety
 
 - Keep the DC-bus supply current-limited for initial testing.
