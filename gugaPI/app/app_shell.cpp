@@ -4384,42 +4384,74 @@ void HeadingCommand(int argc, const char * const argv[])
 void PrintRunUsage(void)
 {
     services::Shell_WriteLine("usage:");
-    services::Shell_WriteLine("  run clear");
-    services::Shell_WriteLine("  run drive <rpm> <ms>");
-    services::Shell_WriteLine("  run turn <deg -180..180>");
-    services::Shell_WriteLine("  run wait <ms>");
-    services::Shell_WriteLine("  run start");
-    services::Shell_WriteLine("  run cancel");
-    services::Shell_WriteLine("  run status");
+    services::Shell_WriteLine("  run add <op> <p1> <p2_ms> <until> <onsuccess> <ontimeout>");
+    services::Shell_WriteLine("    op: drive|turn|follow|wait|stop|branch|end");
+    services::Shell_WriteLine("    until: timeout|heading_reached|line_detected|line_lost|button|immediate");
+    services::Shell_WriteLine("    onsuccess/ontimeout: index 0..15, or 'next'/'abort'");
+    services::Shell_WriteLine("  run clear|start|cancel|status|dump");
 }
 
-const char *ActionTypeText(app::ActionType t)
+bool ParseActionOp(const char *t, app::ActionOp *op)
 {
-    switch (t) {
-    case app::ACTION_DRIVE:
-        return "drive";
-    case app::ACTION_TURN:
-        return "turn";
-    case app::ACTION_WAIT:
-        return "wait";
-    case app::ACTION_STOP:
-        return "stop";
-    default:
-        return "none";
+    if (StrEqual(t, "drive")) { *op = app::ACT_OP_DRIVE; return true; }
+    if (StrEqual(t, "turn")) { *op = app::ACT_OP_TURN; return true; }
+    if (StrEqual(t, "follow")) { *op = app::ACT_OP_FOLLOW; return true; }
+    if (StrEqual(t, "wait")) { *op = app::ACT_OP_WAIT; return true; }
+    if (StrEqual(t, "stop")) { *op = app::ACT_OP_STOP; return true; }
+    if (StrEqual(t, "branch")) { *op = app::ACT_OP_BRANCH; return true; }
+    if (StrEqual(t, "end")) { *op = app::ACT_OP_END; return true; }
+    return false;
+}
+
+bool ParseActionCond(const char *t, app::ActionCond *c)
+{
+    if (StrEqual(t, "timeout")) { *c = app::ACT_COND_TIMEOUT; return true; }
+    if (StrEqual(t, "heading_reached")) { *c = app::ACT_COND_HEADING_REACHED; return true; }
+    if (StrEqual(t, "line_detected")) { *c = app::ACT_COND_LINE_DETECTED; return true; }
+    if (StrEqual(t, "line_lost")) { *c = app::ACT_COND_LINE_LOST; return true; }
+    if (StrEqual(t, "button")) { *c = app::ACT_COND_BUTTON; return true; }
+    if (StrEqual(t, "immediate")) { *c = app::ACT_COND_IMMEDIATE; return true; }
+    return false;
+}
+
+bool ParseTarget(const char *t, uint8_t *out)
+{
+    if (StrEqual(t, "next") || StrEqual(t, "abort")) {
+        *out = app::ACT_NEXT;
+        return true;
+    }
+    uint32_t v = 0U;
+    if (!ParseUint32(t, 15U, &v)) {
+        return false;
+    }
+    *out = static_cast<uint8_t>(v);
+    return true;
+}
+
+const char *OpText(app::ActionOp op)
+{
+    switch (op) {
+    case app::ACT_OP_DRIVE: return "drive";
+    case app::ACT_OP_TURN: return "turn";
+    case app::ACT_OP_FOLLOW: return "follow";
+    case app::ACT_OP_WAIT: return "wait";
+    case app::ACT_OP_STOP: return "stop";
+    case app::ACT_OP_BRANCH: return "branch";
+    case app::ACT_OP_END: return "end";
+    default: return "none";
     }
 }
 
-const char *ActionStatusText(app::ActionStatus s)
+const char *CondText(app::ActionCond c)
 {
-    switch (s) {
-    case app::ACTION_RUNNING:
-        return "running";
-    case app::ACTION_DONE:
-        return "done";
-    case app::ACTION_FAILED:
-        return "failed";
-    default:
-        return "pending";
+    switch (c) {
+    case app::ACT_COND_TIMEOUT: return "timeout";
+    case app::ACT_COND_HEADING_REACHED: return "heading_reached";
+    case app::ACT_COND_LINE_DETECTED: return "line_detected";
+    case app::ACT_COND_LINE_LOST: return "line_lost";
+    case app::ACT_COND_BUTTON: return "button";
+    case app::ACT_COND_IMMEDIATE: return "immediate";
+    default: return "?";
     }
 }
 
@@ -4443,15 +4475,42 @@ void RunCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(st->count);
         services::Shell_WriteString(" running=");
         services::Shell_WriteUInt32(st->running ? 1U : 0U);
-        services::Shell_WriteString(" overall=");
-        services::Shell_WriteString(ActionStatusText(st->overall));
-        if (st->current < st->count) {
+        services::Shell_WriteString(" last=");
+        services::Shell_WriteUInt32(st->last_success ? 1U : 0U);
+        if (st->running && (st->current < st->count)) {
             services::Shell_WriteString(" cur=");
-            services::Shell_WriteString(ActionTypeText(st->actions[st->current].type));
-            services::Shell_WriteString("/");
-            services::Shell_WriteString(ActionStatusText(st->actions[st->current].status));
+            services::Shell_WriteString(OpText(st->instrs[st->current].op));
         }
         services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "dump")) {
+        if (argc != 2) {
+            PrintRunUsage();
+            return;
+        }
+        const app::ActionRunnerState *st = app::ActionRunner_GetState();
+        services::Shell_WriteString("seq ");
+        services::Shell_WriteUInt32(st->count);
+        services::Shell_WriteString("\r\n");
+        for (uint8_t i = 0U; i < st->count; i++) {
+            const app::Instr *in = &st->instrs[i];
+            services::Shell_WriteUInt32(i);
+            services::Shell_WriteString(" ");
+            services::Shell_WriteString(OpText(in->op));
+            services::Shell_WriteString(" ");
+            WriteInt32(in->param1);
+            services::Shell_WriteString(" ");
+            WriteInt32(in->param2);
+            services::Shell_WriteString(" ");
+            services::Shell_WriteString(CondText(in->until));
+            services::Shell_WriteString(" ");
+            services::Shell_WriteUInt32(in->on_success);
+            services::Shell_WriteString(" ");
+            services::Shell_WriteUInt32(in->on_timeout);
+            services::Shell_WriteString("\r\n");
+        }
         return;
     }
 
@@ -4482,55 +4541,31 @@ void RunCommand(int argc, const char * const argv[])
         return;
     }
 
-    if (StrEqual(argv[1], "drive")) {
-        int32_t rpm = 0;
-        uint32_t ms = 0U;
+    if (StrEqual(argv[1], "add")) {
+        if (argc != 8) {
+            PrintRunUsage();
+            return;
+        }
+        app::ActionOp op = app::ACT_OP_NONE;
+        int32_t p1 = 0;
+        int32_t p2 = 0;
+        app::ActionCond until = app::ACT_COND_TIMEOUT;
+        uint8_t ons = 0U;
+        uint8_t ont = 0U;
         const app::ChassisState *cs = app::Chassis_GetState();
         const int32_t max_rpm =
             static_cast<int32_t>(cs->config.max_wheel_rpm);
-        if ((argc != 4) ||
-            (!ParseInt32(argv[2], -max_rpm, max_rpm, &rpm)) ||
-            (!ParseUint32(argv[3], 30000U, &ms))) {
+        if ((!ParseActionOp(argv[2], &op)) ||
+            (!ParseInt32(argv[3], -max_rpm, max_rpm, &p1)) ||
+            (!ParseInt32(argv[4], 0, 30000, &p2)) ||
+            (!ParseActionCond(argv[5], &until)) ||
+            (!ParseTarget(argv[6], &ons)) ||
+            (!ParseTarget(argv[7], &ont))) {
             PrintRunUsage();
             return;
         }
-        WriteStatusLine("run drive: ", app::ActionRunner_AddDrive(rpm, ms));
-        return;
-    }
-
-    if (StrEqual(argv[1], "turn")) {
-        int32_t deg = 0;
-        if ((argc != 3) || (!ParseInt32(argv[2], -180, 180, &deg))) {
-            PrintRunUsage();
-            return;
-        }
-        WriteStatusLine("run turn: ", app::ActionRunner_AddTurn(deg));
-        return;
-    }
-
-    if (StrEqual(argv[1], "wait")) {
-        uint32_t ms = 0U;
-        if ((argc != 3) || (!ParseUint32(argv[2], 30000U, &ms))) {
-            PrintRunUsage();
-            return;
-        }
-        WriteStatusLine("run wait: ", app::ActionRunner_AddWait(ms));
-        return;
-    }
-
-    if (StrEqual(argv[1], "follow")) {
-        int32_t rpm = 0;
-        uint32_t ms = 0U;
-        const app::ChassisState *cs = app::Chassis_GetState();
-        const int32_t max_rpm =
-            static_cast<int32_t>(cs->config.max_wheel_rpm);
-        if ((argc != 4) ||
-            (!ParseInt32(argv[2], -max_rpm, max_rpm, &rpm)) ||
-            (!ParseUint32(argv[3], 30000U, &ms))) {
-            PrintRunUsage();
-            return;
-        }
-        WriteStatusLine("run follow: ", app::ActionRunner_AddLineFollow(rpm, ms));
+        WriteStatusLine("run add: ",
+                        app::ActionRunner_AddInstr(op, p1, p2, until, ons, ont));
         return;
     }
 
@@ -6047,7 +6082,7 @@ void AppShell_RegisterCommands(void)
         HeadingCommand);
     (void) services::Shell_RegisterCommand(
         "run",
-        "ActionRunner: clear|drive <rpm> <ms>|turn <deg>|wait <ms>|follow <rpm> <ms>|start|cancel|status",
+        "ActionRunner: add <op> <p1> <p2> <until> <ons> <ont>|clear|start|cancel|status|dump",
         RunCommand);
 #endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER

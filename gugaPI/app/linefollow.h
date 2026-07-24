@@ -47,6 +47,11 @@ drivers::DriverStatus LF_Stop(void);
 void LF_Update(void);
 const LFState *LF_GetState(void);
 
+/* True if the grayscale currently sees the line (using the calibration).
+ * Callable any time (does not require LF_FOLLOW); used by the action
+ * interpreter's LINE_DETECTED / LINE_LOST conditions. */
+bool LF_IsLineDetected(void);
+
 /* Runtime param setters (RAM). */
 void LF_SetKp(int32_t kp);
 void LF_SetMaxCorrection(int32_t max_correction_rpm);

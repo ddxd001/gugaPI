@@ -233,6 +233,22 @@ const LFState *LF_GetState(void)
     return &g_state;
 }
 
+bool LF_IsLineDetected(void)
+{
+    if (!g_state.calibrated) {
+        return false;
+    }
+    const AppGrayscaleData *g = App_GrayscaleGetData();
+    if ((g == 0) || (!g->valid)) {
+        return false;
+    }
+    int32_t total = 0;
+    for (uint8_t i = 0U; i < kChannelCount; i++) {
+        total += ChannelBlackness(i, g->raw[i]);
+    }
+    return (total >= kMinLineWeight);
+}
+
 void LF_SetKp(int32_t kp)
 {
     if (kp >= 0) {
