@@ -321,12 +321,15 @@ void App_CompetitionStatusTask(void)
     const uint32_t now = services::Time_Millis();
     const app::AppMode mode = app::App_GetState()->mode;
 
-    /* Button 1: start/stop competition (edge-triggered) */
-    if (board::Board_ButtonWasPressed(board::BOARD_BUTTON_1)) {
-        if (mode == app::APP_MODE_COMPETITION_ARMED) {
-            (void) app::App_CompetitionStart();
-        } else if (mode == app::APP_MODE_COMPETITION_RUNNING) {
-            (void) app::App_CompetitionStop();
+    /* Button 1: start/stop competition (edge-triggered, only in comp modes) */
+    if ((mode == app::APP_MODE_COMPETITION_ARMED) ||
+        (mode == app::APP_MODE_COMPETITION_RUNNING)) {
+        if (board::Board_ButtonWasPressed(board::BOARD_BUTTON_1)) {
+            if (mode == app::APP_MODE_COMPETITION_ARMED) {
+                (void) app::App_CompetitionStart();
+            } else {
+                (void) app::App_CompetitionStop();
+            }
         }
     }
 
