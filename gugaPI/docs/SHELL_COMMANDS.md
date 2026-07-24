@@ -22,6 +22,22 @@ version
 reset
 ```
 
+### `sched`
+
+查看调度器运行时统计（各任务周期、执行次数、最大/平均执行时间）。仅在开发配置（`FEATURE_ENABLE_SCHEDULER_STATS`）下可用。
+
+```text
+sched
+```
+
+### `txstat`
+
+查看调试 UART（UART0）TX/RX 队列状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
+
+```text
+txstat
+```
+
 ## LED
 
 ### `led status`
@@ -111,6 +127,24 @@ button
 | button1 | 等效 `ina219 oled on 100` |
 | button2 | 等效 `gy931 oled on 100` |
 | button3 | 等效 `gray oled on 100` |
+
+### `button watch [duration_ms]`
+
+实时监控按键 GPIO 电平变化，默认持续 5 秒，可设置 `100..30000` ms。按电平变化时打印时间戳和 GPIOB/GPIOC 输入寄存器快照。
+
+```text
+button watch
+button watch 10000
+```
+
+### `button scan [duration_ms]`
+
+扫描全部 GPIOA/GPIOB/GPIOC 引脚变化（比 `watch` 范围更广），默认持续 5 秒，可设置 `100..30000` ms。用于排查按键映射到哪个引脚。
+
+```text
+button scan
+button scan 10000
+```
 
 ## FRAM
 
@@ -1128,6 +1162,408 @@ motor read 16
 ```
 
 如果能读到 `ping`，说明 gugaPI 侧 UART1 的 TX/RX 正常。
+
+## 底盘控制
+
+底盘控制层封装左右轮转速命令、线速度/角速度转换和编码器读取，是航向闭环、循迹和动作序列的基础。底层仍通过 `motor` 命令的 I2C/UART 通道访问 MotorDriver。
+
+### `chassis status`
+
+主动刷新并查看底盘完整状态（含两轮目标/实测 RPM、编码器 count/cps、底盘几何配置）。会触发一次 I2C 往返。
+
+```text
+chassis status
+```
+
+### `chassis stat`
+
+查看缓存状态（单行摘要）。不触发 I2C 往返，数据来自 20 ms 周期反馈任务。用于快速确认 actual_rpm 是否在刷新。
+
+```text
+chassis stat
+```
+
+输出示例：
+
+```text
+chassis stat: L tgt=80 act=76 R tgt=80 act=78 last=ok
+```
+
+### `chassis stop`
+
+停止底盘（两轮写入 coast + duty 0）。同时清除航向和循迹状态。
+
+```text
+chassis stop
+```
+
+### `chassis wheel <left_rpm> <right_rpm>`
+
+直接设置左右轮目标转速，范围为 `-max_wheel_rpm..max_wheel_rpm`（默认 1000）。正值前进，负值后退。此命令会刷新 MotorDriver 看门狗。
+
+```text
+chassis wheel 80 80
+chassis wheel -50 -50
+chassis wheel 60 -60
+```
+
+### `chassis vel <linear_mm_s> <angular_mdeg_s>`
+
+通过线速度和角速度设置底盘目标。线速度范围 `-5000..5000 mm/s`，角速度范围 `-720000..720000 mdeg/s`。内部根据 `wheel_radius_mm` 和 `wheel_track_mm` 换算为左右轮 RPM。
+
+```text
+chassis vel 200 0
+chassis vel 0 90000
+```
+
+## 航向闭环
+
+航向闭环使用 ICM-45686 陀螺仪 Z 轴 yaw 积分实现直行保持和相对角度转弯。航向源为 IMU yaw（毫度），不是 GY931。
+
+50 ms 周期任务 `Heading_Update` 消费 IMU 数据并输出左右轮差速命令。安全机制：IMU 无效或数据过期（>200 ms）→ `FAULT_SENSOR_LOST` 停车；航向误差 > 90° → 异常停车；转弯超时 8 s → `FAULT_DRIVER_TIMEOUT` 停车。
+
+### `heading status`
+
+查看航向闭环当前状态。
+
+```text
+heading status
+```
+
+输出字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `mode` | `idle` / `hold` / `turn` |
+| `target` | 目标航向（度） |
+| `error` | 当前航向误差（度，最短角度差） |
+| `corr` | 当前差速修正 RPM（hold）或转弯速度（turn） |
+| `at_target` | 转弯是否进入容差区间 |
+| `last` | 上一次操作结果 |
+
+### `heading hold <base_rpm>`
+
+启动直行航向保持。锁定当前 IMU yaw 为目标航向，以 `base_rpm` 为基础速度直行，根据航向误差差速修正。范围为 `-max_wheel_rpm..max_wheel_rpm`。
+
+```text
+heading hold 80
+heading hold -50
+```
+
+修正公式：`correction = error_mdeg * heading_kp / 1e6`，限幅到 `heading_max_correction_rpm`。`left = base - correction`，`right = base + correction`。
+
+### `heading turn <deg>`
+
+启动相对角度转弯。`deg` 范围 `-180..180`，正值左转，负值右转（取决于 `kYawSign`），走最短路径。接近目标后保持 `heading_settle_ms` 判定完成。
+
+```text
+heading turn 90
+heading turn -180
+heading turn 45
+```
+
+转弯速度：`speed = abs_err * heading_kp / 1e6`，限幅到 `[heading_turn_min_rpm, heading_turn_max_rpm]`。
+
+### `heading stop`
+
+停止航向闭环并停车。
+
+```text
+heading stop
+```
+
+## 循迹控制
+
+8 路灰度循迹。需先标定（`lf cal`）再循迹（`lf start`）。50 ms 周期任务 `LF_Update` 消费灰度数据并输出左右轮差速命令。
+
+安全机制：灰度数据无效 → `FAULT_SENSOR_LOST` 停车；丢线超过 `lost_timeout_ms` → 停车；故障 → 停车。
+
+### `lf status`
+
+查看循迹状态。
+
+```text
+lf status
+```
+
+输出字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `mode` | `idle` / `cal` / `follow` |
+| `cal` | 是否已完成标定 |
+| `error` | 线路位置误差（`-3500..+3500`，0 = 居中） |
+| `corr` | 当前差速修正 RPM |
+| `lost` | 当前是否丢线 |
+| `kp` | 循迹比例增益 |
+| `maxcorr` | 最大修正 RPM |
+
+### `lf cal`
+
+启动标定（2 秒）。在 2 秒内手持传感器在黑线和白底之间来回扫动，记录各通道 min/max ADC 值。完成后自动计算 threshold 并设 `calibrated = true`。
+
+```text
+lf cal
+```
+
+### `lf start <rpm> <ms>`
+
+启动循迹，以 `rpm` 为基础速度循迹 `ms` 毫秒。`rpm` 范围 `-max_wheel_rpm..max_wheel_rpm`，`ms` 范围 `0..30000`。必须先完成标定。
+
+```text
+lf start 80 10000
+```
+
+修正公式：`correction = error_mpos * kp / 1e6`，限幅到 `max_correction_rpm`。`left = base - correction`，`right = base + correction`。
+
+### `lf stop`
+
+停止循迹并停车。
+
+```text
+lf stop
+```
+
+### `lf kp <val>`
+
+设置循迹比例增益（RAM，范围 `0..1000000`）。默认 10000（1 通道偏差约 10 RPM）。
+
+```text
+lf kp 15000
+```
+
+### `lf maxcorr <val>`
+
+设置最大修正 RPM（RAM，范围 `0..500`）。默认 30。
+
+```text
+lf maxcorr 50
+```
+
+### `lf losttimeout <ms>`
+
+设置丢线超时（RAM，范围 `100..10000` ms）。丢线后保留上次方向修正，超时则停车。默认 500。
+
+```text
+lf losttimeout 1000
+```
+
+## 动作序列
+
+条件驱动的指令表解释器，通过 `run add` 逐条构建指令序列，`run start` 启动。50 ms 周期任务 `ActionRunner_Update` 执行当前指令，满足完成条件后跳转到 `on_success` / `on_timeout` 目标。
+
+安全机制：故障 → 中止序列并停车；整序列超时 60 s → 中止；指令启动失败 → 走 `on_timeout` 路径；每条指令完成后调用 `StopAll` 清除运动状态。
+
+### 指令格式
+
+每条指令 6 个参数：
+
+```text
+run add <op> <param1> <param2_ms> <until> <onsuccess> <ontimeout>
+```
+
+| 参数 | 含义 |
+| --- | --- |
+| `op` | 操作码：`drive` / `turn` / `follow` / `wait` / `stop` / `branch` / `end` |
+| `param1` | DRIVE/FOLLOW: 基础 RPM；TURN: 相对角度（度，`-180..180`）；其他: 0 |
+| `param2` | 超时/持续时间（ms，`0..30000`），作为安全上限 |
+| `until` | 完成条件：`timeout` / `heading_reached` / `line_detected` / `line_lost` / `button` / `immediate` |
+| `onsuccess` | 成功跳转目标：`next`（下一条）或索引 `0..15` |
+| `ontimeout` | 超时跳转目标：`abort`（中止序列）或索引 `0..15` |
+
+操作码说明：
+
+| 操作码 | 动作 | 典型条件 |
+| --- | --- | --- |
+| `drive` | 航向保持直行（`heading hold`） | `timeout` / `line_detected` / `line_lost` |
+| `turn` | 相对角度转弯（`heading turn`） | `heading_reached` |
+| `follow` | 循迹（`lf start`） | `timeout` / `line_lost` |
+| `wait` | 等待（不产生运动） | `timeout` / `button` |
+| `stop` | 立即停车 | `immediate` |
+| `branch` | 条件跳转（不产生运动），成功走 onsuccess，失败走 ontimeout | 任意条件 |
+| `end` | 序列完成（成功） | `immediate` |
+
+### `run add <op> <p1> <p2_ms> <until> <onsuccess> <ontimeout>`
+
+追加一条指令到序列末尾。最多 16 条。
+
+```text
+run add drive  80  5000  timeout          next abort
+run add turn   90  8000  heading_reached  next abort
+run add follow 80  30000 line_lost        next abort
+run add wait   0   100   timeout          next abort
+run add stop   0   0     immediate        next abort
+run add end    0   0     immediate        next abort
+```
+
+### `run clear`
+
+清空指令表（序列运行中时拒绝）。
+
+```text
+run clear
+```
+
+### `run start`
+
+启动序列（从第 0 条指令开始）。有故障时拒绝启动。
+
+```text
+run start
+```
+
+### `run cancel`
+
+中止正在运行的序列并停车。
+
+```text
+run cancel
+```
+
+### `run status`
+
+查看序列执行状态。
+
+```text
+run status
+```
+
+输出示例：
+
+```text
+run 2/5 running=1 last=1 cur=turn
+```
+
+字段：`当前步/总步数`、`running`、`last`（上一步是否成功）、`cur`（当前操作码）。
+
+### `run dump`
+
+打印完整指令表。
+
+```text
+run dump
+```
+
+输出示例：
+
+```text
+seq 5
+0 drive 80 5000 timeout 255 255
+1 turn 90 8000 heading_reached 255 255
+2 follow 80 30000 line_lost 255 255
+3 stop 0 0 immediate 255 255
+4 end 0 0 immediate 255 255
+```
+
+`255` = `ACT_NEXT`（onsuccess=下一条，ontimeout=中止）。
+
+## 参数管理
+
+参数持久化系统。所有底盘几何、速度环、位置环、IMU 偏置和航向闭环参数统一存储在 FRAM 中（地址 0x0000，magic "CFPG"，CRC32 校验）。当前版本 v3，兼容加载 v1/v2 历史布局。
+
+### `param status`
+
+查看参数存储状态。
+
+```text
+param status
+```
+
+输出字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `loaded` | 是否从 FRAM 成功加载 |
+| `dirty` | 是否有未保存的修改 |
+| `len` | 存储的 payload 长度 |
+| `crc` | 存储的 CRC32 |
+| `load` | 上次加载结果 |
+| `save` | 上次保存结果 |
+
+### `param get [name]`
+
+查看所有参数或单个参数。不带参数列出全部 32 项参数（含当前值和合法范围）。
+
+```text
+param get
+param get heading_kp
+```
+
+输出示例：
+
+```text
+param heading_kp=1000 range=0..100000
+```
+
+参数列表：
+
+| 参数名 | 范围 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `left_counts_per_rev` | 1..100000000 | 364 | 左轮编码器 CPR |
+| `right_counts_per_rev` | 1..100000000 | 364 | 右轮编码器 CPR |
+| `wheel_radius_mm` | 1..1000 | 32 | 轮半径（mm） |
+| `wheel_track_mm` | 1..2000 | 160 | 轮距（mm） |
+| `max_wheel_rpm` | 1..1000 | 1000 | 最大轮速（RPM） |
+| `motor_output_invert_flags` | 0..3 | 1 | 电机输出反向标志 |
+| `motor_encoder_invert_flags` | 0..3 | 1 | 编码器反向标志 |
+| `speed_kp` | 0..255 | 1 | 速度环 Kp（Q4.4） |
+| `speed_ki` | 0..255 | 1 | 速度环 Ki（Q4.4） |
+| `speed_kd` | 0..255 | 0 | 速度环 Kd（Q4.4） |
+| `speed_max_duty` | 0..100 | 50 | 速度环最大占空比（%） |
+| `speed_min_duty` | 0..100 | 6 | 速度环最小占空比（%） |
+| `position_kp` | 0..255 | 15 | 位置环 Kp（Q4.4） |
+| `position_ki` | 0..255 | 0 | 位置环 Ki（Q4.4） |
+| `position_kd` | 0..255 | 0 | 位置环 Kd（Q4.4） |
+| `position_max_rpm` | 0..1000 | 8 | 位置环最大转速（RPM） |
+| `position_tolerance_counts` | 0..65535 | 50 | 位置环容差（counts） |
+| `gy931_roll_zero_mdeg` | ±180000000 | 0 | GY931 Roll 零点（mdeg） |
+| `gy931_pitch_zero_mdeg` | ±180000000 | 0 | GY931 Pitch 零点（mdeg） |
+| `gy931_yaw_zero_mdeg` | ±180000000 | 0 | GY931 Yaw 零点（mdeg） |
+| `imu_accel_bias_x_mg` | ±200000 | 0 | IMU 加速度 X 偏置（mg） |
+| `imu_accel_bias_y_mg` | ±200000 | 0 | IMU 加速度 Y 偏置（mg） |
+| `imu_accel_bias_z_mg` | ±200000 | 0 | IMU 加速度 Z 偏置（mg） |
+| `imu_gyro_bias_x_mdps` | ±2000000 | 0 | IMU 陀螺仪 X 偏置（mdps） |
+| `imu_gyro_bias_y_mdps` | ±2000000 | 0 | IMU 陀螺仪 Y 偏置（mdps） |
+| `imu_gyro_bias_z_mdps` | ±2000000 | 0 | IMU 陀螺仪 Z 偏置（mdps） |
+| `heading_kp` | 0..100000 | 1000 | 航向增益（1 RPM/deg） |
+| `heading_max_correction_rpm` | 0..500 | 30 | 直行最大差速修正（RPM） |
+| `heading_turn_max_rpm` | 0..1000 | 60 | 转弯最大轮速（RPM） |
+| `heading_turn_min_rpm` | 0..500 | 20 | 转弯最小轮速（RPM） |
+| `heading_tolerance_mdeg` | 0..90000 | 3000 | 转弯容差（mdeg，3000=3°） |
+| `heading_settle_ms` | 0..5000 | 300 | 转弯到位保持时间（ms） |
+
+### `param set <name> <value>`
+
+修改单个参数（RAM，标记 dirty）。修改后需 `param save` 才会持久化到 FRAM。参数值超出合法范围或校验失败（如 `speed_min_duty > speed_max_duty`）时拒绝。
+
+```text
+param set heading_kp 1500
+param set speed_max_duty 60
+```
+
+### `param save`
+
+将当前参数持久化到 FRAM。清除 dirty 标志。
+
+```text
+param save
+```
+
+### `param load`
+
+从 FRAM 重新加载参数。如果 FRAM 数据损坏或不兼容，回退到源码默认值。
+
+```text
+param load
+```
+
+### `param reset`
+
+恢复源码默认值（RAM，不清除 dirty 标志，需 `param save` 持久化）。
+
+```text
+param reset
+```
 
 ## ADC 和 PWM 占位命令
 
