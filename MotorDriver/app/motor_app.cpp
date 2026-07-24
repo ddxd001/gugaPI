@@ -4,6 +4,7 @@
 
 #include "board/board_encoders.h"
 #include "board/board_i2c_target.h"
+#include "board/board_nvm.h"
 #include "board/board_uart.h"
 #include "control/motor_control.h"
 #include "protocol/register_map.h"
@@ -83,6 +84,15 @@ void RefreshWatchdogLeaseFromWrite(void)
         g_watchdog_armed = false;
     }
     g_output_dirty = true;
+}
+
+void CheckI2cAddressChanged(void)
+{
+    const uint8_t reg_addr = g_registers.Read(protocol::REG_I2C_ADDRESS);
+    if (reg_addr != board::BoardI2cTarget_Address()) {
+        board::BoardI2cTarget_SetAddress(reg_addr);
+        (void) board::BoardNvm_SaveI2cAddress(reg_addr);
+    }
 }
 
 void RefreshWatchdogLeaseFromKeepalive(void)
@@ -207,6 +217,7 @@ void ProcessSerialRx(void)
         if (write_committed) {
             HandleEncoderControl();
             RefreshWatchdogLeaseFromWrite();
+            CheckI2cAddressChanged();
         }
     }
 }
@@ -224,6 +235,7 @@ void ProcessI2cWrites(void)
             (void) control_changed;
             HandleEncoderControl();
             RefreshWatchdogLeaseFromWrite();
+            CheckI2cAddressChanged();
         }
     }
 }
@@ -239,6 +251,12 @@ void MotorApp_Init(void)
     board::BoardEncoders_Init();
     (void) board::BoardUart_Init();
     board::BoardI2cTarget_Init(&g_registers);
+
+    const uint8_t saved_i2c_addr = board::BoardNvm_LoadI2cAddress();
+    if (saved_i2c_addr != 0U) {
+        board::BoardI2cTarget_SetAddress(saved_i2c_addr);
+    }
+
     g_registers.SetI2cAddress(board::BoardI2cTarget_Address());
 
     SysTick_Config(CPUCLK_FREQ / 1000U);
