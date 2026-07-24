@@ -206,8 +206,8 @@ void SetDefaults(ConfigStoreParams *params)
     params->motor_output_invert_flags = 0x01U;
     params->motor_encoder_invert_flags = 0x01U;
 
-    params->speed_kp_q4_4 = 1U;
-    params->speed_ki_q4_4 = 1U;
+    params->speed_kp_q4_4 = 2U;
+    params->speed_ki_q4_4 = 2U;
     params->speed_kd_q4_4 = 0U;
     params->speed_max_duty = 50U;
     params->speed_min_duty = 6U;
