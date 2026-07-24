@@ -45,14 +45,15 @@ int32_t ClampInt32(int32_t v, int32_t lo, int32_t hi)
 }
 
 /* Shortest signed angle from current to target, wrapped to [-180000, 180000]
- * milli-degrees. Handles the -180/180 seam. */
+ * milli-degrees. Handles the -180/180 seam. At exactly ±180000 the sign is
+ * preserved so turn(-180) goes right and turn(+180) goes left. */
 int32_t ShortestAngleDiff(int32_t target_mdeg, int32_t current_mdeg)
 {
     int32_t d = target_mdeg - current_mdeg;
     while (d > 180000) {
         d -= 360000;
     }
-    while (d <= -180000) {
+    while (d < -180000) {
         d += 360000;
     }
     return d;
@@ -63,7 +64,7 @@ int32_t WrapToSigned180(int32_t angle_mdeg)
     while (angle_mdeg > 180000) {
         angle_mdeg -= 360000;
     }
-    while (angle_mdeg <= -180000) {
+    while (angle_mdeg < -180000) {
         angle_mdeg += 360000;
     }
     return angle_mdeg;
@@ -146,8 +147,17 @@ drivers::DriverStatus Heading_TurnStart(int32_t delta_deg)
     }
 
     const int32_t delta_mdeg = delta_deg * 1000;
+    /* At exactly ±180° the shortest-angle is ambiguous. Nudge by 1 mdeg
+     * (0.001°, far below the 3° tolerance) to preserve the requested
+     * direction: turn(-180) goes right, turn(+180) goes left. */
+    int32_t adjusted_delta = delta_mdeg;
+    if (delta_mdeg == -180000) {
+        adjusted_delta = -179999;
+    } else if (delta_mdeg == 180000) {
+        adjusted_delta = 179999;
+    }
     g_state.mode = HEADING_TURN;
-    g_state.target_yaw_mdeg = WrapToSigned180(imu->yaw_mdeg + delta_mdeg);
+    g_state.target_yaw_mdeg = WrapToSigned180(imu->yaw_mdeg + adjusted_delta);
     g_state.base_rpm = 0;
     g_state.correction_rpm = 0;
     g_state.error_mdeg = delta_mdeg;
