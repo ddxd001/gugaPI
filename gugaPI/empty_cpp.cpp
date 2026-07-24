@@ -253,16 +253,27 @@ int main(void)
 
     /* Board_Init runs after the log is ready so device init failures can be
      * reported. It returns the first failing driver; the name is surfaced on
-     * the console and latched as a fault so App_Run stops the chassis. */
+     * the console and latched as a fault so App_Run stops the chassis.
+     * Retry once: some I2C/SPI devices need a moment after power-up. */
     if (board::Board_Init() != drivers::DRIVER_OK) {
         const char *failed = board::Board_GetFailedDriver();
-        LOG_ERROR("board init failed");
+        LOG_ERROR("board init failed, retrying");
         if (failed != 0) {
             services::DebugUart_WriteString("  failed: ");
             services::DebugUart_WriteString(failed);
             services::DebugUart_WriteString("\r\n");
         }
-        services::Fault_Set(services::FAULT_DRIVER_INIT);
+        delay_cycles(4000000U); /* ~100 ms at 40 MHz */
+        if (board::Board_Init() != drivers::DRIVER_OK) {
+            failed = board::Board_GetFailedDriver();
+            LOG_ERROR("board init failed after retry");
+            if (failed != 0) {
+                services::DebugUart_WriteString("  failed: ");
+                services::DebugUart_WriteString(failed);
+                services::DebugUart_WriteString("\r\n");
+            }
+            services::Fault_Set(services::FAULT_DRIVER_INIT);
+        }
     }
 
     services::Shell_Init();
