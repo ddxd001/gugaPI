@@ -381,6 +381,19 @@ static AppState g_appState = {
 
 void App_Init(void)
 {
+    /* Immediately silence buzzer and LED before any tasks run, to prevent
+     * brief alarm from default GPIO state on power-up. */
+#if FEATURE_ENABLE_STATUS_LED
+    if (board::Board_StatusLedIsReady()) {
+        (void) board::Board_StatusLedOff();
+    }
+#endif
+#if FEATURE_ENABLE_BUZZER
+    if (board::Board_BuzzerIsReady()) {
+        (void) board::Board_BuzzerOff();
+    }
+#endif
+
 #if FEATURE_PROFILE_COMPETITION
     g_appState.mode = APP_MODE_COMPETITION_ARMED;
 #else
