@@ -1195,6 +1195,31 @@ motor m2 run 10 rev
 `duty` 范围是 `0..100`。
 开环 `run duty > 0` 期间 MotorDriver 会暂停对应电机的编码器 GPIO 中断，停止后约 3 秒再恢复，以保证高占空比测试和惯性转动期间通信仍能处理；此时该路编码器 count/RPM 不保证更新。需要编码器闭环时使用 `motor m2 speed` / `hold` / `pos` / `posrel`。
 
+### 固定角度位置控制
+
+```text
+motor m1 pos <deg>
+motor m1 posrel <deg>
+motor m2 pos <deg>
+motor m2 posrel <deg>
+```
+
+`pos` 设置相对于编码器零点的绝对角度，`posrel` 从当前编码器位置继续转动指定角度，正负号表示两个方向。默认位置参数为 `kp=15`、`ki=0`、`kd=0`、`max_rpm=40`、`tol_counts=3`；启动时还会设置 `min_duty=6`、`max_duty=10`、`exit_tol_counts=5`、`settle_ms=0`。
+
+gugaPI 会通过已有的 100 ms `chassis` 服务自动刷新位置目标，避免超过 MotorDriver 的 1 秒看门狗期限。控制器第一次越过目标时不会立即结束；误差必须连续 5 个服务周期保持在到位窗口内，随后才切换到 coast。任一周期重新超出窗口都会清除稳定计数并继续纠偏。
+
+查看和临时修改位置参数：
+
+```text
+motor pos
+motor pospid
+motor pospid 15 0 0 40 3
+motor posctl
+motor posctl 6 10 5 0
+```
+
+`motor pospid` / `motor posctl` 只修改 MotorDriver 当前运行值。需要让 `pospid` 参数跨 gugaPI 重启保存，应同时使用 `param set position_*` 和 `param save`；`posctl` 使用上述经过实机验证的启动默认值。
+
 ### MotorDriver 原始串口调试命令
 
 这些命令绕过 MotorDriver 协议，只做原始串口收发，适合排查线序、波特率和电平。
@@ -1609,8 +1634,8 @@ param heading_kp=1000 range=0..100000
 | `position_kp` | 0..255 | 15 | 位置环 Kp（Q4.4） |
 | `position_ki` | 0..255 | 0 | 位置环 Ki（Q4.4） |
 | `position_kd` | 0..255 | 0 | 位置环 Kd（Q4.4） |
-| `position_max_rpm` | 0..1000 | 8 | 位置环最大转速（RPM） |
-| `position_tolerance_counts` | 0..65535 | 50 | 位置环容差（counts） |
+| `position_max_rpm` | 0..1000 | 40 | 位置环最大转速（RPM） |
+| `position_tolerance_counts` | 0..65535 | 3 | 位置环容差（counts） |
 | `gy931_roll_zero_mdeg` | ±180000000 | 0 | GY931 Roll 零点（mdeg） |
 | `gy931_pitch_zero_mdeg` | ±180000000 | 0 | GY931 Pitch 零点（mdeg） |
 | `gy931_yaw_zero_mdeg` | ±180000000 | 0 | GY931 Yaw 零点（mdeg） |

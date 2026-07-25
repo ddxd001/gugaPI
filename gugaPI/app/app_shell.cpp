@@ -5799,6 +5799,7 @@ void MotorCommand(int argc, const char * const argv[])
         }
 
         (void) motor::Stop(&g_motorClient, &stop_result);
+        Chassis_ReleaseAllMotorCommands();
         if (stop_result.m1_status != drivers::DRIVER_OK) {
             WriteStatusLine("motor stop m1: ", stop_result.m1_status);
             final_status = stop_result.m1_status;
@@ -5816,6 +5817,7 @@ void MotorCommand(int argc, const char * const argv[])
 
     if (StrEqual(argv[1], "m1") || StrEqual(argv[1], "m2")) {
         const bool motor1 = StrEqual(argv[1], "m1");
+        bool track_position = false;
         motor::MotionResult motion = {};
 
         if (argc < 3) {
@@ -5933,6 +5935,7 @@ void MotorCommand(int argc, const char * const argv[])
                                               degrees,
                                               &motion);
                 }
+                track_position = true;
 
                 if (motion.config_status != drivers::DRIVER_OK) {
                     WriteStatusLine("motor pos cfg: ", motion.config_status);
@@ -5965,6 +5968,21 @@ void MotorCommand(int argc, const char * const argv[])
         if (motion.mode_status != drivers::DRIVER_OK) {
             WriteStatusLine("motor drive: ", motion.mode_status);
             return;
+        }
+
+        if (motion.mode_ack) {
+            if (track_position) {
+                const drivers::DriverStatus lease_status =
+                    Chassis_TrackMotorPosition(motor1);
+                if (lease_status != drivers::DRIVER_OK) {
+                    (void) motor::SetCoast(&g_motorClient, motor1, &motion);
+                    Chassis_ReleaseMotorCommand(motor1);
+                    WriteStatusLine("motor position lease: ", lease_status);
+                    return;
+                }
+            } else {
+                Chassis_ReleaseMotorCommand(motor1);
+            }
         }
 
         services::Shell_WriteString("motor ");

@@ -68,6 +68,9 @@ static const uint8_t kModeBrake = 2U;
 static const uint8_t kModeSpeed = 3U;
 static const uint8_t kModePosition = 4U;
 
+static const uint8_t kPositionStatusM1AtTarget = 0x01U;
+static const uint8_t kPositionStatusM2AtTarget = 0x02U;
+
 static const uint8_t kInvertM1 = 0x01U;
 static const uint8_t kInvertM2 = 0x02U;
 static const uint8_t kInvertValidMask = kInvertM1 | kInvertM2;
@@ -1150,6 +1153,27 @@ inline drivers::DriverStatus RefreshTargetRpmLease(Client *client,
     const drivers::DriverStatus status =
         WriteRegisters(client,
                        motor1 ? kRegM1TargetRpm : kRegM2TargetRpm,
+                       data,
+                       static_cast<uint8_t>(sizeof(data)),
+                       &response);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    return StatusOkResponse(response) ? drivers::DRIVER_OK :
+                                       drivers::DRIVER_ERROR;
+}
+
+inline drivers::DriverStatus RefreshTargetPositionLease(Client *client,
+                                                        bool motor1,
+                                                        int32_t target_count)
+{
+    Frame response = {};
+    uint8_t data[4] = { 0U, 0U, 0U, 0U };
+    EncodeInt32Le(target_count, data);
+
+    const drivers::DriverStatus status =
+        WriteRegisters(client,
+                       motor1 ? kRegM1TargetPosition : kRegM2TargetPosition,
                        data,
                        static_cast<uint8_t>(sizeof(data)),
                        &response);

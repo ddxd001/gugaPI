@@ -298,8 +298,8 @@ void SetDefaults(ConfigStoreParams *params)
     params->position_kp_q4_4 = 15U;
     params->position_ki_q4_4 = 0U;
     params->position_kd_q4_4 = 0U;
-    params->position_max_rpm = 8U;
-    params->position_tolerance_counts = 50U;
+    params->position_max_rpm = 40U;
+    params->position_tolerance_counts = 3U;
 
     /* IMU heading closed-loop (conservative bring-up values).
      * correction_rpm = error_mdeg * heading_kp / 1e6, so heading_kp=1000
