@@ -20,8 +20,7 @@ var sl,fl;
 if(isB){var b=BL[ins.until]||['true','false'];sl=b[0];fl=b[1]}else{sl='ok';fl='fail'}
 if(s<instrs.length){add(s);edges.push({f:i,t:s,tp:'succ',lb:sl,br:isB})}
 else if(ins.op===7){add('done');edges.push({f:i,t:'done',tp:'succ',lb:sl,br:isB})}
-if(t===255){add('abort');edges.push({f:i,t:'abort',tp:'fail',lb:fl,br:isB})}
-else if(t<instrs.length){add(t);edges.push({f:i,t:t,tp:'fail',lb:fl,br:isB})}
+if(isB&&t!==255&&t<instrs.length){add(t);edges.push({f:i,t:t,tp:'fail',lb:fl,br:isB})}
 }
 var reach={0:1},q=[0];
 while(q.length){var n=q.shift();edges.forEach(function(e){if(e.f===n&&!reach[e.t]){reach[e.t]=1;q.push(e.t)}})}
@@ -54,11 +53,10 @@ layers.forEach(function(ln){var w=ln.length*(NW+GAP);if(w>maxW)maxW=w});
 layers.forEach(function(ln,li){var w=ln.length*(NW+GAP);var sx=(maxW-w)/2;ln.forEach(function(n,i){pos[n]={x:sx+i*(NW+GAP),y:li*DY}})});
 var uc=0,ml=layers.length;
 nodes.forEach(function(n){if(!reach[n]&&n!==0){pos[n]={x:maxW/2-NW/2,y:(ml+uc)*DY};uc++}});
-var hd=edges.some(function(e){return e.t==='done'}),ha=edges.some(function(e){return e.t==='abort'});
+var hd=edges.some(function(e){return e.t==='done'});
 var ty=ml*DY;
 if(hd){var dc=layers.filter(function(l){return l.indexOf('done')>=0}).length;if(dc===0){pos['done']={x:0,y:ty};ml++}}
-if(ha){var ac=layers.filter(function(l){return l.indexOf('abort')>=0}).length;if(ac===0){pos['abort']={x:NW+GAP,y:ty};ml++}}
-return{pos:pos,edges:edges,reach:reach,hasDone:hd,hasAbort:ha}
+return{pos:pos,edges:edges,reach:reach,hasDone:hd,hasAbort:false}
 }
 
 function render(){
@@ -132,7 +130,6 @@ var lx2=pts.length>2?pts[1][0]+8:fx+12;
 h+='<text class="arrow-label" x="'+lx2+'" y="'+(ly2-3)+'" fill="'+col+'" style="font-size:10px;font-weight:600">'+e.lb+'</text>';
 });
 if(L.hasDone){var dp=pos['done'];if(dp)h+='<g><rect x="'+dp.x+'" y="'+dp.y+'" width="'+NW+'" height="'+NH+'" rx="25" fill="#a6e3a1" opacity="0.2" stroke="#a6e3a1" stroke-width="2"/><text x="'+(dp.x+NW/2)+'" y="'+(dp.y+30)+'" text-anchor="middle" fill="#a6e3a1" font-size="13" font-weight="600">DONE</text></g>'}
-if(L.hasAbort){var ap=pos['abort'];if(ap)h+='<g><rect x="'+ap.x+'" y="'+ap.y+'" width="'+NW+'" height="'+NH+'" rx="25" fill="#f38ba8" opacity="0.2" stroke="#f38ba8" stroke-width="2"/><text x="'+(ap.x+NW/2)+'" y="'+(ap.y+30)+'" text-anchor="middle" fill="#f38ba8" font-size="13" font-weight="600">ABORT</text></g>'}
 instrs.forEach(function(ins,i){
 var p=pos[i];if(!p)return;
 var c=OPC[ins.op]||'#585b70',l=OPL[ins.op]||'?',sel=i===selIdx,unreach=!reach[i]&&i!==0;
