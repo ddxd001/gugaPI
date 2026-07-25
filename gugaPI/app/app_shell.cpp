@@ -2,15 +2,16 @@
 
 #include <stdint.h>
 
+#include "app/app_main.h"
 #include "app/chassis.h"
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
-#include "app/app_main.h"
 #include "app/action.h"
 #include "app/config_store.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
 #include "app/motor_driver_client.h"
+#include "app/seq_store.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
 #include "board/board_config.h"
@@ -4431,7 +4432,7 @@ bool ParseTarget(const char *t, uint8_t *out)
         return true;
     }
     uint32_t v = 0U;
-    if (!ParseUint32(t, 15U, &v)) {
+    if (!ParseUint32(t, 63U, &v)) {
         return false;
     }
     *out = static_cast<uint8_t>(v);
@@ -6000,7 +6001,7 @@ void PrintCompUsage(void)
 {
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  comp arm");
-    services::Shell_WriteLine("  comp start");
+    services::Shell_WriteLine("  comp start [seq 0..7]");
     services::Shell_WriteLine("  comp stop");
     services::Shell_WriteLine("  comp status");
 }
@@ -6033,7 +6034,19 @@ void CompCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "start")) {
-        if (argc != 2) {
+        if (argc == 3) {
+            uint32_t slot = 0U;
+            if (!ParseUint32(argv[2], 7U, &slot)) {
+                PrintCompUsage();
+                return;
+            }
+            const drivers::DriverStatus load_status =
+                app::SeqStore_Load(static_cast<uint8_t>(slot));
+            if (load_status != drivers::DRIVER_OK) {
+                WriteStatusLine("comp start load: ", load_status);
+                return;
+            }
+        } else if (argc != 2) {
             PrintCompUsage();
             return;
         }
@@ -6063,6 +6076,80 @@ void CompCommand(int argc, const char * const argv[])
     }
 
     PrintCompUsage();
+}
+
+/* ===== Sequence store (FRAM persistence) ===== */
+
+void PrintSeqUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  seq list");
+    services::Shell_WriteLine("  seq save <0..7>");
+    services::Shell_WriteLine("  seq load <0..7>");
+    services::Shell_WriteLine("  seq del <0..7>");
+    services::Shell_WriteLine("  seq run <0..7>");
+}
+
+void SeqCommand(int argc, const char * const argv[])
+{
+    if (argc < 2) {
+        PrintSeqUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "list")) {
+        if (argc != 2) {
+            PrintSeqUsage();
+            return;
+        }
+        for (uint8_t i = 0; i < app::SEQ_SLOT_COUNT; i++) {
+            bool valid = app::SeqStore_IsValid(i);
+            uint8_t count = app::SeqStore_GetCount(i);
+            services::Shell_WriteString("seq ");
+            services::Shell_WriteUInt32(i);
+            services::Shell_WriteString(" ");
+            services::Shell_WriteString(valid ? "ok" : "empty");
+            services::Shell_WriteString(" count=");
+            services::Shell_WriteUInt32(count);
+            services::Shell_WriteString("\r\n");
+        }
+        return;
+    }
+
+    /* All remaining subcommands take a slot number */
+    uint32_t slot = 0U;
+    if ((argc != 3) || (!ParseUint32(argv[2], 7U, &slot))) {
+        PrintSeqUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "save")) {
+        WriteStatusLine("seq save: ", app::SeqStore_Save(static_cast<uint8_t>(slot)));
+        return;
+    }
+
+    if (StrEqual(argv[1], "load")) {
+        WriteStatusLine("seq load: ", app::SeqStore_Load(static_cast<uint8_t>(slot)));
+        return;
+    }
+
+    if (StrEqual(argv[1], "del")) {
+        WriteStatusLine("seq del: ", app::SeqStore_Delete(static_cast<uint8_t>(slot)));
+        return;
+    }
+
+    if (StrEqual(argv[1], "run")) {
+        const drivers::DriverStatus load_status =
+            app::SeqStore_Load(static_cast<uint8_t>(slot));
+        if (load_status != drivers::DRIVER_OK) {
+            WriteStatusLine("seq run load: ", load_status);
+            return;
+        }
+        WriteStatusLine("seq run: ", app::ActionRunner_Start());
+        return;
+    }
+
+    PrintSeqUsage();
 }
 
 /* ===== FireWater telemetry (VOFA+ protocol) ===== */
@@ -6356,6 +6443,10 @@ void AppShell_RegisterCommands(void)
         "telem",
         "Telemetry (FireWater/VOFA+): on [period_ms]|off|status",
         TelemCommand);
+    (void) services::Shell_RegisterCommand(
+        "seq",
+        "Sequence: list|save <n>|load <n>|del <n>|run <n>",
+        SeqCommand);
 #if FEATURE_ENABLE_SHELL_DIAGNOSTICS
     (void) services::Shell_RegisterCommand(
         "i2c",

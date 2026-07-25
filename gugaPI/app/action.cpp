@@ -11,7 +11,7 @@
 namespace app {
 namespace {
 
-static const uint8_t kMaxInstrs = 16U;
+static const uint8_t kMaxInstrs = 64U;
 static const uint32_t kSequenceTimeoutMs = 60000U;  /* whole-sequence cap */
 
 ActionRunnerState g_state;
