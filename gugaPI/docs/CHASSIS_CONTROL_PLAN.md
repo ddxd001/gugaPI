@@ -36,12 +36,15 @@
 | 双轮命令失败保护 | 已完成 | 任一侧命令失败时停止两侧电机并清除活动命令 |
 | Shell 串口迁移 | 已完成 | UART0，PB1/RX，PB0/TX，115200 8N1 |
 | 编码器方向 | 已完成 | M1 输出和编码器反向，M2 保持正常方向 |
-| 编码器 CPR | 已完成 | 左右轮均为 364 counts/rev |
+| 编码器 CPR | 已完成 | 13 PPR × QEI四倍频 × 28:1，左右轮均为 1456 counts/rev |
+| 轮径表示 | 已完成 | 1 m实测标定为 `wheel_radius_um=33050`（33.050 mm有效滚动半径）；保留整数毫米兼容入口 |
 | 地面速度 PID | 已完成 | Q4.4 原始值 Kp=1、Ki=1、Kd=0 |
 | 输出限制 | 已完成 | min duty=6%，max duty=50% |
 | 默认参数同步 | 已完成 | gugaPI 和 MotorDriver 源码默认值已统一 |
 
-### 3.2 已完成地面测试
+### 3.2 历史地面测试（CPR修正后需复测）
+
+以下结果是在旧的364 CPR配置下由固件换算得到，实际RPM被放大约4倍，不能继续作为1456 CPR版本的验收数据。烧录新版本后必须重新进行速度和距离测试。
 
 | 目标转速 | 实测结果 | 结论 |
 | --- | --- | --- |
@@ -212,14 +215,18 @@
 
 ### 5.4 编码器距离闭环
 
-状态：`代码完成，待硬件验收`
+状态：`分段速度曲线代码完成、编译通过；60/90 RPM单次实车通过，重复性和120 RPM待验收`
 
 - `HEADING_DISTANCE` 记录左右轮起始编码器，并锁定启动瞬间Yaw。
-- 正毫米前进、负毫米倒退；剩余距离生成基础RPM，接近目标自动减速。
+- 正毫米前进、负毫米倒退；保留 `legacy` 模式用于回归，新增默认 `trapezoid` 模式。
+- 梯形模式依次经过加速、巡航、预测制动、单方向低速逼近和停稳阶段。
+- 制动点综合实测RPM、配置减速度、系统延迟和附加余量计算；越过终点立即停车，不反向寻找。
+- 内部使用编码器换算的微米距离，避免整数毫米过早量化。
 - 航向P环同时生成左右轮差速修正，构成“距离外环 + 轮速内环 + 航向环”。
-- 左右轮都进入目标 `±3 mm`，停车稳定100 ms后完成。
+- 进入可配置目标容差后停车；左右轮连续3次低于停稳RPM且至少经过100 ms后完成。
 - 编码器反馈超过100 ms未更新、IMU失效、通信失败或自动/指定超时均安全停车。
 - Shell：`heading distance <mm> <max_rpm> [timeout_ms]`。
+- Shell：`heading profile` 查看、切换模式、设置曲线参数并保存。
 - ActionRunner：`drive_mm` + `distance_reached`。
 
 ### 5.5 参数与遥测
@@ -229,6 +236,7 @@
 实现内容：
 
 - 航向控制参数进入 ConfigStore（v3）：`heading_kp`、`heading_max_correction_rpm`、`heading_turn_max_rpm`、`heading_turn_min_rpm`、`heading_tolerance_mdeg`、`heading_settle_ms`。
+- 定距曲线参数进入ConfigStore（v8），V1～V7配置保持可加载并自动使用保守默认值。
 - Shell `heading status` 输出 mode、target、error、correction、at_target、last_status。
 - Shell `param get/set` 可在线修改并 `param save` 持久化到 FRAM。
 
@@ -442,13 +450,13 @@ lf losttimeout <ms>   # 设置丢线停车时间
 
 状态：`代码完成`
 
-实现内容（`config_store.cpp`，FRAM v3 布局）：
+实现内容（`config_store.cpp`，FRAM v7 布局）：
 
 - 速度环、航向闭环、IMU 偏置和底盘几何参数统一进入 ConfigStore，持久化到 FRAM（地址 0x0000，magic "CFPG"，CRC32 校验）。
-- 当前版本 v3，payload 90 字节；兼容加载 v1（66 字节）和 v2（68 字节）历史布局。
+- 当前版本 v8，payload 177 字节；兼容加载 v1-v7 历史布局。旧版默认组合 `364/364/32` 加载时自动迁移为 `1456/1456/33050 um`，并标记 dirty，等待 `param save` 写回。
 - `param set` 修改后显示 dirty 状态，`param save` 显式持久化，`param load` 从 FRAM 重新加载，`param reset` 恢复源码默认值。
-- 参数列表（32 项）：
-  - 底盘：`left/right_counts_per_rev`、`wheel_radius_mm`、`wheel_track_mm`、`max_wheel_rpm`、`motor_output/encoder_invert_flags`
+- 参数列表：
+  - 底盘：`left/right_counts_per_rev`、`wheel_radius_um`、兼容参数 `wheel_radius_mm`、`wheel_track_mm`、`max_wheel_rpm`、`motor_output/encoder_invert_flags`
   - 速度环：`speed_kp/ki/kd`、`speed_max/min_duty`
   - 位置环：`position_kp/ki/kd`、`position_max_rpm`、`position_tolerance_counts`
   - GY931 零点：`gy931_roll/pitch/yaw_zero_mdeg`

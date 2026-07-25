@@ -733,9 +733,11 @@ gray data
 gray process
 ```
 
-输出包含归一化值、有效/循迹掩码、线位置、线强度、道路类型、迟滞开启/关闭阈值
-和处理状态。调试通道顺序、黑白极性、迟滞以及丢线判断时应以此命令为准；循迹控制
-也消费同一份处理结果。
+输出包含归一化值、迟滞位图 `mask`、主循迹区 `track`、实际插值线段 `selected`、
+异常位图、线位置、线强度、道路类型和迟滞阈值。`pos` 使用左正右负坐标，
+`pos_valid` 表示位置是否可用于闭环，`confidence` 范围 0..1000，`source` 为
+`core`、`left_edge`、`right_edge`、`held` 或 `none`。调试通道顺序、黑白极性、
+岔路选择和丢线判断时应以此命令为准；循迹控制消费同一份处理结果。
 
 ### `gray calib ...`
 
@@ -1289,7 +1291,7 @@ chassis wheel 60 -60
 
 ### `chassis vel <linear_mm_s> <angular_mdeg_s>`
 
-通过线速度和角速度设置底盘目标。线速度范围 `-5000..5000 mm/s`，角速度范围 `-720000..720000 mdeg/s`。内部根据 `wheel_radius_mm` 和 `wheel_track_mm` 换算为左右轮 RPM。
+通过线速度和角速度设置底盘目标。线速度范围 `-5000..5000 mm/s`，角速度范围 `-720000..720000 mdeg/s`。内部根据高精度参数 `wheel_radius_um` 和 `wheel_track_mm` 换算为左右轮 RPM。
 
 ```text
 chassis vel 200 0
@@ -1320,6 +1322,9 @@ heading status
 | `corr` | 航向差速修正RPM（hold/distance）或转弯速度（turn） |
 | `at_target` | 转弯或距离行为是否进入目标容差区间 |
 | `last` | 上一次操作结果 |
+| `profile` | 距离曲线阶段：`idle/legacy/accel/cruise/brake/creep/settle` |
+| `profile_rpm` | gugaPI曲线当前输出的基础转速绝对值 |
+| `brake_mm` | 根据实测转速计算的当前预计制动距离 |
 
 ### `heading hold <base_rpm>`
 
@@ -1349,8 +1354,8 @@ heading turn 45
 ### `heading distance <mm> <max_rpm> [timeout_ms]`
 
 按编码器距离闭环行驶，并锁定启动瞬间的IMU航向。正距离前进，负距离倒退；范围为
-`-10000..10000 mm`（不能为0）。基础速度按剩余距离逐渐降低，航向误差仍通过左右轮
-差速修正。
+`-10000..10000 mm`（不能为0）。`max_rpm` 是本次动作的巡航速度。具体加减速行为由
+`heading profile` 选择，航向误差仍通过左右轮差速修正。
 
 ```text
 heading distance 500 60
@@ -1359,9 +1364,62 @@ heading distance 1000 80 15000
 heading status
 ```
 
-`timeout_ms` 可省略，固件根据距离、轮径和最大RPM生成有界超时。左右轮都进入目标
-`±3 mm` 后停车，稳定100 ms后回到 `idle`。该行为依赖正确的
-`wheel_radius_mm`、左右轮 `counts_per_rev` 和编码器方向配置。
+`timeout_ms` 可省略，固件根据距离、轮径和最大RPM生成有界超时。梯形模式在进入目标
+容差或越过目标后立即停车，不会反向寻找；左右实测速度连续3次低于 `settle_rpm` 且
+至少经过100 ms后回到 `idle`。该行为依赖正确的
+`wheel_radius_um`、左右轮 `counts_per_rev` 和编码器方向配置。
+
+65 mm 轮胎、13 PPR 霍尔编码器、28:1 减速比的理论参数为：
+
+```text
+param set left_counts_per_rev 1456
+param set right_counts_per_rev 1456
+param set wheel_radius_um 33050
+param save
+```
+
+`wheel_radius_um=33050` 表示本车实测标定后的 `33.050 mm` 有效滚动半径。`wheel_radius_mm` 仍作为旧脚本兼容入口，但只能设置整数毫米；设置该旧参数会同时覆盖高精度值。
+
+### `heading profile`
+
+查看或设置定距动作的速度曲线。它只整形gugaPI发送给MotorDriver的RPM目标，**不会修改
+MotorDriver当前100 ms速度环周期**，也不修改调度器。
+
+```text
+heading profile
+heading profile mode trapezoid
+heading profile accel 600
+heading profile decel 900
+heading profile creep 15
+heading profile latency 360
+heading profile margin 5
+heading profile settle 3
+heading profile tolerance 3
+heading profile save
+```
+
+模式：
+
+- `legacy`：保留旧的“剩余毫米数映射RPM”行为，越过目标后可能反向修正，仅用于回归对比。
+- `trapezoid`：加速、巡航、预测制动、单方向低速逼近和停稳五阶段；默认模式。
+
+参数：
+
+| Shell项 | 持久化参数 | 范围 | 默认值 | 含义 |
+| --- | --- | ---: | ---: | --- |
+| `accel` | `distance_accel_rpm_s` | 1..5000 | 600 | 上层RPM命令加速度 |
+| `decel` | `distance_decel_rpm_s` | 1..5000 | 900 | 上层RPM命令减速度及制动距离模型 |
+| `creep` | `distance_creep_rpm` | 1..500 | 15 | 终点前最低逼近速度 |
+| `latency` | `distance_stop_latency_ms` | 0..2000 | 360 | 固定时间延迟补偿；对应距离按实时轮速动态计算 |
+| `margin` | `distance_brake_margin_mm` | 0..1000 | 5 | 额外提前制动距离 |
+| `settle` | `distance_settle_rpm` | 0..100 | 3 | 判定车轮停稳的RPM阈值 |
+| `tolerance` | `distance_tolerance_mm` | 1..100 | 3 | 终点容差 |
+
+修改后立即作用于下一次定距动作，并将参数标为dirty；执行 `heading profile save` 或
+`param save` 才会写入FRAM。旧V1～V7配置加载后使用上述默认曲线参数并标记dirty，保存
+后升级为V8。定距动作正在运行时，`heading profile` 只允许查看，修改或保存返回
+`busy`；先执行 `heading stop`。曲线加减速度是gugaPI的目标整形参数，不能超过底层电机
+实际能够达到的加减速度；默认600/900 RPM/s与MotorDriver默认 `motor ramp` 一致。
 
 ### `heading stop`
 
@@ -1373,9 +1431,9 @@ heading stop
 
 ## 循迹控制
 
-8 路灰度循迹。需先标定（`lf cal`）再循迹（`lf start`）。20 ms 周期任务 `LF_Update` 只在灰度完整帧序号变化时消费统一处理结果，使用中间通道位置进行 PD 控制；全八路迟滞位图独立识别路口。
+8 路灰度循迹。需先标定（`lf cal`）再循迹（`lf start`）。20 ms 周期任务 `LF_Update` 只在灰度完整帧序号变化时消费统一处理结果。位置处理会从八路中选择一段连续黑线插值，全八路迟滞位图独立识别路口。
 
-安全机制：灰度数据无效或超过 200 ms → `FAULT_SENSOR_LOST` 停车；丢线先减速保持方向，再原地搜索，超过 `lost_timeout_ms` 停车；故障 → 停车。
+安全机制：灰度数据无效或超过 200 ms → `FAULT_SENSOR_LOST` 停车；可信度 300..699 或存在运行诊断异常时自动半速，低于 300 或位置无效按丢线处理；丢线先减速保持方向，再原地搜索，超过 `lost_timeout_ms` 停车；故障 → 停车。
 
 ### `lf status`
 
@@ -1399,6 +1457,10 @@ lf status
 | `maxcorr` | 最大修正 RPM |
 | `seq` | 最后消费的灰度完整帧序号 |
 | `road` | 两帧确认后的道路类型 |
+| `pos_valid` | 当前插值位置是否可用于闭环 |
+| `selected` | 实际用于插值的连续通道位图 |
+| `confidence` | 位置可信度，0..1000 |
+| `source` | `core` / `left_edge` / `right_edge` / `held` / `none` |
 
 ### `lf cal`
 
@@ -1602,7 +1664,7 @@ param status
 
 ### `param get [name]`
 
-查看所有参数或单个参数。不带参数列出全部 32 项参数（含当前值和合法范围）。
+查看所有参数或单个参数。不带参数列出全部参数（含当前值和合法范围）。
 
 ```text
 param get
@@ -1619,9 +1681,10 @@ param heading_kp=1000 range=0..100000
 
 | 参数名 | 范围 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `left_counts_per_rev` | 1..100000000 | 364 | 左轮编码器 CPR |
-| `right_counts_per_rev` | 1..100000000 | 364 | 右轮编码器 CPR |
-| `wheel_radius_mm` | 1..1000 | 32 | 轮半径（mm） |
+| `left_counts_per_rev` | 1..100000000 | 1456 | 左轮编码器 CPR（含QEI四倍频） |
+| `right_counts_per_rev` | 1..100000000 | 1456 | 右轮编码器 CPR（含QEI四倍频） |
+| `wheel_radius_um` | 1000..1000000 | 33050 | 实测有效滚动半径（微米），内部换算使用此值 |
+| `wheel_radius_mm` | 1..1000 | 32 | 兼容旧脚本的整数毫米入口；设置后会覆盖 `wheel_radius_um` |
 | `wheel_track_mm` | 1..2000 | 160 | 轮距（mm） |
 | `max_wheel_rpm` | 1..1000 | 1000 | 最大轮速（RPM） |
 | `motor_output_invert_flags` | 0..3 | 1 | 电机输出反向标志 |

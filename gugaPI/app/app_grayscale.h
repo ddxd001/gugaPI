@@ -22,12 +22,16 @@ struct AppGrayscaleData {
     uint8_t active_mask;
     uint8_t usable_mask;
     uint8_t track_mask;
+    uint8_t selected_mask;
     uint8_t calibration_fault_mask;
     uint8_t saturation_mask;
     uint8_t channel_anomaly_mask;
     bool line_detected;
+    bool position_valid;
     int16_t line_position;
     uint16_t line_strength;
+    uint16_t position_confidence;
+    drivers::GrayscalePositionSource position_source;
     GrayscaleRoadType road_type;
     uint8_t road_confirm_count;
     uint16_t threshold_on;

@@ -8,7 +8,7 @@
 namespace app {
 
 struct ChassisConfig {
-    uint32_t wheel_radius_mm;
+    uint32_t wheel_radius_um;
     uint32_t wheel_track_mm;
     uint32_t left_counts_per_rev;
     uint32_t right_counts_per_rev;

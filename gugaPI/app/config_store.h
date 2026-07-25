@@ -9,10 +9,15 @@
 namespace app {
 
 static const uint8_t CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT = 8U;
+static const uint8_t DISTANCE_SPEED_MODE_LEGACY = 0U;
+static const uint8_t DISTANCE_SPEED_MODE_TRAPEZOID = 1U;
 
 struct ConfigStoreParams {
     uint32_t left_counts_per_rev;
     uint32_t right_counts_per_rev;
+    /* Calibrated rolling radius in micrometers (33.05 mm = 33050 um). */
+    uint32_t wheel_radius_um;
+    /* Legacy whole-millimeter view retained for parameter compatibility. */
     uint32_t wheel_radius_mm;
     uint32_t wheel_track_mm;
     uint16_t max_wheel_rpm;
@@ -49,6 +54,17 @@ struct ConfigStoreParams {
     int32_t heading_turn_min_rpm;         /* TURN min wheel speed (friction) */
     int32_t heading_tolerance_mdeg;      /* TURN target tolerance */
     uint16_t heading_settle_ms;          /* TURN settle time at target */
+
+    /* Distance speed-profile tuning (v8). The MotorDriver speed-loop period
+     * is unchanged; these values shape the RPM requests sent by gugaPI. */
+    uint8_t distance_speed_mode;
+    uint16_t distance_accel_rpm_s;
+    uint16_t distance_decel_rpm_s;
+    uint16_t distance_creep_rpm;
+    uint16_t distance_stop_latency_ms;
+    uint16_t distance_brake_margin_mm;
+    uint16_t distance_settle_rpm;
+    uint16_t distance_tolerance_mm;
 
     uint16_t ina219_undervoltage_trip_mv;
     uint16_t ina219_undervoltage_release_mv;

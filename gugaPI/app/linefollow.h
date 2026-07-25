@@ -6,6 +6,7 @@
 
 #include "app/grayscale_road.h"
 #include "drivers/common/driver_status.h"
+#include "drivers/grayscale/grayscale_processing.h"
 
 namespace app {
 
@@ -31,6 +32,10 @@ struct LFState {
     int32_t last_error_mpos;
     int32_t derivative_mpos_per_s;
     GrayscaleRoadType road_type;
+    bool position_valid;
+    uint8_t selected_mask;
+    uint16_t position_confidence;
+    drivers::GrayscalePositionSource position_source;
     /* Tunable parameters are loaded from ConfigStore and remain runtime-settable. */
     int32_t kp;
     int32_t kd;

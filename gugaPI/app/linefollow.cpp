@@ -13,6 +13,8 @@ namespace {
 static const uint32_t kCalDurationMs = 2000U;
 static const int32_t kControlScale = 1000000;
 static const uint32_t kGrayscaleMaxAgeMs = 200U;
+static const uint16_t kMinimumPositionConfidence = 300U;
+static const uint16_t kFullSpeedPositionConfidence = 700U;
 
 LFState g_state;
 
@@ -184,6 +186,10 @@ drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms)
     g_state.lost_since_ms = 0U;
     g_state.lost = false;
     g_state.road_type = data->road_type;
+    g_state.position_valid = data->position_valid;
+    g_state.selected_mask = data->selected_mask;
+    g_state.position_confidence = data->position_confidence;
+    g_state.position_source = data->position_source;
     g_state.last_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 }
@@ -231,8 +237,13 @@ void LF_Update(void)
     g_state.last_sequence = data->sequence;
     g_state.processed_frame_count++;
     g_state.road_type = data->road_type;
+    g_state.position_valid = data->position_valid;
+    g_state.selected_mask = data->selected_mask;
+    g_state.position_confidence = data->position_confidence;
+    g_state.position_source = data->position_source;
 
-    if (!data->line_detected) {
+    if ((!data->line_detected) || (!data->position_valid) ||
+        (data->position_confidence < kMinimumPositionConfidence)) {
         g_state.lost = true;
         g_state.error_mpos = 0;
         if (g_state.lost_since_ms == 0U) {
@@ -257,7 +268,12 @@ void LF_Update(void)
     g_state.lost = false;
     g_state.lost_since_ms = 0U;
     const int32_t correction = CalculateCorrection(data);
-    (void) ApplyWheelCommand(g_state.base_rpm, correction);
+    const int32_t confidence_limited_base =
+        ((data->position_confidence >= kFullSpeedPositionConfidence) &&
+         (data->channel_anomaly_mask == 0U))
+        ? g_state.base_rpm
+        : (g_state.base_rpm / 2);
+    (void) ApplyWheelCommand(confidence_limited_base, correction);
 }
 
 const LFState *LF_GetState(void)

@@ -12,6 +12,9 @@ namespace {
 static const uint16_t kMinimumCalibrationSpan = 200U;
 static const uint16_t kDefaultCaptureFrames = 16U;
 static const uint32_t kDefaultSweepDurationMs = 2000U;
+static const uint16_t kSaturationFaultFrames = 8U;
+static const uint16_t kStuckFaultFrames = 125U;
+static const uint16_t kChannelChangeThreshold = 0U;
 // Grayscale calibration first became persistent in ConfigStore payload v5.
 static const uint16_t kFirstCalibrationPayloadLength = 137U;
 
@@ -21,9 +24,9 @@ drivers::GrayscaleCalibration g_calibration = {};
 drivers::GrayscaleProcessingState g_processingState = {};
 GrayscaleRoadClassifierState g_roadState = {};
 static const GrayscaleRoadClassifierConfig kRoadConfig = {
-    0xC0U,
-    0x3CU,
     0x03U,
+    0x3CU,
+    0xC0U,
     2U
 };
 AppGrayscaleCalibrationStatus g_calibrationStatus = {};
@@ -36,6 +39,10 @@ uint16_t g_stagedWhite[drivers::GRAYSCALE_CHANNEL_COUNT] = {};
 uint16_t g_stagedBlack[drivers::GRAYSCALE_CHANNEL_COUNT] = {};
 bool g_calibrationCommissioned = false;
 uint8_t g_nextChannel = 0U;
+uint16_t g_previousRaw[drivers::GRAYSCALE_CHANNEL_COUNT] = {};
+uint16_t g_unchangedActivityFrames[drivers::GRAYSCALE_CHANNEL_COUNT] = {};
+uint16_t g_saturationFrames[drivers::GRAYSCALE_CHANNEL_COUNT] = {};
+bool g_previousRawValid = false;
 
 void IncrementSaturated(uint32_t *value)
 {
@@ -53,6 +60,9 @@ void MarkFailure(drivers::DriverStatus status)
     IncrementSaturated(&g_data.error_count);
     g_nextChannel = 0U;
     g_processingState.active_mask = 0U;
+    g_processingState.last_position = 0;
+    g_processingState.last_selected_mask = 0U;
+    g_processingState.position_valid = false;
     GrayscaleRoad_Init(&g_roadState);
 }
 
@@ -66,11 +76,20 @@ void MarkProcessingFailure(drivers::DriverStatus status)
 void ResetChannelDiagnostics(void)
 {
     g_data.channel_anomaly_mask = 0U;
+    g_previousRawValid = false;
+    for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+        g_previousRaw[i] = 0U;
+        g_unchangedActivityFrames[i] = 0U;
+        g_saturationFrames[i] = 0U;
+    }
 }
 
 void ResetProcessingState(void)
 {
     g_processingState.active_mask = 0U;
+    g_processingState.last_position = 0;
+    g_processingState.last_selected_mask = 0U;
+    g_processingState.position_valid = false;
     GrayscaleRoad_Init(&g_roadState);
     g_data.road_type = GRAYSCALE_ROAD_UNKNOWN;
     g_data.road_confirm_count = 0U;
@@ -84,13 +103,69 @@ void PublishProcessed(const drivers::GrayscaleProcessedData &processed)
     g_data.active_mask = processed.active_mask;
     g_data.usable_mask = processed.usable_mask;
     g_data.track_mask = processed.track_mask;
+    g_data.selected_mask = processed.selected_mask;
     g_data.calibration_fault_mask = processed.calibration_fault_mask;
     g_data.saturation_mask = processed.saturation_mask;
     g_data.line_detected = processed.line_detected;
+    g_data.position_valid = processed.position_valid;
     g_data.line_position = processed.line_position;
     g_data.line_strength = processed.line_strength;
+    g_data.position_confidence = processed.position_confidence;
+    g_data.position_source = processed.position_source;
     g_data.threshold_on = drivers::Grayscale_GetThresholdOn(&g_calibration);
     g_data.threshold_off = drivers::Grayscale_GetThresholdOff(&g_calibration);
+}
+
+uint16_t AbsoluteDifference(uint16_t first, uint16_t second)
+{
+    return (first >= second)
+        ? static_cast<uint16_t>(first - second)
+        : static_cast<uint16_t>(second - first);
+}
+
+void UpdateChannelDiagnostics(
+    const drivers::GrayscaleProcessedData &processed)
+{
+    uint8_t changed_mask = 0U;
+    if (g_previousRawValid) {
+        for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+            if (AbsoluteDifference(g_data.raw[i], g_previousRaw[i]) >
+                kChannelChangeThreshold) {
+                changed_mask = static_cast<uint8_t>(changed_mask | (1U << i));
+            }
+        }
+    }
+
+    uint8_t runtime_fault_mask = 0U;
+    for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+        const uint8_t bit = static_cast<uint8_t>(1U << i);
+        if ((processed.saturation_mask & bit) != 0U) {
+            if (g_saturationFrames[i] != UINT16_MAX) {
+                g_saturationFrames[i]++;
+            }
+        } else {
+            g_saturationFrames[i] = 0U;
+        }
+
+        const bool channel_changed = (changed_mask & bit) != 0U;
+        const bool another_channel_changed =
+            (changed_mask & static_cast<uint8_t>(~bit)) != 0U;
+        if ((!g_previousRawValid) || channel_changed) {
+            g_unchangedActivityFrames[i] = 0U;
+        } else if (another_channel_changed &&
+                   (g_unchangedActivityFrames[i] != UINT16_MAX)) {
+            g_unchangedActivityFrames[i]++;
+        }
+
+        if ((g_saturationFrames[i] >= kSaturationFaultFrames) ||
+            (g_unchangedActivityFrames[i] >= kStuckFaultFrames)) {
+            runtime_fault_mask = static_cast<uint8_t>(runtime_fault_mask | bit);
+        }
+        g_previousRaw[i] = g_data.raw[i];
+    }
+    g_previousRawValid = true;
+    g_data.channel_anomaly_mask = static_cast<uint8_t>(
+        processed.calibration_fault_mask | runtime_fault_mask);
 }
 
 void ProcessPublishedFrame(void)
@@ -102,12 +177,12 @@ void ProcessPublishedFrame(void)
                                             &g_processingState,
                                             &processed);
     PublishProcessed(processed);
-    g_data.channel_anomaly_mask = processed.calibration_fault_mask;
+    UpdateChannelDiagnostics(processed);
     if (status != drivers::DRIVER_OK) {
         MarkProcessingFailure(status);
         return;
     }
-    if (g_data.channel_anomaly_mask != 0U) {
+    if (processed.calibration_fault_mask != 0U) {
         MarkProcessingFailure(drivers::DRIVER_ERROR);
         return;
     }

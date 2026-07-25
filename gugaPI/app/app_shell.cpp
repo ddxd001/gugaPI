@@ -1611,7 +1611,7 @@ void PrintChassisState(const ChassisState &state)
     services::Shell_WriteString("\r\n");
 
     services::Shell_WriteString("chassis cfg radius_mm=");
-    services::Shell_WriteUInt32(state.config.wheel_radius_mm);
+    WriteFixedMilli(static_cast<int32_t>(state.config.wheel_radius_um));
     services::Shell_WriteString(" track_mm=");
     services::Shell_WriteUInt32(state.config.wheel_track_mm);
     services::Shell_WriteString(" left_cpr=");
@@ -4650,6 +4650,11 @@ void PrintHeadingUsage(void)
     services::Shell_WriteLine("  heading turn <deg -180..180>");
     services::Shell_WriteLine(
         "  heading distance <mm -10000..10000> <max_rpm> [timeout_ms]");
+    services::Shell_WriteLine("  heading profile");
+    services::Shell_WriteLine("  heading profile mode <legacy|trapezoid>");
+    services::Shell_WriteLine(
+        "  heading profile <accel|decel|creep|latency|margin|settle|tolerance> <value>");
+    services::Shell_WriteLine("  heading profile save");
     services::Shell_WriteLine("  heading stop");
 }
 
@@ -4665,6 +4670,49 @@ const char *HeadingModeText(app::HeadingMode mode)
     default:
         return "idle";
     }
+}
+
+const char *DistanceSpeedModeText(uint8_t mode)
+{
+    return (mode == DISTANCE_SPEED_MODE_TRAPEZOID)
+        ? "trapezoid"
+        : "legacy";
+}
+
+const char *DistancePhaseText(app::DistanceProfilePhase phase)
+{
+    switch (phase) {
+    case app::DISTANCE_PHASE_LEGACY: return "legacy";
+    case app::DISTANCE_PHASE_ACCEL: return "accel";
+    case app::DISTANCE_PHASE_CRUISE: return "cruise";
+    case app::DISTANCE_PHASE_BRAKE: return "brake";
+    case app::DISTANCE_PHASE_CREEP: return "creep";
+    case app::DISTANCE_PHASE_SETTLE: return "settle";
+    default: return "idle";
+    }
+}
+
+void PrintDistanceProfile(void)
+{
+    const ConfigStoreParams *params = ConfigStore_Get();
+    services::Shell_WriteString("heading profile mode=");
+    services::Shell_WriteString(DistanceSpeedModeText(
+        params->distance_speed_mode));
+    services::Shell_WriteString(" accel_rpm_s=");
+    services::Shell_WriteUInt32(params->distance_accel_rpm_s);
+    services::Shell_WriteString(" decel_rpm_s=");
+    services::Shell_WriteUInt32(params->distance_decel_rpm_s);
+    services::Shell_WriteString(" creep_rpm=");
+    services::Shell_WriteUInt32(params->distance_creep_rpm);
+    services::Shell_WriteString(" latency_ms=");
+    services::Shell_WriteUInt32(params->distance_stop_latency_ms);
+    services::Shell_WriteString(" margin_mm=");
+    services::Shell_WriteUInt32(params->distance_brake_margin_mm);
+    services::Shell_WriteString(" settle_rpm=");
+    services::Shell_WriteUInt32(params->distance_settle_rpm);
+    services::Shell_WriteString(" tolerance_mm=");
+    services::Shell_WriteUInt32(params->distance_tolerance_mm);
+    services::Shell_WriteString("\r\n");
 }
 
 void HeadingCommand(int argc, const char * const argv[])
@@ -4689,8 +4737,15 @@ void HeadingCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(st->at_target ? 1U : 0U);
         services::Shell_WriteString(" last=");
         services::Shell_WriteString(DriverStatusText(st->last_status));
+        services::Shell_WriteString(" profile=");
+        services::Shell_WriteString(DistancePhaseText(st->distance_phase));
+        services::Shell_WriteString(" profile_rpm=");
+        WriteInt32(st->profile_command_rpm);
+        services::Shell_WriteString(" brake_mm=");
+        WriteInt32(st->brake_distance_mm);
         services::Shell_WriteString("\r\n");
-        if (st->mode == app::HEADING_DISTANCE) {
+        if ((st->mode == app::HEADING_DISTANCE) ||
+            (st->target_distance_mm != 0)) {
             services::Shell_WriteString("distance target_mm=");
             WriteInt32(st->target_distance_mm);
             services::Shell_WriteString(" traveled_mm=");
@@ -4699,10 +4754,96 @@ void HeadingCommand(int argc, const char * const argv[])
             WriteInt32(st->remaining_distance_mm);
             services::Shell_WriteString(" max_rpm=");
             WriteInt32(st->distance_max_rpm);
+            services::Shell_WriteString(" target_counts=");
+            WriteInt32(st->left_target_delta_counts);
+            services::Shell_WriteString("/");
+            WriteInt32(st->right_target_delta_counts);
             services::Shell_WriteString(" timeout_ms=");
             services::Shell_WriteUInt32(st->distance_timeout_ms);
             services::Shell_WriteString("\r\n");
         }
+        return;
+    }
+
+    if (StrEqual(argv[1], "profile")) {
+        if (argc == 2) {
+            PrintDistanceProfile();
+            return;
+        }
+        if (app::Heading_GetState()->mode == app::HEADING_DISTANCE) {
+            WriteStatusLine("heading profile: ", drivers::DRIVER_ERROR_BUSY);
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "save")) {
+            WriteStatusLine("heading profile save: ", ConfigStore_Save());
+            return;
+        }
+        if ((argc == 4) && StrEqual(argv[2], "mode")) {
+            int32_t mode = -1;
+            if (StrEqual(argv[3], "legacy")) {
+                mode = DISTANCE_SPEED_MODE_LEGACY;
+            } else if (StrEqual(argv[3], "trapezoid")) {
+                mode = DISTANCE_SPEED_MODE_TRAPEZOID;
+            }
+            if (mode < 0) {
+                PrintHeadingUsage();
+                return;
+            }
+            const drivers::DriverStatus status =
+                ConfigStore_Set("distance_speed_mode", mode);
+            WriteStatusLine("heading profile mode: ", status);
+            if (status == drivers::DRIVER_OK) {
+                PrintDistanceProfile();
+            }
+            return;
+        }
+        if (argc == 4) {
+            const char *param_name = 0;
+            uint32_t maximum = 0U;
+            uint32_t minimum = 0U;
+            if (StrEqual(argv[2], "accel")) {
+                param_name = "distance_accel_rpm_s";
+                minimum = 1U;
+                maximum = 5000U;
+            } else if (StrEqual(argv[2], "decel")) {
+                param_name = "distance_decel_rpm_s";
+                minimum = 1U;
+                maximum = 5000U;
+            } else if (StrEqual(argv[2], "creep")) {
+                param_name = "distance_creep_rpm";
+                minimum = 1U;
+                maximum = 500U;
+            } else if (StrEqual(argv[2], "latency")) {
+                param_name = "distance_stop_latency_ms";
+                maximum = 2000U;
+            } else if (StrEqual(argv[2], "margin")) {
+                param_name = "distance_brake_margin_mm";
+                maximum = 1000U;
+            } else if (StrEqual(argv[2], "settle")) {
+                param_name = "distance_settle_rpm";
+                maximum = 100U;
+            } else if (StrEqual(argv[2], "tolerance")) {
+                param_name = "distance_tolerance_mm";
+                minimum = 1U;
+                maximum = 100U;
+            }
+
+            uint32_t value = 0U;
+            if ((param_name == 0) ||
+                (!ParseUint32(argv[3], maximum, &value)) ||
+                (value < minimum)) {
+                PrintHeadingUsage();
+                return;
+            }
+            const drivers::DriverStatus status = ConfigStore_Set(
+                param_name, static_cast<int32_t>(value));
+            WriteStatusLine("heading profile set: ", status);
+            if (status == drivers::DRIVER_OK) {
+                PrintDistanceProfile();
+            }
+            return;
+        }
+        PrintHeadingUsage();
         return;
     }
 
@@ -4992,6 +5133,24 @@ void PrintLFUsage(void)
     services::Shell_WriteLine("  lf losttimeout <ms>");
 }
 
+const char *GrayscalePositionSourceText(
+    drivers::GrayscalePositionSource source)
+{
+    switch (source) {
+    case drivers::GRAYSCALE_POSITION_CORE:
+        return "core";
+    case drivers::GRAYSCALE_POSITION_LEFT_EDGE:
+        return "left_edge";
+    case drivers::GRAYSCALE_POSITION_RIGHT_EDGE:
+        return "right_edge";
+    case drivers::GRAYSCALE_POSITION_HELD:
+        return "held";
+    case drivers::GRAYSCALE_POSITION_NONE:
+    default:
+        return "none";
+    }
+}
+
 void LFCommand(int argc, const char * const argv[])
 {
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
@@ -5027,6 +5186,15 @@ void LFCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(st->last_sequence);
         services::Shell_WriteString(" road=");
         services::Shell_WriteString(app::GrayscaleRoad_TypeText(st->road_type));
+        services::Shell_WriteString(" pos_valid=");
+        services::Shell_WriteUInt32(st->position_valid ? 1U : 0U);
+        services::Shell_WriteString(" selected=");
+        WriteHex8(st->selected_mask);
+        services::Shell_WriteString(" confidence=");
+        services::Shell_WriteUInt32(st->position_confidence);
+        services::Shell_WriteString(" source=");
+        services::Shell_WriteString(
+            GrayscalePositionSourceText(st->position_source));
         services::Shell_WriteString("\r\n");
         return;
     }
@@ -6257,6 +6425,8 @@ void GrayCommand(int argc, const char * const argv[])
         WriteHex8(data->usable_mask);
         services::Shell_WriteString(" track=");
         WriteHex8(data->track_mask);
+        services::Shell_WriteString(" selected=");
+        WriteHex8(data->selected_mask);
         services::Shell_WriteString(" calib_fault=");
         WriteHex8(data->calibration_fault_mask);
         services::Shell_WriteString(" saturation=");
@@ -6265,10 +6435,17 @@ void GrayCommand(int argc, const char * const argv[])
         WriteHex8(data->channel_anomaly_mask);
         services::Shell_WriteString(" line=");
         services::Shell_WriteUInt32(data->line_detected ? 1U : 0U);
+        services::Shell_WriteString(" pos_valid=");
+        services::Shell_WriteUInt32(data->position_valid ? 1U : 0U);
         services::Shell_WriteString(" pos=");
         WriteInt32(data->line_position);
         services::Shell_WriteString(" strength=");
         services::Shell_WriteUInt32(data->line_strength);
+        services::Shell_WriteString(" confidence=");
+        services::Shell_WriteUInt32(data->position_confidence);
+        services::Shell_WriteString(" source=");
+        services::Shell_WriteString(
+            GrayscalePositionSourceText(data->position_source));
         services::Shell_WriteString(" road=");
         services::Shell_WriteString(app::GrayscaleRoad_TypeText(data->road_type));
         services::Shell_WriteString(" on=");
@@ -7034,7 +7211,7 @@ void AppShell_RegisterCommands(void)
 #if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
     (void) services::Shell_RegisterCommand(
         "heading",
-        "Heading: status|hold|turn|distance|stop",
+        "Heading: status|hold|turn|distance|profile|stop",
         HeadingCommand);
     (void) services::Shell_RegisterCommand(
         "run",

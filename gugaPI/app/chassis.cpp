@@ -12,7 +12,9 @@ namespace {
 
 namespace motor = motor_driver_client;
 
-static const uint32_t kPiMicro = 3141593U;
+/* 355/113 keeps sub-millimeter fixed-point math inside int64_t. */
+static const int64_t kPiNumerator = 355LL;
+static const int64_t kPiDenominator = 113LL;
 static const bool kLeftWheelMotor1 = false;
 static const bool kRightWheelMotor1 = true;
 static const uint8_t kM1PositionLease = 0x01U;
@@ -34,10 +36,10 @@ ChassisState g_state = {
     { 0, 0, 0, 0, 0U },
     { 0, 0, 0, 0, 0U },
     {
-        32U,
+        33050U,
         160U,
-        22400U,
-        22400U,
+        1456U,
+        1456U,
         static_cast<uint16_t>(motor::kSpeedMaxRpm)
     },
     drivers::DRIVER_ERROR_NOT_INITIALIZED,
@@ -90,20 +92,17 @@ int32_t DivideRoundInt64(int64_t numerator, int64_t denominator)
 }
 
 int32_t WheelMmPerSecondToRpm(int32_t wheel_mm_s,
-                              uint32_t wheel_radius_mm,
-                              uint32_t counts_per_rev)
+                              uint32_t wheel_radius_um)
 {
-    if (counts_per_rev == 0U) {
+    if (wheel_radius_um == 0U) {
         return 0;
     }
 
     const int64_t numerator =
         static_cast<int64_t>(wheel_mm_s) *
-        static_cast<int64_t>(counts_per_rev) * 60LL * 1000000LL;
+        60LL * 1000LL * kPiDenominator;
     const int64_t denominator =
-        2LL * static_cast<int64_t>(kPiMicro) *
-        static_cast<int64_t>(wheel_radius_mm) *
-        static_cast<int64_t>(counts_per_rev);
+        2LL * kPiNumerator * static_cast<int64_t>(wheel_radius_um);
 
     return DivideRoundInt64(numerator, denominator);
 }
@@ -114,8 +113,9 @@ int32_t AngularToWheelDeltaMmPerSecond(int32_t angular_mdeg_s,
     const int64_t numerator =
         static_cast<int64_t>(angular_mdeg_s) *
         static_cast<int64_t>(wheel_track_mm) *
-        static_cast<int64_t>(kPiMicro);
-    const int64_t denominator = 360000LL * 1000000LL;
+        kPiNumerator;
+    const int64_t denominator =
+        360000LL * kPiDenominator;
 
     return DivideRoundInt64(numerator, denominator);
 }
@@ -200,7 +200,7 @@ void RefreshConfig(void)
         return;
     }
 
-    g_state.config.wheel_radius_mm = params->wheel_radius_mm;
+    g_state.config.wheel_radius_um = params->wheel_radius_um;
     g_state.config.wheel_track_mm = params->wheel_track_mm;
     g_state.config.left_counts_per_rev = params->left_counts_per_rev;
     g_state.config.right_counts_per_rev = params->right_counts_per_rev;
@@ -412,12 +412,10 @@ drivers::DriverStatus Chassis_SetVelocity(int32_t linear_mm_s,
     const int32_t right_mm_s = linear_mm_s + delta_mm_s;
     const int32_t left_rpm =
         WheelMmPerSecondToRpm(left_mm_s,
-                              g_state.config.wheel_radius_mm,
-                              g_state.config.left_counts_per_rev);
+                              g_state.config.wheel_radius_um);
     const int32_t right_rpm =
         WheelMmPerSecondToRpm(right_mm_s,
-                              g_state.config.wheel_radius_mm,
-                              g_state.config.right_counts_per_rev);
+                              g_state.config.wheel_radius_um);
 
     const drivers::DriverStatus status =
         Chassis_SetWheelRpm(left_rpm, right_rpm);
