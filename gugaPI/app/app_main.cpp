@@ -42,7 +42,24 @@ const uint32_t CHASSIS_FEEDBACK_PERIOD_MS = 20U;
 
 static services::SchedulerTaskId g_chassisTaskId = 0U;
 static bool g_chassisTaskRegistered = false;
+static bool g_chassisTaskEnabled = false;
 static bool g_faultStopHandled = false;
+
+void SetChassisTaskEnabled(bool enabled)
+{
+    if ((!g_chassisTaskRegistered) ||
+        (g_chassisTaskEnabled == enabled)) {
+        return;
+    }
+
+    if (services::Scheduler_EnableTask(g_chassisTaskId, enabled) !=
+        services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+        return;
+    }
+
+    g_chassisTaskEnabled = enabled;
+}
 
 void App_ChassisServiceTask(void)
 {
@@ -468,6 +485,8 @@ void App_Init(void)
         services::Fault_Set(services::FAULT_UNKNOWN);
     } else {
         g_chassisTaskRegistered = true;
+        /* Scheduler_AddTask creates tasks in the enabled state. */
+        g_chassisTaskEnabled = true;
     }
     if (services::Scheduler_AddTask("chassis_fb",
                                     App_ChassisFeedbackTask,
@@ -630,9 +649,7 @@ void App_Run(void)
             (void) LF_Stop();
 #endif
             (void) Chassis_Stop();
-            if (g_chassisTaskRegistered) {
-                (void) services::Scheduler_EnableTask(g_chassisTaskId, false);
-            }
+            SetChassisTaskEnabled(false);
         }
 #endif
         return;
@@ -645,15 +662,11 @@ void App_Run(void)
 #if FEATURE_ENABLE_MOTOR_DRIVER
     switch (g_appState.mode) {
     case APP_MODE_COMPETITION_ARMED:
-        if (g_chassisTaskRegistered) {
-            (void) services::Scheduler_EnableTask(g_chassisTaskId, false);
-        }
+        SetChassisTaskEnabled(false);
         break;
 
     case APP_MODE_COMPETITION_RUNNING:
-        if (g_chassisTaskRegistered) {
-            (void) services::Scheduler_EnableTask(g_chassisTaskId, true);
-        }
+        SetChassisTaskEnabled(true);
         if (!ActionRunner_GetState()->running) {
             g_appState.mode = APP_MODE_COMPETITION_ARMED;
             (void) Chassis_Stop();
@@ -662,9 +675,7 @@ void App_Run(void)
 
     default:
         g_appState.mode = APP_MODE_RUNNING;
-        if (g_chassisTaskRegistered) {
-            (void) services::Scheduler_EnableTask(g_chassisTaskId, true);
-        }
+        SetChassisTaskEnabled(true);
         break;
     }
 #else

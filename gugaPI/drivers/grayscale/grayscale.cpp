@@ -5,7 +5,13 @@ namespace {
 
 void DelayCycles(uint32_t cycles)
 {
-    for (volatile uint32_t i = 0U; i < cycles; i++) {
+    /* A volatile C loop does not consume one CPU cycle per iteration and its
+     * timing changes with compiler/code-generation choices.  DriverLib's
+     * calibrated delay keeps the mux settling interval expressed in actual
+     * CPU cycles.  Guard zero because DL_Common_delayCycles(0) wraps to its
+     * maximum delay. */
+    if (cycles != 0U) {
+        delay_cycles(cycles);
     }
 }
 
