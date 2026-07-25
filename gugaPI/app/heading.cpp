@@ -20,10 +20,16 @@ static const int32_t kMaxErrorMdeg = 90000;   /* 90 deg -> stop (something wrong
 static const int32_t kStaleUpdateMs = 200;    /* task starved -> IMU likely stale */
 static const int32_t kTurnTimeoutMs = 8000;
 static const int32_t kScale = 1000000;        /* correction_rpm = error_mdeg * kp / kScale */
+static const int32_t kDistanceMaxMm = 10000;
+static const int32_t kDistanceToleranceMm = 3;
+static const int32_t kDistanceMinRpm = 15;
+static const uint32_t kDistanceSettleMs = 100U;
+static const uint32_t kFeedbackStaleMs = 100U;
+static const uint32_t kDistanceMinTimeoutMs = 500U;
+static const uint32_t kDistanceMaxTimeoutMs = 60000U;
+static const int64_t kPiMicro = 3141593LL;
 
-HeadingState g_state = {
-    HEADING_IDLE, 0, 0, 0, 0, false, 0, 0, 0, drivers::DRIVER_OK
-};
+HeadingState g_state = {};
 
 int32_t AbsInt32(int32_t v)
 {
@@ -42,6 +48,124 @@ int32_t ClampInt32(int32_t v, int32_t lo, int32_t hi)
         return hi;
     }
     return v;
+}
+
+int32_t DivideRoundInt64(int64_t numerator, int64_t denominator)
+{
+    if (denominator <= 0) {
+        return 0;
+    }
+    if (numerator >= 0) {
+        numerator += denominator / 2;
+    } else {
+        numerator -= denominator / 2;
+    }
+    const int64_t result = numerator / denominator;
+    if (result > INT32_MAX) {
+        return INT32_MAX;
+    }
+    if (result < INT32_MIN) {
+        return INT32_MIN;
+    }
+    return static_cast<int32_t>(result);
+}
+
+int32_t EncoderDelta(int32_t current, int32_t start)
+{
+    const uint32_t raw = static_cast<uint32_t>(current) -
+                         static_cast<uint32_t>(start);
+    if (raw <= static_cast<uint32_t>(INT32_MAX)) {
+        return static_cast<int32_t>(raw);
+    }
+    return -1 - static_cast<int32_t>(UINT32_MAX - raw);
+}
+
+bool MillimetersToCounts(int32_t distance_mm,
+                         uint32_t wheel_radius_mm,
+                         uint32_t counts_per_rev,
+                         int32_t *counts)
+{
+    if ((counts == 0) || (wheel_radius_mm == 0U) ||
+        (counts_per_rev == 0U)) {
+        return false;
+    }
+    const int64_t numerator =
+        static_cast<int64_t>(distance_mm) *
+        static_cast<int64_t>(counts_per_rev) * 1000000LL;
+    const int64_t denominator =
+        2LL * kPiMicro * static_cast<int64_t>(wheel_radius_mm);
+    const int64_t rounded = (numerator >= 0)
+        ? ((numerator + denominator / 2LL) / denominator)
+        : ((numerator - denominator / 2LL) / denominator);
+    if ((rounded > INT32_MAX) || (rounded < INT32_MIN)) {
+        return false;
+    }
+    *counts = static_cast<int32_t>(rounded);
+    return true;
+}
+
+int32_t CountsToMillimeters(int32_t counts,
+                            uint32_t wheel_radius_mm,
+                            uint32_t counts_per_rev)
+{
+    if ((wheel_radius_mm == 0U) || (counts_per_rev == 0U)) {
+        return 0;
+    }
+    const int64_t numerator =
+        static_cast<int64_t>(counts) * 2LL * kPiMicro *
+        static_cast<int64_t>(wheel_radius_mm);
+    const int64_t denominator =
+        static_cast<int64_t>(counts_per_rev) * 1000000LL;
+    return DivideRoundInt64(numerator, denominator);
+}
+
+bool IsFeedbackFresh(const ChassisState *chassis, uint32_t now_ms)
+{
+    return (chassis != 0) && chassis->initialized &&
+           (chassis->last_feedback_status == drivers::DRIVER_OK) &&
+           (chassis->feedback_sequence != 0U) &&
+           ((now_ms - chassis->last_feedback_ms) <= kFeedbackStaleMs);
+}
+
+uint32_t CalculateDistanceTimeoutMs(int32_t distance_mm,
+                                    int32_t max_rpm,
+                                    uint32_t wheel_radius_mm)
+{
+    const int64_t numerator =
+        static_cast<int64_t>(AbsInt32(distance_mm)) * 60000LL * 1000000LL;
+    const int64_t denominator =
+        2LL * kPiMicro * static_cast<int64_t>(wheel_radius_mm) *
+        static_cast<int64_t>(max_rpm);
+    uint32_t expected_ms = static_cast<uint32_t>(
+        DivideRoundInt64(numerator, denominator));
+    uint64_t timeout = static_cast<uint64_t>(expected_ms) * 3ULL + 2000ULL;
+    if (timeout < 3000ULL) {
+        timeout = 3000ULL;
+    }
+    if (timeout > kDistanceMaxTimeoutMs) {
+        timeout = kDistanceMaxTimeoutMs;
+    }
+    return static_cast<uint32_t>(timeout);
+}
+
+void ResetDistanceState(void)
+{
+    g_state.target_distance_mm = 0;
+    g_state.traveled_distance_mm = 0;
+    g_state.remaining_distance_mm = 0;
+    g_state.distance_max_rpm = 0;
+    g_state.start_left_encoder_count = 0;
+    g_state.start_right_encoder_count = 0;
+    g_state.distance_start_ms = 0U;
+    g_state.distance_timeout_ms = 0U;
+    g_state.last_feedback_sequence = 0U;
+}
+
+bool IsImuFresh(const AppImuData *imu, uint32_t now_ms)
+{
+    return (imu != 0) && imu->valid &&
+           ((now_ms - imu->last_update_ms) <=
+            static_cast<uint32_t>(kStaleUpdateMs));
 }
 
 /* Shortest signed angle from current to target, wrapped to [-180000, 180000]
@@ -90,22 +214,15 @@ void SafetyStop(services::FaultCode code)
 
 void Heading_Init(void)
 {
+    g_state = {};
     g_state.mode = HEADING_IDLE;
-    g_state.target_yaw_mdeg = 0;
-    g_state.base_rpm = 0;
-    g_state.correction_rpm = 0;
-    g_state.error_mdeg = 0;
-    g_state.at_target = false;
-    g_state.at_target_since_ms = 0U;
-    g_state.turn_start_ms = 0U;
-    g_state.last_run_ms = 0U;
     g_state.last_status = drivers::DRIVER_OK;
 }
 
 drivers::DriverStatus Heading_HoldStart(int32_t base_rpm)
 {
     const AppImuData *imu = App_ImuGetData();
-    if ((imu == 0) || (!imu->valid)) {
+    if (!IsImuFresh(imu, services::Time_Millis())) {
         g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
@@ -117,6 +234,7 @@ drivers::DriverStatus Heading_HoldStart(int32_t base_rpm)
     g_state.error_mdeg = 0;
     g_state.at_target = false;
     g_state.at_target_since_ms = 0U;
+    ResetDistanceState();
     g_state.last_run_ms = services::Time_Millis();
     g_state.last_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
@@ -130,7 +248,7 @@ drivers::DriverStatus Heading_TurnStart(int32_t delta_deg)
     }
 
     const AppImuData *imu = App_ImuGetData();
-    if ((imu == 0) || (!imu->valid)) {
+    if (!IsImuFresh(imu, services::Time_Millis())) {
         g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
@@ -143,8 +261,76 @@ drivers::DriverStatus Heading_TurnStart(int32_t delta_deg)
     g_state.error_mdeg = delta_mdeg;
     g_state.at_target = false;
     g_state.at_target_since_ms = 0U;
+    ResetDistanceState();
     g_state.turn_start_ms = services::Time_Millis();
     g_state.last_run_ms = g_state.turn_start_ms;
+    g_state.last_status = drivers::DRIVER_OK;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus Heading_DistanceStart(int32_t distance_mm,
+                                            int32_t max_rpm,
+                                            uint32_t timeout_ms)
+{
+    const uint32_t now = services::Time_Millis();
+    if ((distance_mm == 0) ||
+        (AbsInt32(distance_mm) > kDistanceMaxMm) ||
+        (max_rpm <= 0) ||
+        ((timeout_ms != 0U) &&
+         ((timeout_ms < kDistanceMinTimeoutMs) ||
+          (timeout_ms > kDistanceMaxTimeoutMs)))) {
+        g_state.last_status = drivers::DRIVER_ERROR_INVALID_ARG;
+        return g_state.last_status;
+    }
+
+    const AppImuData *imu = App_ImuGetData();
+    const ChassisState *chassis = Chassis_GetState();
+    if ((!IsImuFresh(imu, now)) || (!IsFeedbackFresh(chassis, now))) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return g_state.last_status;
+    }
+    if (max_rpm > static_cast<int32_t>(chassis->config.max_wheel_rpm)) {
+        g_state.last_status = drivers::DRIVER_ERROR_INVALID_ARG;
+        return g_state.last_status;
+    }
+
+    int32_t left_target_counts = 0;
+    int32_t right_target_counts = 0;
+    if ((!MillimetersToCounts(distance_mm,
+                              chassis->config.wheel_radius_mm,
+                              chassis->config.left_counts_per_rev,
+                              &left_target_counts)) ||
+        (!MillimetersToCounts(distance_mm,
+                              chassis->config.wheel_radius_mm,
+                              chassis->config.right_counts_per_rev,
+                              &right_target_counts)) ||
+        (left_target_counts == 0) || (right_target_counts == 0)) {
+        g_state.last_status = drivers::DRIVER_ERROR_INVALID_ARG;
+        return g_state.last_status;
+    }
+
+    g_state.mode = HEADING_DISTANCE;
+    g_state.target_yaw_mdeg = imu->yaw_mdeg;
+    g_state.base_rpm = 0;
+    g_state.correction_rpm = 0;
+    g_state.error_mdeg = 0;
+    g_state.at_target = false;
+    g_state.at_target_since_ms = 0U;
+    g_state.turn_start_ms = 0U;
+    g_state.target_distance_mm = distance_mm;
+    g_state.traveled_distance_mm = 0;
+    g_state.remaining_distance_mm = distance_mm;
+    g_state.distance_max_rpm = max_rpm;
+    g_state.start_left_encoder_count = chassis->left.encoder_count;
+    g_state.start_right_encoder_count = chassis->right.encoder_count;
+    g_state.distance_start_ms = now;
+    g_state.distance_timeout_ms = (timeout_ms == 0U)
+        ? CalculateDistanceTimeoutMs(distance_mm,
+                                     max_rpm,
+                                     chassis->config.wheel_radius_mm)
+        : timeout_ms;
+    g_state.last_feedback_sequence = chassis->feedback_sequence;
+    g_state.last_run_ms = now;
     g_state.last_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 }
@@ -183,7 +369,7 @@ void Heading_Update(void)
     }
 
     const AppImuData *imu = App_ImuGetData();
-    if ((imu == 0) || (!imu->valid)) {
+    if (!IsImuFresh(imu, now)) {
         SafetyStop(services::FAULT_SENSOR_LOST);
         return;
     }
@@ -215,6 +401,108 @@ void Heading_Update(void)
         g_state.last_status = s;
         if (s != drivers::DRIVER_OK) {
             SafetyStop(services::FAULT_NONE);
+        }
+        return;
+    }
+
+    if (g_state.mode == HEADING_DISTANCE) {
+        if ((now - g_state.distance_start_ms) >
+            g_state.distance_timeout_ms) {
+            g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;
+            SafetyStop(services::FAULT_DRIVER_TIMEOUT);
+            return;
+        }
+        if (AbsInt32(error) > kMaxErrorMdeg) {
+            g_state.last_status = drivers::DRIVER_ERROR;
+            SafetyStop(services::FAULT_SENSOR_LOST);
+            return;
+        }
+
+        const ChassisState *chassis = Chassis_GetState();
+        if (!IsFeedbackFresh(chassis, now)) {
+            g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;
+            SafetyStop(services::FAULT_SENSOR_LOST);
+            return;
+        }
+        if (chassis->feedback_sequence == g_state.last_feedback_sequence) {
+            return;
+        }
+        g_state.last_feedback_sequence = chassis->feedback_sequence;
+
+        const int32_t left_counts = EncoderDelta(
+            chassis->left.encoder_count,
+            g_state.start_left_encoder_count);
+        const int32_t right_counts = EncoderDelta(
+            chassis->right.encoder_count,
+            g_state.start_right_encoder_count);
+        const int32_t left_mm = CountsToMillimeters(
+            left_counts,
+            chassis->config.wheel_radius_mm,
+            chassis->config.left_counts_per_rev);
+        const int32_t right_mm = CountsToMillimeters(
+            right_counts,
+            chassis->config.wheel_radius_mm,
+            chassis->config.right_counts_per_rev);
+        g_state.traveled_distance_mm = static_cast<int32_t>(
+            (static_cast<int64_t>(left_mm) +
+             static_cast<int64_t>(right_mm)) / 2LL);
+        g_state.remaining_distance_mm =
+            g_state.target_distance_mm - g_state.traveled_distance_mm;
+
+        const bool left_reached =
+            AbsInt32(g_state.target_distance_mm - left_mm) <=
+            kDistanceToleranceMm;
+        const bool right_reached =
+            AbsInt32(g_state.target_distance_mm - right_mm) <=
+            kDistanceToleranceMm;
+        if (left_reached && right_reached) {
+            if (!g_state.at_target) {
+                g_state.at_target = true;
+                g_state.at_target_since_ms = now;
+                g_state.base_rpm = 0;
+                g_state.correction_rpm = 0;
+                g_state.last_status = Chassis_Stop();
+                if (g_state.last_status != drivers::DRIVER_OK) {
+                    SafetyStop(services::FAULT_DRIVER_TIMEOUT);
+                    return;
+                }
+            }
+            if ((now - g_state.at_target_since_ms) >= kDistanceSettleMs) {
+                g_state.mode = HEADING_IDLE;
+                g_state.last_status = drivers::DRIVER_OK;
+            }
+            return;
+        }
+
+        g_state.at_target = false;
+        int32_t speed = AbsInt32(g_state.remaining_distance_mm);
+        speed = ClampInt32(speed,
+                           (g_state.distance_max_rpm < kDistanceMinRpm)
+                               ? g_state.distance_max_rpm
+                               : kDistanceMinRpm,
+                           g_state.distance_max_rpm);
+        const int32_t direction = (g_state.remaining_distance_mm != 0)
+            ? ((g_state.remaining_distance_mm > 0) ? 1 : -1)
+            : ((g_state.target_distance_mm > 0) ? 1 : -1);
+        g_state.base_rpm = speed * direction;
+
+        int32_t correction = GainToRpm(error, params->heading_kp);
+        correction = ClampInt32(correction,
+                                 -params->heading_max_correction_rpm,
+                                 params->heading_max_correction_rpm);
+        correction *= kYawSign;
+        g_state.correction_rpm = correction;
+        const int32_t wheel_limit =
+            static_cast<int32_t>(chassis->config.max_wheel_rpm);
+        const int32_t left = ClampInt32(g_state.base_rpm - correction,
+                                        -wheel_limit,
+                                        wheel_limit);
+        const int32_t right = ClampInt32(g_state.base_rpm + correction,
+                                         -wheel_limit,
+                                         wheel_limit);
+        g_state.last_status = Chassis_SetWheelRpm(left, right);
+        if (g_state.last_status != drivers::DRIVER_OK) {
+            SafetyStop(services::FAULT_DRIVER_TIMEOUT);
         }
         return;
     }

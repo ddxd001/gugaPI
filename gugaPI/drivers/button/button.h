@@ -9,11 +9,24 @@
 
 namespace drivers {
 
+enum ButtonEvent : uint32_t {
+    BUTTON_EVENT_NONE          = 0U,
+    BUTTON_EVENT_PRESSED       = (1U << 0U),
+    BUTTON_EVENT_RELEASED      = (1U << 1U),
+    BUTTON_EVENT_SHORT_PRESSED = (1U << 2U),
+    BUTTON_EVENT_LONG_PRESSED  = (1U << 3U),
+    BUTTON_EVENT_ALL           = BUTTON_EVENT_PRESSED |
+                                 BUTTON_EVENT_RELEASED |
+                                 BUTTON_EVENT_SHORT_PRESSED |
+                                 BUTTON_EVENT_LONG_PRESSED
+};
+
 struct ButtonConfig {
     GPIO_Regs *port;
     uint32_t pin;
     bool active_low;
     uint32_t debounce_ms;
+    uint32_t long_press_ms;
 };
 
 struct ButtonContext {
@@ -22,9 +35,12 @@ struct ButtonContext {
     bool raw_pressed;
     bool debounced_pressed;
     bool last_raw_pressed;
-    bool pressed_event;
-    bool released_event;
+    bool press_timing_active;
+    bool long_press_reported;
     uint32_t last_change_ms;
+    uint32_t press_start_ms;
+    uint32_t press_duration_ms;
+    uint32_t pending_events;
 };
 
 DriverStatus Button_Init(ButtonContext *ctx, const ButtonConfig *config);
@@ -33,8 +49,13 @@ DriverStatus Button_Update(ButtonContext *ctx, uint32_t now_ms);
 DriverStatus Button_ReadRaw(ButtonContext *ctx, bool *pressed);
 bool Button_IsReady(const ButtonContext *ctx);
 bool Button_IsPressed(const ButtonContext *ctx);
+uint32_t Button_PeekEvents(const ButtonContext *ctx);
+uint32_t Button_TakeEvents(ButtonContext *ctx, uint32_t event_mask);
+uint32_t Button_GetPressDurationMs(const ButtonContext *ctx);
 bool Button_WasPressed(ButtonContext *ctx);
 bool Button_WasReleased(ButtonContext *ctx);
+bool Button_WasShortPressed(ButtonContext *ctx);
+bool Button_WasLongPressed(ButtonContext *ctx);
 
 } /* namespace drivers */
 

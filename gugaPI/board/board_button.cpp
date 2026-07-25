@@ -12,19 +12,22 @@ static const drivers::ButtonConfig g_buttonConfigs[BOARD_BUTTON_COUNT] = {
         BOARD_BUTTON1_PORT,
         BOARD_BUTTON1_PIN,
         (BOARD_BUTTON_ACTIVE_LOW != 0U),
-        BOARD_BUTTON_DEBOUNCE_MS
+        BOARD_BUTTON_DEBOUNCE_MS,
+        BOARD_BUTTON_LONG_PRESS_MS
     },
     {
         BOARD_BUTTON2_PORT,
         BOARD_BUTTON2_PIN,
         (BOARD_BUTTON_ACTIVE_LOW != 0U),
-        BOARD_BUTTON_DEBOUNCE_MS
+        BOARD_BUTTON_DEBOUNCE_MS,
+        BOARD_BUTTON_LONG_PRESS_MS
     },
     {
         BOARD_BUTTON3_PORT,
         BOARD_BUTTON3_PIN,
         (BOARD_BUTTON_ACTIVE_LOW != 0U),
-        BOARD_BUTTON_DEBOUNCE_MS
+        BOARD_BUTTON_DEBOUNCE_MS,
+        BOARD_BUTTON_LONG_PRESS_MS
     }
 };
 
@@ -108,6 +111,33 @@ bool Board_ButtonIsPressed(BoardButtonId id)
     return drivers::Button_IsPressed(&g_buttonContexts[id]);
 }
 
+uint32_t Board_ButtonPeekEvents(BoardButtonId id)
+{
+    if (!IsValidButtonId(id)) {
+        return drivers::BUTTON_EVENT_NONE;
+    }
+
+    return drivers::Button_PeekEvents(&g_buttonContexts[id]);
+}
+
+uint32_t Board_ButtonTakeEvents(BoardButtonId id, uint32_t event_mask)
+{
+    if (!IsValidButtonId(id)) {
+        return drivers::BUTTON_EVENT_NONE;
+    }
+
+    return drivers::Button_TakeEvents(&g_buttonContexts[id], event_mask);
+}
+
+uint32_t Board_ButtonGetPressDurationMs(BoardButtonId id)
+{
+    if (!IsValidButtonId(id)) {
+        return 0U;
+    }
+
+    return drivers::Button_GetPressDurationMs(&g_buttonContexts[id]);
+}
+
 bool Board_ButtonWasPressed(BoardButtonId id)
 {
     if (!IsValidButtonId(id)) {
@@ -124,6 +154,24 @@ bool Board_ButtonWasReleased(BoardButtonId id)
     }
 
     return drivers::Button_WasReleased(&g_buttonContexts[id]);
+}
+
+bool Board_ButtonWasShortPressed(BoardButtonId id)
+{
+    if (!IsValidButtonId(id)) {
+        return false;
+    }
+
+    return drivers::Button_WasShortPressed(&g_buttonContexts[id]);
+}
+
+bool Board_ButtonWasLongPressed(BoardButtonId id)
+{
+    if (!IsValidButtonId(id)) {
+        return false;
+    }
+
+    return drivers::Button_WasLongPressed(&g_buttonContexts[id]);
 }
 
 } /* namespace board */

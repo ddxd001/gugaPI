@@ -6,6 +6,7 @@
 
 #include "drivers/common/driver_status.h"
 #include "drivers/icm45686/icm45686.h"
+#include "drivers/lis3mdl/lis3mdl.h"
 
 namespace board {
 
@@ -22,7 +23,11 @@ struct BoardImuLineStatus {
 };
 
 drivers::DriverStatus Board_ImuInit(void);
+/* Reports shared SPI/pin readiness. Use Board_Icm45686IsReady() for the
+ * ICM-45686 device initialization result. */
 bool Board_ImuIsReady(void);
+/* Compatibility alias retained for code that explicitly names SPI readiness. */
+bool Board_ImuSpiIsReady(void);
 drivers::DriverStatus Board_ImuSetChipSelectDebug(bool icm_output_enable,
                                                   bool icm_high,
                                                   bool lis_output_enable,
@@ -36,10 +41,23 @@ drivers::DriverStatus Board_ImuSpiSampleIcm(uint8_t tx,
 drivers::DriverStatus Board_ImuGetLineStatus(BoardImuLineStatus *status);
 drivers::DriverStatus Board_Lis3mdlReadRegister(uint8_t reg, uint8_t *value);
 drivers::DriverStatus Board_Lis3mdlReadWhoAmI(uint8_t *value);
+drivers::DriverStatus Board_Lis3mdlInit(void);
+bool Board_Lis3mdlIsReady(void);
+drivers::DriverStatus Board_Lis3mdlGetInitStatus(void);
+drivers::DriverStatus Board_Lis3mdlSetFullScale(uint8_t full_scale);
+drivers::DriverStatus Board_Lis3mdlSetOutputDataRate(uint8_t output_data_rate);
+drivers::DriverStatus Board_Lis3mdlSetOperatingMode(uint8_t operating_mode);
+drivers::DriverStatus Board_Lis3mdlIsDataReady(bool *ready);
+drivers::DriverStatus Board_Lis3mdlReadRaw(drivers::Lis3mdlRawData *data);
+uint8_t Board_Lis3mdlGetFullScale(void);
+uint8_t Board_Lis3mdlGetOutputDataRate(void);
+uint8_t Board_Lis3mdlGetOperatingMode(void);
+const drivers::Lis3mdlConfig *Board_Lis3mdlGetConfig(void);
 
 /* ICM-45686 device-level access (delegated to drivers::icm45686). */
 drivers::DriverStatus Board_Icm45686Init(void);
 bool Board_Icm45686IsReady(void);
+drivers::DriverStatus Board_Icm45686GetInitStatus(void);
 drivers::DriverStatus Board_Icm45686ReadRegister(uint8_t reg, uint8_t *value);
 drivers::DriverStatus Board_Icm45686WriteRegister(uint8_t reg, uint8_t value);
 drivers::DriverStatus Board_Icm45686ReadBurst(uint8_t reg,

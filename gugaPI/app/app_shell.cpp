@@ -5,6 +5,8 @@
 #include "app/chassis.h"
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
+#include "app/app_ina219.h"
+#include "app/app_lora.h"
 #include "app/action.h"
 #include "app/config_store.h"
 #include "app/heading.h"
@@ -230,20 +232,6 @@ bool ParseInt32(const char *text,
     return true;
 }
 
-#if FEATURE_ENABLE_SHELL_DIAGNOSTICS
-bool ParsePercent(const char *text, uint8_t *outValue)
-{
-    uint32_t value = 0U;
-
-    if ((outValue == 0) || (!ParseUint32(text, 100U, &value))) {
-        return false;
-    }
-
-    *outValue = (uint8_t) value;
-    return true;
-}
-#endif
-
 bool ParseOnOff(const char *text, bool *outValue)
 {
     if ((text == 0) || (outValue == 0)) {
@@ -387,6 +375,8 @@ const char *DriverStatusText(drivers::DriverStatus status)
             return "busy";
         case drivers::DRIVER_ERROR_UNSUPPORTED:
             return "unsupported";
+        case drivers::DRIVER_ERROR_NACK:
+            return "nack";
         default:
             return "unknown";
     }
@@ -432,6 +422,7 @@ void PrintIna219Usage(void)
     services::Shell_WriteLine("  ina219 read");
     services::Shell_WriteLine("  ina219 raw");
     services::Shell_WriteLine("  ina219 reg <0..5> [value]");
+    services::Shell_WriteLine("  ina219 protect status|clear");
     services::Shell_WriteLine("  ina219 oled on [period_ms 100..5000]|off|status|once");
 }
 
@@ -1314,6 +1305,8 @@ void PrintImuUsage(void)
     services::Shell_WriteLine("  imu oled on [period_ms]|off|status|once");
     services::Shell_WriteLine("  imu lis whoami");
     services::Shell_WriteLine("  imu lis reg <addr>");
+    services::Shell_WriteLine("  imu lis status|init|sample");
+    services::Shell_WriteLine("  imu lis scale <0..3>|odr <0..7>|mode <0..2>");
     services::Shell_WriteLine("  imu sample");
     services::Shell_WriteLine("  imu icm init");
     services::Shell_WriteLine("  imu icm whoami");
@@ -1334,6 +1327,8 @@ void PrintLoraUsage(void)
     services::Shell_WriteLine("  lora read [len 1..64]");
     services::Shell_WriteLine("  lora clear");
     services::Shell_WriteLine("  lora test");
+    services::Shell_WriteLine("  lora proto on|off|status|reset|recv");
+    services::Shell_WriteLine("  lora proto send <type> <ack|noack> [text...]");
 }
 #endif
 
@@ -1596,6 +1591,12 @@ void PrintChassisState(const ChassisState &state)
     WriteInt32(state.target_angular_mdeg_s);
     services::Shell_WriteString(" last=");
     services::Shell_WriteString(DriverStatusText(state.last_status));
+    services::Shell_WriteString(" fb=");
+    services::Shell_WriteString(DriverStatusText(state.last_feedback_status));
+    services::Shell_WriteString(" fb_seq=");
+    services::Shell_WriteUInt32(state.feedback_sequence);
+    services::Shell_WriteString(" fb_ms=");
+    services::Shell_WriteUInt32(state.last_feedback_ms);
     services::Shell_WriteString("\r\n");
 
     services::Shell_WriteString("chassis cfg radius_mm=");
@@ -2028,10 +2029,20 @@ void ButtonCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" debounced=");
         services::Shell_WriteString(
             board::Board_ButtonIsPressed(id) ? "pressed" : "released");
-        services::Shell_WriteString(" press_event=");
-        services::Shell_WriteUInt32(board::Board_ButtonWasPressed(id) ? 1U : 0U);
-        services::Shell_WriteString(" release_event=");
-        services::Shell_WriteUInt32(board::Board_ButtonWasReleased(id) ? 1U : 0U);
+        const uint32_t events = board::Board_ButtonTakeEvents(
+            id,
+            drivers::BUTTON_EVENT_ALL);
+        services::Shell_WriteString(" held_ms=");
+        services::Shell_WriteUInt32(board::Board_ButtonGetPressDurationMs(id));
+        services::Shell_WriteString(" events=");
+        services::Shell_WriteString(
+            ((events & drivers::BUTTON_EVENT_PRESSED) != 0U) ? "D" : "-");
+        services::Shell_WriteString(
+            ((events & drivers::BUTTON_EVENT_RELEASED) != 0U) ? "U" : "-");
+        services::Shell_WriteString(
+            ((events & drivers::BUTTON_EVENT_SHORT_PRESSED) != 0U) ? "S" : "-");
+        services::Shell_WriteString(
+            ((events & drivers::BUTTON_EVENT_LONG_PRESSED) != 0U) ? "L" : "-");
         services::Shell_WriteString("\r\n");
     }
 
@@ -2827,12 +2838,59 @@ void Ina219Command(int argc, const char * const argv[])
     uint32_t reg = 0U;
     uint32_t value = 0U;
 
-    if ((argc < 2) || (!board::Board_Ina219IsReady())) {
-        if (argc < 2) {
-            PrintIna219Usage();
-        } else {
-            services::Shell_WriteLine("ina219: not ready");
+    if (argc < 2) {
+        PrintIna219Usage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "protect")) {
+        if ((argc == 3) && StrEqual(argv[2], "clear")) {
+            App_Ina219ClearLatchedFaults();
+            services::Shell_WriteLine("ina219 protect clear: ok");
+            return;
         }
+        if ((argc != 3) || (!StrEqual(argv[2], "status"))) {
+            PrintIna219Usage();
+            return;
+        }
+
+        const AppIna219Data *data = App_Ina219GetData();
+        const Ina219ProtectionState &state = data->protection;
+        services::Shell_WriteString("ina219 protect initialized=");
+        services::Shell_WriteUInt32(data->initialized ? 1U : 0U);
+        services::Shell_WriteString(" active=");
+        WriteHex8(state.active_fault_mask);
+        services::Shell_WriteString(" latched=");
+        WriteHex8(state.latched_fault_mask);
+        services::Shell_WriteString(" inhibit=");
+        services::Shell_WriteUInt32(state.motion_inhibit_requested ? 1U : 0U);
+        services::Shell_WriteString(" last=");
+        services::Shell_WriteString(DriverStatusText(state.last_read_status));
+        services::Shell_WriteString(" samples=");
+        services::Shell_WriteUInt32(state.successful_sample_count);
+        services::Shell_WriteString(" errors=");
+        services::Shell_WriteUInt32(state.read_error_count);
+        services::Shell_WriteString("\r\n");
+        services::Shell_WriteString("ina219 protect uv=");
+        services::Shell_WriteUInt32(state.config.undervoltage_trip_mv);
+        services::Shell_WriteString("/");
+        services::Shell_WriteUInt32(state.config.undervoltage_release_mv);
+        services::Shell_WriteString("mV oc=");
+        services::Shell_WriteUInt32(state.config.overcurrent_trip_ma);
+        services::Shell_WriteString("/");
+        services::Shell_WriteUInt32(state.config.overcurrent_release_ma);
+        services::Shell_WriteString("mA trip/release/comm=");
+        services::Shell_WriteUInt32(state.config.trip_samples);
+        services::Shell_WriteString("/");
+        services::Shell_WriteUInt32(state.config.release_samples);
+        services::Shell_WriteString("/");
+        services::Shell_WriteUInt32(state.config.communication_fail_samples);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (!board::Board_Ina219IsReady()) {
+        services::Shell_WriteLine("ina219: not ready");
         return;
     }
 
@@ -3407,6 +3465,67 @@ void ImuCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "lis")) {
+        if ((argc == 3) && StrEqual(argv[2], "status")) {
+            services::Shell_WriteString("imu lis ready=");
+            services::Shell_WriteUInt32(board::Board_Lis3mdlIsReady() ? 1U : 0U);
+            services::Shell_WriteString(" init=");
+            services::Shell_WriteString(
+                DriverStatusText(board::Board_Lis3mdlGetInitStatus()));
+            services::Shell_WriteString(" scale=");
+            services::Shell_WriteUInt32(board::Board_Lis3mdlGetFullScale());
+            services::Shell_WriteString(" odr=");
+            services::Shell_WriteUInt32(board::Board_Lis3mdlGetOutputDataRate());
+            services::Shell_WriteString(" mode=");
+            services::Shell_WriteUInt32(board::Board_Lis3mdlGetOperatingMode());
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "init")) {
+            WriteStatusLine("imu lis init: ", board::Board_Lis3mdlInit());
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "sample")) {
+            drivers::Lis3mdlRawData sample = {};
+            const drivers::DriverStatus status =
+                board::Board_Lis3mdlReadRaw(&sample);
+            if (status != drivers::DRIVER_OK) {
+                WriteStatusLine("imu lis sample: ", status);
+                return;
+            }
+            const uint8_t scale = board::Board_Lis3mdlGetFullScale();
+            services::Shell_WriteString("imu lis raw=");
+            WriteInt32(sample.x);
+            services::Shell_WriteString(",");
+            WriteInt32(sample.y);
+            services::Shell_WriteString(",");
+            WriteInt32(sample.z);
+            services::Shell_WriteString(" mG=");
+            WriteInt32(drivers::Lis3mdl_RawToMilliGauss(sample.x, scale));
+            services::Shell_WriteString(",");
+            WriteInt32(drivers::Lis3mdl_RawToMilliGauss(sample.y, scale));
+            services::Shell_WriteString(",");
+            WriteInt32(drivers::Lis3mdl_RawToMilliGauss(sample.z, scale));
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+        if ((argc == 4) && StrEqual(argv[2], "scale") &&
+            ParseUint32(argv[3], 3U, &reg)) {
+            WriteStatusLine("imu lis scale: ",
+                board::Board_Lis3mdlSetFullScale((uint8_t) reg));
+            return;
+        }
+        if ((argc == 4) && StrEqual(argv[2], "odr") &&
+            ParseUint32(argv[3], 7U, &reg)) {
+            WriteStatusLine("imu lis odr: ",
+                board::Board_Lis3mdlSetOutputDataRate((uint8_t) reg));
+            return;
+        }
+        if ((argc == 4) && StrEqual(argv[2], "mode") &&
+            ParseUint32(argv[3], 2U, &reg)) {
+            WriteStatusLine("imu lis mode: ",
+                board::Board_Lis3mdlSetOperatingMode((uint8_t) reg));
+            return;
+        }
         if ((argc == 3) && StrEqual(argv[2], "whoami")) {
             const drivers::DriverStatus status =
                 board::Board_Lis3mdlReadWhoAmI(&value);
@@ -3960,16 +4079,222 @@ drivers::DriverStatus LoraWriteArgs(int argc,
     return drivers::DRIVER_OK;
 }
 
+drivers::DriverStatus BuildLoraProtocolTextPayload(
+    int argc,
+    const char * const argv[],
+    uint8_t payload[LORA_PROTOCOL_MAX_PAYLOAD_LENGTH],
+    uint16_t *length)
+{
+    if ((payload == 0) || (length == 0)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    uint16_t count = 0U;
+    for (int arg = 5; arg < argc; arg++) {
+        if (arg > 5) {
+            if (count >= LORA_PROTOCOL_MAX_PAYLOAD_LENGTH) {
+                return drivers::DRIVER_ERROR_INVALID_ARG;
+            }
+            payload[count++] = static_cast<uint8_t>(' ');
+        }
+
+        const char *cursor = argv[arg];
+        while ((cursor != 0) && (*cursor != '\0')) {
+            if (count >= LORA_PROTOCOL_MAX_PAYLOAD_LENGTH) {
+                return drivers::DRIVER_ERROR_INVALID_ARG;
+            }
+            payload[count++] = static_cast<uint8_t>(*cursor);
+            cursor++;
+        }
+    }
+
+    *length = count;
+    return drivers::DRIVER_OK;
+}
+
+void PrintLoraProtocolStatus(void)
+{
+    const AppLoraProtocolState *state = App_LoraProtocolGetState();
+    const LoraProtocolContext &protocol = state->protocol;
+    const LoraProtocolStatistics &stats = protocol.statistics;
+
+    services::Shell_WriteString("lora proto initialized=");
+    services::Shell_WriteUInt32(state->initialized ? 1U : 0U);
+    services::Shell_WriteString(" enabled=");
+    services::Shell_WriteUInt32(state->enabled ? 1U : 0U);
+    services::Shell_WriteString(" board_ready=");
+    services::Shell_WriteUInt32(board::Board_LoraIsReady() ? 1U : 0U);
+    services::Shell_WriteString(" queued=");
+    services::Shell_WriteUInt32(
+        LoraProtocol_GetQueuedFrameCount(&protocol));
+    services::Shell_WriteString(" process_errors=");
+    services::Shell_WriteUInt32(state->process_error_count);
+    services::Shell_WriteString(" last_process=");
+    services::Shell_WriteString(DriverStatusText(state->last_process_status));
+    services::Shell_WriteString("\r\n");
+
+    services::Shell_WriteString("lora proto next_seq=");
+    services::Shell_WriteUInt32(protocol.next_tx_sequence);
+    services::Shell_WriteString(" awaiting_ack=");
+    services::Shell_WriteUInt32(protocol.awaiting_ack ? 1U : 0U);
+    services::Shell_WriteString(" pending_seq=");
+    services::Shell_WriteUInt32(protocol.pending_sequence);
+    services::Shell_WriteString(" retries=");
+    services::Shell_WriteUInt32(protocol.pending_retry_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(protocol.config.max_retries);
+    services::Shell_WriteString(" last_tx=");
+    services::Shell_WriteString(DriverStatusText(protocol.last_tx_status));
+    services::Shell_WriteString("\r\n");
+
+    services::Shell_WriteString("lora proto rx valid=");
+    services::Shell_WriteUInt32(stats.rx_valid_frames);
+    services::Shell_WriteString(" delivered=");
+    services::Shell_WriteUInt32(stats.rx_delivered_frames);
+    services::Shell_WriteString(" crc_err=");
+    services::Shell_WriteUInt32(stats.rx_crc_errors);
+    services::Shell_WriteString(" format_err=");
+    services::Shell_WriteUInt32(stats.rx_format_errors);
+    services::Shell_WriteString(" length_err=");
+    services::Shell_WriteUInt32(stats.rx_length_errors);
+    services::Shell_WriteString(" dup=");
+    services::Shell_WriteUInt32(stats.rx_duplicates);
+    services::Shell_WriteString(" drop=");
+    services::Shell_WriteUInt32(stats.rx_queue_drops);
+    services::Shell_WriteString("\r\n");
+
+    services::Shell_WriteString("lora proto tx frames=");
+    services::Shell_WriteUInt32(stats.tx_frames);
+    services::Shell_WriteString(" ack=");
+    services::Shell_WriteUInt32(stats.tx_ack_frames);
+    services::Shell_WriteString(" retries=");
+    services::Shell_WriteUInt32(stats.tx_retries);
+    services::Shell_WriteString(" errors=");
+    services::Shell_WriteUInt32(stats.tx_errors);
+    services::Shell_WriteString(" exhausted=");
+    services::Shell_WriteUInt32(stats.tx_retry_exhausted);
+    services::Shell_WriteString(" unexpected_ack=");
+    services::Shell_WriteUInt32(stats.rx_unexpected_acks);
+    services::Shell_WriteString("\r\n");
+}
+
+void PrintLoraProtocolFrame(const LoraProtocolFrame &frame)
+{
+    services::Shell_WriteString("lora proto rx type=");
+    WriteHex8(frame.type);
+    services::Shell_WriteString(" flags=");
+    WriteHex8(frame.flags);
+    services::Shell_WriteString(" seq=");
+    services::Shell_WriteUInt32(frame.sequence);
+    services::Shell_WriteString(" len=");
+    services::Shell_WriteUInt32(frame.length);
+    services::Shell_WriteString(" hex:");
+    for (uint16_t i = 0U; i < frame.length; i++) {
+        services::Shell_WriteString(" ");
+        WriteHex8(frame.payload[i]);
+    }
+    services::Shell_WriteString(" ascii:");
+    for (uint16_t i = 0U; i < frame.length; i++) {
+        services::Shell_WriteChar(IsPrintableAscii(frame.payload[i]) ?
+                                  static_cast<char>(frame.payload[i]) : '.');
+    }
+    services::Shell_WriteString("\r\n");
+}
+
+void LoraProtocolCommand(int argc, const char * const argv[])
+{
+    if (argc < 3) {
+        PrintLoraUsage();
+        return;
+    }
+    if (StrEqual(argv[2], "status") && (argc == 3)) {
+        PrintLoraProtocolStatus();
+        return;
+    }
+    if (StrEqual(argv[2], "on") && (argc == 3)) {
+        WriteStatusLine("lora proto on: ",
+                        App_LoraProtocolSetEnabled(true));
+        return;
+    }
+    if (StrEqual(argv[2], "off") && (argc == 3)) {
+        WriteStatusLine("lora proto off: ",
+                        App_LoraProtocolSetEnabled(false));
+        return;
+    }
+    if (StrEqual(argv[2], "reset") && (argc == 3)) {
+        WriteStatusLine("lora proto reset: ", App_LoraProtocolReset());
+        return;
+    }
+    if (StrEqual(argv[2], "recv") && (argc == 3)) {
+        LoraProtocolFrame frame = {};
+        if (!App_LoraProtocolReadFrame(&frame)) {
+            services::Shell_WriteLine("lora proto recv: empty");
+            return;
+        }
+        PrintLoraProtocolFrame(frame);
+        return;
+    }
+    if (StrEqual(argv[2], "send") && (argc >= 5)) {
+        uint32_t type = 0U;
+        if ((!ParseUint32(argv[3], 0xFFU, &type)) || (type == 0U) ||
+            (type == LORA_PROTOCOL_TYPE_ACK)) {
+            PrintLoraUsage();
+            return;
+        }
+        const bool acknowledgment_required = StrEqual(argv[4], "ack");
+        if ((!acknowledgment_required) && (!StrEqual(argv[4], "noack"))) {
+            PrintLoraUsage();
+            return;
+        }
+
+        uint8_t payload[LORA_PROTOCOL_MAX_PAYLOAD_LENGTH];
+        uint16_t length = 0U;
+        drivers::DriverStatus status = BuildLoraProtocolTextPayload(
+            argc,
+            argv,
+            payload,
+            &length);
+        uint8_t sequence = 0U;
+        if (status == drivers::DRIVER_OK) {
+            status = App_LoraProtocolSend(static_cast<uint8_t>(type),
+                                          payload,
+                                          length,
+                                          acknowledgment_required,
+                                          &sequence);
+        }
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("lora proto send: ", status);
+            return;
+        }
+        services::Shell_WriteString("lora proto tx seq=");
+        services::Shell_WriteUInt32(sequence);
+        services::Shell_WriteString(" len=");
+        services::Shell_WriteUInt32(length);
+        services::Shell_WriteString(" ack=");
+        services::Shell_WriteUInt32(acknowledgment_required ? 1U : 0U);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    PrintLoraUsage();
+}
+
 void LoraCommand(int argc, const char * const argv[])
 {
     uint32_t value = 0U;
 
-    if ((argc < 2) || (!board::Board_LoraIsReady())) {
-        if (argc < 2) {
-            PrintLoraUsage();
-        } else {
-            services::Shell_WriteLine("lora: not ready");
-        }
+    if (argc < 2) {
+        PrintLoraUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "proto")) {
+        LoraProtocolCommand(argc, argv);
+        return;
+    }
+
+    if (!board::Board_LoraIsReady()) {
+        services::Shell_WriteLine("lora: not ready");
         return;
     }
 
@@ -4014,7 +4339,10 @@ void LoraCommand(int argc, const char * const argv[])
             return;
         }
 
-        const drivers::DriverStatus status = board::Board_LoraClearRxBuffer();
+        const AppLoraProtocolState *protocol_state =
+            App_LoraProtocolGetState();
+        const drivers::DriverStatus status = protocol_state->enabled ?
+            App_LoraProtocolReset() : board::Board_LoraClearRxBuffer();
         WriteStatusLine("lora clear: ", status);
         return;
     }
@@ -4091,6 +4419,12 @@ void LoraCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "read")) {
+        if (App_LoraProtocolGetState()->enabled) {
+            services::Shell_WriteLine(
+                "lora read: protocol enabled; use 'lora proto recv'");
+            return;
+        }
+
         uint8_t data[kLoraShellMaxReadBytes];
         uint16_t length = kLoraShellMaxReadBytes;
         uint16_t actual = 0U;
@@ -4303,6 +4637,8 @@ void PrintHeadingUsage(void)
     services::Shell_WriteLine("  heading status");
     services::Shell_WriteLine("  heading hold <base_rpm>");
     services::Shell_WriteLine("  heading turn <deg -180..180>");
+    services::Shell_WriteLine(
+        "  heading distance <mm -10000..10000> <max_rpm> [timeout_ms]");
     services::Shell_WriteLine("  heading stop");
 }
 
@@ -4313,6 +4649,8 @@ const char *HeadingModeText(app::HeadingMode mode)
         return "hold";
     case app::HEADING_TURN:
         return "turn";
+    case app::HEADING_DISTANCE:
+        return "distance";
     default:
         return "idle";
     }
@@ -4341,6 +4679,19 @@ void HeadingCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" last=");
         services::Shell_WriteString(DriverStatusText(st->last_status));
         services::Shell_WriteString("\r\n");
+        if (st->mode == app::HEADING_DISTANCE) {
+            services::Shell_WriteString("distance target_mm=");
+            WriteInt32(st->target_distance_mm);
+            services::Shell_WriteString(" traveled_mm=");
+            WriteInt32(st->traveled_distance_mm);
+            services::Shell_WriteString(" remaining_mm=");
+            WriteInt32(st->remaining_distance_mm);
+            services::Shell_WriteString(" max_rpm=");
+            WriteInt32(st->distance_max_rpm);
+            services::Shell_WriteString(" timeout_ms=");
+            services::Shell_WriteUInt32(st->distance_timeout_ms);
+            services::Shell_WriteString("\r\n");
+        }
         return;
     }
 
@@ -4373,6 +4724,30 @@ void HeadingCommand(int argc, const char * const argv[])
         return;
     }
 
+    if (StrEqual(argv[1], "distance")) {
+        int32_t distance_mm = 0;
+        int32_t max_rpm = 0;
+        uint32_t timeout_ms = 0U;
+        const app::ChassisState *cs = app::Chassis_GetState();
+        const int32_t wheel_max_rpm =
+            static_cast<int32_t>(cs->config.max_wheel_rpm);
+        if (((argc != 4) && (argc != 5)) ||
+            (!ParseInt32(argv[2], -10000, 10000, &distance_mm)) ||
+            (distance_mm == 0) ||
+            (!ParseInt32(argv[3], 1, wheel_max_rpm, &max_rpm)) ||
+            ((argc == 5) &&
+             ((!ParseUint32(argv[4], 60000U, &timeout_ms)) ||
+              (timeout_ms < 500U)))) {
+            PrintHeadingUsage();
+            return;
+        }
+        WriteStatusLine("heading distance: ",
+                        app::Heading_DistanceStart(distance_mm,
+                                                   max_rpm,
+                                                   timeout_ms));
+        return;
+    }
+
     PrintHeadingUsage();
 #else
     (void) argc;
@@ -4384,9 +4759,13 @@ void HeadingCommand(int argc, const char * const argv[])
 void PrintRunUsage(void)
 {
     services::Shell_WriteLine("usage:");
-    services::Shell_WriteLine("  run add <op> <p1> <p2_ms> <until> <onsuccess> <ontimeout>");
-    services::Shell_WriteLine("    op: drive|turn|follow|wait|stop|branch|end");
-    services::Shell_WriteLine("    until: timeout|heading_reached|line_detected|line_lost|button|immediate");
+    services::Shell_WriteLine("  run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>");
+    services::Shell_WriteLine(
+        "    op: drive|drive_mm|turn|follow|wait|stop|branch|end");
+    services::Shell_WriteLine(
+        "    until: timeout|heading_reached|distance_reached|line_detected|line_lost|button|immediate");
+    services::Shell_WriteLine(
+        "    drive_mm: p1=signed mm, p2=max rpm, until=distance_reached");
     services::Shell_WriteLine("    onsuccess/ontimeout: index 0..15, or 'next'/'abort'");
     services::Shell_WriteLine("  run clear|start|cancel|status|dump");
 }
@@ -4394,6 +4773,7 @@ void PrintRunUsage(void)
 bool ParseActionOp(const char *t, app::ActionOp *op)
 {
     if (StrEqual(t, "drive")) { *op = app::ACT_OP_DRIVE; return true; }
+    if (StrEqual(t, "drive_mm")) { *op = app::ACT_OP_DRIVE_MM; return true; }
     if (StrEqual(t, "turn")) { *op = app::ACT_OP_TURN; return true; }
     if (StrEqual(t, "follow")) { *op = app::ACT_OP_FOLLOW; return true; }
     if (StrEqual(t, "wait")) { *op = app::ACT_OP_WAIT; return true; }
@@ -4411,6 +4791,7 @@ bool ParseActionCond(const char *t, app::ActionCond *c)
     if (StrEqual(t, "line_lost")) { *c = app::ACT_COND_LINE_LOST; return true; }
     if (StrEqual(t, "button")) { *c = app::ACT_COND_BUTTON; return true; }
     if (StrEqual(t, "immediate")) { *c = app::ACT_COND_IMMEDIATE; return true; }
+    if (StrEqual(t, "distance_reached")) { *c = app::ACT_COND_DISTANCE_REACHED; return true; }
     return false;
 }
 
@@ -4432,6 +4813,7 @@ const char *OpText(app::ActionOp op)
 {
     switch (op) {
     case app::ACT_OP_DRIVE: return "drive";
+    case app::ACT_OP_DRIVE_MM: return "drive_mm";
     case app::ACT_OP_TURN: return "turn";
     case app::ACT_OP_FOLLOW: return "follow";
     case app::ACT_OP_WAIT: return "wait";
@@ -4451,6 +4833,7 @@ const char *CondText(app::ActionCond c)
     case app::ACT_COND_LINE_LOST: return "line_lost";
     case app::ACT_COND_BUTTON: return "button";
     case app::ACT_COND_IMMEDIATE: return "immediate";
+    case app::ACT_COND_DISTANCE_REACHED: return "distance_reached";
     default: return "?";
     }
 }
@@ -4555,9 +4938,16 @@ void RunCommand(int argc, const char * const argv[])
         const app::ChassisState *cs = app::Chassis_GetState();
         const int32_t max_rpm =
             static_cast<int32_t>(cs->config.max_wheel_rpm);
-        if ((!ParseActionOp(argv[2], &op)) ||
-            (!ParseInt32(argv[3], -max_rpm, max_rpm, &p1)) ||
-            (!ParseInt32(argv[4], 0, 30000, &p2)) ||
+        if (!ParseActionOp(argv[2], &op)) {
+            PrintRunUsage();
+            return;
+        }
+        const bool params_ok = (op == app::ACT_OP_DRIVE_MM)
+            ? (ParseInt32(argv[3], -10000, 10000, &p1) &&
+               (p1 != 0) && ParseInt32(argv[4], 1, max_rpm, &p2))
+            : (ParseInt32(argv[3], -max_rpm, max_rpm, &p1) &&
+               ParseInt32(argv[4], 0, 30000, &p2));
+        if ((!params_ok) ||
             (!ParseActionCond(argv[5], &until)) ||
             (!ParseTarget(argv[6], &ons)) ||
             (!ParseTarget(argv[7], &ont))) {
@@ -4585,7 +4975,9 @@ void PrintLFUsage(void)
     services::Shell_WriteLine("  lf start <rpm> <ms>");
     services::Shell_WriteLine("  lf stop");
     services::Shell_WriteLine("  lf kp <val>");
+    services::Shell_WriteLine("  lf kd <val>");
     services::Shell_WriteLine("  lf maxcorr <val>");
+    services::Shell_WriteLine("  lf losthold <ms>");
     services::Shell_WriteLine("  lf losttimeout <ms>");
 }
 
@@ -4612,8 +5004,18 @@ void LFCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(st->lost ? 1U : 0U);
         services::Shell_WriteString(" kp=");
         WriteInt32(st->kp);
+        services::Shell_WriteString(" kd=");
+        WriteInt32(st->kd);
         services::Shell_WriteString(" maxcorr=");
         WriteInt32(st->max_correction_rpm);
+        services::Shell_WriteString(" lost_hold=");
+        services::Shell_WriteUInt32(st->lost_hold_ms);
+        services::Shell_WriteString(" lost_stop=");
+        services::Shell_WriteUInt32(st->lost_timeout_ms);
+        services::Shell_WriteString(" seq=");
+        services::Shell_WriteUInt32(st->last_sequence);
+        services::Shell_WriteString(" road=");
+        services::Shell_WriteString(app::GrayscaleRoad_TypeText(st->road_type));
         services::Shell_WriteString("\r\n");
         return;
     }
@@ -4674,10 +5076,40 @@ void LFCommand(int argc, const char * const argv[])
         return;
     }
 
+    if (StrEqual(argv[1], "kd")) {
+        int32_t value = 0;
+        if ((argc != 3) || (!ParseInt32(argv[2], 0, 1000000, &value))) {
+            PrintLFUsage();
+            return;
+        }
+        app::LF_SetKd(value);
+        services::Shell_WriteLine("lf kd: ok");
+        return;
+    }
+
+    if (StrEqual(argv[1], "losthold")) {
+        uint32_t value = 0U;
+        if ((argc != 3) || (!ParseUint32(argv[2], 10000U, &value))) {
+            PrintLFUsage();
+            return;
+        }
+        if (value > app::LF_GetState()->lost_timeout_ms) {
+            services::Shell_WriteLine("lf losthold: invalid_arg");
+            return;
+        }
+        app::LF_SetLostHold(value);
+        services::Shell_WriteLine("lf losthold: ok");
+        return;
+    }
+
     if (StrEqual(argv[1], "losttimeout")) {
         uint32_t v = 0U;
         if ((argc != 3) || (!ParseUint32(argv[2], 10000U, &v))) {
             PrintLFUsage();
+            return;
+        }
+        if (v < app::LF_GetState()->lost_hold_ms) {
+            services::Shell_WriteLine("lf losttimeout: invalid_arg");
             return;
         }
         app::LF_SetLostTimeout(v);
@@ -5660,30 +6092,6 @@ void MotorCommand(int argc, const char * const argv[])
 #endif
 }
 
-#if FEATURE_ENABLE_SHELL_DIAGNOSTICS
-void AdcCommand(int argc, const char * const argv[])
-{
-    (void) argc;
-    (void) argv;
-
-    services::Shell_WriteLine("adc: no ADC driver registered");
-}
-
-void PwmCommand(int argc, const char * const argv[])
-{
-    uint8_t duty = 0U;
-
-    if ((argc != 2) || (!ParsePercent(argv[1], &duty))) {
-        services::Shell_WriteLine("usage: pwm 0..100");
-        return;
-    }
-
-    services::Shell_WriteString("pwm duty request ");
-    services::Shell_WriteUInt32(duty);
-    services::Shell_WriteLine("%, no PWM driver registered");
-}
-#endif
-
 #if FEATURE_ENABLE_SCHEDULER_STATS
 void PrintSchedulerUsage(void)
 {
@@ -5770,6 +6178,9 @@ void PrintGrayUsage(void)
     services::Shell_WriteLine("  gray read <0..7>");
     services::Shell_WriteLine("  gray all");
     services::Shell_WriteLine("  gray data");
+    services::Shell_WriteLine("  gray process");
+    services::Shell_WriteLine("  gray calib show|status|reload|sweep [ms]");
+    services::Shell_WriteLine("  gray calib white [frames]|black [frames]|commit|cancel");
     services::Shell_WriteLine("  gray oled on [period_ms 50..5000]|off|status|once");
 }
 
@@ -5788,7 +6199,152 @@ void GrayCommand(int argc, const char * const argv[])
         const AppGrayscaleData *data = App_GrayscaleGetData();
         services::Shell_WriteString("gray ready=1 valid=");
         services::Shell_WriteUInt32(data->valid ? 1U : 0U);
+        services::Shell_WriteString(" processed=");
+        services::Shell_WriteUInt32(data->processed_valid ? 1U : 0U);
+        services::Shell_WriteString(" seq=");
+        services::Shell_WriteUInt32(data->sequence);
+        services::Shell_WriteString(" errors=");
+        services::Shell_WriteUInt32(data->error_count);
+        services::Shell_WriteString(" process_errors=");
+        services::Shell_WriteUInt32(data->processing_error_count);
+        services::Shell_WriteString(" frame_ms=");
+        services::Shell_WriteUInt32(data->frame_period_ms);
+        services::Shell_WriteString(" road=");
+        services::Shell_WriteString(app::GrayscaleRoad_TypeText(data->road_type));
         services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "process") && (argc == 2)) {
+        const AppGrayscaleData *data = App_GrayscaleGetData();
+        services::Shell_WriteString("gray normalized:");
+        for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+            services::Shell_WriteString(" ");
+            services::Shell_WriteUInt32(data->normalized[i]);
+        }
+        services::Shell_WriteString(" mask=");
+        WriteHex8(data->active_mask);
+        services::Shell_WriteString(" usable=");
+        WriteHex8(data->usable_mask);
+        services::Shell_WriteString(" track=");
+        WriteHex8(data->track_mask);
+        services::Shell_WriteString(" calib_fault=");
+        WriteHex8(data->calibration_fault_mask);
+        services::Shell_WriteString(" saturation=");
+        WriteHex8(data->saturation_mask);
+        services::Shell_WriteString(" anomaly=");
+        WriteHex8(data->channel_anomaly_mask);
+        services::Shell_WriteString(" line=");
+        services::Shell_WriteUInt32(data->line_detected ? 1U : 0U);
+        services::Shell_WriteString(" pos=");
+        WriteInt32(data->line_position);
+        services::Shell_WriteString(" strength=");
+        services::Shell_WriteUInt32(data->line_strength);
+        services::Shell_WriteString(" road=");
+        services::Shell_WriteString(app::GrayscaleRoad_TypeText(data->road_type));
+        services::Shell_WriteString(" on=");
+        services::Shell_WriteUInt32(data->threshold_on);
+        services::Shell_WriteString(" off=");
+        services::Shell_WriteUInt32(data->threshold_off);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "calib")) {
+        if ((argc == 3) && StrEqual(argv[2], "status")) {
+            const AppGrayscaleCalibrationStatus *status =
+                App_GrayscaleGetCalibrationStatus();
+            services::Shell_WriteString("gray calib running=");
+            services::Shell_WriteUInt32(status->running ? 1U : 0U);
+            services::Shell_WriteString(" mode=");
+            services::Shell_WriteUInt32(status->mode);
+            services::Shell_WriteString(" samples=");
+            services::Shell_WriteUInt32(status->sample_count);
+            services::Shell_WriteString("/");
+            services::Shell_WriteUInt32(status->target_samples);
+            services::Shell_WriteString(" white=");
+            services::Shell_WriteUInt32(status->white_ready ? 1U : 0U);
+            services::Shell_WriteString(" black=");
+            services::Shell_WriteUInt32(status->black_ready ? 1U : 0U);
+            services::Shell_WriteString(" fault=");
+            WriteHex8(status->fault_mask);
+            services::Shell_WriteString(" last=");
+            services::Shell_WriteString(DriverStatusText(status->last_status));
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "reload")) {
+            WriteStatusLine("gray calib reload: ",
+                            App_GrayscaleReloadCalibration());
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "show")) {
+            const drivers::GrayscaleCalibration *calibration =
+                App_GrayscaleGetCalibration();
+            services::Shell_WriteString("gray white:");
+            for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+                services::Shell_WriteString(" ");
+                services::Shell_WriteUInt32(calibration->white[i]);
+            }
+            services::Shell_WriteString("\r\ngray black:");
+            for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+                services::Shell_WriteString(" ");
+                services::Shell_WriteUInt32(calibration->black[i]);
+            }
+            services::Shell_WriteString("\r\ngray threshold=");
+            services::Shell_WriteUInt32(calibration->threshold);
+            services::Shell_WriteString(" hysteresis=");
+            services::Shell_WriteUInt32(calibration->hysteresis);
+            services::Shell_WriteString(" floor=");
+            services::Shell_WriteUInt32(calibration->position_floor);
+            services::Shell_WriteString(" min_strength=");
+            services::Shell_WriteUInt32(calibration->min_line_strength);
+            services::Shell_WriteString(" track_mask=");
+            WriteHex8(calibration->track_mask);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+        if ((argc >= 3) && StrEqual(argv[2], "sweep")) {
+            uint32_t duration_ms = 2000U;
+            if (((argc != 3) && (argc != 4)) ||
+                ((argc == 4) &&
+                 (!ParseUint32(argv[3], 10000U, &duration_ms)))) {
+                PrintGrayUsage();
+                return;
+            }
+            WriteStatusLine("gray calib sweep: ",
+                            App_GrayscaleStartSweepCalibration(duration_ms));
+            return;
+        }
+        if ((argc >= 3) &&
+            (StrEqual(argv[2], "white") || StrEqual(argv[2], "black"))) {
+            uint32_t frames = 16U;
+            if (((argc != 3) && (argc != 4)) ||
+                ((argc == 4) && (!ParseUint32(argv[3], 128U, &frames))) ||
+                (frames == 0U)) {
+                PrintGrayUsage();
+                return;
+            }
+            const drivers::DriverStatus capture_status =
+                StrEqual(argv[2], "white")
+                ? App_GrayscaleStartWhiteCalibration(
+                    static_cast<uint16_t>(frames))
+                : App_GrayscaleStartBlackCalibration(
+                    static_cast<uint16_t>(frames));
+            WriteStatusLine("gray calib capture: ", capture_status);
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "commit")) {
+            WriteStatusLine("gray calib commit: ",
+                            App_GrayscaleCommitCalibration());
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "cancel")) {
+            App_GrayscaleCancelCalibration();
+            services::Shell_WriteLine("gray calib cancel: ok");
+            return;
+        }
+        PrintGrayUsage();
         return;
     }
 
@@ -6062,7 +6618,7 @@ void AppShell_RegisterCommands(void)
 #if FEATURE_ENABLE_LORA
     (void) services::Shell_RegisterCommand(
         "lora",
-        "LoRa UART: status|send|line|hex|read|clear|test",
+        "LoRa UART and framed protocol diagnostics",
         LoraCommand);
 #endif
 #if FEATURE_ENABLE_MOTOR_DRIVER
@@ -6078,7 +6634,7 @@ void AppShell_RegisterCommands(void)
 #if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
     (void) services::Shell_RegisterCommand(
         "heading",
-        "Heading: status|hold <base_rpm>|turn <deg>|stop",
+        "Heading: status|hold|turn|distance|stop",
         HeadingCommand);
     (void) services::Shell_RegisterCommand(
         "run",
@@ -6088,7 +6644,7 @@ void AppShell_RegisterCommands(void)
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
     (void) services::Shell_RegisterCommand(
         "lf",
-        "LineFollow: status|cal|start <rpm> <ms>|stop|kp <val>|maxcorr <val>|losttimeout <ms>",
+        "LineFollow: status|cal|start|stop|kp|kd|maxcorr|losthold|losttimeout",
         LFCommand);
 #endif
 #if FEATURE_ENABLE_SHELL_DIAGNOSTICS
@@ -6096,12 +6652,6 @@ void AppShell_RegisterCommands(void)
         "i2c",
         "I2C diag: list|status|recover|scan|probe|read|write|test",
         I2cCommand);
-    (void) services::Shell_RegisterCommand("adc",
-                                           "Read ADC placeholder",
-                                           AdcCommand);
-    (void) services::Shell_RegisterCommand("pwm",
-                                           "Set PWM placeholder: pwm 0..100",
-                                           PwmCommand);
 #endif
 }
 

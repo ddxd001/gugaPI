@@ -5,12 +5,12 @@
 #include <stdint.h>
 
 #include "drivers/common/driver_status.h"
-#include "drivers/i2c_diag/i2c_diag.h"
+#include "drivers/i2c_controller/i2c_controller.h"
 
 namespace drivers {
 
 struct OledSsd1306Config {
-    const I2cDiagBusConfig *bus;
+    const I2cControllerConfig *bus;
     uint8_t i2c_address;
     uint8_t width;
     uint8_t height;

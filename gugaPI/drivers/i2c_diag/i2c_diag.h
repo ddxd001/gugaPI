@@ -4,37 +4,20 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "drivers/common/driver_status.h"
-#include "ti_msp_dl_config.h"
+#include "drivers/i2c_controller/i2c_controller.h"
 
 namespace drivers {
 
-static const uint8_t I2C_DIAG_MIN_7BIT_ADDRESS = 0x08U;
-static const uint8_t I2C_DIAG_MAX_7BIT_ADDRESS = 0x77U;
+static const uint8_t I2C_DIAG_MIN_7BIT_ADDRESS =
+    I2C_CONTROLLER_MIN_7BIT_ADDRESS;
+static const uint8_t I2C_DIAG_MAX_7BIT_ADDRESS =
+    I2C_CONTROLLER_MAX_7BIT_ADDRESS;
 static const uint16_t I2C_DIAG_MAX_READ_BYTES = 32U;
 static const uint16_t I2C_DIAG_MAX_WRITE_BYTES = 7U;
 static const uint16_t I2C_DIAG_MAX_BLOCK_WRITE_BYTES = 32U;
 
-struct I2cDiagBusConfig {
-    const char *name;
-    I2C_Regs *i2c;
-    void (*init)(void);
-    uint32_t timeout_iterations;
-    GPIO_Regs *scl_port;
-    uint32_t scl_pin;
-    uint32_t scl_iomux;
-    uint32_t scl_iomux_func;
-    GPIO_Regs *sda_port;
-    uint32_t sda_pin;
-    uint32_t sda_iomux;
-    uint32_t sda_iomux_func;
-};
-
-struct I2cDiagBusStatus {
-    uint32_t controller_status;
-    bool scl_high;
-    bool sda_high;
-};
+typedef I2cControllerConfig I2cDiagBusConfig;
+typedef I2cControllerBusStatus I2cDiagBusStatus;
 
 DriverStatus I2cDiag_GetBusStatus(const I2cDiagBusConfig *config,
                                   I2cDiagBusStatus *status);

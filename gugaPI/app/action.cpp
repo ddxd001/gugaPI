@@ -79,6 +79,8 @@ bool EvalCond(ActionCond cond)
         return !LF_IsLineDetected();
     case ACT_COND_BUTTON:
         return board::Board_ButtonWasPressed(board::BOARD_BUTTON_1);
+    case ACT_COND_DISTANCE_REACHED:
+        return (Heading_GetState()->mode == HEADING_IDLE);
     case ACT_COND_IMMEDIATE:
         return true;
     case ACT_COND_TIMEOUT:
@@ -96,6 +98,10 @@ bool StartOp(const Instr *instr)
         return (Heading_TurnStart(instr->param1) == drivers::DRIVER_OK);
     case ACT_OP_FOLLOW:
         return (LF_Start(instr->param1, instr->param2) == drivers::DRIVER_OK);
+    case ACT_OP_DRIVE_MM:
+        return (Heading_DistanceStart(instr->param1,
+                                      instr->param2,
+                                      0U) == drivers::DRIVER_OK);
     case ACT_OP_WAIT:
         return true;
     case ACT_OP_STOP:
@@ -116,6 +122,11 @@ InstrResult EvalInstr(const Instr *instr, uint32_t now)
     }
     if (instr->op == ACT_OP_BRANCH) {
         return EvalCond(instr->until) ? INSTR_SUCCESS : INSTR_TIMEOUT;
+    }
+    if (instr->op == ACT_OP_DRIVE_MM) {
+        return EvalCond(ACT_COND_DISTANCE_REACHED)
+            ? INSTR_SUCCESS
+            : INSTR_RUNNING;
     }
 
     const uint32_t elapsed = now - g_state.instr_start_ms;
@@ -168,6 +179,12 @@ drivers::DriverStatus ActionRunner_AddInstr(ActionOp op,
     }
     if (g_state.count >= kMaxInstrs) {
         return drivers::DRIVER_ERROR;
+    }
+    if ((op == ACT_OP_DRIVE_MM) &&
+        ((param1 == 0) || (param1 < -10000) || (param1 > 10000) ||
+         (param2 <= 0) || (param2 > 1000) ||
+         (until != ACT_COND_DISTANCE_REACHED))) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
     }
     Instr *instr = &g_state.instrs[g_state.count];
     instr->op = op;

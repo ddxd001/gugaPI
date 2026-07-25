@@ -1,22 +1,14 @@
 #include "board/board_fram.h"
 
+#include "board/board_i2c_bus.h"
 #include "board/board_pins.h"
 #include "drivers/fm24cl64b/fm24cl64b.h"
 
 namespace board {
 
-static const drivers::Fm24cl64bConfig g_framConfig = {
-    BOARD_FRAM_I2C_INST,
-    BOARD_FRAM_I2C_ADDRESS,
-    BOARD_FRAM_TIMEOUT_ITERATIONS,
-    BOARD_FRAM_I2C_SCL_PORT,
-    BOARD_FRAM_I2C_SCL_PIN,
-    BOARD_FRAM_I2C_SCL_IOMUX,
-    BOARD_FRAM_I2C_SCL_IOMUX_FUNC,
-    BOARD_FRAM_I2C_SDA_PORT,
-    BOARD_FRAM_I2C_SDA_PIN,
-    BOARD_FRAM_I2C_SDA_IOMUX,
-    BOARD_FRAM_I2C_SDA_IOMUX_FUNC
+static drivers::Fm24cl64bConfig g_framConfig = {
+    0,
+    BOARD_FRAM_I2C_ADDRESS
 };
 
 static drivers::Fm24cl64bContext g_framContext = {
@@ -26,6 +18,7 @@ static drivers::Fm24cl64bContext g_framContext = {
 
 drivers::DriverStatus Board_FramInit(void)
 {
+    g_framConfig.bus = Board_I2cBusFind("fram");
     return drivers::Fm24cl64b_Init(&g_framContext, &g_framConfig);
 }
 

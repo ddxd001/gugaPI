@@ -4,12 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "drivers/common/driver_status.h"
+#include "drivers/grayscale/grayscale_processing.h"
 #include "ti_msp_dl_config.h"
 
 namespace drivers {
-
-static const uint8_t GRAYSCALE_CHANNEL_COUNT = 8U;
 
 struct GrayscaleSelPin {
     GPIO_Regs *port;

@@ -98,9 +98,9 @@ drivers/oled/
 推荐任务周期：
 
 ```text
-1 ms    按键扫描、编码器采样
+5 ms    按键扫描、IMU 200 Hz 采样
 5 ms    电机闭环、快速控制
-10 ms   传感器读取、姿态更新
+10 ms   其他快速应用任务
 50 ms   屏幕刷新
 100 ms  串口遥测、状态上报
 ```
@@ -233,11 +233,10 @@ led 1 on
 led 1 off
 buzzer on
 buzzer off
-adc
-pwm 50
 ```
 
-`adc` 和 `pwm` 当前是占位命令，等 ADC/PWM 驱动接入后再替换为真实读写逻辑。
+通用 `adc` 和 `pwm` 占位命令没有对应硬件对象，已经删除。灰度 ADC 使用 `gray`
+命令；新增 PWM 必须先完成引脚、频率、范围和安全状态设计。
 
 ### 9. SysConfig 要求
 

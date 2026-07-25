@@ -11,11 +11,17 @@ namespace {
 
 static const uint16_t kFramAddress = 0x0000U;
 static const uint32_t kMagic = 0x47504643U; /* "CFPG" little-endian */
-static const uint16_t kVersion = 3U;
+static const uint16_t kVersion = 6U;
+static const uint16_t kV5Version = 5U;
+static const uint16_t kV5PayloadLength = 137U;
+static const uint16_t kV4Version = 4U;
+static const uint16_t kV4PayloadLength = 103U;
+static const uint16_t kV3Version = 3U;
+static const uint16_t kV3PayloadLength = 90U;
 static const uint16_t kLegacyVersion = 1U;
 static const uint16_t kLegacyPayloadLength = 66U;
 static const uint16_t kV2PayloadLength = 68U; /* v2 layout length (motor_invert guard) */
-static const uint16_t kPayloadLength = 90U;  /* v3: +6 heading fields (5xi32 + 1xu16 = 22) */
+static const uint16_t kPayloadLength = 158U; /* v6: +21-byte grayscale/LF tuning */
 static const uint16_t kHeaderLength = 8U;
 static const uint16_t kCrcLength = 4U;
 static const uint16_t kImageLength =
@@ -29,7 +35,8 @@ ConfigStoreStatus g_status = {
     0U,
     0U,
     drivers::DRIVER_ERROR_NOT_INITIALIZED,
-    drivers::DRIVER_ERROR_NOT_INITIALIZED
+    drivers::DRIVER_ERROR_NOT_INITIALIZED,
+    CONFIG_LOAD_NOT_ATTEMPTED
 };
 
 enum ParamType : uint8_t {
@@ -49,6 +56,9 @@ struct ParamDescriptor {
 
 #define PARAM_OFFSET(field) \
     static_cast<uint16_t>(offsetof(ConfigStoreParams, field))
+#define PARAM_ARRAY_OFFSET(field, index) \
+    static_cast<uint16_t>(offsetof(ConfigStoreParams, field) + \
+                          sizeof(g_params.field[0]) * (index))
 
 static const ParamDescriptor kParamDescriptors[] = {
     { "left_counts_per_rev", PARAM_U32,
@@ -110,10 +120,83 @@ static const ParamDescriptor kParamDescriptors[] = {
     { "heading_tolerance_mdeg", PARAM_I32,
       PARAM_OFFSET(heading_tolerance_mdeg), 0, 90000 },
     { "heading_settle_ms", PARAM_U16,
-      PARAM_OFFSET(heading_settle_ms), 0, 5000 }
+      PARAM_OFFSET(heading_settle_ms), 0, 5000 },
+
+    { "ina_uv_trip_mv", PARAM_U16,
+      PARAM_OFFSET(ina219_undervoltage_trip_mv), 1, 25999 },
+    { "ina_uv_release_mv", PARAM_U16,
+      PARAM_OFFSET(ina219_undervoltage_release_mv), 2, 26000 },
+    { "ina_oc_trip_ma", PARAM_U16,
+      PARAM_OFFSET(ina219_overcurrent_trip_ma), 1, 6500 },
+    { "ina_oc_release_ma", PARAM_U16,
+      PARAM_OFFSET(ina219_overcurrent_release_ma), 0, 6499 },
+    { "ina_trip_samples", PARAM_U8,
+      PARAM_OFFSET(ina219_trip_samples), 1, 100 },
+    { "ina_release_samples", PARAM_U8,
+      PARAM_OFFSET(ina219_release_samples), 1, 100 },
+    { "ina_comm_fail_samples", PARAM_U8,
+      PARAM_OFFSET(ina219_comm_fail_samples), 1, 100 },
+    { "ina_latch_faults", PARAM_U8,
+      PARAM_OFFSET(ina219_latch_faults), 0, 1 },
+    { "ina_motion_inhibit", PARAM_U8,
+      PARAM_OFFSET(ina219_motion_inhibit_enable), 0, 1 },
+
+    { "gray_white_0", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_white, 0U), 0, 4095 },
+    { "gray_white_1", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_white, 1U), 0, 4095 },
+    { "gray_white_2", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_white, 2U), 0, 4095 },
+    { "gray_white_3", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_white, 3U), 0, 4095 },
+    { "gray_white_4", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_white, 4U), 0, 4095 },
+    { "gray_white_5", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_white, 5U), 0, 4095 },
+    { "gray_white_6", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_white, 6U), 0, 4095 },
+    { "gray_white_7", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_white, 7U), 0, 4095 },
+    { "gray_black_0", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_black, 0U), 0, 4095 },
+    { "gray_black_1", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_black, 1U), 0, 4095 },
+    { "gray_black_2", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_black, 2U), 0, 4095 },
+    { "gray_black_3", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_black, 3U), 0, 4095 },
+    { "gray_black_4", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_black, 4U), 0, 4095 },
+    { "gray_black_5", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_black, 5U), 0, 4095 },
+    { "gray_black_6", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_black, 6U), 0, 4095 },
+    { "gray_black_7", PARAM_U16,
+      PARAM_ARRAY_OFFSET(grayscale_black, 7U), 0, 4095 },
+    { "gray_threshold", PARAM_U16,
+      PARAM_OFFSET(grayscale_threshold), 1, 999 },
+    { "gray_hysteresis", PARAM_U16,
+      PARAM_OFFSET(grayscale_hysteresis), 0, 998 },
+    { "gray_position_floor", PARAM_U16,
+      PARAM_OFFSET(grayscale_position_floor), 0, 999 },
+    { "gray_min_strength", PARAM_U16,
+      PARAM_OFFSET(grayscale_min_line_strength), 1, 8000 },
+    { "gray_track_mask", PARAM_U8,
+      PARAM_OFFSET(grayscale_track_mask), 1, 255 },
+    { "lf_kp", PARAM_I32,
+      PARAM_OFFSET(linefollow_kp), 0, 1000000 },
+    { "lf_kd", PARAM_I32,
+      PARAM_OFFSET(linefollow_kd), 0, 1000000 },
+    { "lf_maxcorr", PARAM_U16,
+      PARAM_OFFSET(linefollow_max_correction_rpm), 0, 500 },
+    { "lf_lost_hold_ms", PARAM_U16,
+      PARAM_OFFSET(linefollow_lost_hold_ms), 0, 10000 },
+    { "lf_lost_stop_ms", PARAM_U16,
+      PARAM_OFFSET(linefollow_lost_stop_ms), 1, 10000 }
 };
 
 #undef PARAM_OFFSET
+#undef PARAM_ARRAY_OFFSET
 
 bool TextEqual(const char *left, const char *right)
 {
@@ -227,6 +310,35 @@ void SetDefaults(ConfigStoreParams *params)
     params->heading_turn_min_rpm = 20;
     params->heading_tolerance_mdeg = 3000;  /* 3 deg */
     params->heading_settle_ms = 300U;
+
+    /* Placeholder thresholds for a nominal low-voltage robot supply. They
+     * are monitored immediately, but automatic motion inhibition remains off
+     * until commissioned for the installed battery, wiring and motor load. */
+    params->ina219_undervoltage_trip_mv = 6000U;
+    params->ina219_undervoltage_release_mv = 6500U;
+    params->ina219_overcurrent_trip_ma = 5000U;
+    params->ina219_overcurrent_release_ma = 4500U;
+    params->ina219_trip_samples = 3U;
+    params->ina219_release_samples = 5U;
+    params->ina219_comm_fail_samples = 3U;
+    params->ina219_latch_faults = 0U;
+    params->ina219_motion_inhibit_enable = 0U;
+
+    for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
+        params->grayscale_white[i] = 4095U;
+        params->grayscale_black[i] = 0U;
+    }
+    params->grayscale_threshold = 500U;
+    params->grayscale_hysteresis = 300U;
+    params->grayscale_position_floor = 100U;
+    params->grayscale_min_line_strength = 600U;
+    params->grayscale_track_mask = 0x3CU;
+
+    params->linefollow_kp = 10000;
+    params->linefollow_kd = 0;
+    params->linefollow_max_correction_rpm = 30U;
+    params->linefollow_lost_hold_ms = 150U;
+    params->linefollow_lost_stop_ms = 500U;
 }
 
 uint8_t *AppendU8(uint8_t *cursor, uint8_t value)
@@ -317,7 +429,34 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     cursor = AppendI32(cursor, params.heading_turn_max_rpm);
     cursor = AppendI32(cursor, params.heading_turn_min_rpm);
     cursor = AppendI32(cursor, params.heading_tolerance_mdeg);
-    (void) AppendU16(cursor, params.heading_settle_ms);
+    cursor = AppendU16(cursor, params.heading_settle_ms);
+
+    cursor = AppendU16(cursor, params.ina219_undervoltage_trip_mv);
+    cursor = AppendU16(cursor, params.ina219_undervoltage_release_mv);
+    cursor = AppendU16(cursor, params.ina219_overcurrent_trip_ma);
+    cursor = AppendU16(cursor, params.ina219_overcurrent_release_ma);
+    cursor = AppendU8(cursor, params.ina219_trip_samples);
+    cursor = AppendU8(cursor, params.ina219_release_samples);
+    cursor = AppendU8(cursor, params.ina219_comm_fail_samples);
+    cursor = AppendU8(cursor, params.ina219_latch_faults);
+    cursor = AppendU8(cursor, params.ina219_motion_inhibit_enable);
+
+    for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
+        cursor = AppendU16(cursor, params.grayscale_white[i]);
+    }
+    for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
+        cursor = AppendU16(cursor, params.grayscale_black[i]);
+    }
+    cursor = AppendU16(cursor, params.grayscale_threshold);
+    cursor = AppendU16(cursor, params.grayscale_hysteresis);
+    cursor = AppendU16(cursor, params.grayscale_position_floor);
+    cursor = AppendU16(cursor, params.grayscale_min_line_strength);
+    cursor = AppendU8(cursor, params.grayscale_track_mask);
+    cursor = AppendI32(cursor, params.linefollow_kp);
+    cursor = AppendI32(cursor, params.linefollow_kd);
+    cursor = AppendU16(cursor, params.linefollow_max_correction_rpm);
+    cursor = AppendU16(cursor, params.linefollow_lost_hold_ms);
+    (void) AppendU16(cursor, params.linefollow_lost_stop_ms);
 }
 
 void DecodePayload(const uint8_t *payload,
@@ -361,15 +500,68 @@ void DecodePayload(const uint8_t *payload,
     cursor = ReadI32Field(cursor, &params->imu_gyro_bias_y_mdps);
     cursor = ReadI32Field(cursor, &params->imu_gyro_bias_z_mdps);
 
-    /* v3 heading fields - only present in v3 (>= 90 byte) layouts; v1/v2
+    /* v3 heading fields - present in v3 and later layouts; v1/v2
      * keep the SetDefaults values. */
-    if (payload_length >= kPayloadLength) {
+    if (payload_length >= kV3PayloadLength) {
         cursor = ReadI32Field(cursor, &params->heading_kp);
         cursor = ReadI32Field(cursor, &params->heading_max_correction_rpm);
         cursor = ReadI32Field(cursor, &params->heading_turn_max_rpm);
         cursor = ReadI32Field(cursor, &params->heading_turn_min_rpm);
         cursor = ReadI32Field(cursor, &params->heading_tolerance_mdeg);
-        (void) ReadU16Field(cursor, &params->heading_settle_ms);
+        cursor = ReadU16Field(cursor, &params->heading_settle_ms);
+    }
+    if (payload_length >= kV4PayloadLength) {
+        cursor = ReadU16Field(cursor,
+                              &params->ina219_undervoltage_trip_mv);
+        cursor = ReadU16Field(cursor,
+                              &params->ina219_undervoltage_release_mv);
+        cursor = ReadU16Field(cursor, &params->ina219_overcurrent_trip_ma);
+        cursor = ReadU16Field(cursor,
+                              &params->ina219_overcurrent_release_ma);
+        cursor = ReadU8Field(cursor, &params->ina219_trip_samples);
+        cursor = ReadU8Field(cursor, &params->ina219_release_samples);
+        cursor = ReadU8Field(cursor, &params->ina219_comm_fail_samples);
+        cursor = ReadU8Field(cursor, &params->ina219_latch_faults);
+        cursor = ReadU8Field(cursor, &params->ina219_motion_inhibit_enable);
+    }
+    if (payload_length >= kV5PayloadLength) {
+        for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
+            cursor = ReadU16Field(cursor, &params->grayscale_white[i]);
+        }
+        for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
+            cursor = ReadU16Field(cursor, &params->grayscale_black[i]);
+        }
+        cursor = ReadU16Field(cursor, &params->grayscale_threshold);
+    }
+    if ((payload_length >= kV5PayloadLength) &&
+        (payload_length < kPayloadLength)) {
+        /* v5 allowed a single threshold over the full 1..1000 range. Keep
+         * that image loadable while deriving the widest valid v6 hysteresis
+         * around its existing center. */
+        if (params->grayscale_threshold >= 1000U) {
+            params->grayscale_threshold = 999U;
+        }
+        const uint16_t lower_room = static_cast<uint16_t>(
+            (params->grayscale_threshold - 1U) * 2U);
+        const uint16_t upper_room = static_cast<uint16_t>(
+            (999U - params->grayscale_threshold) * 2U);
+        const uint16_t available =
+            (lower_room < upper_room) ? lower_room : upper_room;
+        if (params->grayscale_hysteresis > available) {
+            params->grayscale_hysteresis = available;
+        }
+    }
+    if (payload_length >= kPayloadLength) {
+        cursor = ReadU16Field(cursor, &params->grayscale_hysteresis);
+        cursor = ReadU16Field(cursor, &params->grayscale_position_floor);
+        cursor = ReadU16Field(cursor, &params->grayscale_min_line_strength);
+        cursor = ReadU8Field(cursor, &params->grayscale_track_mask);
+        cursor = ReadI32Field(cursor, &params->linefollow_kp);
+        cursor = ReadI32Field(cursor, &params->linefollow_kd);
+        cursor = ReadU16Field(cursor,
+                              &params->linefollow_max_correction_rpm);
+        cursor = ReadU16Field(cursor, &params->linefollow_lost_hold_ms);
+        (void) ReadU16Field(cursor, &params->linefollow_lost_stop_ms);
     }
     (void) cursor;
 }
@@ -395,6 +587,29 @@ bool ValidateParams(const ConfigStoreParams &params)
 
     g_params = saved;
     if (params.speed_min_duty > params.speed_max_duty) {
+        return false;
+    }
+    if (params.ina219_undervoltage_release_mv <=
+        params.ina219_undervoltage_trip_mv) {
+        return false;
+    }
+    if (params.ina219_overcurrent_release_ma >=
+        params.ina219_overcurrent_trip_ma) {
+        return false;
+    }
+    for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
+        if (params.grayscale_white[i] == params.grayscale_black[i]) {
+            return false;
+        }
+    }
+    const uint16_t lower_half = static_cast<uint16_t>(
+        params.grayscale_hysteresis / 2U);
+    const uint16_t upper_half = static_cast<uint16_t>(
+        (params.grayscale_hysteresis + 1U) / 2U);
+    if ((params.grayscale_threshold <= lower_half) ||
+        ((static_cast<uint32_t>(params.grayscale_threshold) + upper_half) >=
+         1000U) ||
+        (params.linefollow_lost_stop_ms < params.linefollow_lost_hold_ms)) {
         return false;
     }
     return true;
@@ -455,6 +670,7 @@ drivers::DriverStatus ConfigStore_Load(void)
 
 #if FEATURE_ENABLE_FRAM
     if (!board::Board_FramIsReady()) {
+        g_status.load_outcome = CONFIG_LOAD_DEFAULTS_IO_ERROR;
         g_status.last_load_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
         return g_status.last_load_status;
     }
@@ -462,6 +678,7 @@ drivers::DriverStatus ConfigStore_Load(void)
     drivers::DriverStatus status =
         board::Board_FramRead(kFramAddress, image, kImageLength);
     if (status != drivers::DRIVER_OK) {
+        g_status.load_outcome = CONFIG_LOAD_DEFAULTS_IO_ERROR;
         g_status.last_load_status = status;
         return status;
     }
@@ -475,13 +692,22 @@ drivers::DriverStatus ConfigStore_Load(void)
 
     const bool current_layout =
         (version == kVersion) && (length == kPayloadLength);
+    const bool v5_layout =
+        (version == kV5Version) && (length == kV5PayloadLength);
+    const bool v4_layout =
+        (version == kV4Version) && (length == kV4PayloadLength);
+    const bool v3_layout =
+        (version == kV3Version) && (length == kV3PayloadLength);
     const bool legacy_v1 =
         (version == kLegacyVersion) && (length == kLegacyPayloadLength);
     const bool legacy_v2 = (version == 2U) && (length == kV2PayloadLength);
-    const bool legacy_layout = legacy_v1 || legacy_v2;
+    const bool legacy_layout =
+        v5_layout || v4_layout || v3_layout || legacy_v1 || legacy_v2;
 
-    if ((magic != kMagic) || ((!current_layout) && (!legacy_layout))) {
+    if ((magic != kMagic) ||
+        ((!current_layout) && (!legacy_layout))) {
         g_status.loaded_from_fram = false;
+        g_status.load_outcome = CONFIG_LOAD_DEFAULTS_INVALID;
         g_status.last_load_status = drivers::DRIVER_ERROR;
         return g_status.last_load_status;
     }
@@ -493,6 +719,7 @@ drivers::DriverStatus ConfigStore_Load(void)
 
     if (stored_crc != actual_crc) {
         g_status.loaded_from_fram = false;
+        g_status.load_outcome = CONFIG_LOAD_DEFAULTS_INVALID;
         g_status.last_load_status = drivers::DRIVER_ERROR;
         return g_status.last_load_status;
     }
@@ -500,16 +727,19 @@ drivers::DriverStatus ConfigStore_Load(void)
     DecodePayload(&image[kHeaderLength], length, &loaded);
     if (!ValidateParams(loaded)) {
         g_status.loaded_from_fram = false;
+        g_status.load_outcome = CONFIG_LOAD_DEFAULTS_INVALID;
         g_status.last_load_status = drivers::DRIVER_ERROR_INVALID_ARG;
         return g_status.last_load_status;
     }
 
     g_params = loaded;
     g_status.loaded_from_fram = true;
+    g_status.load_outcome = CONFIG_LOAD_FROM_FRAM;
     g_status.dirty = false;
     g_status.last_load_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 #else
+    g_status.load_outcome = CONFIG_LOAD_DEFAULTS_UNSUPPORTED;
     g_status.last_load_status = drivers::DRIVER_ERROR_UNSUPPORTED;
     return g_status.last_load_status;
 #endif
@@ -556,6 +786,7 @@ void ConfigStore_ResetDefaults(void)
     g_status.dirty = true;
     g_status.stored_length = kPayloadLength;
     g_status.stored_crc = 0U;
+    g_status.load_outcome = CONFIG_LOAD_DEFAULTS_EXPLICIT;
 }
 
 const ConfigStoreParams *ConfigStore_Get(void)
@@ -581,6 +812,36 @@ drivers::DriverStatus ConfigStore_Set(const char *name, int32_t value)
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
 
+    g_status.dirty = true;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
+    const uint16_t white[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
+    const uint16_t black[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
+    uint16_t threshold)
+{
+    if ((white == 0) || (black == 0) || (threshold == 0U) ||
+        (threshold >= 1000U)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    ConfigStoreParams updated = g_params;
+    for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
+        if ((white[i] > 4095U) || (black[i] > 4095U) ||
+            (white[i] == black[i])) {
+            return drivers::DRIVER_ERROR_INVALID_ARG;
+        }
+        updated.grayscale_white[i] = white[i];
+        updated.grayscale_black[i] = black[i];
+    }
+    updated.grayscale_threshold = threshold;
+
+    if (!ValidateParams(updated)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    g_params = updated;
     g_status.dirty = true;
     return drivers::DRIVER_OK;
 }

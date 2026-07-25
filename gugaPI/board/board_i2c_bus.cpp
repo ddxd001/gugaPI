@@ -35,7 +35,6 @@ static const drivers::I2cDiagBusConfig g_i2cBuses[] = {
     {
         "motor",
         BOARD_MOTOR_DRIVER_I2C_INST,
-        SYSCFG_DL_MOTOR_I2C_init,
         BOARD_MOTOR_DRIVER_I2C_TIMEOUT_ITERATIONS,
         BOARD_MOTOR_DRIVER_I2C_SCL_PORT,
         BOARD_MOTOR_DRIVER_I2C_SCL_PIN,
@@ -49,7 +48,6 @@ static const drivers::I2cDiagBusConfig g_i2cBuses[] = {
     {
         "fram",
         BOARD_FRAM_I2C_INST,
-        SYSCFG_DL_SENSOR_I2C_init,
         BOARD_FRAM_TIMEOUT_ITERATIONS,
         BOARD_FRAM_I2C_SCL_PORT,
         BOARD_FRAM_I2C_SCL_PIN,
@@ -63,7 +61,6 @@ static const drivers::I2cDiagBusConfig g_i2cBuses[] = {
     {
         BOARD_OLED_I2C_BUS_NAME,
         BOARD_OLED_I2C_INST,
-        SYSCFG_DL_SENSOR_I2C_init,
         BOARD_OLED_TIMEOUT_ITERATIONS,
         BOARD_OLED_I2C_SCL_PORT,
         BOARD_OLED_I2C_SCL_PIN,
@@ -77,7 +74,6 @@ static const drivers::I2cDiagBusConfig g_i2cBuses[] = {
     {
         "ina219",
         BOARD_INA219_I2C_INST,
-        SYSCFG_DL_SENSOR_I2C_init,
         BOARD_INA219_TIMEOUT_ITERATIONS,
         BOARD_INA219_I2C_SCL_PORT,
         BOARD_INA219_I2C_SCL_PIN,

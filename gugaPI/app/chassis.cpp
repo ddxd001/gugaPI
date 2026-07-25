@@ -1,8 +1,10 @@
 #include "app/chassis.h"
 
+#include "app/app_ina219.h"
 #include "app/config_store.h"
 #include "app/motor_driver_client.h"
 #include "config/feature_config.h"
+#include "services/time.h"
 
 namespace app {
 namespace {
@@ -29,7 +31,10 @@ ChassisState g_state = {
         22400U,
         static_cast<uint16_t>(motor::kSpeedMaxRpm)
     },
-    drivers::DRIVER_ERROR_NOT_INITIALIZED
+    drivers::DRIVER_ERROR_NOT_INITIALIZED,
+    drivers::DRIVER_ERROR_NOT_INITIALIZED,
+    0U,
+    0U
 };
 
 bool g_motionLeaseActive = false;
@@ -241,9 +246,15 @@ drivers::DriverStatus Chassis_Init(void)
 #if FEATURE_ENABLE_MOTOR_DRIVER
     motor::Init(&g_motorClient);
     RefreshConfig();
-    g_state.initialized = true;
     ClearMotionCommandState();
+    g_state.last_feedback_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    g_state.feedback_sequence = 0U;
+    g_state.last_feedback_ms = 0U;
+    g_state.initialized = true;
     g_state.last_status = ApplyPersistentMotorConfig();
+    if (g_state.last_status != drivers::DRIVER_OK) {
+        g_state.initialized = false;
+    }
     return g_state.last_status;
 #else
     g_state.initialized = false;
@@ -290,6 +301,13 @@ drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
     if (!g_state.initialized) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
+#if FEATURE_ENABLE_INA219
+    if (((left_rpm != 0) || (right_rpm != 0)) &&
+        App_Ina219MotionInhibitRequested()) {
+        SetLastStatus(drivers::DRIVER_ERROR_BUSY);
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+#endif
     RefreshConfig();
 
     drivers::DriverStatus status =
@@ -378,6 +396,17 @@ drivers::DriverStatus Chassis_Service(void)
         return drivers::DRIVER_OK;
     }
 
+#if FEATURE_ENABLE_INA219
+    if (App_Ina219MotionInhibitRequested()) {
+        const drivers::DriverStatus stop_status = StopMotorsForSafety();
+        const drivers::DriverStatus status =
+            (stop_status == drivers::DRIVER_OK) ?
+            drivers::DRIVER_ERROR_BUSY : stop_status;
+        SetLastStatus(status);
+        return status;
+    }
+#endif
+
     drivers::DriverStatus status =
         RefreshOneWheelLease(kLeftWheelMotor1, g_state.left.target_rpm);
     if (status == drivers::DRIVER_OK) {
@@ -404,6 +433,7 @@ drivers::DriverStatus Chassis_Update(void)
     motor::RpmData rpm = {};
     drivers::DriverStatus status = motor::ReadRpm(&g_motorClient, &rpm);
     if (status != drivers::DRIVER_OK) {
+        g_state.last_feedback_status = status;
         SetLastStatus(status);
         return status;
     }
@@ -412,6 +442,7 @@ drivers::DriverStatus Chassis_Update(void)
                             &g_state.left,
                             rpm.actual_m2);
     if (status != drivers::DRIVER_OK) {
+        g_state.last_feedback_status = status;
         SetLastStatus(status);
         return status;
     }
@@ -419,6 +450,13 @@ drivers::DriverStatus Chassis_Update(void)
     status = ReadWheelState(kRightWheelMotor1,
                             &g_state.right,
                             rpm.actual_m1);
+    g_state.last_feedback_status = status;
+    if (status == drivers::DRIVER_OK) {
+        g_state.last_feedback_ms = services::Time_Millis();
+        if (g_state.feedback_sequence != UINT32_MAX) {
+            g_state.feedback_sequence++;
+        }
+    }
     SetLastStatus(status);
     return status;
 }

@@ -171,9 +171,9 @@
 
 状态：`代码完成，待硬件验收`
 
-> **重要变更**：原计划使用 GY931（维特智能角度传感器）做航向闭环。实际实现改用 **ICM-45686 陀螺仪 Z 轴 yaw 积分**作为航向源，因为 ICM-45686 通过 SPI 直连、采样率更高（10 ms 周期任务）、延迟更低。GY931 驱动仍保留用于角度调试和 OLED 显示，但**不参与航向闭环控制**。
+> **重要变更**：原计划使用 GY931（维特智能角度传感器）做航向闭环。实际实现改用 **ICM-45686 陀螺仪 Z 轴 yaw 积分**作为航向源，因为 ICM-45686 通过 SPI 直连、采样率更高（5 ms 周期任务）、延迟更低。GY931 驱动仍保留用于角度调试和 OLED 显示，但**不参与航向闭环控制**。
 
-目标：使用 ICM-45686 陀螺仪 yaw 实现直行航向保持和相对角度转弯，不实现底盘里程计、行驶距离估计或二维位姿。
+目标：使用 ICM-45686 陀螺仪 yaw 实现行走中的直行航向保持和相对角度转弯，并结合两轮编码器实现指定毫米直线行驶；不实现二维位姿。
 
 ### 5.1 航向采集与角度处理
 
@@ -181,7 +181,7 @@
 
 实现内容：
 
-- 10 ms 周期任务（`app_imu`）读取 ICM-45686 加速度/陀螺仪，积分 Z 轴角速度得到相对 Yaw（毫度，`-180000~180000 mdeg`）。
+- 5 ms 周期任务（`app_imu`）读取 200 Hz ICM-45686 加速度/陀螺仪，积分 Z 轴角速度得到相对 Yaw（毫度，`-180000~180000 mdeg`）。
 - 减去 `ConfigStore` 里的 `imu_gyro_bias_z_mdps` 偏置。
 - 提供最短角度差 `ShortestAngleDiff()`，正确处理 `-180°/180°` 回绕。
 - 50 ms 周期 `Heading_Update()` 消费 IMU 数据，内建调度看门狗（任务间隔 > 200 ms 判定数据过期→停车+故障）。
@@ -210,7 +210,19 @@
 - 接近目标时进入容差区间 `heading_tolerance_mdeg`，保持 `heading_settle_ms` 后判定完成（`at_target` + `at_target_since_ms`），避免单次采样越界即结束。
 - 转弯超时 8 s（`kTurnTimeoutMs`）→ `FAULT_DRIVER_TIMEOUT` 停车。
 
-### 5.4 参数与遥测
+### 5.4 编码器距离闭环
+
+状态：`代码完成，待硬件验收`
+
+- `HEADING_DISTANCE` 记录左右轮起始编码器，并锁定启动瞬间Yaw。
+- 正毫米前进、负毫米倒退；剩余距离生成基础RPM，接近目标自动减速。
+- 航向P环同时生成左右轮差速修正，构成“距离外环 + 轮速内环 + 航向环”。
+- 左右轮都进入目标 `±3 mm`，停车稳定100 ms后完成。
+- 编码器反馈超过100 ms未更新、IMU失效、通信失败或自动/指定超时均安全停车。
+- Shell：`heading distance <mm> <max_rpm> [timeout_ms]`。
+- ActionRunner：`drive_mm` + `distance_reached`。
+
+### 5.5 参数与遥测
 
 状态：`代码完成`
 
@@ -226,7 +238,7 @@
 
 目标：所有动作都通过周期更新执行，运行过程中 Shell、传感器、看门狗和急停仍可工作。
 
-> 已通过 `heading.cpp`（HOLD/TURN）、`linefollow.cpp`（FOLLOW）和 `action.cpp`（统一解释器）实现。所有运动原语均以 50 ms 周期任务更新，不阻塞主循环。动作失败/超时/取消均调用 `StopAll()`（Heading_Stop + LF_Stop + Chassis_Stop）。
+> 已通过 `heading.cpp`（HOLD/TURN/DISTANCE）、`linefollow.cpp`（FOLLOW）和 `action.cpp`（统一解释器）实现。航向和动作解释器以 50 ms 周期更新，循迹以 20 ms 周期更新，均不阻塞主循环。动作失败/超时/取消均调用 `StopAll()`（Heading_Stop + LF_Stop + Chassis_Stop）。
 
 ### 6.1 统一动作接口
 
@@ -374,12 +386,12 @@ run start
 
 状态：`代码完成`
 
-实现内容（`linefollow.cpp` `LF_CAL` 模式）：
+实现内容（统一 `app_grayscale` 校准状态机）：
 
-- `lf cal` 启动 2 s 标定，记录各通道 min/max ADC 值。
-- 标定完成后计算每通道 threshold = (min + max) / 2，设 `calibrated = true`。
-- `ChannelBlackness()` 归一化各通道到 0..1000（1000 = 完全在线上）。
-- 标定参数当前存 RAM（每次上电重新标定），计划后续持久化到 FRAM。
+- `lf cal` 保留为 2 s 扫动标定；推荐 `gray calib white/black/commit` 多帧平均。
+- 每通道黑白跨度至少 200，归一化到 0..1000（1000 = 黑线）。
+- 双阈值迟滞产生全八路数字位图，默认进入/退出阈值为 650/350。
+- 标定和循迹参数持久化到 FRAM v6，并兼容读取 v1 至 v5。
 
 ### 8.2 基础循迹控制
 
@@ -394,9 +406,9 @@ right_rpm = base_rpm + correction
 
 实现内容（`linefollow.cpp` `LF_FOLLOW` 模式）：
 
-- 加权位置计算：`pos_milli = (sum(i * blackness_i) / sum(blackness_i)) * 1000`，`error_mpos = (pos_milli - 3500) * kLineSign`，范围 `-3500..+3500`。
-- `correction = error_mpos * kp / 1e6`，限幅到 `max_correction_rpm`（默认 kp=10000，即 1 通道偏差约 10 RPM）。
-- 丢线判定：`total_blackness < kMinLineWeight(1000)` → 保留上次方向修正 `lost_timeout_ms`（默认 500 ms），超时则停车。
+- 中间 `track_mask` 通道按连续黑度计算位置，外侧通道只参与路口位图，避免支路拉偏巡线质心。
+- `correction = (error * kp + filtered_derivative * kd) / 1e6`，默认 `kd=0`，按灰度完整帧序号更新。
+- 丢线先以一半基础速度保持方向，超过 `lost_hold_ms` 后原地搜索，达到 `lost_stop_ms` 停车。
 - 持续时间到达 `follow_duration_ms` 后自动停车。
 - 安全：灰度数据无效 → `FAULT_SENSOR_LOST` 停车；故障 → 停车。
 
@@ -404,13 +416,15 @@ Shell 在线调参：
 
 ```text
 lf kp <val>           # 设置 kp（0..1000000）
+lf kd <val>           # 设置 kd（0..1000000）
 lf maxcorr <val>      # 设置最大修正 RPM（0..500）
-lf losttimeout <ms>   # 设置丢线超时（100..10000 ms）
+lf losthold <ms>      # 设置减速保持时间
+lf losttimeout <ms>   # 设置丢线停车时间
 ```
 
 ### 8.3 赛道事件识别
 
-状态：`待开始`
+状态：`基础分类完成，待硬件验收和动作策略接入`
 
 实现内容（未实现）：
 
@@ -499,7 +513,7 @@ lf losttimeout <ms>   # 设置丢线超时（100..10000 ms）
 4. ~~实现统一动作接口。~~ **代码完成**
 5. ~~实现定时、直行、转弯、等待和停车动作。~~ **代码完成（条件驱动解释器）**
 6. ~~实现 ActionRunner 和 Shell 调试命令。~~ **代码完成**
-7. ~~实现灰度标定、循迹和赛道事件识别。~~ **标定+循迹完成，赛道事件待做**
+7. ~~实现灰度标定、循迹和赛道事件识别。~~ **代码完成，待硬件验收和动作策略接入**
 8. 完成参数持久化、比赛模式和系统级回归。 **参数持久化完成，比赛模式+回归待做**
 
 ## 12. 进度记录
@@ -528,6 +542,7 @@ lf losttimeout <ms>   # 设置丢线超时（100..10000 ms）
 | 2026-07-23 | 阶段四 | 实现 ActionRunner 顺序动作执行器 | `run add/clear/start/cancel/status` 可用 |
 | 2026-07-23 | 阶段五 | 实现 8 路灰度循迹 + LINE_FOLLOW 动作 | `lf cal/start/stop` 可用，等待硬件验收 |
 | 2026-07-24 | 阶段四 | ActionRunner 升级为条件驱动指令表解释器 | 支持 DRIVE/TURN/FOLLOW/WAIT/STOP/BRANCH/END + 条件跳转，编译通过 |
+| 2026-07-25 | 阶段二/四 | 增加编码器毫米距离闭环 | `heading distance`、`drive_mm` 和 `distance_reached` 可用，待硬件验收 |
 
 ## 13. 下一步
 
@@ -535,18 +550,18 @@ lf losttimeout <ms>   # 设置丢线超时（100..10000 ms）
 
 近期优先任务（按顺序）：
 
-1. **航向闭环硬件验收**：架空检查 `heading hold` 修正方向和 `heading turn` 左右转方向；地面测试 80/150 RPM 直行航向保持和 90°/180° 转弯精度。
+1. **航向与距离闭环硬件验收**：架空检查编码器方向、`heading hold` 修正方向和 `heading turn` 左右转方向；地面测试直行航向、90°/180°转弯以及100/500/-200 mm距离精度。
 2. **循迹硬件验收**：`lf cal` 标定 → 低速直线循迹 → 缓弯 → S 弯 → 丢线恢复。
 3. **动作序列联调**：用 `run add` 构建完整比赛流程（直行→转弯→循迹→停车），验证分支和超时路径。
 4. **速度环地面回归**（阶段一 4.4）：完成恒速/变速/方向/负载/电压测试矩阵。
-5. **赛道事件识别**（阶段五 8.3）：十字/终点检测，接入 ActionRunner 条件。
+5. **赛道事件联调**（阶段五 8.3）：验证两帧确认的左右支路/T/十字分类并接入 ActionRunner 条件。
 6. **比赛模式**（阶段六 9.3）：完善 `feature_competition_config.h`，上电静止+按键启动+故障锁定。
 7. **系统级回归测试**（第 10 节）：主从重启、I2C 故障、编码器异常、低电压、20 次完整流程。
 
 硬件测试前需要确认：
 
 - ICM-45686 yaw 正方向与 `kYawSign` 一致（`heading.cpp:17`）。
-- 灰度通道顺序与 `kLineSign` 一致（`linefollow.cpp:17`）。
+- 逐路遮挡确认灰度通道顺序、`track_mask=0x3C` 的中间通道和位置左右符号。
 - 小车架空完成首次左右转动方向检查。
 - 地面转弯测试区域有足够安全空间。
 - 急停或断电开关可随时操作。

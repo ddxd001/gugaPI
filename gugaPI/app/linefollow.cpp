@@ -2,6 +2,7 @@
 
 #include "app/app_grayscale.h"
 #include "app/chassis.h"
+#include "app/config_store.h"
 #include "drivers/common/driver_status.h"
 #include "services/fault.h"
 #include "services/time.h"
@@ -9,39 +10,16 @@
 namespace app {
 namespace {
 
-/* Line polarity: +1 = line is LOW adc (black surface, weak reflectance), so
- * blackness = (max - value)/(max-min). Set -1 if the line reads HIGH adc. */
-static const int32_t kLinePolarity = 1;
-/* Channel-order sign: +1 = channel 0 on one side; flip to -1 if the robot
- * steers the wrong way during bench testing. */
-static const int32_t kLineSign = 1;
-
 static const uint32_t kCalDurationMs = 2000U;
-static const int32_t kMinLineWeight = 1000;   /* >=1 channel fully black */
-static const int32_t kScale = 1000000;        /* correction = error * kp / kScale */
-static const uint8_t kChannelCount = 8U;
+static const int32_t kControlScale = 1000000;
+static const uint32_t kGrayscaleMaxAgeMs = 200U;
 
 LFState g_state;
 
-int32_t ClampInt32(int32_t v, int32_t lo, int32_t hi)
+bool IsGrayscaleFresh(const AppGrayscaleData *data, uint32_t now_ms)
 {
-    if (v < lo) {
-        return lo;
-    }
-    if (v > hi) {
-        return hi;
-    }
-    return v;
-}
-
-void ResetCalData(void)
-{
-    for (uint8_t i = 0U; i < kChannelCount; i++) {
-        g_state.cal_min[i] = 0xFFFFU;
-        g_state.cal_max[i] = 0U;
-        g_state.threshold[i] = 0U;
-    }
-    g_state.calibrated = false;
+    return (data != 0) && data->valid && data->processed_valid &&
+           ((now_ms - data->last_update_ms) <= kGrayscaleMaxAgeMs);
 }
 
 void SafetyStop(services::FaultCode code)
@@ -53,47 +31,106 @@ void SafetyStop(services::FaultCode code)
     }
 }
 
-/* Blackness of one channel, 0..1000 (1000 = fully on the line). Uses the
- * calibrated min/max for that channel; clamps if adc drifts outside. */
-int32_t ChannelBlackness(uint8_t i, uint16_t value)
+drivers::DriverStatus ApplyWheelCommand(int32_t base_rpm,
+                                        int32_t correction_rpm)
 {
-    const uint16_t lo = g_state.cal_min[i];
-    const uint16_t hi = g_state.cal_max[i];
-    if (hi <= lo) {
-        return 0;   /* uncalibrated / flat channel */
+    const int32_t left = base_rpm - correction_rpm;
+    const int32_t right = base_rpm + correction_rpm;
+    const drivers::DriverStatus status = Chassis_SetWheelRpm(left, right);
+    g_state.last_status = status;
+    if (status != drivers::DRIVER_OK) {
+        SafetyStop(services::FAULT_NONE);
     }
-    const int32_t range = static_cast<int32_t>(hi) - static_cast<int32_t>(lo);
-    int32_t b;
-    if (kLinePolarity > 0) {
-        /* line = low adc: blacker when value is smaller */
-        b = (static_cast<int32_t>(hi) - static_cast<int32_t>(value)) * 1000 /
-            range;
+    return status;
+}
+
+void LoadConfig(void)
+{
+    const ConfigStoreParams *params = ConfigStore_Get();
+    if (params == 0) {
+        g_state.kp = 10000;
+        g_state.kd = 0;
+        g_state.max_correction_rpm = 30;
+        g_state.lost_hold_ms = 150U;
+        g_state.lost_timeout_ms = 500U;
+        return;
+    }
+    g_state.kp = params->linefollow_kp;
+    g_state.kd = params->linefollow_kd;
+    g_state.max_correction_rpm =
+        static_cast<int32_t>(params->linefollow_max_correction_rpm);
+    g_state.lost_hold_ms = params->linefollow_lost_hold_ms;
+    g_state.lost_timeout_ms = params->linefollow_lost_stop_ms;
+}
+
+void UpdateCalibrationMode(void)
+{
+    const AppGrayscaleCalibrationStatus *status =
+        App_GrayscaleGetCalibrationStatus();
+    if ((status != 0) && status->running) {
+        return;
+    }
+    g_state.mode = LF_IDLE;
+    if ((status != 0) && (status->last_status == drivers::DRIVER_OK)) {
+        g_state.calibrated = true;
+        g_state.last_status = drivers::DRIVER_OK;
     } else {
-        b = (static_cast<int32_t>(value) - static_cast<int32_t>(lo)) * 1000 /
-            range;
+        g_state.calibrated = false;
+        g_state.last_status = (status != 0)
+            ? status->last_status
+            : drivers::DRIVER_ERROR;
     }
-    return ClampInt32(b, 0, 1000);
+}
+
+int32_t CalculateCorrection(const AppGrayscaleData *data)
+{
+    const int32_t error = data->line_position;
+    int32_t derivative = 0;
+    if ((g_state.last_frame_ms != 0U) &&
+        (data->last_update_ms != g_state.last_frame_ms)) {
+        const uint32_t dt_ms = data->last_update_ms - g_state.last_frame_ms;
+        const int64_t numerator =
+            static_cast<int64_t>(error - g_state.last_error_mpos) * 1000LL;
+        derivative = static_cast<int32_t>(numerator / dt_ms);
+    }
+
+    /* One-pole derivative filtering suppresses frame-to-frame ADC noise while
+     * retaining the position term without additional latency. */
+    g_state.derivative_mpos_per_s =
+        (g_state.derivative_mpos_per_s * 3 + derivative) / 4;
+    const int64_t proportional =
+        static_cast<int64_t>(error) * static_cast<int64_t>(g_state.kp);
+    const int64_t differential =
+        static_cast<int64_t>(g_state.derivative_mpos_per_s) *
+        static_cast<int64_t>(g_state.kd);
+    const int64_t combined = (proportional + differential) / kControlScale;
+
+    int32_t correction;
+    if (combined > g_state.max_correction_rpm) {
+        correction = g_state.max_correction_rpm;
+    } else if (combined < -g_state.max_correction_rpm) {
+        correction = -g_state.max_correction_rpm;
+    } else {
+        correction = static_cast<int32_t>(combined);
+    }
+
+    g_state.error_mpos = error;
+    g_state.last_error_mpos = error;
+    g_state.last_frame_ms = data->last_update_ms;
+    g_state.correction_rpm = correction;
+    return correction;
 }
 
 } /* namespace */
 
 void LF_Init(void)
 {
+    g_state = {};
     g_state.mode = LF_IDLE;
-    g_state.calibrated = false;
-    g_state.error_mpos = 0;
-    g_state.correction_rpm = 0;
     g_state.lost = true;
-    g_state.base_rpm = 0;
-    g_state.follow_start_ms = 0U;
-    g_state.follow_duration_ms = 0U;
-    g_state.cal_start_ms = 0U;
-    g_state.lost_since_ms = 0U;
-    g_state.kp = 10000;            /* 1 channel error (~1000 mpos) -> 10 RPM */
-    g_state.max_correction_rpm = 30;
-    g_state.lost_timeout_ms = 500U;
+    g_state.road_type = GRAYSCALE_ROAD_UNKNOWN;
     g_state.last_status = drivers::DRIVER_OK;
-    ResetCalData();
+    LoadConfig();
 }
 
 drivers::DriverStatus LF_CalibrateStart(void)
@@ -101,9 +138,14 @@ drivers::DriverStatus LF_CalibrateStart(void)
     if (g_state.mode != LF_IDLE) {
         return drivers::DRIVER_ERROR_BUSY;
     }
-    ResetCalData();
+    const drivers::DriverStatus status =
+        App_GrayscaleStartSweepCalibration(kCalDurationMs);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    g_state.calibrated = false;
     g_state.mode = LF_CAL;
-    g_state.cal_start_ms = services::Time_Millis();
+    g_state.last_status = drivers::DRIVER_ERROR_BUSY;
     return drivers::DRIVER_OK;
 }
 
@@ -112,29 +154,49 @@ drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms)
     if (g_state.mode != LF_IDLE) {
         return drivers::DRIVER_ERROR_BUSY;
     }
+    if ((!g_state.calibrated) &&
+        App_GrayscaleCalibrationIsCommissioned()) {
+        g_state.calibrated = true;
+    }
     if (!g_state.calibrated) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
     if (services::Fault_HasFault()) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
+
+    const AppGrayscaleData *data = App_GrayscaleGetData();
+    if (!IsGrayscaleFresh(data, services::Time_Millis())) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
     g_state.mode = LF_FOLLOW;
     g_state.base_rpm = base_rpm;
     g_state.follow_start_ms = services::Time_Millis();
     g_state.follow_duration_ms = duration_ms;
     g_state.correction_rpm = 0;
+    g_state.error_mpos = 0;
+    g_state.last_error_mpos = 0;
+    g_state.derivative_mpos_per_s = 0;
+    g_state.last_sequence = 0U;
+    g_state.last_frame_ms = 0U;
+    g_state.processed_frame_count = 0U;
     g_state.lost_since_ms = 0U;
     g_state.lost = false;
+    g_state.road_type = data->road_type;
     g_state.last_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 }
 
 drivers::DriverStatus LF_Stop(void)
 {
+    if (g_state.mode == LF_CAL) {
+        App_GrayscaleCancelCalibration();
+    }
     g_state.mode = LF_IDLE;
-    const drivers::DriverStatus s = Chassis_Stop();
-    g_state.last_status = s;
-    return s;
+    const drivers::DriverStatus status = Chassis_Stop();
+    g_state.last_status = status;
+    return status;
 }
 
 void LF_Update(void)
@@ -142,90 +204,60 @@ void LF_Update(void)
     if (g_state.mode == LF_IDLE) {
         return;
     }
+    if (g_state.mode == LF_CAL) {
+        UpdateCalibrationMode();
+        return;
+    }
 
     const uint32_t now = services::Time_Millis();
-
     if (services::Fault_HasFault()) {
         SafetyStop(services::FAULT_NONE);
         return;
     }
-
-    const AppGrayscaleData *g = App_GrayscaleGetData();
-    if ((g == 0) || (!g->valid)) {
-        SafetyStop(services::FAULT_SENSOR_LOST);
-        return;
-    }
-
-    if (g_state.mode == LF_CAL) {
-        for (uint8_t i = 0U; i < kChannelCount; i++) {
-            const uint16_t v = g->raw[i];
-            if (v < g_state.cal_min[i]) {
-                g_state.cal_min[i] = v;
-            }
-            if (v > g_state.cal_max[i]) {
-                g_state.cal_max[i] = v;
-            }
-        }
-        if ((now - g_state.cal_start_ms) >= kCalDurationMs) {
-            for (uint8_t i = 0U; i < kChannelCount; i++) {
-                g_state.threshold[i] =
-                    static_cast<uint16_t>(
-                        (static_cast<uint32_t>(g_state.cal_min[i]) +
-                         static_cast<uint32_t>(g_state.cal_max[i])) /
-                        2U);
-            }
-            g_state.calibrated = true;
-            g_state.mode = LF_IDLE;
-        }
-        return;
-    }
-
-    /* LF_FOLLOW */
-    if ((now - g_state.follow_start_ms) >= g_state.follow_duration_ms) {
+    if ((g_state.follow_duration_ms != 0U) &&
+        ((now - g_state.follow_start_ms) >= g_state.follow_duration_ms)) {
         (void) LF_Stop();
         return;
     }
 
-    int32_t total = 0;
-    int32_t weighted = 0;
-    for (uint8_t i = 0U; i < kChannelCount; i++) {
-        const int32_t b = ChannelBlackness(i, g->raw[i]);
-        weighted += static_cast<int32_t>(i) * b;
-        total += b;
+    const AppGrayscaleData *data = App_GrayscaleGetData();
+    if (!IsGrayscaleFresh(data, now)) {
+        SafetyStop(services::FAULT_SENSOR_LOST);
+        return;
     }
+    if (data->sequence == g_state.last_sequence) {
+        return;
+    }
+    g_state.last_sequence = data->sequence;
+    g_state.processed_frame_count++;
+    g_state.road_type = data->road_type;
 
-    int32_t correction;
-    if (total < kMinLineWeight) {
+    if (!data->line_detected) {
         g_state.lost = true;
         g_state.error_mpos = 0;
         if (g_state.lost_since_ms == 0U) {
             g_state.lost_since_ms = now;
         }
-        if ((now - g_state.lost_since_ms) > g_state.lost_timeout_ms) {
+        const uint32_t lost_ms = now - g_state.lost_since_ms;
+        if (lost_ms >= g_state.lost_timeout_ms) {
             (void) LF_Stop();
             return;
         }
-        /* retain last steering while searching */
-        correction = g_state.correction_rpm;
-    } else {
-        g_state.lost = false;
-        g_state.lost_since_ms = 0U;
-        const int32_t pos_milli = (total != 0) ? (weighted * 1000) / total : 3500;
-        g_state.error_mpos = (pos_milli - 3500) * kLineSign;
-        correction = g_state.error_mpos * g_state.kp / kScale;
-        correction = ClampInt32(correction,
-                                 -g_state.max_correction_rpm,
-                                 g_state.max_correction_rpm);
-        g_state.correction_rpm = correction;
+
+        /* First slow down while holding the previous turn. After the hold
+         * interval, use the same correction around zero base speed to search
+         * in the last known line direction. */
+        const int32_t search_base = (lost_ms <= g_state.lost_hold_ms)
+            ? (g_state.base_rpm / 2)
+            : 0;
+        (void) ApplyWheelCommand(search_base, g_state.correction_rpm);
+        return;
     }
 
-    const int32_t left = g_state.base_rpm - correction;
-    const int32_t right = g_state.base_rpm + correction;
-    const drivers::DriverStatus s = Chassis_SetWheelRpm(left, right);
-    g_state.last_status = s;
-    if (s != drivers::DRIVER_OK) {
-        SafetyStop(services::FAULT_NONE);
-    }
+    g_state.lost = false;
+    g_state.lost_since_ms = 0U;
+    const int32_t correction = CalculateCorrection(data);
+    (void) ApplyWheelCommand(g_state.base_rpm, correction);
 }
 
 const LFState *LF_GetState(void)
@@ -235,24 +267,24 @@ const LFState *LF_GetState(void)
 
 bool LF_IsLineDetected(void)
 {
-    if (!g_state.calibrated) {
-        return false;
-    }
-    const AppGrayscaleData *g = App_GrayscaleGetData();
-    if ((g == 0) || (!g->valid)) {
-        return false;
-    }
-    int32_t total = 0;
-    for (uint8_t i = 0U; i < kChannelCount; i++) {
-        total += ChannelBlackness(i, g->raw[i]);
-    }
-    return (total >= kMinLineWeight);
+    const AppGrayscaleData *data = App_GrayscaleGetData();
+    return IsGrayscaleFresh(data, services::Time_Millis()) &&
+           data->line_detected;
 }
 
 void LF_SetKp(int32_t kp)
 {
     if (kp >= 0) {
         g_state.kp = kp;
+        (void) ConfigStore_Set("lf_kp", kp);
+    }
+}
+
+void LF_SetKd(int32_t kd)
+{
+    if (kd >= 0) {
+        g_state.kd = kd;
+        (void) ConfigStore_Set("lf_kd", kd);
     }
 }
 
@@ -260,12 +292,26 @@ void LF_SetMaxCorrection(int32_t max_correction_rpm)
 {
     if (max_correction_rpm >= 0) {
         g_state.max_correction_rpm = max_correction_rpm;
+        (void) ConfigStore_Set("lf_maxcorr", max_correction_rpm);
+    }
+}
+
+void LF_SetLostHold(uint32_t hold_ms)
+{
+    if (hold_ms <= g_state.lost_timeout_ms) {
+        g_state.lost_hold_ms = hold_ms;
+        (void) ConfigStore_Set("lf_lost_hold_ms",
+                               static_cast<int32_t>(hold_ms));
     }
 }
 
 void LF_SetLostTimeout(uint32_t timeout_ms)
 {
-    g_state.lost_timeout_ms = timeout_ms;
+    if (timeout_ms >= g_state.lost_hold_ms) {
+        g_state.lost_timeout_ms = timeout_ms;
+        (void) ConfigStore_Set("lf_lost_stop_ms",
+                               static_cast<int32_t>(timeout_ms));
+    }
 }
 
 } /* namespace app */

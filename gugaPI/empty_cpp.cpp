@@ -251,18 +251,30 @@ int main(void)
     services::Log_Init();
     services::Fault_SetPanicHandler(&PanicHandler);
 
-    /* Board_Init runs after the log is ready so device init failures can be
-     * reported. It returns the first failing driver; the name is surfaced on
-     * the console and latched as a fault so App_Run stops the chassis. */
+    /* Board initialization records every enabled peripheral. Optional and
+     * degraded failures remain diagnosable without unnecessarily disabling
+     * motion; a motion-inhibit entry still latches the existing safety fault. */
     if (board::Board_Init() != drivers::DRIVER_OK) {
-        const char *failed = board::Board_GetFailedDriver();
-        LOG_ERROR("board init failed");
-        if (failed != 0) {
-            services::DebugUart_WriteString("  failed: ");
-            services::DebugUart_WriteString(failed);
-            services::DebugUart_WriteString("\r\n");
+        const board::BoardInitReport *report = board::Board_GetInitReport();
+        const bool motion_inhibited =
+            (report != 0) && report->motion_inhibited;
+        if (motion_inhibited) {
+            LOG_ERROR("board init failed; motion inhibited");
+        } else {
+            LOG_WARN("board init degraded");
         }
-        services::Fault_Set(services::FAULT_DRIVER_INIT);
+        if (report != 0) {
+            for (uint8_t i = 0U; i < report->count; i++) {
+                if (report->entries[i].status != drivers::DRIVER_OK) {
+                    services::DebugUart_WriteString("  failed: ");
+                    services::DebugUart_WriteString(report->entries[i].name);
+                    services::DebugUart_WriteString("\r\n");
+                }
+            }
+        }
+        if (motion_inhibited) {
+            services::Fault_Set(services::FAULT_DRIVER_INIT);
+        }
     }
 
     services::Shell_Init();

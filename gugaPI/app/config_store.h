@@ -8,6 +8,8 @@
 
 namespace app {
 
+static const uint8_t CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT = 8U;
+
 struct ConfigStoreParams {
     uint32_t left_counts_per_rev;
     uint32_t right_counts_per_rev;
@@ -47,6 +49,39 @@ struct ConfigStoreParams {
     int32_t heading_turn_min_rpm;         /* TURN min wheel speed (friction) */
     int32_t heading_tolerance_mdeg;      /* TURN target tolerance */
     uint16_t heading_settle_ms;          /* TURN settle time at target */
+
+    uint16_t ina219_undervoltage_trip_mv;
+    uint16_t ina219_undervoltage_release_mv;
+    uint16_t ina219_overcurrent_trip_ma;
+    uint16_t ina219_overcurrent_release_ma;
+    uint8_t ina219_trip_samples;
+    uint8_t ina219_release_samples;
+    uint8_t ina219_comm_fail_samples;
+    uint8_t ina219_latch_faults;
+    uint8_t ina219_motion_inhibit_enable;
+
+    uint16_t grayscale_white[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT];
+    uint16_t grayscale_black[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT];
+    uint16_t grayscale_threshold;
+    uint16_t grayscale_hysteresis;
+    uint16_t grayscale_position_floor;
+    uint16_t grayscale_min_line_strength;
+    uint8_t grayscale_track_mask;
+
+    int32_t linefollow_kp;
+    int32_t linefollow_kd;
+    uint16_t linefollow_max_correction_rpm;
+    uint16_t linefollow_lost_hold_ms;
+    uint16_t linefollow_lost_stop_ms;
+};
+
+enum ConfigStoreLoadOutcome : uint8_t {
+    CONFIG_LOAD_NOT_ATTEMPTED = 0U,
+    CONFIG_LOAD_FROM_FRAM,
+    CONFIG_LOAD_DEFAULTS_INVALID,
+    CONFIG_LOAD_DEFAULTS_IO_ERROR,
+    CONFIG_LOAD_DEFAULTS_UNSUPPORTED,
+    CONFIG_LOAD_DEFAULTS_EXPLICIT
 };
 
 struct ConfigStoreStatus {
@@ -56,6 +91,7 @@ struct ConfigStoreStatus {
     uint32_t stored_crc;
     drivers::DriverStatus last_load_status;
     drivers::DriverStatus last_save_status;
+    ConfigStoreLoadOutcome load_outcome;
 };
 
 drivers::DriverStatus ConfigStore_Load(void);
@@ -63,6 +99,10 @@ drivers::DriverStatus ConfigStore_Save(void);
 void ConfigStore_ResetDefaults(void);
 const ConfigStoreParams *ConfigStore_Get(void);
 drivers::DriverStatus ConfigStore_Set(const char *name, int32_t value);
+drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
+    const uint16_t white[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
+    const uint16_t black[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
+    uint16_t threshold);
 bool ConfigStore_GetValue(const char *name,
                           int32_t *value,
                           int32_t *min_value,

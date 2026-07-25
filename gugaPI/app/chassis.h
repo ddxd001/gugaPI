@@ -31,6 +31,9 @@ struct ChassisState {
     ChassisWheelState right;
     ChassisConfig config;
     drivers::DriverStatus last_status;
+    drivers::DriverStatus last_feedback_status;
+    uint32_t feedback_sequence;
+    uint32_t last_feedback_ms;
 };
 
 drivers::DriverStatus Chassis_Init(void);

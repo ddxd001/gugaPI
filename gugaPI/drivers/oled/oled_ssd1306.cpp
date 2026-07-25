@@ -5,7 +5,7 @@ namespace {
 
 static const uint8_t kCommandControlByte = 0x00U;
 static const uint8_t kDataControlByte = 0x40U;
-static const uint16_t kChunkBytes = I2C_DIAG_MAX_BLOCK_WRITE_BYTES;
+static const uint16_t kChunkBytes = 32U;
 static const uint8_t kTextCharWidth = 6U;
 
 static const uint8_t kFont5x7[96][5] = {
@@ -111,8 +111,8 @@ bool IsConfigValid(const OledSsd1306Config *config)
 {
     return (config != 0) && (config->bus != 0) &&
            (config->width == 128U) && (config->height == 32U) &&
-           (config->i2c_address >= I2C_DIAG_MIN_7BIT_ADDRESS) &&
-           (config->i2c_address <= I2C_DIAG_MAX_7BIT_ADDRESS);
+           I2cController_IsConfigValid(config->bus) &&
+           I2cController_IsAddressValid(config->i2c_address);
 }
 
 uint8_t PageCount(const OledSsd1306Config *config)
@@ -125,11 +125,12 @@ DriverStatus WriteControlBlock(const OledSsd1306Config *config,
                                const uint8_t *data,
                                uint16_t length)
 {
-    return I2cDiag_WriteReg8Block(config->bus,
-                                  config->i2c_address,
-                                  control,
-                                  data,
-                                  length);
+    return I2cController_Write(config->bus,
+                               config->i2c_address,
+                               &control,
+                               1U,
+                               data,
+                               length);
 }
 
 DriverStatus FlushData(const OledSsd1306Config *config,
@@ -253,8 +254,8 @@ DriverStatus OledSsd1306_Init(OledSsd1306Context *ctx,
     ctx->config = config;
     ctx->initialized = false;
 
-    DriverStatus status = I2cDiag_ProbeAddress(config->bus,
-                                               config->i2c_address);
+    DriverStatus status = I2cController_Probe(config->bus,
+                                              config->i2c_address);
     if (status != DRIVER_OK) {
         return status;
     }
@@ -290,7 +291,11 @@ DriverStatus OledSsd1306_Init(OledSsd1306Context *ctx,
         return status;
     }
 
-    return OledSsd1306_SetDisplayOn(ctx, true);
+    status = OledSsd1306_SetDisplayOn(ctx, true);
+    if (status != DRIVER_OK) {
+        ctx->initialized = false;
+    }
+    return status;
 }
 
 DriverStatus OledSsd1306_Probe(OledSsd1306Context *ctx)
@@ -299,7 +304,7 @@ DriverStatus OledSsd1306_Probe(OledSsd1306Context *ctx)
         return DRIVER_ERROR_INVALID_ARG;
     }
 
-    return I2cDiag_ProbeAddress(ctx->config->bus, ctx->config->i2c_address);
+    return I2cController_Probe(ctx->config->bus, ctx->config->i2c_address);
 }
 
 DriverStatus OledSsd1306_Clear(OledSsd1306Context *ctx)
