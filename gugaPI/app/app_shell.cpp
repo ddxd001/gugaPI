@@ -6084,6 +6084,7 @@ void PrintSeqUsage(void)
 {
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  seq list");
+    services::Shell_WriteLine("  seq dump <0..7>");
     services::Shell_WriteLine("  seq save <0..7>");
     services::Shell_WriteLine("  seq load <0..7>");
     services::Shell_WriteLine("  seq del <0..7>");
@@ -6113,6 +6114,43 @@ void SeqCommand(int argc, const char * const argv[])
             services::Shell_WriteUInt32(count);
             services::Shell_WriteString("\r\n");
         }
+        return;
+    }
+
+    if (StrEqual(argv[1], "dump")) {
+        uint32_t dump_slot = 0U;
+        if ((argc != 3) || (!ParseUint32(argv[2], 7U, &dump_slot))) {
+            PrintSeqUsage();
+            return;
+        }
+        app::Instr instrs[64];
+        uint8_t count = 0U;
+        const drivers::DriverStatus status =
+            app::SeqStore_Read(static_cast<uint8_t>(dump_slot), instrs, &count);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("seq dump: ", status);
+            return;
+        }
+        services::Shell_WriteString("SEQ ");
+        services::Shell_WriteUInt32(dump_slot);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(count);
+        services::Shell_WriteString("\r\n");
+        for (uint8_t i = 0; i < count; i++) {
+            services::Shell_WriteString(OpText(instrs[i].op));
+            services::Shell_WriteString(" ");
+            WriteInt32(instrs[i].param1);
+            services::Shell_WriteString(" ");
+            WriteInt32(instrs[i].param2);
+            services::Shell_WriteString(" ");
+            services::Shell_WriteString(CondText(instrs[i].until));
+            services::Shell_WriteString(" ");
+            services::Shell_WriteUInt32(instrs[i].on_success);
+            services::Shell_WriteString(" ");
+            services::Shell_WriteUInt32(instrs[i].on_timeout);
+            services::Shell_WriteString("\r\n");
+        }
+        services::Shell_WriteLine("END");
         return;
     }
 

@@ -1,0 +1,52 @@
+﻿<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>gugaPI Sequence Editor</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;font-size:14px;background:#1e1e2e;color:#cdd6f4;display:flex;flex-direction:column;height:100vh}
+header{background:#313244;padding:10px 16px;display:flex;align-items:center;gap:12px}
+header h1{font-size:18px;flex:1}
+button{background:#45475a;color:#cdd6f4;border:1px solid #585b70;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px}
+button:hover{background:#585b70}
+button:disabled{opacity:0.4;cursor:not-allowed}
+button.primary{background:#89b4fa;color:#1e1e2e;border:none;font-weight:600}
+button.danger{background:#f38ba8;color:#1e1e2e;border:none}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:180px;background:#313244;padding:8px;overflow-y:auto}
+.slot-card{background:#45475a;border-radius:6px;padding:8px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between}
+.slot-card:hover{background:#585b70}
+.slot-card.active{border:2px solid #89b4fa}
+.canvas-area{flex:1;overflow:hidden;position:relative;background:#181825;cursor:grab}
+.canvas-area:active{cursor:grabbing}
+.canvas-area svg{position:absolute;top:0;left:0;width:100%;height:100%}
+.editor{width:280px;background:#313244;padding:12px;overflow-y:auto}
+.editor label{display:block;font-size:12px;margin-top:8px;margin-bottom:3px;opacity:0.8}
+.editor select,.editor input{width:100%;padding:5px;background:#45475a;border:1px solid #585b70;border-radius:4px;color:#cdd6f4}
+.btn-row{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.btn-row button{flex:1;min-width:60px;font-size:12px;padding:5px}
+.log{height:100px;background:#181825;padding:6px 10px;overflow-y:auto;font-family:monospace;font-size:11px}
+.log .tx{color:#a6e3a1}.log .rx{color:#89b4fa}
+.arrow-label{font-size:10px;font-weight:600}
+</style>
+</head>
+<body>
+<header>
+<h1>gugaPI Sequence Editor</h1>
+<button id="btnConnect" class="primary">Connect</button>
+<button id="btnSim">Simulate</button>
+<button id="btnRefresh" disabled>Refresh</button>
+<span id="statusText"></span>
+</header>
+<div class="main">
+<div class="sidebar"><div style="font-size:12px;opacity:0.5;margin-bottom:6px">SLOTS</div><div id="slotList"></div></div>
+<div class="canvas-area" id="canvas"><svg id="flow"></svg></div>
+<div class="editor"><h3 style="color:#89b4fa;margin-bottom:10px">Editor</h3><div id="editorContent" style="opacity:0.4">Connect and select a slot</div></div>
+</div>
+<div class="log" id="log"></div>
+<script src="app1.js"></script>
+<script src="app2.js"></script>
+<script src="app3.js"></script>
+</body>
+</html>

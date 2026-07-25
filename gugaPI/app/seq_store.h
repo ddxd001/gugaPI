@@ -21,6 +21,12 @@ drivers::DriverStatus SeqStore_Save(uint8_t slot);
  * Replaces the current table. Does not start the sequence. */
 drivers::DriverStatus SeqStore_Load(uint8_t slot);
 
+/* Read slot n into the provided array without touching ActionRunner.
+ * Returns the instructions and count for the shell dump command. */
+drivers::DriverStatus SeqStore_Read(uint8_t slot,
+                                    Instr *out_instrs,
+                                    uint8_t *out_count);
+
 /* Delete (invalidate) slot n. */
 drivers::DriverStatus SeqStore_Delete(uint8_t slot);
 
