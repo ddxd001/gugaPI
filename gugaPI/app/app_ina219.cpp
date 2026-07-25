@@ -1,5 +1,6 @@
 #include "app/app_ina219.h"
 
+#include "app/battery_monitor.h"
 #include "app/config_store.h"
 #include "board/board_ina219.h"
 #include "services/time.h"
@@ -50,6 +51,7 @@ bool ConfigEqual(const Ina219ProtectionConfig &left,
 
 drivers::DriverStatus App_Ina219Init(void)
 {
+    BatteryMonitor_Init();
     const Ina219ProtectionConfig config = ConfigFromStore();
     const drivers::DriverStatus status =
         Ina219Protection_Init(&g_data.protection, &config);
@@ -89,8 +91,11 @@ void App_Ina219Run(void)
         board::Board_Ina219ReadMeasurement(&measurement);
     if (status != drivers::DRIVER_OK) {
         (void) Ina219Protection_RecordReadError(&g_data.protection, status);
+        BatteryMonitor_RecordReadError(status);
         return;
     }
+
+    BatteryMonitor_RecordMeasurement(&measurement, g_data.last_attempt_ms);
 
     const Ina219ProtectionSample sample = {
         measurement.bus_voltage_mv,

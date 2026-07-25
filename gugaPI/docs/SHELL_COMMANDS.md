@@ -338,6 +338,58 @@ ina219 oled status
 ina219 oled once
 ```
 
+## 3S1P 电量监测
+
+电量监测复用 INA219 的 100 ms 后台采样，当前固定按 `3S1P`、`3000 mAh` 锂离子电池包计算。上电后先收集 20 个有效电压样本并根据整包电压估算初始 SOC，随后根据电流进行库仑积分。电流正值表示放电，负值表示充电。
+
+所有电量状态只保存在 SRAM 中，不写入 FRAM；MCU 复位或断电后会重新执行电压估算。持续负载、电机启动压降、电芯老化和温度都会影响电压估算精度，因此 `soc` 适合用作运行状态参考，不代替 BMS，也不能判断三节串联电芯是否失衡。
+
+### `battery status`
+
+查看当前电池包电压、平均单节电压、电流、功率、SOC、累计消耗量、峰值电流、INA219 溢出和读取错误计数。
+
+```text
+battery status
+```
+
+关键字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `source=estimating` | 尚在收集上电电压样本，`ready=0` |
+| `source=voltage` | 初始 SOC 来自电压估算，之后使用电流积分 |
+| `source=full` | 已通过 `battery full` 将本次运行的 SOC 校准为 100% |
+| `remaining_uAh` / `consumed_uAh` | 本次运行期估算的剩余/消耗容量 |
+| `low` / `critical` | 整包滤波电压低于 10.8 V / 9.9 V；仅作提示，不触发电机保护 |
+| `overflow` | INA219 数学溢出次数；若持续增加，应检查分流器和电流量程 |
+
+### `battery full`
+
+确认电池包确实充满后，把本次运行期的剩余容量校准为 `3000 mAh`、SOC 设为 100%。该命令不写 FRAM。
+
+```text
+battery full
+```
+
+### `battery reset`
+
+清除本次运行期的 SOC、积分量、峰值和错误计数，并重新收集 20 个电压样本。该命令不复位 INA219，也不写 FRAM。
+
+```text
+battery reset
+```
+
+### `battery log on [period_ms]` / `off` / `status`
+
+周期输出实时电量采样，默认周期为 500 ms，可设置为 `100..5000` ms。任务由协作式调度器驱动，不保存历史数据；串口发送队列接近满时会主动丢弃当前一帧。
+
+```text
+battery log on
+battery log on 1000
+battery log status
+battery log off
+```
+
 ## GY931 角度传感器
 
 GY931 通过 PA29/SCL、PA30/SDA 连接，固件使用 GPIO 模拟开漏 I2C。默认 7-bit 地址为 `0x50`，角度寄存器按维特标准协议读取 `Roll/Pitch/Yaw = 0x3D/0x3E/0x3F`，输出角度单位为度，保留三位小数。

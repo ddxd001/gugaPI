@@ -7,6 +7,7 @@
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
 #include "app/app_ina219.h"
+#include "app/battery_monitor.h"
 #include "app/app_lora.h"
 #include "app/action.h"
 #include "app/config_store.h"
@@ -67,6 +68,10 @@ static const uint32_t kIna219OledTaskPeriodMs = 50U;
 static const uint32_t kIna219OledDefaultPeriodMs = 500U;
 static const uint32_t kIna219OledMinPeriodMs = 100U;
 static const uint32_t kIna219OledMaxPeriodMs = 5000U;
+static const uint32_t kBatteryLogTaskPeriodMs = 50U;
+static const uint32_t kBatteryLogDefaultPeriodMs = 500U;
+static const uint32_t kBatteryLogMinPeriodMs = 100U;
+static const uint32_t kBatteryLogMaxPeriodMs = 5000U;
 static const uint32_t kGrayOledTaskPeriodMs = 50U;
 static const uint32_t kGrayOledDefaultPeriodMs = 200U;
 static const uint32_t kGrayOledMinPeriodMs = 50U;
@@ -104,6 +109,13 @@ uint32_t g_imuOledPeriodMs = kImuOledDefaultPeriodMs;
 uint32_t g_imuOledLastUpdateMs = 0U;
 drivers::DriverStatus g_imuOledLastStatus = drivers::DRIVER_OK;
 #endif
+#endif
+#if FEATURE_ENABLE_INA219
+bool g_batteryLogEnabled = false;
+bool g_batteryLogTaskRegistered = false;
+services::SchedulerTaskId g_batteryLogTaskId = 0U;
+uint32_t g_batteryLogPeriodMs = kBatteryLogDefaultPeriodMs;
+uint32_t g_batteryLogLastUpdateMs = 0U;
 #endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_OLED
 bool g_grayOledEnabled = false;
@@ -435,6 +447,16 @@ void PrintIna219Usage(void)
     services::Shell_WriteLine("  ina219 reg <0..5> [value]");
     services::Shell_WriteLine("  ina219 protect status|clear");
     services::Shell_WriteLine("  ina219 oled on [period_ms 100..5000]|off|status|once");
+}
+
+void PrintBatteryUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  battery status");
+    services::Shell_WriteLine("  battery full");
+    services::Shell_WriteLine("  battery reset");
+    services::Shell_WriteLine("  battery log on [period_ms 100..5000]");
+    services::Shell_WriteLine("  battery log off|status");
 }
 
 void PrintOledUsage(void)
@@ -3224,6 +3246,230 @@ void Ina219Command(int argc, const char * const argv[])
     services::Shell_WriteLine("ina219: disabled");
 #endif
 }
+
+#if FEATURE_ENABLE_INA219
+const char *BatterySocSourceText(BatterySocSource source)
+{
+    switch (source) {
+        case BATTERY_SOC_SOURCE_ESTIMATING:
+            return "estimating";
+        case BATTERY_SOC_SOURCE_VOLTAGE:
+            return "voltage";
+        case BATTERY_SOC_SOURCE_MANUAL_FULL:
+            return "full";
+        default:
+            return "unknown";
+    }
+}
+
+void WriteBatterySampleLine(void)
+{
+    const BatteryMonitorStatus *status = BatteryMonitor_GetStatus();
+    services::Shell_WriteString("battery pack_mV=");
+    services::Shell_WriteUInt32(status->pack_voltage_mv);
+    services::Shell_WriteString(" cell_mV=");
+    services::Shell_WriteUInt32(status->average_cell_voltage_mv);
+    services::Shell_WriteString(" current_mA=");
+    WriteInt32(status->current_ua / 1000);
+    services::Shell_WriteString(" power_mW=");
+    WriteInt32(status->power_mw);
+    services::Shell_WriteString(" soc=");
+    services::Shell_WriteUInt32(status->soc_percent);
+    services::Shell_WriteString(" ready=");
+    services::Shell_WriteUInt32(status->soc_ready ? 1U : 0U);
+    services::Shell_WriteString(" valid=");
+    services::Shell_WriteUInt32(status->sample_valid ? 1U : 0U);
+    services::Shell_WriteString(" charging=");
+    services::Shell_WriteUInt32(status->charging ? 1U : 0U);
+    services::Shell_WriteString(" low=");
+    services::Shell_WriteUInt32(status->low_battery ? 1U : 0U);
+    services::Shell_WriteString(" critical=");
+    services::Shell_WriteUInt32(status->critical_battery ? 1U : 0U);
+    services::Shell_WriteString("\r\n");
+}
+
+void WriteBatteryStatus(void)
+{
+    const BatteryMonitorStatus *status = BatteryMonitor_GetStatus();
+    services::Shell_WriteString("battery initialized=");
+    services::Shell_WriteUInt32(status->initialized ? 1U : 0U);
+    services::Shell_WriteString(" source=");
+    services::Shell_WriteString(BatterySocSourceText(status->soc_source));
+    services::Shell_WriteString(" cells=");
+    services::Shell_WriteUInt32(status->series_cells);
+    services::Shell_WriteString(" capacity_mAh=");
+    services::Shell_WriteUInt32(status->rated_capacity_mah);
+    services::Shell_WriteString(" remaining_uAh=");
+    services::Shell_WriteUInt32(status->remaining_uah);
+    services::Shell_WriteString(" consumed_uAh=");
+    services::Shell_WriteUInt32(status->consumed_uah);
+    services::Shell_WriteString(" peak_mA=");
+    services::Shell_WriteUInt32(status->peak_current_ma);
+    services::Shell_WriteString("\r\n");
+    WriteBatterySampleLine();
+    services::Shell_WriteString("battery samples=");
+    services::Shell_WriteUInt32(status->successful_sample_count);
+    services::Shell_WriteString(" overflow=");
+    services::Shell_WriteUInt32(status->overflow_count);
+    services::Shell_WriteString(" errors=");
+    services::Shell_WriteUInt32(status->read_error_count);
+    services::Shell_WriteString(" last=");
+    services::Shell_WriteString(DriverStatusText(status->last_read_status));
+    services::Shell_WriteString(" last_update_ms=");
+    services::Shell_WriteUInt32(status->last_update_ms);
+    services::Shell_WriteString(" log=");
+    services::Shell_WriteUInt32(g_batteryLogEnabled ? 1U : 0U);
+    services::Shell_WriteString(" log_period_ms=");
+    services::Shell_WriteUInt32(g_batteryLogPeriodMs);
+    services::Shell_WriteString("\r\n");
+}
+
+void BatteryLogTask(void)
+{
+    if (!g_batteryLogEnabled) {
+        return;
+    }
+    if (!services::Time_HasElapsed(g_batteryLogLastUpdateMs,
+                                   g_batteryLogPeriodMs)) {
+        return;
+    }
+
+    g_batteryLogLastUpdateMs = services::Time_Millis();
+    if (services::DebugUart_GetTxPending() > 3000U) {
+        return;
+    }
+    WriteBatterySampleLine();
+}
+
+drivers::DriverStatus BatteryLogEnsureTask(void)
+{
+    if (g_batteryLogTaskRegistered) {
+        return drivers::DRIVER_OK;
+    }
+
+    const services::SchedulerStatus status = services::Scheduler_AddTask(
+        "battery_log",
+        BatteryLogTask,
+        kBatteryLogTaskPeriodMs,
+        0U,
+        &g_batteryLogTaskId);
+    if (status != services::SCHEDULER_OK) {
+        return SchedulerStatusToDriverStatus(status);
+    }
+
+    g_batteryLogTaskRegistered = true;
+    return SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_batteryLogTaskId, false));
+}
+
+drivers::DriverStatus BatteryLogSetEnabled(bool enabled)
+{
+    if (!enabled) {
+        g_batteryLogEnabled = false;
+        if (!g_batteryLogTaskRegistered) {
+            return drivers::DRIVER_OK;
+        }
+        return SchedulerStatusToDriverStatus(
+            services::Scheduler_EnableTask(g_batteryLogTaskId, false));
+    }
+
+    const drivers::DriverStatus status = BatteryLogEnsureTask();
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    g_batteryLogLastUpdateMs = services::Time_Millis();
+    g_batteryLogEnabled = true;
+    const drivers::DriverStatus enable_status = SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_batteryLogTaskId, true));
+    if (enable_status != drivers::DRIVER_OK) {
+        g_batteryLogEnabled = false;
+    }
+    return enable_status;
+}
+
+void BatteryCommand(int argc, const char * const argv[])
+{
+    if (argc < 2) {
+        PrintBatteryUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        if (argc != 2) {
+            PrintBatteryUsage();
+            return;
+        }
+        WriteBatteryStatus();
+        return;
+    }
+
+    if (StrEqual(argv[1], "full")) {
+        if (argc != 2) {
+            PrintBatteryUsage();
+            return;
+        }
+        BatteryMonitor_SetFull();
+        services::Shell_WriteLine("battery full: runtime SOC set to 100%");
+        return;
+    }
+
+    if (StrEqual(argv[1], "reset")) {
+        if (argc != 2) {
+            PrintBatteryUsage();
+            return;
+        }
+        BatteryMonitor_ResetEstimate();
+        services::Shell_WriteLine("battery reset: estimating from voltage");
+        return;
+    }
+
+    if (StrEqual(argv[1], "log")) {
+        if ((argc >= 3) && StrEqual(argv[2], "on")) {
+            if (argc == 4) {
+                uint32_t period_ms = 0U;
+                if ((!ParseUint32(argv[3], kBatteryLogMaxPeriodMs,
+                                  &period_ms)) ||
+                    (period_ms < kBatteryLogMinPeriodMs)) {
+                    PrintBatteryUsage();
+                    return;
+                }
+                g_batteryLogPeriodMs = period_ms;
+            } else if (argc != 3) {
+                PrintBatteryUsage();
+                return;
+            }
+
+            const drivers::DriverStatus status = BatteryLogSetEnabled(true);
+            services::Shell_WriteString("battery log: ");
+            services::Shell_WriteString(DriverStatusText(status));
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_batteryLogPeriodMs);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if ((argc == 3) && StrEqual(argv[2], "off")) {
+            WriteStatusLine("battery log off: ",
+                            BatteryLogSetEnabled(false));
+            return;
+        }
+
+        if ((argc == 3) && StrEqual(argv[2], "status")) {
+            services::Shell_WriteString("battery log enabled=");
+            services::Shell_WriteUInt32(g_batteryLogEnabled ? 1U : 0U);
+            services::Shell_WriteString(" registered=");
+            services::Shell_WriteUInt32(
+                g_batteryLogTaskRegistered ? 1U : 0U);
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_batteryLogPeriodMs);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+    }
+
+    PrintBatteryUsage();
+}
+#endif
 
 
 #if FEATURE_ENABLE_SHELL_DIAGNOSTICS
@@ -7167,6 +7413,10 @@ void AppShell_RegisterCommands(void)
         "ina219",
         "INA219: status|scan|addr|recover|config|read|raw|reg|oled",
         Ina219Command);
+    (void) services::Shell_RegisterCommand(
+        "battery",
+        "3S1P runtime battery SOC: status|full|reset|log",
+        BatteryCommand);
 #endif
 #if FEATURE_ENABLE_OLED
     (void) services::Shell_RegisterCommand(
