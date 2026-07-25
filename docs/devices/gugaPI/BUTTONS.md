@@ -22,6 +22,8 @@
 
 四类事件分别锁存在位图中。读取某一类事件只清除该位，不会清除其他类型；如果同一类
 事件在消费前连续发生多次，位图会合并为一次，所以应用应以不慢于正常任务周期及时消费。
+驱动还保存最近一次 `Button_Update()` 新产生的事件快照，供调试日志读取；该快照不会
+清除锁存位，也不会和比赛模式或动作序列争抢事件。
 
 ## API
 
@@ -44,11 +46,22 @@ uint32_t events = board::Board_ButtonTakeEvents(
     id,
     drivers::BUTTON_EVENT_ALL);
 uint32_t pending = board::Board_ButtonPeekEvents(id);
+uint32_t generated = board::Board_ButtonGetGeneratedEvents(id);
 ```
 
 `TakeEvents()` 返回并清除掩码内的事件；`PeekEvents()` 只查看、不清除。多个模块需要消费
 同一种事件时，应由一个应用级入口统一消费后再分发，不能让多个任务分别调用
 `WasShortPressed()` 抢同一个锁存位。
+
+开发配置启用 `FEATURE_ENABLE_BUTTON_EVENT_LOG`，每次事件产生时会异步输出到调试
+Shell；比赛配置默认关闭，避免比赛运行时产生额外串口流量：
+
+```text
+button event button1 types=pressed held_ms=0
+button event button1 types=released,short held_ms=126
+button event button2 types=long held_ms=800
+button event button2 types=released held_ms=936
+```
 
 ## Shell 与验证
 
@@ -63,4 +76,3 @@ button1 raw=released debounced=released held_ms=126 events=DUS-
 
 实物验证应覆盖：20 ms 附近的抖动不产生假事件；短按得到 `D/U/S`；按住 800 ms
 得到 `D/L`，松开再得到 `U`；跨越 `uint32_t` 毫秒计数回卷后时长判定仍正常。
-

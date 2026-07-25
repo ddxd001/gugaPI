@@ -20,6 +20,7 @@
 #include "services/fault.h"
 #include "services/log.h"
 #include "services/scheduler.h"
+#include "services/shell.h"
 #include "services/time.h"
 
 namespace {
@@ -247,12 +248,76 @@ static bool g_buttonOledLastPressed[board::BOARD_BUTTON_COUNT] = {
     false
 };
 
+#if FEATURE_ENABLE_BUTTON_EVENT_LOG
+void WriteButtonEventName(const char *name, bool *first)
+{
+    if (!(*first)) {
+        services::Shell_WriteString(",");
+    }
+    services::Shell_WriteString(name);
+    *first = false;
+}
+
+bool WriteButtonGeneratedEvents(board::BoardButtonId id, uint32_t events)
+{
+    if (events == drivers::BUTTON_EVENT_NONE) {
+        return false;
+    }
+
+    /* Start on a fresh line because the interactive prompt may already be
+     * visible.  Writes are queued by DebugUart and do not block on TX. */
+    services::Shell_WriteString("\r\nbutton event ");
+    services::Shell_WriteString(board::Board_ButtonGetName(id));
+    services::Shell_WriteString(" types=");
+
+    bool first = true;
+    if ((events & drivers::BUTTON_EVENT_PRESSED) != 0U) {
+        WriteButtonEventName("pressed", &first);
+    }
+    if ((events & drivers::BUTTON_EVENT_RELEASED) != 0U) {
+        WriteButtonEventName("released", &first);
+    }
+    if ((events & drivers::BUTTON_EVENT_SHORT_PRESSED) != 0U) {
+        WriteButtonEventName("short", &first);
+    }
+    if ((events & drivers::BUTTON_EVENT_LONG_PRESSED) != 0U) {
+        WriteButtonEventName("long", &first);
+    }
+
+    services::Shell_WriteString(" held_ms=");
+    services::Shell_WriteUInt32(board::Board_ButtonGetPressDurationMs(id));
+    services::Shell_WriteString("\r\n");
+    return true;
+}
+
+void WriteAllButtonGeneratedEvents(void)
+{
+    bool wrote_event = false;
+    for (uint32_t i = 0U; i < (uint32_t) board::BOARD_BUTTON_COUNT; i++) {
+        const board::BoardButtonId id = (board::BoardButtonId) i;
+        if (WriteButtonGeneratedEvents(
+                id,
+                board::Board_ButtonGetGeneratedEvents(id))) {
+            wrote_event = true;
+        }
+    }
+    if (wrote_event) {
+        services::Shell_PrintPrompt();
+    }
+}
+#endif
+
 void App_ButtonScanTask(void)
 {
     if (board::Board_ButtonsUpdate(services::Time_Millis()) !=
         drivers::DRIVER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);
+        return;
     }
+
+#if FEATURE_ENABLE_BUTTON_EVENT_LOG
+    WriteAllButtonGeneratedEvents();
+#endif
 }
 
 #if FEATURE_ENABLE_OLED

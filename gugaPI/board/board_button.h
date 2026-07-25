@@ -23,6 +23,7 @@ const char *Board_ButtonGetName(BoardButtonId id);
 bool Board_ButtonIsReady(BoardButtonId id);
 bool Board_ButtonIsPressed(BoardButtonId id);
 uint32_t Board_ButtonPeekEvents(BoardButtonId id);
+uint32_t Board_ButtonGetGeneratedEvents(BoardButtonId id);
 uint32_t Board_ButtonTakeEvents(BoardButtonId id, uint32_t event_mask);
 uint32_t Board_ButtonGetPressDurationMs(BoardButtonId id);
 bool Board_ButtonWasPressed(BoardButtonId id);

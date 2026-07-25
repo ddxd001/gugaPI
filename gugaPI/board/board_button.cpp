@@ -120,6 +120,15 @@ uint32_t Board_ButtonPeekEvents(BoardButtonId id)
     return drivers::Button_PeekEvents(&g_buttonContexts[id]);
 }
 
+uint32_t Board_ButtonGetGeneratedEvents(BoardButtonId id)
+{
+    if (!IsValidButtonId(id)) {
+        return drivers::BUTTON_EVENT_NONE;
+    }
+
+    return drivers::Button_GetGeneratedEvents(&g_buttonContexts[id]);
+}
+
 uint32_t Board_ButtonTakeEvents(BoardButtonId id, uint32_t event_mask)
 {
     if (!IsValidButtonId(id)) {

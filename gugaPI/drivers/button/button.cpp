@@ -12,6 +12,12 @@ bool Button_ReadRawPressed(const ButtonConfig *config)
     return config->active_low ? !pin_high : pin_high;
 }
 
+void Button_RaiseEvent(ButtonContext *ctx, uint32_t event)
+{
+    ctx->pending_events |= event;
+    ctx->generated_events |= event;
+}
+
 } /* namespace */
 
 DriverStatus Button_Init(ButtonContext *ctx, const ButtonConfig *config)
@@ -34,6 +40,7 @@ DriverStatus Button_Init(ButtonContext *ctx, const ButtonConfig *config)
     ctx->press_start_ms = 0U;
     ctx->press_duration_ms = 0U;
     ctx->pending_events = BUTTON_EVENT_NONE;
+    ctx->generated_events = BUTTON_EVENT_NONE;
 
     return DRIVER_OK;
 }
@@ -55,6 +62,7 @@ DriverStatus Button_Deinit(ButtonContext *ctx)
     ctx->press_start_ms = 0U;
     ctx->press_duration_ms = 0U;
     ctx->pending_events = BUTTON_EVENT_NONE;
+    ctx->generated_events = BUTTON_EVENT_NONE;
 
     return DRIVER_OK;
 }
@@ -64,6 +72,8 @@ DriverStatus Button_Update(ButtonContext *ctx, uint32_t now_ms)
     if ((ctx == 0) || (!ctx->initialized) || (ctx->config == 0)) {
         return DRIVER_ERROR_NOT_INITIALIZED;
     }
+
+    ctx->generated_events = BUTTON_EVENT_NONE;
 
     const bool raw_pressed = Button_ReadRawPressed(ctx->config);
 
@@ -93,18 +103,18 @@ DriverStatus Button_Update(ButtonContext *ctx, uint32_t now_ms)
             ctx->long_press_reported = false;
             ctx->press_start_ms = now_ms;
             ctx->press_duration_ms = 0U;
-            ctx->pending_events |= BUTTON_EVENT_PRESSED;
+            Button_RaiseEvent(ctx, BUTTON_EVENT_PRESSED);
         } else {
             if (ctx->press_timing_active) {
                 ctx->press_duration_ms = now_ms - ctx->press_start_ms;
             }
-            ctx->pending_events |= BUTTON_EVENT_RELEASED;
+            Button_RaiseEvent(ctx, BUTTON_EVENT_RELEASED);
             if (!ctx->long_press_reported) {
                 if (ctx->press_duration_ms >= ctx->config->long_press_ms) {
-                    ctx->pending_events |= BUTTON_EVENT_LONG_PRESSED;
+                    Button_RaiseEvent(ctx, BUTTON_EVENT_LONG_PRESSED);
                     ctx->long_press_reported = true;
                 } else {
-                    ctx->pending_events |= BUTTON_EVENT_SHORT_PRESSED;
+                    Button_RaiseEvent(ctx, BUTTON_EVENT_SHORT_PRESSED);
                 }
             }
             ctx->press_timing_active = false;
@@ -115,7 +125,7 @@ DriverStatus Button_Update(ButtonContext *ctx, uint32_t now_ms)
         ctx->press_duration_ms = now_ms - ctx->press_start_ms;
         if ((!ctx->long_press_reported) &&
             (ctx->press_duration_ms >= ctx->config->long_press_ms)) {
-            ctx->pending_events |= BUTTON_EVENT_LONG_PRESSED;
+            Button_RaiseEvent(ctx, BUTTON_EVENT_LONG_PRESSED);
             ctx->long_press_reported = true;
         }
     }
@@ -158,6 +168,15 @@ uint32_t Button_PeekEvents(const ButtonContext *ctx)
     }
 
     return ctx->pending_events;
+}
+
+uint32_t Button_GetGeneratedEvents(const ButtonContext *ctx)
+{
+    if (!Button_IsReady(ctx)) {
+        return BUTTON_EVENT_NONE;
+    }
+
+    return ctx->generated_events;
 }
 
 uint32_t Button_TakeEvents(ButtonContext *ctx, uint32_t event_mask)

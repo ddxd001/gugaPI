@@ -41,6 +41,7 @@ struct ButtonContext {
     uint32_t press_start_ms;
     uint32_t press_duration_ms;
     uint32_t pending_events;
+    uint32_t generated_events;
 };
 
 DriverStatus Button_Init(ButtonContext *ctx, const ButtonConfig *config);
@@ -50,6 +51,9 @@ DriverStatus Button_ReadRaw(ButtonContext *ctx, bool *pressed);
 bool Button_IsReady(const ButtonContext *ctx);
 bool Button_IsPressed(const ButtonContext *ctx);
 uint32_t Button_PeekEvents(const ButtonContext *ctx);
+/* Events raised by the most recent Button_Update(). Unlike TakeEvents(),
+ * this diagnostic snapshot never consumes the pending event bits. */
+uint32_t Button_GetGeneratedEvents(const ButtonContext *ctx);
 uint32_t Button_TakeEvents(ButtonContext *ctx, uint32_t event_mask);
 uint32_t Button_GetPressDurationMs(const ButtonContext *ctx);
 bool Button_WasPressed(ButtonContext *ctx);

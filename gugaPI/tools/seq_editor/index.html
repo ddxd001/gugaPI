@@ -1,0 +1,79 @@
+﻿<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<title>gugaPI Sequence Editor</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,sans-serif;font-size:14px;background:#1e1e2e;color:#cdd6f4;display:flex;flex-direction:column;height:100vh}
+header{background:#313244;padding:10px 16px;display:flex;align-items:center;gap:12px}
+header h1{font-size:18px;flex:1}
+button{background:#45475a;color:#cdd6f4;border:1px solid #585b70;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:13px}
+button:hover{background:#585b70}
+button:disabled{opacity:0.4;cursor:not-allowed}
+button.primary{background:#89b4fa;color:#1e1e2e;border:none;font-weight:600}
+button.danger{background:#f38ba8;color:#1e1e2e;border:none}
+.tabbar{display:flex;background:#181825;padding:0 8px}
+.tab{padding:8px 20px;cursor:pointer;border:none;background:none;color:#6c7086;font-size:14px;border-bottom:2px solid transparent}
+.tab.active{color:#cdd6f4;border-bottom-color:#89b4fa}
+.main{display:flex;flex:1;overflow:hidden}
+.sidebar{width:180px;background:#313244;padding:8px;overflow-y:auto}
+.slot-card{background:#45475a;border-radius:6px;padding:8px;margin-bottom:6px;cursor:pointer;display:flex;justify-content:space-between}
+.slot-card:hover{background:#585b70}
+.slot-card.active{border:2px solid #89b4fa}
+.canvas-area{flex:1;overflow:hidden;position:relative;background:#181825;cursor:grab}
+.canvas-area:active{cursor:grabbing}
+.canvas-area svg{position:absolute;top:0;left:0;width:100%;height:100%}
+.editor{width:280px;background:#313244;padding:12px;overflow-y:auto}
+.editor label{display:block;font-size:12px;margin-top:8px;margin-bottom:3px;opacity:0.8}
+.editor select,.editor input{width:100%;padding:5px;background:#45475a;border:1px solid #585b70;border-radius:4px;color:#cdd6f4}
+.btn-row{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.btn-row button{flex:1;min-width:60px;font-size:12px;padding:5px}
+.log{height:100px;background:#181825;padding:6px 10px;overflow-y:auto;font-family:monospace;font-size:11px}
+.log .tx{color:#a6e3a1}.log .rx{color:#89b4fa}
+.arrow-label{font-size:10px;font-weight:600}
+#termPanel{flex:1;display:flex;flex-direction:column;background:#181825;overflow:hidden}
+#termDisplay{flex:1;overflow-y:auto;padding:8px 12px;font-family:monospace;font-size:13px;line-height:1.5;white-space:pre-wrap;word-break:break-all}
+#termDisplay .tx{color:#a6e3a1}
+#termDisplay .rx{color:#89b4fa}
+#termDisplay .hint{color:#6c7086}
+#termInputRow{display:flex;padding:6px 12px;background:#313244;align-items:center;gap:8px}
+#termInputRow .prompt{color:#a6e3a1;font-family:monospace;font-size:13px}
+#termInput{flex:1;background:#1e1e2e;border:1px solid #585b70;border-radius:4px;padding:6px 10px;color:#cdd6f4;font-family:monospace;font-size:13px}
+#termInput:focus{outline:none;border-color:#89b4fa}
+#termCompList{position:absolute;background:#313244;border:1px solid #585b70;border-radius:4px;padding:4px 8px;font-family:monospace;font-size:12px;color:#89b4fa;display:none;z-index:100}
+</style>
+</head>
+<body>
+<header>
+<h1>gugaPI Sequence Editor</h1>
+<button id="btnConnect" class="primary">Connect</button>
+<button id="btnSim">Simulate</button>
+<button id="btnRefresh" disabled>Refresh</button>
+<span id="statusText"></span>
+</header>
+<div class="tabbar">
+<button class="tab active" id="tabEditor" onclick="switchTab('editor')">序列编辑器</button>
+<button class="tab" id="tabTerminal" onclick="switchTab('terminal')">终端</button>
+</div>
+<div id="editorView" class="main">
+<div class="sidebar"><div style="font-size:12px;opacity:0.5;margin-bottom:6px">SLOTS</div><div id="slotList"></div></div>
+<div class="canvas-area" id="canvas"><svg id="flow"></svg></div>
+<div class="editor"><h3 style="color:#89b4fa;margin-bottom:10px">Editor</h3><div id="editorContent" style="opacity:0.4">Connect and select a slot</div></div>
+</div>
+<div id="termView" class="main" style="display:none">
+<div id="termPanel">
+<div id="termDisplay"></div>
+<div id="termInputRow">
+<span class="prompt">&gt;</span>
+<input id="termInput" type="text" autocomplete="off" spellcheck="false" placeholder="输入命令后回车发送...">
+</div>
+</div>
+</div>
+<div class="log" id="log"></div>
+<script src="app1.js"></script>
+<script src="app2.js"></script>
+<script src="app3.js"></script>
+<script src="app4.js"></script>
+</body>
+</html>

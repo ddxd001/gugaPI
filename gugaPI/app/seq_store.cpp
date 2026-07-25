@@ -215,6 +215,52 @@ drivers::DriverStatus SeqStore_Load(uint8_t slot)
     return drivers::DRIVER_OK;
 }
 
+drivers::DriverStatus SeqStore_Read(uint8_t slot,
+                                    Instr *out_instrs,
+                                    uint8_t *out_count)
+{
+    if ((slot >= SEQ_SLOT_COUNT) || (out_instrs == 0) ||
+        (out_count == 0)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    *out_count = 0U;
+
+    uint8_t header[2];
+    uint16_t addr = SlotAddr(slot);
+    if (board::Board_FramRead(addr, header, 2) != drivers::DRIVER_OK) {
+        return drivers::DRIVER_ERROR;
+    }
+    if (header[0] != 1U) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    uint8_t count = header[1];
+    if ((count == 0U) || (count > 64U)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    uint16_t payload_len = 2U + count * kInstrSize;
+    uint8_t buf[2U + kSlotPayloadMax + 4U];
+    uint16_t total = static_cast<uint16_t>(payload_len + 4U);
+
+    if (board::Board_FramRead(addr, buf, total) != drivers::DRIVER_OK) {
+        return drivers::DRIVER_ERROR;
+    }
+
+    uint32_t stored_crc = ReadU32(&buf[payload_len]);
+    uint32_t actual_crc = Crc32(buf, payload_len);
+    if (stored_crc != actual_crc) {
+        return drivers::DRIVER_ERROR;
+    }
+
+    for (uint8_t i = 0; i < count; i++) {
+        DeserializeInstr(&buf[2 + i * kInstrSize], &out_instrs[i]);
+    }
+    *out_count = count;
+    return drivers::DRIVER_OK;
+}
+
 drivers::DriverStatus SeqStore_Delete(uint8_t slot)
 {
     if (slot >= SEQ_SLOT_COUNT) {

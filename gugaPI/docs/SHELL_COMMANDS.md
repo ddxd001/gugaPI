@@ -132,6 +132,14 @@ button
 `held_ms` 是当前或最近一次按压时长，`events` 四位依次表示 `D`(按下)、`U`(松开)、
 `S`(短按)、`L`(长按)。命令会取走显示出的待处理事件。
 
+开发配置还会在事件产生时自动打印，不消费上述待处理事件；比赛配置默认关闭自动打印：
+
+```text
+button event button1 types=pressed held_ms=0
+button event button1 types=released,short held_ms=126
+button event button1 types=long held_ms=800
+```
+
 ### `button watch [duration_ms]`
 
 实时监控按键 GPIO 电平变化，默认持续 5 秒，可设置 `100..30000` ms。按电平变化时打印时间戳和 GPIOB/GPIOC 输入寄存器快照。
