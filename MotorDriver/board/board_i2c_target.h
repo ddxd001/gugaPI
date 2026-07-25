@@ -18,6 +18,7 @@ void BoardI2cTarget_Init(const protocol::RegisterMap *registers);
 bool BoardI2cTarget_Process(uint32_t now_ms);
 bool BoardI2cTarget_TakeWrite(BoardI2cTargetWrite *write);
 uint8_t BoardI2cTarget_Address(void);
+void BoardI2cTarget_SetAddress(uint8_t address);
 uint32_t BoardI2cTarget_DroppedWrites(void);
 uint32_t BoardI2cTarget_ErrorFlags(void);
 uint32_t BoardI2cTarget_RecoveryCount(void);

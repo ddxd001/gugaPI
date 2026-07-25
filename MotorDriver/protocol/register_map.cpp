@@ -577,6 +577,13 @@ bool RegisterMap::ApplyWriteTo(uint8_t *target, uint8_t reg, uint8_t value) cons
         target[reg] = value;
         return true;
 
+    case REG_I2C_ADDRESS:
+        if ((value < 0x08U) || (value > 0x77U)) {
+            return false;
+        }
+        target[reg] = value;
+        return true;
+
     case REG_M1_MODE:
     case REG_M2_MODE:
         if (value > MOTOR_MODE_POSITION) {

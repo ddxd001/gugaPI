@@ -31,6 +31,7 @@ volatile uint32_t g_dropped_writes = 0U;
 volatile uint32_t g_error_flags = 0U;
 uint32_t g_sda_low_since_ms = 0U;
 uint32_t g_recovery_count = 0U;
+uint8_t g_i2c_address = kI2cTargetAddress;
 bool g_sda_low_tracking = false;
 
 void ResetRxTransaction(void)
@@ -138,7 +139,7 @@ void ConfigureTargetPeripheral(void)
     ConfigureI2cPinsWithPullUps();
     DL_I2C_setTargetAddressingMode(BOARD_I2C_INST,
                                    DL_I2C_TARGET_ADDRESSING_MODE_7_BIT);
-    DL_I2C_setTargetOwnAddress(BOARD_I2C_INST, kI2cTargetAddress);
+    DL_I2C_setTargetOwnAddress(BOARD_I2C_INST, g_i2c_address);
     DL_I2C_enableTargetOwnAddress(BOARD_I2C_INST);
     ResetTargetFifos();
     DL_I2C_enableInterrupt(BOARD_I2C_INST,
@@ -252,7 +253,15 @@ bool BoardI2cTarget_TakeWrite(BoardI2cTargetWrite *write)
 
 uint8_t BoardI2cTarget_Address(void)
 {
-    return kI2cTargetAddress;
+    return g_i2c_address;
+}
+
+void BoardI2cTarget_SetAddress(uint8_t address)
+{
+    g_i2c_address = address;
+    DL_I2C_disableTarget(BOARD_I2C_INST);
+    DL_I2C_setTargetOwnAddress(BOARD_I2C_INST, address);
+    DL_I2C_enableTarget(BOARD_I2C_INST);
 }
 
 uint32_t BoardI2cTarget_DroppedWrites(void)

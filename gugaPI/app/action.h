@@ -50,7 +50,7 @@ struct Instr {
 };
 
 struct ActionRunnerState {
-    Instr instrs[16];
+    Instr instrs[64];
     uint8_t count;
     uint8_t current;
     bool running;

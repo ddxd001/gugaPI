@@ -169,14 +169,15 @@ bool IsImuFresh(const AppImuData *imu, uint32_t now_ms)
 }
 
 /* Shortest signed angle from current to target, wrapped to [-180000, 180000]
- * milli-degrees. Handles the -180/180 seam. */
+ * milli-degrees. Handles the -180/180 seam. At exactly ±180000 the sign is
+ * preserved so turn(-180) goes right and turn(+180) goes left. */
 int32_t ShortestAngleDiff(int32_t target_mdeg, int32_t current_mdeg)
 {
     int32_t d = target_mdeg - current_mdeg;
     while (d > 180000) {
         d -= 360000;
     }
-    while (d <= -180000) {
+    while (d < -180000) {
         d += 360000;
     }
     return d;
@@ -187,7 +188,7 @@ int32_t WrapToSigned180(int32_t angle_mdeg)
     while (angle_mdeg > 180000) {
         angle_mdeg -= 360000;
     }
-    while (angle_mdeg <= -180000) {
+    while (angle_mdeg < -180000) {
         angle_mdeg += 360000;
     }
     return angle_mdeg;
@@ -221,6 +222,11 @@ void Heading_Init(void)
 
 drivers::DriverStatus Heading_HoldStart(int32_t base_rpm)
 {
+    if (services::Fault_HasFault()) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
     const AppImuData *imu = App_ImuGetData();
     if (!IsImuFresh(imu, services::Time_Millis())) {
         g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
@@ -247,6 +253,11 @@ drivers::DriverStatus Heading_TurnStart(int32_t delta_deg)
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
 
+    if (services::Fault_HasFault()) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
     const AppImuData *imu = App_ImuGetData();
     if (!IsImuFresh(imu, services::Time_Millis())) {
         g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
@@ -254,8 +265,17 @@ drivers::DriverStatus Heading_TurnStart(int32_t delta_deg)
     }
 
     const int32_t delta_mdeg = delta_deg * 1000;
+    /* At exactly ±180° the shortest-angle is ambiguous. Nudge by 1 mdeg
+     * (0.001°, far below the 3° tolerance) to preserve the requested
+     * direction: turn(-180) goes right, turn(+180) goes left. */
+    int32_t adjusted_delta = delta_mdeg;
+    if (delta_mdeg == -180000) {
+        adjusted_delta = -179999;
+    } else if (delta_mdeg == 180000) {
+        adjusted_delta = 179999;
+    }
     g_state.mode = HEADING_TURN;
-    g_state.target_yaw_mdeg = WrapToSigned180(imu->yaw_mdeg + delta_mdeg);
+    g_state.target_yaw_mdeg = WrapToSigned180(imu->yaw_mdeg + adjusted_delta);
     g_state.base_rpm = 0;
     g_state.correction_rpm = 0;
     g_state.error_mdeg = delta_mdeg;
@@ -531,9 +551,18 @@ void Heading_Update(void)
 
         g_state.at_target = false;
         int32_t speed = GainToRpm(abs_err, params->heading_kp);
-        speed = ClampInt32(speed,
-                           params->heading_turn_min_rpm,
-                           params->heading_turn_max_rpm);
+        if (abs_err > 20000) {
+            /* Far from target (> 20°): apply min/max clamp to overcome
+             * static friction and limit top speed. */
+            speed = ClampInt32(speed,
+                               params->heading_turn_min_rpm,
+                               params->heading_turn_max_rpm);
+        } else {
+            /* Near target (≤ 20°): allow natural proportional deceleration.
+             * Only clamp max; let speed drop below min so the car slows
+             * down before entering the tolerance zone, reducing overshoot. */
+            speed = ClampInt32(speed, 0, params->heading_turn_max_rpm);
+        }
         speed *= kYawSign;
         g_state.correction_rpm = speed;
         const int32_t dir = (error >= 0) ? 1 : -1;

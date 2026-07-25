@@ -1652,6 +1652,105 @@ param load
 param reset
 ```
 
+## 比赛模式
+
+比赛模式状态机：`ARMED`（安全静止）→ `RUNNING`（序列执行中）→ `ARMED`。在比赛配置（`FEATURE_PROFILE_COMPETITION=1`）下上电自动进入 ARMED；开发配置下可用 `comp arm` 手动进入。
+
+LED 指示：ARMED 慢闪（1Hz）、RUNNING 常亮、FAULT 快闪（5Hz）+ 蜂鸣器。
+
+### `comp arm`
+
+从开发模式进入比赛武装状态。停止底盘，禁用 chassis 任务。仅在 `dev-running` 模式下可用。
+
+```text
+comp arm
+```
+
+### `comp start`
+
+启动比赛序列。需要预先用 `run add` 加载指令序列。可通过按键 1 替代。仅在 `armed` 模式下可用。
+
+```text
+comp start
+```
+
+### `comp stop`
+
+取消比赛序列并返回武装状态。可通过按键 1 替代。仅在 `running` 模式下可用。
+
+```text
+comp stop
+```
+
+### `comp status`
+
+查看当前比赛模式状态。
+
+```text
+comp status
+```
+
+输出示例：
+
+```text
+comp mode=armed
+```
+
+模式值：`armed`（安全静止）、`running`（序列执行中）、`fault`（故障锁定）、`dev-running`（开发模式）。
+
+## 遥测（FireWater / VOFA+）
+
+FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接收实时画图。非阻塞，TX 缓冲接近满时自动丢帧。
+
+通道定义：
+
+| 通道 | 含义 |
+| --- | --- |
+| `t` | 系统运行时间（ms） |
+| `mode` | App 模式（0=idle, 1=running, 2=fault, 3=armed, 4=comp-running） |
+| `step` | ActionRunner 当前步（-1=未运行） |
+| `L_tgt` | 左轮目标 RPM |
+| `L_act` | 左轮实测 RPM |
+| `R_tgt` | 右轮目标 RPM |
+| `R_act` | 右轮实测 RPM |
+| `yaw_tgt` | 航向目标（度） |
+| `yaw` | 当前 yaw（度） |
+| `err` | 航向误差（度） |
+| `corr` | 航向修正量（RPM） |
+
+### `telem on [period_ms]`
+
+开启遥测输出。默认周期 100ms（10Hz），范围 `50..5000`ms。开启时先发送通道名行（`#` 开头），然后周期输出数据行。
+
+```text
+telem on
+telem on 200
+```
+
+输出示例：
+
+```text
+#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,err,corr
+8435,1,-1,0,0,0,0,0.000,-6.056,0.000,0
+8640,1,-1,0,0,0,0,0.000,-6.043,0.000,0
+```
+
+### `telem off`
+
+关闭遥测输出。
+
+```text
+telem off
+```
+
+### `telem status`
+
+查看遥测状态。
+
+```text
+telem status
+```
+
 ## ADC 和 PWM 资源入口
 
 没有硬件对象的通用 `adc`、`pwm` 占位命令已经删除。
