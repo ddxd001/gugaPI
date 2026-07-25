@@ -5,13 +5,13 @@
 namespace board {
 namespace {
 
-static const uint8_t kSpiReadMask = 0x80U;
-static const uint8_t kLis3mdlAutoIncrementMask = 0x40U;
-static const uint8_t kLis3mdlWhoAmIRegister = 0x0FU;
 static const uint32_t kSelectDelayCycles = 32U;
 static const uint32_t kWiggleDelayCycles = 64U;
 
-static bool g_imuReady = false;
+/* The shared SPI bus can remain available for diagnostics even when the ICM
+ * device is absent. Device readiness is tracked separately in g_icmCtx. */
+static bool g_imuSpiReady = false;
+static uint8_t g_imuSpiMode = 3U;
 
 static const drivers::Icm45686Config kIcmConfig = {
     BOARD_IMU_SPI_INST,
@@ -20,11 +20,39 @@ static const drivers::Icm45686Config kIcmConfig = {
     BOARD_IMU_SPI_TIMEOUT_ITERATIONS,
     drivers::ICM45686_ACCEL_FS_4G,
     drivers::ICM45686_GYRO_FS_1000DPS,
-    drivers::ICM45686_ODR_100HZ,
-    drivers::ICM45686_ODR_100HZ,
+    drivers::ICM45686_ODR_200HZ,
+    drivers::ICM45686_ODR_200HZ,
 };
 
 static drivers::Icm45686Context g_icmCtx = { &kIcmConfig, false };
+static drivers::DriverStatus g_icmInitStatus =
+    drivers::DRIVER_ERROR_NOT_INITIALIZED;
+
+static const drivers::Lis3mdlConfig kLisConfig = {
+    BOARD_IMU_SPI_INST,
+    BOARD_IMU_LIS3MDL_CS_PORT,
+    BOARD_IMU_LIS3MDL_CS_PIN,
+    BOARD_IMU_ICM45686_CS_PORT,
+    BOARD_IMU_ICM45686_CS_PIN,
+    BOARD_IMU_SPI_TIMEOUT_ITERATIONS,
+    drivers::LIS3MDL_FULL_SCALE_4_G,
+    drivers::LIS3MDL_ODR_20_HZ,
+    drivers::LIS3MDL_PERFORMANCE_ULTRA_HIGH,
+    drivers::LIS3MDL_PERFORMANCE_ULTRA_HIGH,
+    drivers::LIS3MDL_MODE_CONTINUOUS,
+};
+
+static drivers::Lis3mdlContext g_lisCtx = {
+    &kLisConfig,
+    false,
+    drivers::LIS3MDL_FULL_SCALE_4_G,
+    drivers::LIS3MDL_ODR_20_HZ,
+    drivers::LIS3MDL_PERFORMANCE_ULTRA_HIGH,
+    drivers::LIS3MDL_PERFORMANCE_ULTRA_HIGH,
+    drivers::LIS3MDL_MODE_CONTINUOUS,
+};
+static drivers::DriverStatus g_lisInitStatus =
+    drivers::DRIVER_ERROR_NOT_INITIALIZED;
 
 DL_SPI_FRAME_FORMAT SpiModeToFrameFormat(uint8_t mode)
 {
@@ -66,14 +94,6 @@ void SelectIcm45686(void)
     DelaySmall();
 }
 
-void SelectLis3mdl(void)
-{
-    DeselectAll();
-    DelaySmall();
-    DL_GPIO_clearPins(BOARD_IMU_LIS3MDL_CS_PORT, BOARD_IMU_LIS3MDL_CS_PIN);
-    DelaySmall();
-}
-
 drivers::DriverStatus TransferByte(uint8_t tx, uint8_t *rx)
 {
     uint32_t timeout = BOARD_IMU_SPI_TIMEOUT_ITERATIONS;
@@ -102,24 +122,42 @@ drivers::DriverStatus TransferByte(uint8_t tx, uint8_t *rx)
     return drivers::DRIVER_OK;
 }
 
-drivers::DriverStatus ReadRegisterWithCommand(uint8_t command, uint8_t *value)
-{
-    uint8_t ignored = 0U;
-    drivers::DriverStatus status = TransferByte(command, &ignored);
-
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-
-    return TransferByte(0x00U, value);
-}
-
 void DrainRxFifo(void)
 {
     uint8_t ignored = 0U;
 
     while (DL_SPI_receiveDataCheck8(BOARD_IMU_SPI_INST, &ignored)) {
     }
+}
+
+drivers::DriverStatus PrepareDeviceAccess(void)
+{
+    if (!g_imuSpiReady) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    DeselectAll();
+    DL_GPIO_enableOutput(BOARD_IMU_ICM45686_CS_PORT,
+                         BOARD_IMU_ICM45686_CS_PIN |
+                             BOARD_IMU_LIS3MDL_CS_PIN);
+    if (g_imuSpiMode == 3U) {
+        return drivers::DRIVER_OK;
+    }
+
+    uint32_t timeout = BOARD_IMU_SPI_TIMEOUT_ITERATIONS;
+    while (DL_SPI_isBusy(BOARD_IMU_SPI_INST)) {
+        if (timeout == 0U) {
+            return drivers::DRIVER_ERROR_TIMEOUT;
+        }
+        timeout--;
+    }
+
+    DL_SPI_disable(BOARD_IMU_SPI_INST);
+    DL_SPI_setFrameFormat(BOARD_IMU_SPI_INST, SpiModeToFrameFormat(3U));
+    DL_SPI_enable(BOARD_IMU_SPI_INST);
+    DrainRxFifo();
+    g_imuSpiMode = 3U;
+    return drivers::DRIVER_OK;
 }
 
 } /* namespace */
@@ -135,19 +173,31 @@ drivers::DriverStatus Board_ImuInit(void)
     DL_GPIO_enableOutput(BOARD_IMU_ICM45686_CS_PORT,
                          BOARD_IMU_ICM45686_CS_PIN | BOARD_IMU_LIS3MDL_CS_PIN);
     DeselectAll();
-    g_imuReady = true;
+    g_imuSpiReady = true;
+    g_imuSpiMode = 3U;
 
-    /* Device-level init: soft reset, WHO_AM_I check, sensor configuration.
-     * Runs against the SPI peripheral configured above. Failure (e.g. device
-     * absent) is returned to the caller (Board_Init reports it) but does not
-     * clear the SPI-ready flag, so shell diagnostics and `imu init` retry
-     * still work. */
-    return drivers::Icm45686_Init(&g_icmCtx, &kIcmConfig);
+    /* Initialize both devices independently. A failure never clears shared
+     * bus readiness or the other device's context, so either sensor remains
+     * available for diagnostics and retry. Keep the ICM error first for
+     * compatibility with callers that historically treated Board_ImuInit()
+     * as the ICM startup result. */
+    g_icmInitStatus = drivers::Icm45686_Init(&g_icmCtx, &kIcmConfig);
+    DeselectAll();
+    g_lisInitStatus = drivers::Lis3mdl_Init(&g_lisCtx, &kLisConfig);
+    DeselectAll();
+
+    return (g_icmInitStatus != drivers::DRIVER_OK) ?
+           g_icmInitStatus : g_lisInitStatus;
 }
 
 bool Board_ImuIsReady(void)
 {
-    return g_imuReady;
+    return g_imuSpiReady;
+}
+
+bool Board_ImuSpiIsReady(void)
+{
+    return Board_ImuIsReady();
 }
 
 drivers::DriverStatus Board_ImuSetChipSelectDebug(bool icm_output_enable,
@@ -155,7 +205,7 @@ drivers::DriverStatus Board_ImuSetChipSelectDebug(bool icm_output_enable,
                                                   bool lis_output_enable,
                                                   bool lis_high)
 {
-    if (!g_imuReady) {
+    if (!g_imuSpiReady) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
 
@@ -192,7 +242,7 @@ drivers::DriverStatus Board_ImuSetChipSelectDebug(bool icm_output_enable,
 
 drivers::DriverStatus Board_ImuSetSpiMode(uint8_t mode)
 {
-    if (!g_imuReady) {
+    if (!g_imuSpiReady) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
     if (mode > 3U) {
@@ -204,13 +254,14 @@ drivers::DriverStatus Board_ImuSetSpiMode(uint8_t mode)
     DL_SPI_setFrameFormat(BOARD_IMU_SPI_INST, SpiModeToFrameFormat(mode));
     DL_SPI_enable(BOARD_IMU_SPI_INST);
     DrainRxFifo();
+    g_imuSpiMode = mode;
 
     return drivers::DRIVER_OK;
 }
 
 drivers::DriverStatus Board_ImuWiggleSpiPins(uint32_t loops)
 {
-    if (!g_imuReady) {
+    if (!g_imuSpiReady) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
     if (loops == 0U) {
@@ -250,7 +301,7 @@ drivers::DriverStatus Board_ImuWiggleSpiPins(uint32_t loops)
 
 drivers::DriverStatus Board_ImuSpiBurstIcm(uint32_t bytes, uint8_t value)
 {
-    if (!g_imuReady) {
+    if (!g_imuSpiReady) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
     if (bytes == 0U) {
@@ -292,7 +343,7 @@ drivers::DriverStatus Board_ImuSpiSampleIcm(uint8_t tx,
                                             uint8_t *rx,
                                             uint32_t count)
 {
-    if (!g_imuReady) {
+    if (!g_imuSpiReady) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
     if ((rx == 0) || (count == 0U)) {
@@ -353,28 +404,117 @@ drivers::DriverStatus Board_ImuGetLineStatus(BoardImuLineStatus *status)
 
 drivers::DriverStatus Board_Lis3mdlReadRegister(uint8_t reg, uint8_t *value)
 {
-    if (!g_imuReady) {
-        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
     }
-
-    DrainRxFifo();
-    SelectLis3mdl();
-    const drivers::DriverStatus status = ReadRegisterWithCommand(
-        (uint8_t) (kSpiReadMask | kLis3mdlAutoIncrementMask | (reg & 0x3FU)),
-        value);
-    DeselectAll();
-
-    return status;
+    return drivers::Lis3mdl_ProbeRegister(&kLisConfig, reg, value);
 }
 
 drivers::DriverStatus Board_Lis3mdlReadWhoAmI(uint8_t *value)
 {
-    return Board_Lis3mdlReadRegister(kLis3mdlWhoAmIRegister, value);
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
+    }
+    return drivers::Lis3mdl_ProbeWhoAmI(&kLisConfig, value);
+}
+
+drivers::DriverStatus Board_Lis3mdlInit(void)
+{
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        g_lisInitStatus = prepare_status;
+        return g_lisInitStatus;
+    }
+    g_lisInitStatus = drivers::Lis3mdl_Init(&g_lisCtx, &kLisConfig);
+    return g_lisInitStatus;
+}
+
+bool Board_Lis3mdlIsReady(void)
+{
+    return drivers::Lis3mdl_IsReady(&g_lisCtx);
+}
+
+drivers::DriverStatus Board_Lis3mdlGetInitStatus(void)
+{
+    return g_lisInitStatus;
+}
+
+drivers::DriverStatus Board_Lis3mdlSetFullScale(uint8_t full_scale)
+{
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
+    }
+    return drivers::Lis3mdl_SetFullScale(&g_lisCtx, full_scale);
+}
+
+drivers::DriverStatus Board_Lis3mdlSetOutputDataRate(uint8_t output_data_rate)
+{
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
+    }
+    return drivers::Lis3mdl_SetOutputDataRate(&g_lisCtx, output_data_rate);
+}
+
+drivers::DriverStatus Board_Lis3mdlSetOperatingMode(uint8_t operating_mode)
+{
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
+    }
+    return drivers::Lis3mdl_SetOperatingMode(&g_lisCtx, operating_mode);
+}
+
+drivers::DriverStatus Board_Lis3mdlIsDataReady(bool *ready)
+{
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
+    }
+    return drivers::Lis3mdl_IsDataReady(&g_lisCtx, ready);
+}
+
+drivers::DriverStatus Board_Lis3mdlReadRaw(drivers::Lis3mdlRawData *data)
+{
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
+    }
+    return drivers::Lis3mdl_ReadRaw(&g_lisCtx, data);
+}
+
+uint8_t Board_Lis3mdlGetFullScale(void)
+{
+    return drivers::Lis3mdl_GetFullScale(&g_lisCtx);
+}
+
+uint8_t Board_Lis3mdlGetOutputDataRate(void)
+{
+    return drivers::Lis3mdl_GetOutputDataRate(&g_lisCtx);
+}
+
+uint8_t Board_Lis3mdlGetOperatingMode(void)
+{
+    return drivers::Lis3mdl_GetOperatingMode(&g_lisCtx);
+}
+
+const drivers::Lis3mdlConfig *Board_Lis3mdlGetConfig(void)
+{
+    return &kLisConfig;
 }
 
 drivers::DriverStatus Board_Icm45686Init(void)
 {
-    return drivers::Icm45686_Init(&g_icmCtx, &kIcmConfig);
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        g_icmInitStatus = prepare_status;
+        return g_icmInitStatus;
+    }
+    g_icmInitStatus = drivers::Icm45686_Init(&g_icmCtx, &kIcmConfig);
+    return g_icmInitStatus;
 }
 
 bool Board_Icm45686IsReady(void)
@@ -382,13 +522,26 @@ bool Board_Icm45686IsReady(void)
     return drivers::Icm45686_IsReady(&g_icmCtx);
 }
 
+drivers::DriverStatus Board_Icm45686GetInitStatus(void)
+{
+    return g_icmInitStatus;
+}
+
 drivers::DriverStatus Board_Icm45686ReadRegister(uint8_t reg, uint8_t *value)
 {
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
+    }
     return drivers::Icm45686_ReadRegister(&g_icmCtx, reg, value);
 }
 
 drivers::DriverStatus Board_Icm45686WriteRegister(uint8_t reg, uint8_t value)
 {
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
+    }
     return drivers::Icm45686_WriteRegister(&g_icmCtx, reg, value);
 }
 
@@ -396,16 +549,28 @@ drivers::DriverStatus Board_Icm45686ReadBurst(uint8_t reg,
                                               uint8_t *buf,
                                               uint16_t len)
 {
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
+    }
     return drivers::Icm45686_ReadBurst(&g_icmCtx, reg, buf, len);
 }
 
 drivers::DriverStatus Board_Icm45686ReadWhoAmI(uint8_t *value)
 {
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
+    }
     return drivers::Icm45686_ReadWhoAmI(&g_icmCtx, value);
 }
 
 drivers::DriverStatus Board_Icm45686ReadSensors(drivers::Icm45686SensorData *data)
 {
+    const drivers::DriverStatus prepare_status = PrepareDeviceAccess();
+    if (prepare_status != drivers::DRIVER_OK) {
+        return prepare_status;
+    }
     return drivers::Icm45686_ReadSensors(&g_icmCtx, data);
 }
 

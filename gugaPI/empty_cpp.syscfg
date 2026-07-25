@@ -203,7 +203,7 @@ I2C2.peripheral.sclPin.$assign = "PA11";
 I2C2.peripheral.sdaPin.$assign = "PA10";
 
 SPI1.$name                      = "IMU_SPI";
-SPI1.targetBitRate              = 100000;
+SPI1.targetBitRate              = 1000000;
 SPI1.frameFormat                = "MOTO3";
 SPI1.polarity                   = "1";
 SPI1.phase                      = "1";

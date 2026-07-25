@@ -4,13 +4,14 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "app/grayscale_road.h"
 #include "drivers/common/driver_status.h"
 
 namespace app {
 
 enum LFMode {
     LF_IDLE = 0,
-    LF_CAL,      /* calibrating: recording per-channel min/max */
+    LF_CAL,      /* unified grayscale sweep calibration */
     LF_FOLLOW    /* following the line */
 };
 
@@ -23,15 +24,18 @@ struct LFState {
     int32_t base_rpm;
     uint32_t follow_start_ms;
     uint32_t follow_duration_ms;
-    uint32_t cal_start_ms;
     uint32_t lost_since_ms;
-    /* per-channel calibration (RAM; recalibrate each session) */
-    uint16_t cal_min[8];
-    uint16_t cal_max[8];
-    uint16_t threshold[8];
-    /* tunable params (RAM, shell-set; persist to ConfigStore later) */
+    uint32_t last_sequence;
+    uint32_t last_frame_ms;
+    uint32_t processed_frame_count;
+    int32_t last_error_mpos;
+    int32_t derivative_mpos_per_s;
+    GrayscaleRoadType road_type;
+    /* Tunable parameters are loaded from ConfigStore and remain runtime-settable. */
     int32_t kp;
+    int32_t kd;
     int32_t max_correction_rpm;
+    uint32_t lost_hold_ms;
     uint32_t lost_timeout_ms;
     drivers::DriverStatus last_status;
 };
@@ -54,7 +58,9 @@ bool LF_IsLineDetected(void);
 
 /* Runtime param setters (RAM). */
 void LF_SetKp(int32_t kp);
+void LF_SetKd(int32_t kd);
 void LF_SetMaxCorrection(int32_t max_correction_rpm);
+void LF_SetLostHold(uint32_t hold_ms);
 void LF_SetLostTimeout(uint32_t timeout_ms);
 
 } /* namespace app */

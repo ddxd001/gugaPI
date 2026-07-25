@@ -60,6 +60,7 @@
 #define BOARD_BUTTON3_PIN               GPIO_BUTTON_B_BUTTON3_PIN
 #define BOARD_BUTTON_ACTIVE_LOW         (1U)
 #define BOARD_BUTTON_DEBOUNCE_MS        (20U)
+#define BOARD_BUTTON_LONG_PRESS_MS      (800U)
 
 /* LoRa 串口透传：PA14/UART3_TX 接 LoRa RX，PA13/UART3_RX 接 LoRa TX。 */
 #define BOARD_LORA_UART_INST            LORA_UART_INST

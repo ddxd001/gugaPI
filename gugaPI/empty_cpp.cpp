@@ -251,28 +251,38 @@ int main(void)
     services::Log_Init();
     services::Fault_SetPanicHandler(&PanicHandler);
 
-    /* Board_Init runs after the log is ready so device init failures can be
-     * reported. It returns the first failing driver; the name is surfaced on
-     * the console and latched as a fault so App_Run stops the chassis.
-     * Retry once: some I2C/SPI devices need a moment after power-up. */
+    /* Retry the complete checked initialization once because some I2C/SPI
+     * devices need additional power-up time. The final report still records
+     * every enabled peripheral and distinguishes degraded failures from
+     * failures that must inhibit motion. */
     if (board::Board_Init() != drivers::DRIVER_OK) {
-        const char *failed = board::Board_GetFailedDriver();
-        LOG_ERROR("board init failed, retrying");
-        if (failed != 0) {
-            services::DebugUart_WriteString("  failed: ");
-            services::DebugUart_WriteString(failed);
-            services::DebugUart_WriteString("\r\n");
-        }
+        LOG_WARN("board init incomplete; retrying");
         delay_cycles(4000000U); /* ~100 ms at 40 MHz */
         if (board::Board_Init() != drivers::DRIVER_OK) {
-            failed = board::Board_GetFailedDriver();
-            LOG_ERROR("board init failed after retry");
-            if (failed != 0) {
-                services::DebugUart_WriteString("  failed: ");
-                services::DebugUart_WriteString(failed);
-                services::DebugUart_WriteString("\r\n");
+            const board::BoardInitReport *report =
+                board::Board_GetInitReport();
+            const bool motion_inhibited =
+                (report != 0) && report->motion_inhibited;
+            if (motion_inhibited) {
+                LOG_ERROR("board init failed after retry; motion inhibited");
+            } else {
+                LOG_WARN("board init degraded after retry");
             }
-            services::Fault_Set(services::FAULT_DRIVER_INIT);
+            if (report != 0) {
+                for (uint8_t i = 0U; i < report->count; i++) {
+                    if (report->entries[i].status != drivers::DRIVER_OK) {
+                        services::DebugUart_WriteString("  failed: ");
+                        services::DebugUart_WriteString(
+                            report->entries[i].name);
+                        services::DebugUart_WriteString("\r\n");
+                    }
+                }
+            }
+            if (motion_inhibited) {
+                services::Fault_Set(services::FAULT_DRIVER_INIT);
+            }
+        } else {
+            LOG_WARN("board init recovered after retry");
         }
     }
 

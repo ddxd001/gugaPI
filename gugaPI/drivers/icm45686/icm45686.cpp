@@ -72,15 +72,17 @@ void DrainRxFifo(SPI_Regs *spi)
     }
 }
 
-void WaitIdle(const Icm45686Config *cfg)
+DriverStatus WaitIdle(const Icm45686Config *cfg)
 {
     uint32_t timeout = cfg->timeout_iterations;
     while (DL_SPI_isBusy(cfg->spi)) {
         if (timeout == 0U) {
-            break;
+            return DRIVER_ERROR_TIMEOUT;
         }
         timeout--;
     }
+
+    return DRIVER_OK;
 }
 
 DriverStatus TransferByte(const Icm45686Config *cfg, uint8_t tx, uint8_t *rx)
@@ -194,8 +196,12 @@ DriverStatus Icm45686_WriteRegister(Icm45686Context *ctx,
     if (status == DRIVER_OK) {
         status = TransferByte(cfg, value, 0);
     }
-    WaitIdle(cfg);
+    const DriverStatus idle_status = WaitIdle(cfg);
     Deselect(cfg);
+
+    if (status == DRIVER_OK) {
+        status = idle_status;
+    }
 
     return status;
 }
@@ -224,8 +230,11 @@ DriverStatus Icm45686_ReadBurst(Icm45686Context *ctx,
         status = TransferByte(cfg, 0x00U, &buf[i]);
     }
 
-    WaitIdle(cfg);
+    const DriverStatus idle_status = WaitIdle(cfg);
     Deselect(cfg);
+    if (status == DRIVER_OK) {
+        status = idle_status;
+    }
     return status;
 }
 

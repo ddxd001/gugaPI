@@ -9,7 +9,7 @@
 namespace app {
 namespace {
 
-AppImuData g_data = { { 0, 0, 0 }, { 0, 0, 0 }, 0, 0, 0, 0, false };
+AppImuData g_data = {};
 uint32_t g_lastUpdateUs = 0U;
 int64_t g_yawRemainder = 0LL;
 
@@ -109,11 +109,18 @@ void App_ImuInit(void)
     g_lastUpdateUs = 0U;
     g_yawRemainder = 0LL;
     g_data.valid = false;
+    g_data.last_update_ms = 0U;
+    g_data.error_count = 0U;
+    g_data.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    g_data.sequence = 0U;
 }
 
 void App_ImuUpdate(void)
 {
     if (!board::Board_Icm45686IsReady()) {
+        g_data.valid = false;
+        g_data.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        g_data.error_count++;
         return;
     }
 
@@ -121,6 +128,9 @@ void App_ImuUpdate(void)
     const drivers::DriverStatus status =
         board::Board_Icm45686ReadSensors(&raw);
     if (status != drivers::DRIVER_OK) {
+        g_data.valid = false;
+        g_data.last_status = status;
+        g_data.error_count++;
         return;
     }
 
@@ -163,6 +173,9 @@ void App_ImuUpdate(void)
     g_data.roll_mdeg =
         Normalize360(Atan2MilliDeg(g_data.accel_mg[1], g_data.accel_mg[2]));
     UpdateYaw(services::Time_Micros());
+    g_data.last_update_ms = services::Time_Millis();
+    g_data.last_status = drivers::DRIVER_OK;
+    g_data.sequence++;
     g_data.valid = true;
 }
 

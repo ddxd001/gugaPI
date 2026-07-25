@@ -4,8 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "drivers/common/driver_status.h"
-#include "ti_msp_dl_config.h"
+#include "drivers/i2c_controller/i2c_controller.h"
 
 namespace drivers {
 
@@ -16,21 +15,12 @@ static const uint32_t INA219_DEFAULT_CURRENT_LSB_UA = 200U;
 static const uint16_t INA219_DEFAULT_CONFIG = 0x399FU;
 
 struct Ina219Config {
-    I2C_Regs *i2c;
+    const I2cControllerConfig *bus;
     uint8_t i2c_address;
-    uint32_t timeout_iterations;
     uint32_t shunt_milliohms;
     uint32_t current_lsb_ua;
     // IN+/IN- 与期望电流方向相反时，软件取反电流和分流电压。
     bool invert_current;
-    GPIO_Regs *scl_port;
-    uint32_t scl_pin;
-    uint32_t scl_iomux;
-    uint32_t scl_iomux_func;
-    GPIO_Regs *sda_port;
-    uint32_t sda_pin;
-    uint32_t sda_iomux;
-    uint32_t sda_iomux_func;
 };
 
 struct Ina219Context {
@@ -40,11 +30,7 @@ struct Ina219Context {
     uint16_t calibration;
 };
 
-struct Ina219BusStatus {
-    uint32_t controller_status;
-    bool scl_high;
-    bool sda_high;
-};
+typedef I2cControllerBusStatus Ina219BusStatus;
 
 struct Ina219RawRegisters {
     uint16_t config;

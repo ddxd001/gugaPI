@@ -2,6 +2,8 @@
 
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
+#include "app/app_ina219.h"
+#include "app/app_lora.h"
 #include "app/app_shell.h"
 #include "app/action.h"
 #include "app/chassis.h"
@@ -18,6 +20,7 @@
 #include "services/fault.h"
 #include "services/log.h"
 #include "services/scheduler.h"
+#include "services/shell.h"
 #include "services/time.h"
 
 namespace {
@@ -40,11 +43,32 @@ const uint32_t CHASSIS_FEEDBACK_PERIOD_MS = 20U;
 
 static services::SchedulerTaskId g_chassisTaskId = 0U;
 static bool g_chassisTaskRegistered = false;
+static bool g_chassisTaskEnabled = false;
 static bool g_faultStopHandled = false;
+
+void SetChassisTaskEnabled(bool enabled)
+{
+    if ((!g_chassisTaskRegistered) ||
+        (g_chassisTaskEnabled == enabled)) {
+        return;
+    }
+
+    if (services::Scheduler_EnableTask(g_chassisTaskId, enabled) !=
+        services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+        return;
+    }
+
+    g_chassisTaskEnabled = enabled;
+}
 
 void App_ChassisServiceTask(void)
 {
-    (void) app::Chassis_Service();
+    const drivers::DriverStatus status = app::Chassis_Service();
+    if ((status != drivers::DRIVER_OK) &&
+        (status != drivers::DRIVER_ERROR_BUSY)) {
+        services::Fault_Set(services::FAULT_DRIVER_TIMEOUT);
+    }
 }
 
 /* Periodic feedback: keep ChassisState.actual_rpm / encoder fresh at 20 ms so
@@ -53,8 +77,27 @@ void App_ChassisServiceTask(void)
  * left running during fault for diagnostics. */
 void App_ChassisFeedbackTask(void)
 {
-    (void) app::Chassis_Update();
+    const drivers::DriverStatus status = app::Chassis_Update();
+    if (status != drivers::DRIVER_OK) {
+        services::Fault_Set(services::FAULT_DRIVER_TIMEOUT);
+    }
 }
+#endif
+
+#if FEATURE_ENABLE_INA219 && FEATURE_ENABLE_MOTOR_DRIVER
+static bool g_powerInhibitHandled = false;
+#endif
+
+#if FEATURE_ENABLE_GRAYSCALE
+/* One mux channel per invocation: 2 ms gives an approximately 16 ms frame
+ * while retaining margin over the 200 us mux settle + 125 us ADC sample. */
+const uint32_t GRAYSCALE_PERIOD_MS = 2U;
+#endif
+
+#if FEATURE_ENABLE_IMU
+/* Match the ICM45686 200 Hz output data rate. The 1 MHz SPI burst takes
+ * roughly 120 us on the wire, so a 5 ms task keeps ample scheduler margin. */
+const uint32_t IMU_PERIOD_MS = 5U;
 #endif
 
 #if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
@@ -74,7 +117,7 @@ void App_ActionTask(void)
 #endif
 
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
-const uint32_t LINEFOLLOW_PERIOD_MS = 50U;
+const uint32_t LINEFOLLOW_PERIOD_MS = 20U;
 
 void App_LineFollowTask(void)
 {
@@ -205,12 +248,76 @@ static bool g_buttonOledLastPressed[board::BOARD_BUTTON_COUNT] = {
     false
 };
 
+#if FEATURE_ENABLE_BUTTON_EVENT_LOG
+void WriteButtonEventName(const char *name, bool *first)
+{
+    if (!(*first)) {
+        services::Shell_WriteString(",");
+    }
+    services::Shell_WriteString(name);
+    *first = false;
+}
+
+bool WriteButtonGeneratedEvents(board::BoardButtonId id, uint32_t events)
+{
+    if (events == drivers::BUTTON_EVENT_NONE) {
+        return false;
+    }
+
+    /* Start on a fresh line because the interactive prompt may already be
+     * visible.  Writes are queued by DebugUart and do not block on TX. */
+    services::Shell_WriteString("\r\nbutton event ");
+    services::Shell_WriteString(board::Board_ButtonGetName(id));
+    services::Shell_WriteString(" types=");
+
+    bool first = true;
+    if ((events & drivers::BUTTON_EVENT_PRESSED) != 0U) {
+        WriteButtonEventName("pressed", &first);
+    }
+    if ((events & drivers::BUTTON_EVENT_RELEASED) != 0U) {
+        WriteButtonEventName("released", &first);
+    }
+    if ((events & drivers::BUTTON_EVENT_SHORT_PRESSED) != 0U) {
+        WriteButtonEventName("short", &first);
+    }
+    if ((events & drivers::BUTTON_EVENT_LONG_PRESSED) != 0U) {
+        WriteButtonEventName("long", &first);
+    }
+
+    services::Shell_WriteString(" held_ms=");
+    services::Shell_WriteUInt32(board::Board_ButtonGetPressDurationMs(id));
+    services::Shell_WriteString("\r\n");
+    return true;
+}
+
+void WriteAllButtonGeneratedEvents(void)
+{
+    bool wrote_event = false;
+    for (uint32_t i = 0U; i < (uint32_t) board::BOARD_BUTTON_COUNT; i++) {
+        const board::BoardButtonId id = (board::BoardButtonId) i;
+        if (WriteButtonGeneratedEvents(
+                id,
+                board::Board_ButtonGetGeneratedEvents(id))) {
+            wrote_event = true;
+        }
+    }
+    if (wrote_event) {
+        services::Shell_PrintPrompt();
+    }
+}
+#endif
+
 void App_ButtonScanTask(void)
 {
     if (board::Board_ButtonsUpdate(services::Time_Millis()) !=
         drivers::DRIVER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);
+        return;
     }
+
+#if FEATURE_ENABLE_BUTTON_EVENT_LOG
+    WriteAllButtonGeneratedEvents();
+#endif
 }
 
 #if FEATURE_ENABLE_OLED
@@ -400,9 +507,41 @@ void App_Init(void)
     g_appState.mode = APP_MODE_RUNNING;
 #endif
     g_appState.uptime_ms = 0U;
+#if FEATURE_ENABLE_MOTOR_DRIVER || FEATURE_ENABLE_INA219 || \
+    FEATURE_ENABLE_GRAYSCALE
+    const drivers::DriverStatus config_status = ConfigStore_Load();
+    const ConfigStoreStatus *config_store_status = ConfigStore_GetStatus();
+    if ((config_status != drivers::DRIVER_OK) &&
+        (config_store_status != 0)) {
+        if (config_store_status->load_outcome ==
+            CONFIG_LOAD_DEFAULTS_IO_ERROR) {
+            LOG_WARN("config load I/O failed; defaults active");
+        } else {
+            LOG_WARN("config invalid or unavailable; defaults active");
+        }
+    }
+#endif
+
+#if FEATURE_ENABLE_INA219
+    if (App_Ina219Init() != drivers::DRIVER_OK) {
+        LOG_ERROR("INA219 protection init failed");
+        services::Fault_Set(services::FAULT_DRIVER_INIT);
+    }
 #if FEATURE_ENABLE_MOTOR_DRIVER
-    (void) ConfigStore_Load();
-    (void) Chassis_Init();
+    g_powerInhibitHandled = false;
+#endif
+#endif
+
+#if FEATURE_ENABLE_LORA
+    App_LoraProtocolInit();
+#endif
+
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    const drivers::DriverStatus chassis_status = Chassis_Init();
+    if (chassis_status != drivers::DRIVER_OK) {
+        LOG_ERROR("chassis init failed; motion inhibited");
+        services::Fault_Set(services::FAULT_DRIVER_INIT);
+    }
     if (services::Scheduler_AddTask("chassis",
                                     App_ChassisServiceTask,
                                     CHASSIS_SERVICE_PERIOD_MS,
@@ -411,6 +550,8 @@ void App_Init(void)
         services::Fault_Set(services::FAULT_UNKNOWN);
     } else {
         g_chassisTaskRegistered = true;
+        /* Scheduler_AddTask creates tasks in the enabled state. */
+        g_chassisTaskEnabled = true;
     }
     if (services::Scheduler_AddTask("chassis_fb",
                                     App_ChassisFeedbackTask,
@@ -452,7 +593,7 @@ void App_Init(void)
     App_ImuInit();
     if (services::Scheduler_AddTask("imu",
                                     App_ImuUpdate,
-                                    10U,
+                                    IMU_PERIOD_MS,
                                     0U,
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);
@@ -462,7 +603,7 @@ void App_Init(void)
     App_GrayscaleInit();
     if (services::Scheduler_AddTask("grayscale",
                                     App_GrayscaleUpdate,
-                                    10U,
+                                    GRAYSCALE_PERIOD_MS,
                                     0U,
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);
@@ -543,6 +684,24 @@ void App_Run(void)
 {
     g_appState.uptime_ms = services::Time_Millis();
 
+#if FEATURE_ENABLE_INA219
+    App_Ina219Run();
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    if (App_Ina219MotionInhibitRequested()) {
+        if (!g_powerInhibitHandled) {
+            g_powerInhibitHandled = true;
+            (void) Chassis_Stop();
+        }
+    } else {
+        g_powerInhibitHandled = false;
+    }
+#endif
+#endif
+
+#if FEATURE_ENABLE_LORA
+    App_LoraProtocolRun();
+#endif
+
     if (services::Fault_HasFault()) {
         g_appState.mode = APP_MODE_FAULT;
 #if FEATURE_ENABLE_MOTOR_DRIVER
@@ -555,9 +714,7 @@ void App_Run(void)
             (void) LF_Stop();
 #endif
             (void) Chassis_Stop();
-            if (g_chassisTaskRegistered) {
-                (void) services::Scheduler_EnableTask(g_chassisTaskId, false);
-            }
+            SetChassisTaskEnabled(false);
         }
 #endif
         return;
@@ -570,15 +727,11 @@ void App_Run(void)
 #if FEATURE_ENABLE_MOTOR_DRIVER
     switch (g_appState.mode) {
     case APP_MODE_COMPETITION_ARMED:
-        if (g_chassisTaskRegistered) {
-            (void) services::Scheduler_EnableTask(g_chassisTaskId, false);
-        }
+        SetChassisTaskEnabled(false);
         break;
 
     case APP_MODE_COMPETITION_RUNNING:
-        if (g_chassisTaskRegistered) {
-            (void) services::Scheduler_EnableTask(g_chassisTaskId, true);
-        }
+        SetChassisTaskEnabled(true);
         if (!ActionRunner_GetState()->running) {
             g_appState.mode = APP_MODE_COMPETITION_ARMED;
             (void) Chassis_Stop();
@@ -587,9 +740,7 @@ void App_Run(void)
 
     default:
         g_appState.mode = APP_MODE_RUNNING;
-        if (g_chassisTaskRegistered) {
-            (void) services::Scheduler_EnableTask(g_chassisTaskId, true);
-        }
+        SetChassisTaskEnabled(true);
         break;
     }
 #else

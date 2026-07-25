@@ -22,7 +22,8 @@ enum ActionOp {
     ACT_OP_WAIT,      /* wait until cond (usually timeout) */
     ACT_OP_STOP,     /* stop chassis+heading+linefollow, immediate */
     ACT_OP_BRANCH,   /* no motion; jump on cond (true->on_success, false->on_timeout) */
-    ACT_OP_END       /* finish the sequence (success) */
+    ACT_OP_END,      /* finish the sequence (success) */
+    ACT_OP_DRIVE_MM  /* encoder distance + heading hold; p1=mm, p2=max rpm */
 };
 
 enum ActionCond {
@@ -31,7 +32,8 @@ enum ActionCond {
     ACT_COND_LINE_DETECTED,     /* grayscale sees the line */
     ACT_COND_LINE_LOST,         /* grayscale lost the line */
     ACT_COND_BUTTON,            /* button 1 pressed */
-    ACT_COND_IMMEDIATE          /* always true (instant) */
+    ACT_COND_IMMEDIATE,         /* always true (instant) */
+    ACT_COND_DISTANCE_REACHED   /* encoder distance mode returned to idle */
 };
 
 /* on_success / on_timeout target. ACT_NEXT in on_success = next instruction;
@@ -40,8 +42,8 @@ static const uint8_t ACT_NEXT = 0xFFU;
 
 struct Instr {
     ActionOp op;
-    int32_t param1;       /* DRIVE/FOLLOW: rpm; TURN: delta_deg */
-    int32_t param2;       /* timeout / duration ms (safety) */
+    int32_t param1;       /* DRIVE/FOLLOW: rpm; TURN: deg; DRIVE_MM: mm */
+    int32_t param2;       /* timeout/duration; DRIVE_MM: maximum rpm */
     ActionCond until;     /* success condition */
     uint8_t on_success;   /* ACT_NEXT or index */
     uint8_t on_timeout;   /* ACT_NEXT(=abort) or index */
@@ -62,7 +64,8 @@ void ActionRunner_Init(void);
 drivers::DriverStatus ActionRunner_Clear(void);
 /* Append an instruction. op as text ("drive"/"turn"/...), until as text
  * ("timeout"/"heading_reached"/"line_detected"/"line_lost"/"button"/
- * "immediate"). on_success/on_timeout: index, or "next"/"abort" (=ACT_NEXT). */
+ * "immediate"/"distance_reached"). on_success/on_timeout: index, or
+ * "next"/"abort" (=ACT_NEXT). */
 drivers::DriverStatus ActionRunner_AddInstr(ActionOp op,
                                             int32_t param1,
                                             int32_t param2,
