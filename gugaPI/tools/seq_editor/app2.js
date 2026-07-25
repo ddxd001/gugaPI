@@ -95,7 +95,14 @@ edges.forEach(function(e){
 if(!reach[e.f])return;
 var fp=pos[e.f],tp=pos[e.t];if(!fp||!tp)return;
 var fx,fy,tx=tp.x+NW/2,ty=tp.y;
-if(e.br){if(e.tp==='succ'){fx=fp.x+NW/2-NW/4;fy=fp.y+NH/2+NH/3}else{fx=fp.x+NW/2+NW/4;fy=fp.y+NH/2+NH/3}}
+if(e.br){
+var sib=edges.filter(function(o){return o.br&&o.f===e.f&&o.tp!==e.tp&&reach[o.f]});
+var swap=false;
+if(sib.length>0){var sp=pos[sib[0].t];if(sp){if(e.tp==='succ'&&tp.x>sp.x)swap=true;if(e.tp==='fail'&&tp.x<sp.x)swap=true}}
+var goLeft=(e.tp==='succ'&&!swap)||(e.tp==='fail'&&swap);
+fx=goLeft?fp.x+NW/2-NW/4:fp.x+NW/2+NW/4;
+fy=fp.y+NH/2+NH/3;
+}
 else{fx=fp.x+NW/2;fy=fp.y+NH}
 var col=e.br?'#cdd6f4':(e.tp==='succ'?'#a6e3a1':'#f38ba8');
 var dash=e.tp==='fail'&&!e.br?'stroke-dasharray="5,3"':'';
