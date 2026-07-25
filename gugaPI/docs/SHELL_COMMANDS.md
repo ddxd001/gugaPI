@@ -1604,8 +1604,8 @@ param heading_kp=1000 range=0..100000
 | `speed_kp` | 0..255 | 1 | 速度环 Kp（Q4.4） |
 | `speed_ki` | 0..255 | 1 | 速度环 Ki（Q4.4） |
 | `speed_kd` | 0..255 | 0 | 速度环 Kd（Q4.4） |
-| `speed_max_duty` | 0..100 | 50 | 速度环最大占空比（%） |
-| `speed_min_duty` | 0..100 | 6 | 速度环最小占空比（%） |
+| `speed_max_duty` | 0..100 | 40 | 速度环最大占空比（%） |
+| `speed_min_duty` | 0..100 | 4 | 速度环最小占空比（%） |
 | `position_kp` | 0..255 | 15 | 位置环 Kp（Q4.4） |
 | `position_ki` | 0..255 | 0 | 位置环 Ki（Q4.4） |
 | `position_kd` | 0..255 | 0 | 位置环 Kd（Q4.4） |
