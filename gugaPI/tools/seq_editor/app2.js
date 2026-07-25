@@ -75,6 +75,24 @@ h+='<marker id="mao" markerWidth="10" markerHeight="10" refX="8" refY="5" orient
 h+='<marker id="mat" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0L10,5L0,10Z" fill="#f38ba8"/></marker>';
 h+='<marker id="mab" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0L10,5L0,10Z" fill="#cdd6f4"/></marker>';
 h+='</defs>';
+// Collect all node bounding boxes for collision check
+var boxes=[];
+instrs.forEach(function(ins,i){var p=pos[i];if(p)boxes.push({x:p.x,y:p.y,w:NW,h:NH,id:i})});
+function segHitsBox(x1,y1,x2,y2,bx,by,bw,bh){
+if(y1===y2){return y1>=by&&y1<=by+bh&&Math.min(x1,x2)<=bx+bw&&Math.max(x1,x2)>=bx}
+if(x1===x2){return x1>=bx&&x1<=bx+bw&&Math.min(y1,y2)<=by+bh&&Math.max(y1,y2)>=by}
+return false}
+function findClearY(y1,y2,preferDown){
+var mid=(y1+y2)/2;
+// Try mid, then offset further into gap
+for(var off=2;off<(y2-y1)/2;off+=3){
+var ty=preferDown?mid+off:mid-off;
+if(ty<=y1||ty>=y2)continue;
+var clear=true;
+for(var bi=0;bi<boxes.length;bi++){var b=boxes[bi];if(ty>=b.y&&ty<=b.y+b.h){clear=false;break}}
+if(clear)return ty;
+}
+return mid}
 edges.forEach(function(e){
 if(!reach[e.f])return;
 var fp=pos[e.f],tp=pos[e.t];if(!fp||!tp)return;
@@ -84,20 +102,35 @@ else{fx=fp.x+NW/2;fy=fp.y+NH}
 var col=e.br?'#cdd6f4':(e.tp==='succ'?'#a6e3a1':'#f38ba8');
 var dash=e.tp==='fail'&&!e.br?'stroke-dasharray="5,3"':'';
 var mk='url(#'+(e.br?'mab':(e.tp==='succ'?'mao':'mat'))+')';
-var ly=(fy+ty)/2;
+// Build orthogonal path through gap midpoints
+var pts=[[fx,fy]];
 if(e.path&&e.path.length>2){
-var d='M'+fx+','+fy;
-for(var pi=1;pi<e.path.length;pi++){var pp=pos[e.path[pi]];if(pp){d+=' L'+(pp.x+NW/2)+','+pp.y}}
-h+='<path d="'+d+'" stroke="'+col+'" stroke-width="2" fill="none" '+dash+' marker-end="'+mk+'" />';
-var lp=pos[e.path[1]];h+='<text class="arrow-label" x="'+(fx+12)+'" y="'+(fy+DY/2-5)+'" fill="'+col+'" style="font-size:10px;font-weight:600">'+e.lb+'</text>';
-}else if(Math.abs(fx-tx)>NW*0.6){
-var midY=ty-DY/2;
-h+='<path d="M'+fx+','+fy+' L'+fx+','+midY+' L'+tx+','+midY+' L'+tx+','+ty+'" stroke="'+col+'" stroke-width="2" fill="none" '+dash+' marker-end="'+mk+'" />';
-h+='<text class="arrow-label" x="'+((fx+tx)/2+8)+'" y="'+(midY-3)+'" fill="'+col+'" style="font-size:10px;font-weight:600">'+e.lb+'</text>';
+for(var pi=1;pi<e.path.length-1;pi++){
+var pp=pos[e.path[pi]];if(!pp)continue;
+var px2=pp.x+NW/2,py2=pp.y;
+var gapMid=findClearY(pts[pts.length-1][1],py2,true);
+pts.push([pts[pts.length-1][0],gapMid]);
+pts.push([px2,gapMid]);
+pts.push([px2,py2+NH]);
+}}
+// Final segment to target
+var lastY=pts[pts.length-1][1];
+var gapMid2=findClearY(Math.min(lastY,ty),Math.max(lastY,ty),ty>lastY);
+if(Math.abs(pts[pts.length-1][0]-tx)<5){
+pts.push([tx,ty]);
 }else{
-h+='<path d="M'+fx+','+fy+' L'+tx+','+ty+'" stroke="'+col+'" stroke-width="2" fill="none" '+dash+' marker-end="'+mk+'" />';
-h+='<text class="arrow-label" x="'+(fx+12)+'" y="'+(ly-3)+'" fill="'+col+'" style="font-size:10px;font-weight:600">'+e.lb+'</text>';
-}});
+pts.push([pts[pts.length-1][0],gapMid2]);
+pts.push([tx,gapMid2]);
+pts.push([tx,ty]);
+}
+var d='M'+pts[0][0]+','+pts[0][1];
+for(var pi2=1;pi2<pts.length;pi2++){d+=' L'+pts[pi2][0]+','+pts[pi2][1]}
+h+='<path d="'+d+'" stroke="'+col+'" stroke-width="2" fill="none" '+dash+' marker-end="'+mk+'" />';
+// Label near first bend
+var ly2=pts.length>2?pts[1][1]:(fy+ty)/2;
+var lx2=pts.length>2?pts[1][0]+8:fx+12;
+h+='<text class="arrow-label" x="'+lx2+'" y="'+(ly2-3)+'" fill="'+col+'" style="font-size:10px;font-weight:600">'+e.lb+'</text>';
+});
 if(L.hasDone){var dp=pos['done'];if(dp)h+='<g><rect x="'+dp.x+'" y="'+dp.y+'" width="'+NW+'" height="'+NH+'" rx="25" fill="#a6e3a1" opacity="0.2" stroke="#a6e3a1" stroke-width="2"/><text x="'+(dp.x+NW/2)+'" y="'+(dp.y+30)+'" text-anchor="middle" fill="#a6e3a1" font-size="13" font-weight="600">DONE</text></g>'}
 if(L.hasAbort){var ap=pos['abort'];if(ap)h+='<g><rect x="'+ap.x+'" y="'+ap.y+'" width="'+NW+'" height="'+NH+'" rx="25" fill="#f38ba8" opacity="0.2" stroke="#f38ba8" stroke-width="2"/><text x="'+(ap.x+NW/2)+'" y="'+(ap.y+30)+'" text-anchor="middle" fill="#f38ba8" font-size="13" font-weight="600">ABORT</text></g>'}
 instrs.forEach(function(ins,i){
