@@ -146,6 +146,13 @@ bool StrEqual(const char *left, const char *right)
     return (*left == '\0') && (*right == '\0');
 }
 
+bool CompetitionOwnsOled(void)
+{
+    const AppMode mode = App_GetState()->mode;
+    return (mode == APP_MODE_COMPETITION_ARMED) ||
+           (mode == APP_MODE_COMPETITION_RUNNING);
+}
+
 uint8_t CountTextCells(const char *text, uint8_t max_cells)
 {
     uint8_t count = 0U;
@@ -675,6 +682,9 @@ drivers::DriverStatus Gy931OledShowError(drivers::DriverStatus read_status)
 
 drivers::DriverStatus Gy931OledUpdateDisplay(void)
 {
+    if (CompetitionOwnsOled()) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
     if (!board::Board_OledIsReady()) {
         const drivers::DriverStatus init_status = board::Board_OledInit();
         if (init_status != drivers::DRIVER_OK) {
@@ -736,6 +746,9 @@ drivers::DriverStatus Gy931OledEnsureTask(void)
 
 drivers::DriverStatus Gy931OledSetEnabled(bool enabled)
 {
+    if (enabled && CompetitionOwnsOled()) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
     if (!enabled) {
         g_gy931OledEnabled = false;
         if (!g_gy931OledTaskRegistered) {
@@ -866,6 +879,9 @@ drivers::DriverStatus Ina219OledShowError(drivers::DriverStatus read_status)
 
 drivers::DriverStatus Ina219OledUpdateDisplay(void)
 {
+    if (CompetitionOwnsOled()) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
     if (!board::Board_OledIsReady()) {
         const drivers::DriverStatus init_status = board::Board_OledInit();
         if (init_status != drivers::DRIVER_OK) {
@@ -928,6 +944,9 @@ drivers::DriverStatus Ina219OledEnsureTask(void)
 
 drivers::DriverStatus Ina219OledSetEnabled(bool enabled)
 {
+    if (enabled && CompetitionOwnsOled()) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
     if (!enabled) {
         g_ina219OledEnabled = false;
         if (!g_ina219OledTaskRegistered) {
@@ -1022,6 +1041,9 @@ drivers::DriverStatus ImuOledShowError(void)
 
 drivers::DriverStatus ImuOledUpdateDisplay(void)
 {
+    if (CompetitionOwnsOled()) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
     if (!board::Board_OledIsReady()) {
         const drivers::DriverStatus init_status = board::Board_OledInit();
         if (init_status != drivers::DRIVER_OK) {
@@ -1081,6 +1103,9 @@ drivers::DriverStatus ImuOledEnsureTask(void)
 
 drivers::DriverStatus ImuOledSetEnabled(bool enabled)
 {
+    if (enabled && CompetitionOwnsOled()) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
     if (!enabled) {
         g_imuOledEnabled = false;
         if (!g_imuOledTaskRegistered) {
@@ -1212,6 +1237,9 @@ drivers::DriverStatus GrayOledShowError(drivers::DriverStatus read_status)
 
 drivers::DriverStatus GrayOledUpdateDisplay(void)
 {
+    if (CompetitionOwnsOled()) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
     if (!board::Board_OledIsReady()) {
         const drivers::DriverStatus init_status = board::Board_OledInit();
         if (init_status != drivers::DRIVER_OK) {
@@ -1272,6 +1300,9 @@ drivers::DriverStatus GrayOledEnsureTask(void)
 
 drivers::DriverStatus GrayOledSetEnabled(bool enabled)
 {
+    if (enabled && CompetitionOwnsOled()) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
     if (!enabled) {
         g_grayOledEnabled = false;
         if (!g_grayOledTaskRegistered) {
@@ -2354,6 +2385,11 @@ void OledCommand(int argc, const char * const argv[])
             services::Shell_WriteString(DriverStatusText(bus_status));
         }
         services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (CompetitionOwnsOled()) {
+        WriteStatusLine("oled: ", drivers::DRIVER_ERROR_BUSY);
         return;
     }
 
@@ -6543,10 +6579,27 @@ void GrayCommand(int argc, const char * const argv[])
 
 } /* namespace */
 
+void AppShell_DisableOledStreams(void)
+{
+#if FEATURE_ENABLE_GY931 && FEATURE_ENABLE_OLED
+    (void) Gy931OledSetEnabled(false);
+#endif
+#if FEATURE_ENABLE_INA219 && FEATURE_ENABLE_OLED
+    (void) Ina219OledSetEnabled(false);
+#endif
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_OLED
+    (void) ImuOledSetEnabled(false);
+#endif
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_OLED
+    (void) GrayOledSetEnabled(false);
+#endif
+}
+
 void PrintCompUsage(void)
 {
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  comp arm");
+    services::Shell_WriteLine("  comp select <0..7>");
     services::Shell_WriteLine("  comp start [seq 0..7]");
     services::Shell_WriteLine("  comp stop");
     services::Shell_WriteLine("  comp status");
@@ -6560,6 +6613,19 @@ const char *AppModeText(app::AppMode mode)
     case app::APP_MODE_FAULT: return "fault";
     case app::APP_MODE_RUNNING: return "dev-running";
     default: return "idle";
+    }
+}
+
+const char *CompetitionResultText(app::CompetitionResult result)
+{
+    switch (result) {
+    case app::COMP_RESULT_DONE: return "done";
+    case app::COMP_RESULT_FAILED: return "failed";
+    case app::COMP_RESULT_STOPPED: return "stopped";
+    case app::COMP_RESULT_LOAD_ERROR: return "load-error";
+    case app::COMP_RESULT_NONE:
+    default:
+        return "none";
     }
 }
 
@@ -6579,6 +6645,18 @@ void CompCommand(int argc, const char * const argv[])
         return;
     }
 
+    if (StrEqual(argv[1], "select")) {
+        uint32_t slot = 0U;
+        if ((argc != 3) || (!ParseUint32(argv[2], 7U, &slot))) {
+            PrintCompUsage();
+            return;
+        }
+        WriteStatusLine(
+            "comp select: ",
+            app::App_CompetitionSelect(static_cast<uint8_t>(slot)));
+        return;
+    }
+
     if (StrEqual(argv[1], "start")) {
         if (argc == 3) {
             uint32_t slot = 0U;
@@ -6586,10 +6664,10 @@ void CompCommand(int argc, const char * const argv[])
                 PrintCompUsage();
                 return;
             }
-            const drivers::DriverStatus load_status =
-                app::SeqStore_Load(static_cast<uint8_t>(slot));
-            if (load_status != drivers::DRIVER_OK) {
-                WriteStatusLine("comp start load: ", load_status);
+            const drivers::DriverStatus select_status =
+                app::App_CompetitionSelect(static_cast<uint8_t>(slot));
+            if (select_status != drivers::DRIVER_OK) {
+                WriteStatusLine("comp start select: ", select_status);
                 return;
             }
         } else if (argc != 2) {
@@ -6615,8 +6693,27 @@ void CompCommand(int argc, const char * const argv[])
             return;
         }
         const app::AppState *st = app::App_GetState();
+        const app::CompetitionState *competition =
+            app::App_CompetitionGetState();
+        const app::ActionRunnerState *runner = app::ActionRunner_GetState();
         services::Shell_WriteString("comp mode=");
         services::Shell_WriteString(AppModeText(st->mode));
+        services::Shell_WriteString(" slot=");
+        services::Shell_WriteUInt32(competition->selected_slot);
+        services::Shell_WriteString(" valid=");
+        services::Shell_WriteUInt32(competition->slot_valid ? 1U : 0U);
+        services::Shell_WriteString(" any_valid=");
+        services::Shell_WriteUInt32(competition->any_valid_slot ? 1U : 0U);
+        services::Shell_WriteString(" count=");
+        services::Shell_WriteUInt32(competition->instruction_count);
+        services::Shell_WriteString(" step=");
+        services::Shell_WriteUInt32(runner->current);
+        services::Shell_WriteString(" result=");
+        services::Shell_WriteString(
+            CompetitionResultText(competition->result));
+        services::Shell_WriteString(" last=");
+        services::Shell_WriteString(
+            DriverStatusText(competition->last_status));
         services::Shell_WriteString("\r\n");
         return;
     }
@@ -6650,14 +6747,17 @@ void SeqCommand(int argc, const char * const argv[])
             return;
         }
         for (uint8_t i = 0; i < app::SEQ_SLOT_COUNT; i++) {
-            bool valid = app::SeqStore_IsValid(i);
-            uint8_t count = app::SeqStore_GetCount(i);
+            app::SeqSlotInfo info = { false, 0U };
+            const drivers::DriverStatus info_status =
+                app::SeqStore_GetInfo(i, &info);
             services::Shell_WriteString("seq ");
             services::Shell_WriteUInt32(i);
             services::Shell_WriteString(" ");
-            services::Shell_WriteString(valid ? "ok" : "empty");
+            services::Shell_WriteString(
+                (info_status != drivers::DRIVER_OK) ?
+                    "error" : (info.valid ? "ok" : "empty"));
             services::Shell_WriteString(" count=");
-            services::Shell_WriteUInt32(count);
+            services::Shell_WriteUInt32(info.count);
             services::Shell_WriteString("\r\n");
         }
         return;
@@ -6708,7 +6808,14 @@ void SeqCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "save")) {
-        WriteStatusLine("seq save: ", app::SeqStore_Save(static_cast<uint8_t>(slot)));
+        const drivers::DriverStatus status =
+            app::SeqStore_Save(static_cast<uint8_t>(slot));
+        if ((status == drivers::DRIVER_OK) &&
+            (app::App_GetState()->mode == app::APP_MODE_COMPETITION_ARMED) &&
+            (app::App_CompetitionGetState()->selected_slot == slot)) {
+            (void) app::App_CompetitionRefreshSelection();
+        }
+        WriteStatusLine("seq save: ", status);
         return;
     }
 
@@ -6718,7 +6825,14 @@ void SeqCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "del")) {
-        WriteStatusLine("seq del: ", app::SeqStore_Delete(static_cast<uint8_t>(slot)));
+        const drivers::DriverStatus status =
+            app::SeqStore_Delete(static_cast<uint8_t>(slot));
+        if ((status == drivers::DRIVER_OK) &&
+            (app::App_GetState()->mode == app::APP_MODE_COMPETITION_ARMED) &&
+            (app::App_CompetitionGetState()->selected_slot == slot)) {
+            (void) app::App_CompetitionRefreshSelection();
+        }
+        WriteStatusLine("seq del: ", status);
         return;
     }
 
@@ -7021,7 +7135,7 @@ void AppShell_RegisterCommands(void)
 #endif
     (void) services::Shell_RegisterCommand(
         "comp",
-        "Competition: start|stop|status",
+        "Competition: arm|select <n>|start [n]|stop|status",
         CompCommand);
     (void) services::Shell_RegisterCommand(
         "telem",

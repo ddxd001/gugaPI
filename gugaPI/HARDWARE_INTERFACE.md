@@ -444,9 +444,9 @@ LIS3MDLTR configuration:
 
 | Signal | MCU Pin | Package Pin | External Connection | Direction | Active Level | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BUTTON1 | PC9 | 81 | Key to GND | MCU input | Low = pressed | Internal pull-up | 20 ms debounce |
-| BUTTON2 | PB20 | 82 | Key to GND | MCU input | Low = pressed | Internal pull-up | 20 ms debounce |
-| BUTTON3 | PB23 | 85 | Key to GND | MCU input | Low = pressed | Internal pull-up | 20 ms debounce |
+| BUTTON1 | PC9 | 81 | Key to GND | MCU input | Low = pressed | Internal pull-up | 20 ms debounce; ARMED previous slot, RUNNING ActionRunner button condition |
+| BUTTON2 | PB20 | 82 | Key to GND | MCU input | Low = pressed | Internal pull-up | 20 ms debounce; short press starts/stops competition task |
+| BUTTON3 | PB23 | 85 | Key to GND | MCU input | Low = pressed | Internal pull-up | 20 ms debounce; ARMED next slot |
 
 ## SWD Debug
 

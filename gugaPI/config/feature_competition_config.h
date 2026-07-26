@@ -10,7 +10,7 @@
  * - Grayscale sensor and OLED. INA219 and GY931 are temporarily disabled.
  * - MotorDriver link for chassis control.
  * - ICM-45686 IMU for heading closed-loop (HOLD/TURN).
- * - Status LED + buzzer for competition state indication.
+ * - Status LED for competition state; buzzer is initialized but kept silent.
  * - Debug UART shell stays enabled for command/control, but startup prompt,
  *   echo, and debug logs are muted.
  */

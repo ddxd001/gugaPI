@@ -13,6 +13,15 @@ namespace app {
 
 static const uint8_t SEQ_SLOT_COUNT = 8U;
 
+struct SeqSlotInfo {
+    bool valid;
+    uint8_t count;
+};
+
+/* Read the lightweight slot header without touching ActionRunner.
+ * A non-valid header is reported as an empty slot. */
+drivers::DriverStatus SeqStore_GetInfo(uint8_t slot, SeqSlotInfo *out_info);
+
 /* Save the current ActionRunner instruction table to slot n (0-7).
  * Overwrites any existing data in that slot. */
 drivers::DriverStatus SeqStore_Save(uint8_t slot);

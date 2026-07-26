@@ -4,6 +4,7 @@
 namespace app {
 
 void AppShell_RegisterCommands(void);
+void AppShell_DisableOledStreams(void);
 
 } /* namespace app */
 

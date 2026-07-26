@@ -129,6 +129,32 @@ bool EnsureHeaderWritten(void)
 
 } /* namespace */
 
+drivers::DriverStatus SeqStore_GetInfo(uint8_t slot, SeqSlotInfo *out_info)
+{
+    if ((slot >= SEQ_SLOT_COUNT) || (out_info == 0)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    out_info->valid = false;
+    out_info->count = 0U;
+
+    uint8_t header[2];
+    if (board::Board_FramRead(SlotAddr(slot), header, 2U) !=
+        drivers::DRIVER_OK) {
+        return drivers::DRIVER_ERROR;
+    }
+    if (header[0] != 1U) {
+        return drivers::DRIVER_OK;
+    }
+    if ((header[1] == 0U) || (header[1] > 64U)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    out_info->valid = true;
+    out_info->count = header[1];
+    return drivers::DRIVER_OK;
+}
+
 drivers::DriverStatus SeqStore_Save(uint8_t slot)
 {
     if (slot >= SEQ_SLOT_COUNT) {
@@ -275,28 +301,16 @@ drivers::DriverStatus SeqStore_Delete(uint8_t slot)
 
 bool SeqStore_IsValid(uint8_t slot)
 {
-    if (slot >= SEQ_SLOT_COUNT) {
-        return false;
-    }
-    uint8_t valid = 0U;
-    uint16_t addr = SlotAddr(slot);
-    if (board::Board_FramRead(addr, &valid, 1) != drivers::DRIVER_OK) {
-        return false;
-    }
-    return valid == 1U;
+    SeqSlotInfo info = { false, 0U };
+    return (SeqStore_GetInfo(slot, &info) == drivers::DRIVER_OK) &&
+           info.valid;
 }
 
 uint8_t SeqStore_GetCount(uint8_t slot)
 {
-    if (slot >= SEQ_SLOT_COUNT) {
-        return 0U;
-    }
-    uint8_t header[2];
-    uint16_t addr = SlotAddr(slot);
-    if (board::Board_FramRead(addr, header, 2) != drivers::DRIVER_OK) {
-        return 0U;
-    }
-    return (header[0] == 1U) ? header[1] : 0U;
+    SeqSlotInfo info = { false, 0U };
+    return (SeqStore_GetInfo(slot, &info) == drivers::DRIVER_OK) &&
+           info.valid ? info.count : 0U;
 }
 
 } /* namespace app */

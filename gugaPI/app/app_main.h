@@ -10,11 +10,29 @@ void App_Init(void);
 void App_Run(void);
 const AppState *App_GetState(void);
 
-/* Competition mode: ARMED (safe idle) → RUNNING (ActionRunner active) → ARMED.
- * Start requires a pre-loaded sequence (run add) and no fault.
- * Stop cancels the sequence and returns to ARMED.
- * Button 1 toggles start/stop in competition modes.
- * Arm enters competition mode from development (dev-running → armed). */
+enum CompetitionResult {
+    COMP_RESULT_NONE = 0,
+    COMP_RESULT_DONE,
+    COMP_RESULT_FAILED,
+    COMP_RESULT_STOPPED,
+    COMP_RESULT_LOAD_ERROR
+};
+
+struct CompetitionState {
+    uint8_t selected_slot;
+    bool slot_valid;
+    bool any_valid_slot;
+    uint8_t instruction_count;
+    CompetitionResult result;
+    drivers::DriverStatus last_status;
+};
+
+/* Competition mode: ARMED (safe selection) -> RUNNING -> ARMED.
+ * Start loads the selected FRAM sequence and verifies its CRC.
+ * Stop cancels the sequence, stops the chassis, and returns to ARMED. */
+const CompetitionState *App_CompetitionGetState(void);
+drivers::DriverStatus App_CompetitionSelect(uint8_t slot);
+drivers::DriverStatus App_CompetitionRefreshSelection(void);
 drivers::DriverStatus App_CompetitionArm(void);
 drivers::DriverStatus App_CompetitionStart(void);
 drivers::DriverStatus App_CompetitionStop(void);

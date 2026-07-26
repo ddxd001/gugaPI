@@ -476,11 +476,13 @@ lf losttimeout <ms>   # 设置丢线停车时间
 - 编译时：`feature_competition_config.h` 开启 IMU/LED/BUZZER，关闭 LoRa/诊断/调试日志。
 - 运行时状态机：`APP_MODE_COMPETITION_ARMED`（安全静止）→ `APP_MODE_COMPETITION_RUNNING`（序列执行中）→ ARMED。
 - 上电后保持安全静止（比赛配置下 chassis 任务禁用，电机 coast）。
-- 按键 1 或 `comp start` 启动比赛序列（ActionRunner）。
-- `comp stop` 或按键 1 取消序列，返回 ARMED。
+- ARMED 下按键 1/3 循环选择 FRAM 槽位 0..7，OLED 显示槽位、有效性和指令数。
+- 按键 2 或 `comp start [slot]` 校验并加载当前槽位，然后启动 ActionRunner。
+- RUNNING 下按键 2 或 `comp stop` 取消序列并停车；按键 1 保留给 ActionRunner 的 `button` 条件。
+- OLED 在运行中显示任务进度，结束后显示 DONE/FAILED/STOPPED 2 秒；FAULT 界面优先级最高。
 - `comp arm` 从开发模式进入比赛模式（测试用）。
 - 故障后锁定停车（FAULT），必须 `reset` 复位。
-- LED 指示：ARMED 慢闪（1Hz）、RUNNING 常亮、FAULT 快闪（5Hz）+ 蜂鸣器。
+- LED 指示：ARMED 慢闪（1Hz）、RUNNING 常亮、FAULT 快闪（5Hz）；蜂鸣器保持关闭。
 
 ## 10. 系统级回归测试
 

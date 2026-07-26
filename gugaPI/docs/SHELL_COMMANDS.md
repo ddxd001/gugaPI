@@ -1687,29 +1687,40 @@ param reset
 
 ## 比赛模式
 
-比赛模式状态机：`ARMED`（安全静止）→ `RUNNING`（序列执行中）→ `ARMED`。在比赛配置（`FEATURE_PROFILE_COMPETITION=1`）下上电自动进入 ARMED；开发配置下可用 `comp arm` 手动进入。
+比赛模式状态机：`ARMED`（安全静止并选择任务）→ `RUNNING`（序列执行中）→ `ARMED`。在比赛配置（`FEATURE_PROFILE_COMPETITION=1`）下上电自动进入 ARMED；开发配置下可用 `comp arm` 手动进入。
 
-LED 指示：ARMED 慢闪（1Hz）、RUNNING 常亮、FAULT 快闪（5Hz）+ 蜂鸣器。
+ARMED 下按键 1/3 在槽位 0..7 间向左/向右循环，按键 2 短按加载并启动当前槽位。RUNNING 下按键 2 短按取消任务并停车；按键 1 保留给 ActionRunner 的 `button` 条件。OLED 显示当前槽位、有效性、步数、运行进度和结束结果，FAULT 界面始终具有最高优先级。
+
+LED 指示：ARMED 慢闪（1Hz）、RUNNING 常亮、FAULT 快闪（5Hz）；蜂鸣器保持关闭。
 
 ### `comp arm`
 
-从开发模式进入比赛武装状态。停止底盘，禁用 chassis 任务。仅在 `dev-running` 模式下可用。
+从开发模式进入比赛武装状态。取消现有 ActionRunner、停止底盘、禁用 chassis 任务、关闭传感器 OLED 周期页面，并选择最低编号的有效序列槽。仅在 `dev-running` 模式下可用。
 
 ```text
 comp arm
 ```
 
-### `comp start`
+### `comp select <0..7>`
 
-启动比赛序列。需要预先用 `run add` 加载指令序列。可通过按键 1 替代。仅在 `armed` 模式下可用。
+在 ARMED 状态选择当前比赛序列槽，不加载或启动任务。EMPTY 槽也允许选择。
+
+```text
+comp select 3
+```
+
+### `comp start [0..7]`
+
+校验并从 FRAM 加载当前槽，然后启动比赛序列。可选槽位参数会先更新当前选择。EMPTY、CRC 错误或 FRAM 读取失败时保持 ARMED 且不会产生电机动作。可通过按键 2 短按替代。仅在 `armed` 模式下可用。
 
 ```text
 comp start
+comp start 3
 ```
 
 ### `comp stop`
 
-取消比赛序列并返回武装状态。可通过按键 1 替代。仅在 `running` 模式下可用。
+取消比赛序列、立即停车并返回武装状态。OLED 显示 `STOPPED` 2 秒。可通过按键 2 短按替代。仅在 `running` 模式下可用。
 
 ```text
 comp stop
@@ -1717,7 +1728,7 @@ comp stop
 
 ### `comp status`
 
-查看当前比赛模式状态。
+查看比赛模式、当前槽位、槽位有效性、指令数、步骤、最近结果和状态码。
 
 ```text
 comp status
@@ -1726,10 +1737,10 @@ comp status
 输出示例：
 
 ```text
-comp mode=armed
+comp mode=armed slot=3 valid=1 any_valid=1 count=6 step=0 result=none last=ok
 ```
 
-模式值：`armed`（安全静止）、`running`（序列执行中）、`fault`（故障锁定）、`dev-running`（开发模式）。
+模式值：`armed`（安全静止）、`running`（序列执行中）、`fault`（故障锁定）、`dev-running`（开发模式）。结果值包括 `none`、`done`、`failed`、`stopped` 和 `load-error`。
 
 ## 遥测（FireWater / VOFA+）
 
