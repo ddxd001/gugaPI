@@ -92,8 +92,8 @@ I2C 不再套 UART 的 `0xAA CMD...CRC` 帧，而是直接访问同一张寄存�
 0x3D SPEED_MAX_DUTY     R/W     默认 50
 0x3E SPEED_MIN_DUTY     R/W     默认 6
 
-0x40 M1_COUNTS_PER_REV  R/W     uint32 小端，M1 输出轴每圈编码器计数，默认 364
-0x44 M2_COUNTS_PER_REV  R/W     uint32 小端，M2 输出轴每圈编码器计数，默认 364
+0x40 M1_COUNTS_PER_REV  R/W     uint32 小端，M1 输出轴每圈编码器计数，默认 1456
+0x44 M2_COUNTS_PER_REV  R/W     uint32 小端，M2 输出轴每圈编码器计数，默认 1456
 0x48 M1_HOLD_COUNT      R       int32 小端，M1 speed 0 保持目标
 0x4C M2_HOLD_COUNT      R       int32 小端，M2 speed 0 保持目标
 
@@ -182,7 +182,10 @@ bit2 AT_TARGET
 当前默认参数按测试电机设置：
 
 ```text
-当前实车标定值 = 364 counts/output-shaft revolution
+霍尔编码器 = 13 PPR（电机轴）
+TIMG8/TIMG9 双输入硬件 QEI = x4 解码
+减速比 = 28:1
+输出轴计数 = 13 * 4 * 28 = 1456 counts/revolution
 ```
 
 更换电机时可以运行时覆盖输出轴每圈编码器计数：

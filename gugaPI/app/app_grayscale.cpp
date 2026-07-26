@@ -62,6 +62,7 @@ void MarkFailure(drivers::DriverStatus status)
     g_processingState.active_mask = 0U;
     g_processingState.last_position = 0;
     g_processingState.last_selected_mask = 0U;
+    g_processingState.weak_tracking_frames = 0U;
     g_processingState.position_valid = false;
     GrayscaleRoad_Init(&g_roadState);
 }
@@ -89,6 +90,7 @@ void ResetProcessingState(void)
     g_processingState.active_mask = 0U;
     g_processingState.last_position = 0;
     g_processingState.last_selected_mask = 0U;
+    g_processingState.weak_tracking_frames = 0U;
     g_processingState.position_valid = false;
     GrayscaleRoad_Init(&g_roadState);
     g_data.road_type = GRAYSCALE_ROAD_UNKNOWN;
@@ -186,9 +188,19 @@ void ProcessPublishedFrame(void)
         MarkProcessingFailure(drivers::DRIVER_ERROR);
         return;
     }
+    uint8_t road_mask = processed.active_mask;
+    if (processed.position_valid) {
+        /* The hysteretic active mask remains authoritative for branches and
+         * crossings. A valid analogue segment may still fall between two
+         * core sensors and leave both below the digital-on threshold; in that
+         * case preserve only center-line presence for road classification. */
+        road_mask = static_cast<uint8_t>(
+            road_mask |
+            (processed.selected_mask & processed.track_mask));
+    }
     g_data.road_type = GrayscaleRoad_Update(&g_roadState,
                                             &kRoadConfig,
-                                            processed.active_mask,
+                                            road_mask,
                                             g_data.sequence);
     g_data.road_confirm_count = g_roadState.candidate_count;
     g_data.processed_valid = true;

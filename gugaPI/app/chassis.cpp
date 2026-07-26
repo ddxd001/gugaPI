@@ -193,6 +193,15 @@ drivers::DriverStatus StopMotorsForSafety(void)
     return motor::Stop(&g_motorClient, &stop_result);
 }
 
+drivers::DriverStatus HandleMotionCommandFailure(
+    drivers::DriverStatus status)
+{
+    (void) StopMotorsForSafety();
+    SetLastStatus(status);
+    services::Fault_Set(services::FAULT_DRIVER_TIMEOUT);
+    return status;
+}
+
 void RefreshConfig(void)
 {
     const ConfigStoreParams *params = ConfigStore_Get();
@@ -373,18 +382,14 @@ drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
         SetOneWheelTargetRpm(kLeftWheelMotor1, left_rpm) :
         SetOneWheelRpm(kLeftWheelMotor1, left_rpm);
     if (status != drivers::DRIVER_OK) {
-        (void) StopMotorsForSafety();
-        SetLastStatus(status);
-        return status;
+        return HandleMotionCommandFailure(status);
     }
 
     status = refresh_only ?
         SetOneWheelTargetRpm(kRightWheelMotor1, right_rpm) :
         SetOneWheelRpm(kRightWheelMotor1, right_rpm);
     if (status != drivers::DRIVER_OK) {
-        (void) StopMotorsForSafety();
-        SetLastStatus(status);
-        return status;
+        return HandleMotionCommandFailure(status);
     }
 
     g_motionLeaseActive = true;

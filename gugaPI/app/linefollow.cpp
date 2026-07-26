@@ -123,6 +123,22 @@ int32_t CalculateCorrection(const AppGrayscaleData *data)
     return correction;
 }
 
+int32_t LimitCorrectionForBase(int32_t correction_rpm, int32_t base_rpm)
+{
+    int32_t magnitude = base_rpm;
+    if (magnitude < 0) {
+        magnitude = (magnitude == INT32_MIN) ? INT32_MAX : -magnitude;
+    }
+    const int32_t limit = magnitude / 2;
+    if (correction_rpm > limit) {
+        return limit;
+    }
+    if (correction_rpm < -limit) {
+        return -limit;
+    }
+    return correction_rpm;
+}
+
 } /* namespace */
 
 void LF_Init(void)
@@ -169,6 +185,10 @@ drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms)
 
     const AppGrayscaleData *data = App_GrayscaleGetData();
     if (!IsGrayscaleFresh(data, services::Time_Millis())) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    if ((!data->line_detected) || (!data->position_valid) ||
+        (data->position_confidence < kMinimumPositionConfidence)) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
 
@@ -267,12 +287,16 @@ void LF_Update(void)
 
     g_state.lost = false;
     g_state.lost_since_ms = 0U;
-    const int32_t correction = CalculateCorrection(data);
+    const int32_t requested_correction = CalculateCorrection(data);
     const int32_t confidence_limited_base =
         ((data->position_confidence >= kFullSpeedPositionConfidence) &&
          (data->channel_anomaly_mask == 0U))
         ? g_state.base_rpm
         : (g_state.base_rpm / 2);
+    const int32_t correction =
+        LimitCorrectionForBase(requested_correction,
+                               confidence_limited_base);
+    g_state.correction_rpm = correction;
     (void) ApplyWheelCommand(confidence_limited_base, correction);
 }
 

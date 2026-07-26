@@ -10,6 +10,19 @@ static const int16_t kChannelPosition[GRAYSCALE_CHANNEL_COUNT] = {
 static const uint16_t kMinimumPositionConfidence = 300U;
 static const uint8_t kMaximumUnambiguousWidth = 4U;
 static const uint16_t kMinimumSegmentContrast = 50U;
+static const uint8_t kMaximumWeakTrackingFrames = 3U;
+static const int16_t kMaximumWeakTrackingJump = 800;
+static const uint16_t kGapConfidenceFloor = 400U;
+static const uint16_t kGapConfidenceCeiling = 699U;
+static const uint16_t kTrackedConfidenceFloor = 300U;
+static const uint16_t kTrackedConfidenceCeiling = 499U;
+
+enum LineSegmentQuality : uint8_t {
+    LINE_SEGMENT_REJECTED = 0U,
+    LINE_SEGMENT_TRACKED_WEAK,
+    LINE_SEGMENT_SENSOR_GAP,
+    LINE_SEGMENT_STRONG
+};
 
 struct LineSegment {
     uint8_t mask;
@@ -17,6 +30,8 @@ struct LineSegment {
     uint32_t strength;
     int32_t weighted_sum;
     int16_t position;
+    uint16_t peak_normalized;
+    LineSegmentQuality quality;
 };
 
 void ClearProcessed(GrayscaleProcessedData *result)
@@ -85,6 +100,57 @@ GrayscalePositionSource GetPositionSource(uint8_t selected_mask,
     return GRAYSCALE_POSITION_CORE;
 }
 
+int32_t AbsolutePositionDifference(int16_t first, int16_t second)
+{
+    int32_t difference = static_cast<int32_t>(first) -
+                         static_cast<int32_t>(second);
+    return (difference < 0) ? -difference : difference;
+}
+
+bool HasAdjacentTrackChannels(uint8_t segment_mask, uint8_t track_mask)
+{
+    const uint8_t core = static_cast<uint8_t>(segment_mask & track_mask);
+    return (core & static_cast<uint8_t>(core >> 1U)) != 0U;
+}
+
+LineSegmentQuality ClassifySegment(
+    const LineSegment &segment,
+    const GrayscaleCalibration *calibration,
+    const GrayscaleProcessingState *state,
+    uint16_t threshold_on,
+    uint16_t threshold_off)
+{
+    if ((segment.strength >= calibration->min_line_strength) ||
+        (segment.peak_normalized >= threshold_on)) {
+        return LINE_SEGMENT_STRONG;
+    }
+
+    /* A narrow line centered between two sensors can produce two moderate
+     * responses instead of one full-scale peak.  Accept that geometry at a
+     * lower combined strength, but only for adjacent channels in the core
+     * tracking mask; isolated weak spikes still fall through to rejection. */
+    const uint32_t gap_strength =
+        (static_cast<uint32_t>(calibration->min_line_strength) * 2U + 4U) /
+        5U;
+    if (HasAdjacentTrackChannels(segment.mask, calibration->track_mask) &&
+        (segment.strength >= gap_strength) &&
+        (segment.peak_normalized >= threshold_off)) {
+        return LINE_SEGMENT_SENSOR_GAP;
+    }
+
+    const uint32_t tracked_strength =
+        (static_cast<uint32_t>(calibration->min_line_strength) + 1U) / 2U;
+    if (state->position_valid &&
+        (state->weak_tracking_frames < kMaximumWeakTrackingFrames) &&
+        (segment.strength >= tracked_strength) &&
+        (AbsolutePositionDifference(segment.position,
+                                    state->last_position) <=
+         kMaximumWeakTrackingJump)) {
+        return LINE_SEGMENT_TRACKED_WEAK;
+    }
+    return LINE_SEGMENT_REJECTED;
+}
+
 uint16_t CalculateConfidence(const LineSegment &segment,
                              uint8_t segment_count,
                              const GrayscaleCalibration *calibration,
@@ -124,6 +190,22 @@ uint16_t CalculateConfidence(const LineSegment &segment,
             confidence = (confidence > jump_penalty)
                 ? (confidence - jump_penalty)
                 : 0U;
+        }
+    }
+
+    if ((segment_count == 1U) &&
+        (segment.quality == LINE_SEGMENT_SENSOR_GAP)) {
+        if (confidence < kGapConfidenceFloor) {
+            confidence = kGapConfidenceFloor;
+        } else if (confidence > kGapConfidenceCeiling) {
+            confidence = kGapConfidenceCeiling;
+        }
+    } else if ((segment_count == 1U) &&
+               (segment.quality == LINE_SEGMENT_TRACKED_WEAK)) {
+        if (confidence < kTrackedConfidenceFloor) {
+            confidence = kTrackedConfidenceFloor;
+        } else if (confidence > kTrackedConfidenceCeiling) {
+            confidence = kTrackedConfidenceCeiling;
         }
     }
     return static_cast<uint16_t>(confidence);
@@ -186,6 +268,9 @@ DriverStatus CalculateStatefulPosition(
             current.mask = static_cast<uint8_t>(current.mask | bit);
             current.count++;
             current.strength += effective[i];
+            if (normalized[i] > current.peak_normalized) {
+                current.peak_normalized = normalized[i];
+            }
             current.weighted_sum +=
                 static_cast<int32_t>(kChannelPosition[i]) *
                 static_cast<int32_t>(effective[i]);
@@ -196,7 +281,12 @@ DriverStatus CalculateStatefulPosition(
         }
         current.position = static_cast<int16_t>(
             current.weighted_sum / static_cast<int32_t>(current.strength));
-        if (current.strength >= calibration->min_line_strength) {
+        current.quality = ClassifySegment(current,
+                                          calibration,
+                                          state,
+                                          threshold_on,
+                                          threshold_off);
+        if (current.quality != LINE_SEGMENT_REJECTED) {
             segments[segment_count] = current;
             segment_count++;
         }
@@ -204,6 +294,7 @@ DriverStatus CalculateStatefulPosition(
     }
 
     if (segment_count == 0U) {
+        state->weak_tracking_frames = kMaximumWeakTrackingFrames;
         return DRIVER_OK;
     }
 
@@ -249,6 +340,7 @@ DriverStatus CalculateStatefulPosition(
         result->line_position = state->position_valid
             ? state->last_position
             : selected.position;
+        state->weak_tracking_frames = kMaximumWeakTrackingFrames;
         return DRIVER_OK;
     }
 
@@ -259,6 +351,13 @@ DriverStatus CalculateStatefulPosition(
         state->last_position = result->line_position;
         state->last_selected_mask = result->selected_mask;
         state->position_valid = true;
+        if (selected.quality == LINE_SEGMENT_TRACKED_WEAK) {
+            state->weak_tracking_frames++;
+        } else {
+            state->weak_tracking_frames = 0U;
+        }
+    } else {
+        state->weak_tracking_frames = kMaximumWeakTrackingFrames;
     }
     return DRIVER_OK;
 }
@@ -492,6 +591,7 @@ DriverStatus Grayscale_ProcessWithState(
         state->active_mask = 0U;
         state->last_position = 0;
         state->last_selected_mask = 0U;
+        state->weak_tracking_frames = 0U;
         state->position_valid = false;
         return status;
     }

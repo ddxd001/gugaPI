@@ -46,8 +46,8 @@ void RegisterMap::Init(void)
     registers_[REG_POSITION_MAX_DUTY] = 25U;
     StoreUint16(REG_POSITION_EXIT_TOLERANCE_0, 800U);
     registers_[REG_POSITION_SETTLE_10MS] = 10U;
-    StoreInt32(REG_M1_COUNTS_PER_REV_0, 364);
-    StoreInt32(REG_M2_COUNTS_PER_REV_0, 364);
+    StoreInt32(REG_M1_COUNTS_PER_REV_0, 1456);
+    StoreInt32(REG_M2_COUNTS_PER_REV_0, 1456);
 
     RefreshStatus();
 }

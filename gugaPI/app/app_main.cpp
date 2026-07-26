@@ -40,11 +40,13 @@ enum OutputTestState {
 #if FEATURE_ENABLE_MOTOR_DRIVER
 const uint32_t CHASSIS_SERVICE_PERIOD_MS = 100U;
 const uint32_t CHASSIS_FEEDBACK_PERIOD_MS = 20U;
+const uint8_t CHASSIS_FEEDBACK_FAULT_THRESHOLD = 3U;
 
 static services::SchedulerTaskId g_chassisTaskId = 0U;
 static bool g_chassisTaskRegistered = false;
 static bool g_chassisTaskEnabled = false;
 static bool g_faultStopHandled = false;
+static uint8_t g_chassisFeedbackFailureStreak = 0U;
 
 void SetChassisTaskEnabled(bool enabled)
 {
@@ -78,8 +80,18 @@ void App_ChassisServiceTask(void)
 void App_ChassisFeedbackTask(void)
 {
     const drivers::DriverStatus status = app::Chassis_Update();
-    if (status != drivers::DRIVER_OK) {
-        services::Fault_Set(services::FAULT_DRIVER_TIMEOUT);
+    if (status == drivers::DRIVER_OK) {
+        g_chassisFeedbackFailureStreak = 0U;
+        return;
+    }
+
+    if (g_chassisFeedbackFailureStreak <
+        CHASSIS_FEEDBACK_FAULT_THRESHOLD) {
+        g_chassisFeedbackFailureStreak++;
+        if (g_chassisFeedbackFailureStreak ==
+            CHASSIS_FEEDBACK_FAULT_THRESHOLD) {
+            services::Fault_Set(services::FAULT_DRIVER_TIMEOUT);
+        }
     }
 }
 #endif
@@ -537,6 +549,7 @@ void App_Init(void)
 #endif
 
 #if FEATURE_ENABLE_MOTOR_DRIVER
+    g_chassisFeedbackFailureStreak = 0U;
     const drivers::DriverStatus chassis_status = Chassis_Init();
     if (chassis_status != drivers::DRIVER_OK) {
         LOG_ERROR("chassis init failed; motion inhibited");

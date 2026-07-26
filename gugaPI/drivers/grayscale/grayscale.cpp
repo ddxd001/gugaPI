@@ -1,19 +1,9 @@
 #include "drivers/grayscale/grayscale.h"
 
+#include "services/time.h"
+
 namespace drivers {
 namespace {
-
-void DelayCycles(uint32_t cycles)
-{
-    /* A volatile C loop does not consume one CPU cycle per iteration and its
-     * timing changes with compiler/code-generation choices.  DriverLib's
-     * calibrated delay keeps the mux settling interval expressed in actual
-     * CPU cycles.  Guard zero because DL_Common_delayCycles(0) wraps to its
-     * maximum delay. */
-    if (cycles != 0U) {
-        delay_cycles(cycles);
-    }
-}
 
 void SelectChannel(const GrayscaleConfig *cfg, uint8_t channel)
 {
@@ -44,7 +34,7 @@ DriverStatus Grayscale_Init(GrayscaleContext *ctx, const GrayscaleConfig *config
 
     /* powerDownMode is MANUAL: enable the ADC and allow conversions. */
     DL_ADC12_enablePower(config->adc);
-    DelayCycles(1000U);
+    services::Time_DelayUs(25U);
     DL_ADC12_enableConversions(config->adc);
 
     /* Start from channel 0 so the mux output is defined. */
@@ -73,7 +63,7 @@ DriverStatus Grayscale_ReadChannel(GrayscaleContext *ctx,
     const GrayscaleConfig *cfg = ctx->config;
 
     SelectChannel(cfg, channel);
-    DelayCycles(cfg->settle_cycles);
+    services::Time_DelayUs(cfg->settle_us);
 
     DL_ADC12_clearInterruptStatus(cfg->adc, cfg->result_loaded_mask);
     DL_ADC12_enableConversions(cfg->adc);

@@ -3052,7 +3052,7 @@ void Ina219Command(int argc, const char * const argv[])
 
         drivers::DriverStatus status = board::Board_Ina219Reset();
         if (status == drivers::DRIVER_OK) {
-            delay_cycles(32000U);
+            services::Time_DelayUs(800U);
             status = board::Board_Ina219ConfigureDefault();
         }
         WriteStatusLine("ina219 reset: ", status);

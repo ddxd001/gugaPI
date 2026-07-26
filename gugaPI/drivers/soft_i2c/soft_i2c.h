@@ -16,7 +16,7 @@ struct SoftI2cConfig {
     GPIO_Regs *sda_port;
     uint32_t sda_pin;
     uint32_t sda_iomux;
-    uint32_t half_period_cycles;
+    uint32_t half_period_us;
     uint32_t timeout_cycles;
 };
 

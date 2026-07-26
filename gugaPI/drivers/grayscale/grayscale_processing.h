@@ -36,6 +36,7 @@ struct GrayscaleProcessingState {
     uint8_t active_mask;      /* previous hysteresis state */
     int16_t last_position;
     uint8_t last_selected_mask;
+    uint8_t weak_tracking_frames;
     bool position_valid;
 };
 

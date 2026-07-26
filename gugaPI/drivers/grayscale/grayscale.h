@@ -19,7 +19,7 @@ struct GrayscaleConfig {
     DL_ADC12_MEM_IDX mem_idx;        /* memory result slot (e.g. MEM_IDX_0) */
     uint32_t result_loaded_mask;     /* DL_ADC12_INTERRUPT_MEMx_RESULT_LOADED */
     GrayscaleSelPin sel[3];          /* sel[0]=bit0, sel[1]=bit1, sel[2]=bit2 */
-    uint32_t settle_cycles;          /* DriverLib CPU-cycle delay after mux select */
+    uint32_t settle_us;              /* delay after mux select, in microseconds */
     uint32_t timeout_iterations;     /* per-conversion poll budget */
 };
 

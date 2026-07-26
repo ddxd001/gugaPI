@@ -187,7 +187,7 @@ GY931 configuration:
 | Enabled | Yes | `FEATURE_ENABLE_GY931` |
 | Board bus name | GY931 software I2C | Not registered in generic hardware I2C diagnostic table |
 | MCU pins | PA29/SCL, PA30/SDA | `GPIO_GY931_I2C` SysConfig group |
-| Bus speed | Conservative software I2C | `BOARD_GY931_I2C_HALF_PERIOD_CYCLES` controls timing |
+| Bus speed | Conservative software I2C | `BOARD_GY931_I2C_HALF_PERIOD_US` controls timing |
 | 7-bit address | 0x50 | `BOARD_GY931_I2C_ADDRESS`; shell can scan or change runtime address |
 | Angle registers | Roll/Pitch/Yaw at 0x3D/0x3E/0x3F | WIT standard register map |
 | Angle scale | raw / 32768 * 180 deg | Firmware reports fixed 0.001 deg units |
@@ -284,7 +284,7 @@ Grayscale configuration:
 | ADC peripheral | ADC1 | PA15 is ADC1 ADCIN0 on MSPM0G3519 |
 | Resolution | 12-bit | Result 0..4095, VREF = VDDA 3.3V |
 | Sample time | 125 us | ULPCLK / 8, tunable in SysConfig if source impedance needs more |
-| Settle time | ~100 us | `BOARD_GRAYSCALE_SETTLE_CYCLES`; after switching select before ADC sample |
+| Settle time | ~200 us | `BOARD_GRAYSCALE_SETTLE_US`; after switching select before ADC sample |
 | Select polarity | Active-high | Binary address driven directly on SEL0..SEL2 |
 | SysConfig name | `GRAYSCALE_ADC`, `GPIO_GRAY_C`, `GPIO_GRAY_A` | |
 | Board interface | `board/board_grayscale.h` | |

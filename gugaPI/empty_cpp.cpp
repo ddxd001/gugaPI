@@ -65,6 +65,12 @@ void CompetitionSyscfgInitPower(void)
     DL_I2C_reset(MOTOR_I2C_INST);
     DL_UART_Main_reset(MOTOR_UART_INST);
 #endif
+#if FEATURE_ENABLE_LORA
+    DL_UART_Main_reset(LORA_UART_INST);
+#endif
+#if FEATURE_ENABLE_IMU
+    DL_SPI_reset(IMU_SPI_INST);
+#endif
 #if FEATURE_ENABLE_DEBUG_UART
     DL_UART_Main_reset(DEBUG_UART_INST);
 #endif
@@ -82,20 +88,25 @@ void CompetitionSyscfgInitPower(void)
     DL_I2C_enablePower(MOTOR_I2C_INST);
     DL_UART_Main_enablePower(MOTOR_UART_INST);
 #endif
+#if FEATURE_ENABLE_LORA
+    DL_UART_Main_enablePower(LORA_UART_INST);
+#endif
+#if FEATURE_ENABLE_IMU
+    DL_SPI_enablePower(IMU_SPI_INST);
+#endif
 #if FEATURE_ENABLE_DEBUG_UART
     DL_UART_Main_enablePower(DEBUG_UART_INST);
 #endif
 #if FEATURE_ENABLE_GRAYSCALE
     DL_ADC12_enablePower(GRAYSCALE_ADC_INST);
 #endif
-    delay_cycles(POWER_STARTUP_DELAY);
+    /* Preserve the generated 16-cycle startup guard used at the original
+     * 40 MHz CPU clock (400 ns). */
+    services::Time_DelayNs(400U);
 }
 
 void CompetitionSyscfgInitGpio(void)
 {
-    DL_GPIO_initPeripheralAnalogFunction(GPIO_HFXIN_IOMUX);
-    DL_GPIO_initPeripheralAnalogFunction(GPIO_HFXOUT_IOMUX);
-
     if (kUsesSensorI2c) {
         DL_GPIO_initPeripheralInputFunctionFeatures(
             GPIO_SENSOR_I2C_IOMUX_SDA,
@@ -144,6 +155,64 @@ void CompetitionSyscfgInitGpio(void)
                                          GPIO_DEBUG_UART_IOMUX_TX_FUNC);
     DL_GPIO_initPeripheralInputFunction(GPIO_DEBUG_UART_IOMUX_RX,
                                         GPIO_DEBUG_UART_IOMUX_RX_FUNC);
+#endif
+
+#if FEATURE_ENABLE_LORA
+    DL_GPIO_initPeripheralOutputFunction(GPIO_LORA_UART_IOMUX_TX,
+                                         GPIO_LORA_UART_IOMUX_TX_FUNC);
+    DL_GPIO_initPeripheralInputFunction(GPIO_LORA_UART_IOMUX_RX,
+                                        GPIO_LORA_UART_IOMUX_RX_FUNC);
+#endif
+
+#if FEATURE_ENABLE_IMU
+    DL_GPIO_initPeripheralOutputFunction(GPIO_IMU_SPI_IOMUX_SCLK,
+                                         GPIO_IMU_SPI_IOMUX_SCLK_FUNC);
+    DL_GPIO_initPeripheralOutputFunction(GPIO_IMU_SPI_IOMUX_PICO,
+                                         GPIO_IMU_SPI_IOMUX_PICO_FUNC);
+    DL_GPIO_initPeripheralInputFunction(GPIO_IMU_SPI_IOMUX_POCI,
+                                        GPIO_IMU_SPI_IOMUX_POCI_FUNC);
+
+    DL_GPIO_initDigitalInputFeatures(GPIO_IMU_C_ICM45686_INT1_IOMUX,
+                                     DL_GPIO_INVERSION_DISABLE,
+                                     DL_GPIO_RESISTOR_NONE,
+                                     DL_GPIO_HYSTERESIS_DISABLE,
+                                     DL_GPIO_WAKEUP_DISABLE);
+    DL_GPIO_initDigitalInputFeatures(GPIO_IMU_A_LIS3MDL_DRDY_IOMUX,
+                                     DL_GPIO_INVERSION_DISABLE,
+                                     DL_GPIO_RESISTOR_NONE,
+                                     DL_GPIO_HYSTERESIS_DISABLE,
+                                     DL_GPIO_WAKEUP_DISABLE);
+    DL_GPIO_initDigitalInputFeatures(
+        GPIO_IMU_A_ICM45686_INT2_FSYNC_IOMUX,
+        DL_GPIO_INVERSION_DISABLE,
+        DL_GPIO_RESISTOR_NONE,
+        DL_GPIO_HYSTERESIS_DISABLE,
+        DL_GPIO_WAKEUP_DISABLE);
+    DL_GPIO_initDigitalOutput(GPIO_IMU_C_ICM45686_CS_IOMUX);
+    DL_GPIO_initDigitalOutput(GPIO_IMU_C_LIS3MDL_CS_IOMUX);
+    DL_GPIO_setPins(GPIOC,
+                    GPIO_IMU_C_ICM45686_CS_PIN |
+                        GPIO_IMU_C_LIS3MDL_CS_PIN);
+    DL_GPIO_enableOutput(GPIOC,
+                         GPIO_IMU_C_ICM45686_CS_PIN |
+                             GPIO_IMU_C_LIS3MDL_CS_PIN);
+#endif
+
+#if FEATURE_ENABLE_STATUS_LED
+    DL_GPIO_initDigitalOutput(GPIO_LED_A_LED1_IOMUX);
+    DL_GPIO_initDigitalOutput(GPIO_LED_A_LED2_IOMUX);
+    DL_GPIO_initDigitalOutput(GPIO_LED_B_LED3_IOMUX);
+    DL_GPIO_setPins(GPIOA, GPIO_LED_A_LED1_PIN | GPIO_LED_A_LED2_PIN);
+    DL_GPIO_setPins(GPIOB, GPIO_LED_B_LED3_PIN);
+    DL_GPIO_enableOutput(GPIOA,
+                         GPIO_LED_A_LED1_PIN | GPIO_LED_A_LED2_PIN);
+    DL_GPIO_enableOutput(GPIOB, GPIO_LED_B_LED3_PIN);
+#endif
+
+#if FEATURE_ENABLE_BUZZER
+    DL_GPIO_initDigitalOutput(GPIO_BUZZER_BUZZER_IOMUX);
+    DL_GPIO_clearPins(GPIOC, GPIO_BUZZER_BUZZER_PIN);
+    DL_GPIO_enableOutput(GPIOC, GPIO_BUZZER_BUZZER_PIN);
 #endif
 
 #if FEATURE_ENABLE_BUTTONS
@@ -205,6 +274,12 @@ extern "C" void SYSCFG_DL_init(void)
 #if FEATURE_ENABLE_MOTOR_DRIVER
     SYSCFG_DL_MOTOR_I2C_init();
 #endif
+#if FEATURE_ENABLE_LORA
+    SYSCFG_DL_LORA_UART_init();
+#endif
+#if FEATURE_ENABLE_IMU
+    SYSCFG_DL_IMU_SPI_init();
+#endif
 #if FEATURE_ENABLE_DEBUG_UART
     SYSCFG_DL_DEBUG_UART_init();
 #endif
@@ -232,11 +307,11 @@ static void PanicHandler(services::FaultCode code)
 #if FEATURE_ENABLE_STATUS_LED
         (void) board::Board_StatusLedOn();
 #endif
-        delay_cycles(8000000U); /* ~200 ms at 40 MHz */
+        services::Time_DelayMsBusy(200U);
 #if FEATURE_ENABLE_STATUS_LED
         (void) board::Board_StatusLedOff();
 #endif
-        delay_cycles(8000000U);
+        services::Time_DelayMsBusy(200U);
     }
 }
 
@@ -257,7 +332,7 @@ int main(void)
      * failures that must inhibit motion. */
     if (board::Board_Init() != drivers::DRIVER_OK) {
         LOG_WARN("board init incomplete; retrying");
-        delay_cycles(4000000U); /* ~100 ms at 40 MHz */
+        services::Time_DelayMs(100U);
         if (board::Board_Init() != drivers::DRIVER_OK) {
             const board::BoardInitReport *report =
                 board::Board_GetInitReport();

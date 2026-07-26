@@ -47,9 +47,9 @@
 #define BOARD_GY931_I2C_SDA_PIN         GPIO_GY931_I2C_GY931_SDA_PIN
 #define BOARD_GY931_I2C_SDA_IOMUX       GPIO_GY931_I2C_GY931_SDA_IOMUX
 #define BOARD_GY931_I2C_ADDRESS         (0x50U)
-/* delay_cycles is CPU-cycle based; CPUCLK is 40 MHz (see services/time.cpp),
- * so 160 cycles = 4 us half-period (~125 kHz) and 100000 cycles ~= 2.5 ms. */
-#define BOARD_GY931_I2C_HALF_PERIOD_CYCLES (160U)
+/* Software I2C timing is expressed in physical time and converted by the
+ * common time service, so changing CPUCLK does not change the bus waveform. */
+#define BOARD_GY931_I2C_HALF_PERIOD_US  (4U)
 #define BOARD_GY931_I2C_TIMEOUT_CYCLES  (100000U)
 
 #define BOARD_BUTTON1_PORT              GPIO_BUTTON_C_PORT
@@ -182,7 +182,7 @@
 #define BOARD_GRAYSCALE_SEL1_PIN          GPIO_GRAY_C_GRAY_SEL1_PIN
 #define BOARD_GRAYSCALE_SEL2_PORT         GPIO_GRAY_A_PORT
 #define BOARD_GRAYSCALE_SEL2_PIN          GPIO_GRAY_A_GRAY_SEL2_PIN
-#define BOARD_GRAYSCALE_SETTLE_CYCLES     (8000U)    /* ~200us at 40 MHz CPU */
+#define BOARD_GRAYSCALE_SETTLE_US         (200U)
 #define BOARD_GRAYSCALE_ADC_TIMEOUT       (100000U)
 
 #endif /* BOARD_BOARD_PINS_H_ */
