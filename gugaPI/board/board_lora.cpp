@@ -1,13 +1,11 @@
 #include "board/board_lora.h"
 
 #include "board/board_pins.h"
-#include "config/feature_config.h"
 #include "drivers/lora/lora.h"
 
 namespace board {
 namespace {
 
-#if !FEATURE_SHELL_USE_LORA_UART
 void ConfigureLoraRxPullUp(void)
 {
     /* LoRa TX 断开或模块高阻时，保持 MCU UART RX 为空闲高电平。 */
@@ -18,14 +16,12 @@ void ConfigureLoraRxPullUp(void)
                                                 DL_GPIO_HYSTERESIS_DISABLE,
                                                 DL_GPIO_WAKEUP_DISABLE);
 }
-#endif
 
 } /* namespace */
 
-#if !FEATURE_SHELL_USE_LORA_UART
 static uint8_t g_loraRxBuffer[BOARD_LORA_RX_BUFFER_SIZE];
 
-/* LoRa 接线：PB0/UART0_TX 接模块 RX，PB1/UART0_RX 接模块 TX。 */
+/* LoRa 接线：PA14/UART3_TX 接模块 RX，PA13/UART3_RX 接模块 TX。 */
 static const drivers::LoraUartConfig g_loraConfig = {
     BOARD_LORA_UART_INST,
     BOARD_LORA_UART_IRQN,
@@ -34,7 +30,6 @@ static const drivers::LoraUartConfig g_loraConfig = {
     g_loraRxBuffer,
     BOARD_LORA_RX_BUFFER_SIZE
 };
-#endif
 
 static drivers::LoraUartContext g_loraContext = {
     0,
@@ -46,12 +41,8 @@ static drivers::LoraUartContext g_loraContext = {
 
 drivers::DriverStatus Board_LoraInit(void)
 {
-#if FEATURE_SHELL_USE_LORA_UART
-    return drivers::DRIVER_ERROR_BUSY;
-#else
     ConfigureLoraRxPullUp();
     return drivers::LoraUart_Init(&g_loraContext, &g_loraConfig);
-#endif
 }
 
 drivers::DriverStatus Board_LoraWriteByte(uint8_t data)
@@ -120,9 +111,7 @@ void Board_LoraIrqHandler(void)
 
 } /* namespace board */
 
-#if !FEATURE_SHELL_USE_LORA_UART
 extern "C" void LORA_UART_INST_IRQHandler(void)
 {
     board::Board_LoraIrqHandler();
 }
-#endif

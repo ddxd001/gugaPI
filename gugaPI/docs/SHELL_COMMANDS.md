@@ -4,10 +4,8 @@
 
 数字参数支持十进制或 `0x` 开头的十六进制，例如 `16` 和 `0x10`。
 
-开发配置默认使用 UART3（PA14/TX、PA13/RX）。将
-`FEATURE_SHELL_USE_LORA_UART` 改为 `1` 后，Shell 和日志改走 UART0
-（PB0/TX、PB1/RX）的 LoRa 透明串口，同时不再注册 `lora` 命令。
-比赛配置始终关闭 Shell。
+DEBUG UART 固定使用 UART6（PC11/TX、PC10/RX）。比赛配置仍保留
+Shell 命令解析，但关闭 banner、提示符、输入回显和调试级日志。
 
 ## 通用命令
 
@@ -37,9 +35,7 @@ sched
 
 ### `txstat`
 
-查看当前 Shell/日志 UART 的 TX/RX 队列状态。默认是 UART3
-（PA14/TX、PA13/RX）；启用 LoRa UART Shell 后是 UART0
-（PB0/TX、PB1/RX）。仅在启用 Shell 和调试 UART的开发配置下可用。
+查看调试 UART（UART6）TX/RX 队列状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
 
 ```text
 txstat

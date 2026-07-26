@@ -16,20 +16,4 @@
 #include "config/feature_development_config.h"
 #endif
 
-#ifndef FEATURE_SHELL_USE_LORA_UART
-#define FEATURE_SHELL_USE_LORA_UART (0U)
-#endif
-
-#if FEATURE_SHELL_USE_LORA_UART && !FEATURE_ENABLE_SHELL
-#error "LoRa UART Shell transport requires FEATURE_ENABLE_SHELL"
-#endif
-
-#if FEATURE_SHELL_USE_LORA_UART && !FEATURE_ENABLE_LORA
-#error "LoRa UART Shell transport requires FEATURE_ENABLE_LORA"
-#endif
-
-#if FEATURE_SHELL_USE_LORA_UART && !FEATURE_ENABLE_DEBUG_UART
-#error "LoRa UART Shell transport requires FEATURE_ENABLE_DEBUG_UART"
-#endif
-
 #endif /* CONFIG_FEATURE_CONFIG_H_ */

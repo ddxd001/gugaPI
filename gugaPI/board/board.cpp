@@ -102,7 +102,7 @@ drivers::DriverStatus Board_Init(void)
               BOARD_INIT_DEGRADED);
 #endif
 
-#if FEATURE_ENABLE_LORA && !FEATURE_SHELL_USE_LORA_UART
+#if FEATURE_ENABLE_LORA
     TrackInit("lora", Board_LoraInit(), BOARD_INIT_DEGRADED);
 #endif
 

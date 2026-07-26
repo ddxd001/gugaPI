@@ -4,18 +4,6 @@
 #include "config/feature_config.h"
 #include "ti_msp_dl_config.h"
 
-#if FEATURE_SHELL_USE_LORA_UART
-#define CONSOLE_UART_INST             LORA_UART_INST
-#define CONSOLE_UART_IRQN             LORA_UART_INST_INT_IRQN
-#define CONSOLE_UART_IOMUX_RX         GPIO_LORA_UART_IOMUX_RX
-#define CONSOLE_UART_IOMUX_RX_FUNC    GPIO_LORA_UART_IOMUX_RX_FUNC
-#else
-#define CONSOLE_UART_INST             DEBUG_UART_INST
-#define CONSOLE_UART_IRQN             DEBUG_UART_INST_INT_IRQN
-#define CONSOLE_UART_IOMUX_RX         GPIO_DEBUG_UART_IOMUX_RX
-#define CONSOLE_UART_IOMUX_RX_FUNC    GPIO_DEBUG_UART_IOMUX_RX_FUNC
-#endif
-
 namespace services {
 namespace {
 
@@ -77,17 +65,7 @@ void PushRxByteFromIsr(uint8_t data)
 void DebugUart_Init(void)
 {
 #if FEATURE_ENABLE_DEBUG_UART
-    NVIC_DisableIRQ(CONSOLE_UART_IRQN);
-
-    /* Keep the selected debug RX pin idle high when its external peer is
-     * disconnected so noise cannot create shell input or RX interrupts. */
-    DL_GPIO_initPeripheralInputFunctionFeatures(
-        CONSOLE_UART_IOMUX_RX,
-        CONSOLE_UART_IOMUX_RX_FUNC,
-        DL_GPIO_INVERSION_DISABLE,
-        DL_GPIO_RESISTOR_PULL_UP,
-        DL_GPIO_HYSTERESIS_DISABLE,
-        DL_GPIO_WAKEUP_DISABLE);
+    NVIC_DisableIRQ(DEBUG_UART_INST_INT_IRQN);
 
     g_rxHead = 0U;
     g_rxTail = 0U;
@@ -96,12 +74,12 @@ void DebugUart_Init(void)
     g_txTail = 0U;
     g_txDroppedCount = 0U;
 
-    DL_UART_Main_clearInterruptStatus(CONSOLE_UART_INST,
+    DL_UART_Main_clearInterruptStatus(DEBUG_UART_INST,
                                       DL_UART_MAIN_INTERRUPT_RX);
-    NVIC_ClearPendingIRQ(CONSOLE_UART_IRQN);
+    NVIC_ClearPendingIRQ(DEBUG_UART_INST_INT_IRQN);
 
     g_debugUartReady = true;
-    NVIC_EnableIRQ(CONSOLE_UART_IRQN);
+    NVIC_EnableIRQ(DEBUG_UART_INST_INT_IRQN);
 #else
     g_debugUartReady = false;
 #endif
@@ -121,7 +99,7 @@ void DebugUart_WriteChar(char ch)
          * blocking write guarantees early output is not lost. Runtime callers
          * never reach this branch.
          */
-        DL_UART_Main_transmitDataBlocking(CONSOLE_UART_INST, (uint8_t) ch);
+        DL_UART_Main_transmitDataBlocking(DEBUG_UART_INST, (uint8_t) ch);
         return;
     }
 
@@ -150,8 +128,8 @@ void DebugUart_TxPump(void)
     }
 
     while ((g_txTail != g_txHead) &&
-           !DL_UART_Main_isTXFIFOFull(CONSOLE_UART_INST)) {
-        DL_UART_Main_transmitData(CONSOLE_UART_INST,
+           !DL_UART_Main_isTXFIFOFull(DEBUG_UART_INST)) {
+        DL_UART_Main_transmitData(DEBUG_UART_INST,
                                   g_txBuffer[g_txTail]);
         g_txTail = NextTxIndex(g_txTail);
     }
@@ -272,13 +250,13 @@ void DebugUart_ClearRxBuffer(void)
 #if FEATURE_ENABLE_DEBUG_UART
     const bool wasReady = g_debugUartReady;
 
-    NVIC_DisableIRQ(CONSOLE_UART_IRQN);
+    NVIC_DisableIRQ(DEBUG_UART_INST_INT_IRQN);
     g_rxHead = 0U;
     g_rxTail = 0U;
-    NVIC_ClearPendingIRQ(CONSOLE_UART_IRQN);
+    NVIC_ClearPendingIRQ(DEBUG_UART_INST_INT_IRQN);
 
     if (wasReady) {
-        NVIC_EnableIRQ(CONSOLE_UART_IRQN);
+        NVIC_EnableIRQ(DEBUG_UART_INST_INT_IRQN);
     }
 #endif
 }
@@ -286,12 +264,12 @@ void DebugUart_ClearRxBuffer(void)
 void DebugUart_IrqHandler(void)
 {
 #if FEATURE_ENABLE_DEBUG_UART
-    switch (DL_UART_Main_getPendingInterrupt(CONSOLE_UART_INST)) {
+    switch (DL_UART_Main_getPendingInterrupt(DEBUG_UART_INST)) {
     case DL_UART_MAIN_IIDX_RX:
-        while (!DL_UART_Main_isRXFIFOEmpty(CONSOLE_UART_INST)) {
-            PushRxByteFromIsr(DL_UART_Main_receiveData(CONSOLE_UART_INST));
+        while (!DL_UART_Main_isRXFIFOEmpty(DEBUG_UART_INST)) {
+            PushRxByteFromIsr(DL_UART_Main_receiveData(DEBUG_UART_INST));
         }
-        DL_UART_Main_clearInterruptStatus(CONSOLE_UART_INST,
+        DL_UART_Main_clearInterruptStatus(DEBUG_UART_INST,
                                           DL_UART_MAIN_INTERRUPT_RX);
         break;
 
@@ -303,11 +281,7 @@ void DebugUart_IrqHandler(void)
 
 } /* namespace services */
 
-#if FEATURE_SHELL_USE_LORA_UART
-extern "C" void LORA_UART_INST_IRQHandler(void)
-#else
 extern "C" void DEBUG_UART_INST_IRQHandler(void)
-#endif
 {
     services::DebugUart_IrqHandler();
 }

@@ -1,77 +1,122 @@
-// ===== Terminal =====
+'use strict';
+
+// Shared Web Serial terminal for the gugaPI UART6 debug shell.
 var termHistory=[];
-var termHistIdx=0;
-var CMD_LIST=['version','reset','sched','txstat','led','buzzer','button','fram','param','ina219','oled','gy931','imu','gray','lora','motor','chassis','heading','run','lf','comp','telem','seq','i2c','adc','pwm'];
+var termHistoryIndex=0;
+var TERM_MAX_CHARS=200000;
+var TERM_COMMANDS=[
+  'help','version','reset','sched','txstat','led','buzzer','button','fram',
+  'param','ina219','oled','gy931','imu','gray','lora','motor','chassis',
+  'heading','run','lf','comp','telem','seq','i2c','adc','pwm'
+];
 
-// RX callback - display in terminal
-onRxCb=function(data,type){
-  var td=$('termDisplay');
+function terminalAppend(data,type){
+  var display=$('termDisplay');
   var span=document.createElement('span');
-  span.className=type;
+  span.className=type||'rx';
   span.textContent=data;
-  td.appendChild(span);
-  td.scrollTop=td.scrollHeight;
-};
+  display.appendChild(span);
 
-// Tab switching
-function switchTab(name){
-  var ev=$('editorView'),tv=$('termView'),te=$('tabEditor'),tt=$('tabTerminal');
-  if(name==='terminal'){ev.style.display='none';tv.style.display='flex';te.classList.remove('active');tt.classList.add('active');$('termInput').focus()}
-  else{ev.style.display='flex';tv.style.display='none';te.classList.add('active');tt.classList.remove('active')}
+  while(display.textContent.length>TERM_MAX_CHARS&&display.firstChild){
+    display.removeChild(display.firstChild);
+  }
+  display.scrollTop=display.scrollHeight;
 }
 
-// Terminal input handler
-var ti=$('termInput');
-ti.addEventListener('keydown',function(e){
-  if(e.key==='Enter'){
-    e.preventDefault();
-    var cmd=ti.value.trim();
-    if(!cmd)return;
-    // Add to history
-    if(termHistory.length===0||termHistory[termHistory.length-1]!==cmd){
-      termHistory.push(cmd);
-      if(termHistory.length>100)termHistory.shift();
-    }
-    termHistIdx=termHistory.length;
-    ti.value='';
-    // Send command
-    if(simMode){
-      send(cmd).then(function(){});
-    }else if(writer){
-      send(cmd).then(function(){});
+function terminalSetConnected(connected){
+  $('termInput').disabled=!connected;
+  $('btnTermSend').disabled=!connected;
+  $('btnTermHelp').disabled=!connected;
+  $('termInput').placeholder=connected?'输入命令后回车发送...':'请先连接 gugaPI 串口';
+  if(connected){
+    terminalAppend(simMode?'[模拟串口已连接]\n':'[gugaPI 串口已连接：115200 8N1]\n','hint');
+    if(!$('termView').hidden)$('termInput').focus();
+  }else{
+    terminalAppend('[串口已断开]\n','hint');
+  }
+}
+
+onSerialData=terminalAppend;
+onSerialStateChange=terminalSetConnected;
+
+function switchTab(name){
+  var terminal=name==='terminal';
+  $('editorView').hidden=terminal;
+  $('termView').hidden=!terminal;
+  $('log').hidden=terminal;
+  $('tabEditor').classList.toggle('active',!terminal);
+  $('tabTerminal').classList.toggle('active',terminal);
+  if(terminal&&!$('termInput').disabled)$('termInput').focus();
+}
+
+async function terminalSend(){
+  var input=$('termInput');
+  var command=input.value.trim();
+  if(!command||input.disabled)return;
+
+  if(termHistory.length===0||termHistory[termHistory.length-1]!==command){
+    termHistory.push(command);
+    if(termHistory.length>100)termHistory.shift();
+  }
+  termHistoryIndex=termHistory.length;
+  input.value='';
+  try{
+    await send(command);
+  }catch(error){
+    terminalAppend('[发送失败] '+error.message+'\n','error');
+  }
+}
+
+function terminalComplete(){
+  var input=$('termInput');
+  var beforeCursor=input.value.slice(0,input.selectionStart);
+  if(beforeCursor.trim().includes(' '))return;
+  var prefix=beforeCursor.trim();
+  var matches=TERM_COMMANDS.filter(function(command){return command.startsWith(prefix)});
+  if(matches.length===1){
+    input.value=matches[0]+' ';
+    input.setSelectionRange(input.value.length,input.value.length);
+  }else if(matches.length>1){
+    terminalAppend(matches.join('  ')+'\n','hint');
+  }
+}
+
+$('tabEditor').addEventListener('click',function(){switchTab('editor')});
+$('tabTerminal').addEventListener('click',function(){switchTab('terminal')});
+$('btnTermClear').addEventListener('click',function(){$('termDisplay').textContent=''});
+$('btnTermSend').addEventListener('click',terminalSend);
+$('btnTermHelp').addEventListener('click',function(){
+  $('termInput').value='help';
+  terminalSend();
+});
+$('termInput').addEventListener('keydown',function(event){
+  if(event.key==='Enter'){
+    event.preventDefault();
+    terminalSend();
+  }else if(event.key==='ArrowUp'){
+    event.preventDefault();
+    if(termHistoryIndex>0)termHistoryIndex--;
+    this.value=termHistory[termHistoryIndex]||'';
+    this.setSelectionRange(this.value.length,this.value.length);
+  }else if(event.key==='ArrowDown'){
+    event.preventDefault();
+    if(termHistoryIndex<termHistory.length-1){
+      termHistoryIndex++;
+      this.value=termHistory[termHistoryIndex]||'';
     }else{
-      var td=$('termDisplay');
-      var span=document.createElement('span');
-      span.className='tx';
-      span.textContent='> '+cmd+'\n';
-      td.appendChild(span);
-      td.scrollTop=td.scrollHeight;
+      termHistoryIndex=termHistory.length;
+      this.value='';
     }
-  }else if(e.key==='ArrowUp'){
-    e.preventDefault();
-    if(termHistIdx>0){termHistIdx--;ti.value=termHistory[termHistIdx]||'';ti.setSelectionRange(ti.value.length,ti.value.length)}
-  }else if(e.key==='ArrowDown'){
-    e.preventDefault();
-    if(termHistIdx<termHistory.length-1){termHistIdx++;ti.value=termHistory[termHistIdx]||''}
-    else{termHistIdx=termHistory.length;ti.value=''}
-    ti.setSelectionRange(ti.value.length,ti.value.length);
-  }else if(e.key==='Tab'){
-    e.preventDefault();
-    var val=ti.value.trim();
-    var parts=val.split(/\s+/);
-    var word=parts[parts.length-1];
-    var matches=CMD_LIST.filter(function(c){return c.startsWith(word)});
-    if(matches.length===1){
-      parts[parts.length-1]=matches[0];
-      ti.value=parts.join(' ')+' ';
-    }else if(matches.length>1){
-      // Show suggestions in terminal
-      var td=$('termDisplay');
-      var span=document.createElement('span');
-      span.className='hint';
-      span.textContent=matches.join('  ')+'\n';
-      td.appendChild(span);
-      td.scrollTop=td.scrollHeight;
-    }
+    this.setSelectionRange(this.value.length,this.value.length);
+  }else if(event.key==='Tab'){
+    event.preventDefault();
+    terminalComplete();
+  }else if(event.ctrlKey&&event.key.toLowerCase()==='l'){
+    event.preventDefault();
+    $('termDisplay').textContent='';
   }
 });
+
+if(!('serial' in navigator)){
+  terminalAppend('[当前浏览器不支持 Web Serial，请使用 Chrome 或 Edge。]\n','error');
+}

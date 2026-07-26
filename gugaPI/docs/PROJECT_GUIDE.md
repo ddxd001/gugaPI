@@ -78,7 +78,7 @@ drivers/oled/
 
 - `time`：1 ms 系统时间戳和延时
 - `scheduler`：无 RTOS 协作式任务调度
-- `debug_uart`：UART0 调试串口底层收发，内部维护 RX 中断环形缓冲区
+- `debug_uart`：UART6 调试串口底层收发，内部维护 RX 中断环形缓冲区
 - `log`：日志等级接口，提供 `LOG_INFO`、`LOG_WARN`、`LOG_ERROR`、`LOG_DEBUG`
 - `shell`：调试命令行，主循环中调用 `Shell_Process()` 解析命令
 - `fault`：统一错误码和严重错误处理
@@ -213,7 +213,7 @@ LOG_DEBUG("control loop entered");
 app/app_shell.cpp       注册板级和业务命令
 services/shell.cpp      命令行输入、分词、命令分发
 services/log.cpp        日志等级格式
-services/debug_uart.cpp UART0 TX/RX、RX 中断环形缓冲
+services/debug_uart.cpp UART6 TX/RX、RX 中断环形缓冲
 ```
 
 要求：
@@ -295,9 +295,9 @@ PA27、PA26、PB27 的初始输出配置为 `SET`，所以上电初始化后 LED
 
 PC16 的初始输出配置为 `CLEARED`，所以上电初始化后蜂鸣器默认不响。
 
-### 调试串口 UART3
+### 调试串口 UART6
 
-- 引脚：RX PA13，TX PA14
+- 引脚：RX PC10，TX PC11
 - 电平：TTL 串口电平
 - 波特率：115200
 - SysConfig 实例：`DEBUG_UART`
@@ -308,15 +308,7 @@ PC16 的初始输出配置为 `CLEARED`，所以上电初始化后蜂鸣器默�
 - 命令注册：`app/app_shell.cpp`
 - 当前交互：主循环调用 `Shell_Process()`，支持 `help`、`version`、`reset`、`led on/off`、`buzzer on/off`、`adc`、`pwm 50`
 
-开发配置中的 `FEATURE_SHELL_USE_LORA_UART` 是 Shell/日志串口的一行切换开关：
-
-- `0`（默认）：UART3，PA14/TX、PA13/RX；LoRa 协议可使用 UART0。
-- `1`：UART0，PB0/TX、PB1/RX，通过 LoRa 透明传输 Shell；此时自动停用
-  LoRa 应用协议及 `lora` 命令，避免两个消费者争抢同一串口。
-
-这个开关位于普通 C++ 配置头中，不会被 CCS SysConfig 图形界面覆盖。
-
-调试串口由 `FEATURE_ENABLE_DEBUG_UART` 控制，日志由 `FEATURE_ENABLE_LOG` 控制，Shell 由 `FEATURE_ENABLE_SHELL` 控制；比赛配置关闭 Shell。计数打印测试仍保留在 `FEATURE_ENABLE_UART_COUNTER_TEST` 后面，默认关闭，避免干扰 Shell 交互。
+调试串口由 `FEATURE_ENABLE_DEBUG_UART` 控制，日志由 `FEATURE_ENABLE_LOG` 控制，Shell 由 `FEATURE_ENABLE_SHELL` 控制。比赛配置保留 Shell 命令解析，但关闭 banner、提示符和回显。计数打印测试仍保留在 `FEATURE_ENABLE_UART_COUNTER_TEST` 后面，默认关闭，避免干扰 Shell 交互。
 
 ### FM24CL64B-GTR FRAM
 

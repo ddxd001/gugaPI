@@ -35,7 +35,9 @@
 #include "app/app_main.h"
 #include "app/app_shell.h"
 #include "board/board.h"
+#include "board/board_buzzer.h"
 #include "board/board_led.h"
+#include "board/board_oled.h"
 #include "config/feature_config.h"
 #include "drivers/common/driver_status.h"
 #include "services/debug_uart.h"
@@ -299,9 +301,27 @@ extern "C" void SYSCFG_DL_init(void)
  * ever returns. */
 static void PanicHandler(services::FaultCode code)
 {
-    (void) code;
 #if FEATURE_ENABLE_LOG
     services::Log_Error("panic");
+#endif
+#if FEATURE_ENABLE_BUZZER
+    if (board::Board_BuzzerIsReady()) {
+        (void) board::Board_BuzzerOff();
+    }
+#endif
+#if FEATURE_ENABLE_OLED
+    if (board::Board_OledIsReady()) {
+        (void) board::Board_OledClear();
+        (void) board::Board_OledWriteText(0U, 0U, "SYSTEM FAULT");
+        (void) board::Board_OledWriteText(
+            1U,
+            0U,
+            (code == services::FAULT_ASSERT) ? "ASSERT" : "PANIC");
+        (void) board::Board_OledWriteText(2U, 0U, "EXECUTION HALTED");
+        (void) board::Board_OledWriteText(3U, 0U, "RESET TO RECOVER");
+    }
+#else
+    (void) code;
 #endif
     for (;;) {
 #if FEATURE_ENABLE_STATUS_LED
