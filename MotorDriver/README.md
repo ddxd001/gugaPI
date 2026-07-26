@@ -15,6 +15,7 @@ MotorDriver 是基于 MSPM0G3519 的双路 DRV8701 PH/EN 电机驱动固件。
 ## 硬件配置
 
 - MCU：MSPM0G3519，VQFN-48(RGZ)
+- CPU 主频：80 MHz；BUSCLK / TIMG0 PWM 时钟：40 MHz
 - UART 控制口：UART4，PB17 TX，PB18 RX，115200 8N1
 - I2C 从机：I2C1，PA17 SCL，PA18 SDA，默认地址 `0x20`
 - 电机 1：PA5 PH，PA6 TIMG0_CCP1 EN PWM
@@ -58,7 +59,7 @@ I2C 不再套 UART 的 `0xAA CMD...CRC` 帧，而是直接访问同一张寄存�
 
 ```text
 0x00 DEVICE_ID          R       0xA5
-0x01 FW_VERSION         R       0x02
+0x01 FW_VERSION         R       0x03
 0x02 STATUS             R
 0x03 FAULT_FLAGS        R/W1C
 0x04 CONTROL_FLAGS      R/W     默认 0x01，全局使能
@@ -203,9 +204,20 @@ count = deg * counts_per_rev / 360
 默认速度 PID 参数等价于：
 
 ```text
-motor pid 1 1 0 50 6
+motor pid 2 2 0 60 4
 motor ramp 600 900
 ```
+
+速度链路当前时序：
+
+- TIMG8/TIMG9 以硬件 QEI 连续计数，不产生逐沿 GPIO 中断。
+- 编码器每 10 ms 形成一个增量样本，使用最近 3 个样本的实际累计时间计算速度，窗口约 30 ms。
+- 速度 PID 每 10 ms 执行；`kp/ki/kd` 仍保持原 100 ms 版本的参数语义，固件按实际间隔归一化积分和微分项。
+- 位置闭环和 `speed 0` 保持仍为 100 ms，避免本次速度链路优化改变既有位置参数。
+- I2C/UART 的 `DUTY` 和控制遥测仍为整数百分比；速度闭环内部使用 Q8.8 百分比接口，TIMG0 最终以 2000 计数、20 kHz 输出，避免旧版 1% 占空比步进。
+- 控制计算位于主循环的定时门控路径，不在 SysTick 或 I2C 中断中执行；watchdog、故障位和寄存器地址均保持兼容。
+
+详细基线、实现边界和台架验收步骤见 [CONTROL_LOOP_OPTIMIZATION.md](CONTROL_LOOP_OPTIMIZATION.md)。
 
 默认位置环参数等价于：
 
@@ -274,6 +286,8 @@ motor m2 pos <deg>
 motor m1 posrel <deg>
 motor m2 posrel <deg>
 ```
+
+新版 gugaPI 在 `motor pid ...` 成功写入底板后，也会同步更新 ConfigStore 的 RAM 参数；需要断电保持时再执行一次 `param save`。直接读取 `motor pid` 不修改参数。
 
 开环控制：
 
@@ -385,8 +399,8 @@ motor set 0x03 0x01
 
 ## 构建
 
-在 `MotorDriver/Debug` 或 `gugaPI/Debug` 目录执行：
+在 `MotorDriver/Debug` 或 `gugaPI/Debug` 目录执行（路径按本机 CCS 安装位置替换）：
 
 ```text
-C:/ti/ccs2100/ccs/utils/bin/gmake.exe clean all
+E:/TI/ccs/utils/bin/gmake.exe -k -j 32 all -r -O
 ```

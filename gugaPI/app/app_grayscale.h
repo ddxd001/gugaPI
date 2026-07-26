@@ -32,6 +32,9 @@ struct AppGrayscaleData {
     uint16_t line_strength;
     uint16_t position_confidence;
     drivers::GrayscalePositionSource position_source;
+    drivers::GrayscaleTrackState track_state;
+    uint8_t weak_tracking_frames;
+    uint8_t invalid_frames;
     GrayscaleRoadType road_type;
     uint8_t road_confirm_count;
     uint16_t threshold_on;

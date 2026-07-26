@@ -101,9 +101,9 @@ static bool g_powerInhibitHandled = false;
 #endif
 
 #if FEATURE_ENABLE_GRAYSCALE
-/* One mux channel per invocation: 2 ms gives an approximately 16 ms frame
+/* One mux channel per invocation: 1 ms gives an approximately 8 ms frame
  * while retaining margin over the 200 us mux settle + 125 us ADC sample. */
-const uint32_t GRAYSCALE_PERIOD_MS = 2U;
+const uint32_t GRAYSCALE_PERIOD_MS = 1U;
 #endif
 
 #if FEATURE_ENABLE_IMU
@@ -129,7 +129,10 @@ void App_ActionTask(void)
 #endif
 
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
-const uint32_t LINEFOLLOW_PERIOD_MS = 20U;
+/* Wake at 10 ms so a completed 8-channel frame is consumed promptly.
+ * LF_Update ignores duplicate sequence numbers, so this does not create
+ * redundant MotorDriver writes when no new frame is available. */
+const uint32_t LINEFOLLOW_PERIOD_MS = 10U;
 
 void App_LineFollowTask(void)
 {
@@ -544,7 +547,7 @@ void App_Init(void)
 #endif
 #endif
 
-#if FEATURE_ENABLE_LORA
+#if FEATURE_ENABLE_LORA && !FEATURE_SHELL_USE_LORA_UART
     App_LoraProtocolInit();
 #endif
 
@@ -711,7 +714,7 @@ void App_Run(void)
 #endif
 #endif
 
-#if FEATURE_ENABLE_LORA
+#if FEATURE_ENABLE_LORA && !FEATURE_SHELL_USE_LORA_UART
     App_LoraProtocolRun();
 #endif
 

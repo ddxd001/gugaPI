@@ -45,7 +45,7 @@ namespace {
 namespace motor = motor_driver_client;
 
 static const uint16_t kFramShellMaxReadBytes = 32U;
-#if FEATURE_ENABLE_LORA
+#if FEATURE_ENABLE_LORA && !FEATURE_SHELL_USE_LORA_UART
 static const uint16_t kLoraShellMaxReadBytes = 64U;
 #endif
 static const uint16_t kMotorShellMaxReadBytes = 64U;
@@ -1133,63 +1133,85 @@ drivers::DriverStatus ImuOledSetEnabled(bool enabled)
 #endif
 
 #if FEATURE_ENABLE_GRAYSCALE
-drivers::DriverStatus GrayOledWriteStatusLine(void)
+drivers::DriverStatus GrayOledWritePositionLine(
+    const AppGrayscaleData *data)
 {
     char line[kOledTextCols + 1U];
     char *cursor = line;
 
-    cursor = AppendString(cursor, &line[kOledTextCols], "GRAY ");
-    cursor = AppendUIntDec(cursor, &line[kOledTextCols], g_grayOledPeriodMs);
-    cursor = AppendString(cursor, &line[kOledTextCols], "ms");
+    cursor = AppendString(cursor, &line[kOledTextCols], "P:");
+    cursor = AppendIntDec(cursor, &line[kOledTextCols], data->line_position);
+    cursor = AppendString(cursor, &line[kOledTextCols], " V:");
+    cursor = AppendUIntDec(cursor,
+                           &line[kOledTextCols],
+                           data->position_valid ? 1U : 0U);
+    cursor = AppendString(cursor, &line[kOledTextCols], " C:");
+    cursor = AppendUIntDec(cursor,
+                           &line[kOledTextCols],
+                           data->position_confidence);
     FinishOledLine(line, cursor);
     return board::Board_OledWriteText(0U, 0U, line);
 }
 
-drivers::DriverStatus GrayOledWriteRawLine(uint8_t row,
-                                           uint8_t first_channel,
-                                           uint8_t count,
-                                           const uint16_t raw[8])
+drivers::DriverStatus GrayOledWriteQualityLine(
+    const AppGrayscaleData *data)
 {
     char line[kOledTextCols + 1U];
     char *cursor = line;
 
-    cursor = AppendUIntDec(cursor, &line[kOledTextCols], first_channel);
-    if (count > 1U) {
-        cursor = AppendChar(cursor, &line[kOledTextCols], '-');
-        cursor = AppendUIntDec(cursor,
-                               &line[kOledTextCols],
-                               (uint32_t) (first_channel + count - 1U));
-    }
-    cursor = AppendChar(cursor, &line[kOledTextCols], ' ');
+    cursor = AppendString(cursor, &line[kOledTextCols], "S:");
+    cursor = AppendUIntDec(cursor,
+                           &line[kOledTextCols],
+                           data->line_strength);
+    cursor = AppendString(cursor, &line[kOledTextCols], " W:");
+    cursor = AppendUIntDec(cursor,
+                           &line[kOledTextCols],
+                           data->weak_tracking_frames);
+    cursor = AppendString(cursor, &line[kOledTextCols], " I:");
+    cursor = AppendUIntDec(cursor,
+                           &line[kOledTextCols],
+                           data->invalid_frames);
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(1U, 0U, line);
+}
 
-    for (uint8_t i = 0U; i < count; i++) {
-        if (i != 0U) {
-            cursor = AppendChar(cursor, &line[kOledTextCols], ' ');
-        }
-        cursor = AppendUIntDec(cursor,
-                               &line[kOledTextCols],
-                               raw[first_channel + i]);
-    }
-
+drivers::DriverStatus GrayOledWriteWheelLine(uint8_t row,
+                                             const char *label,
+                                             int32_t left_rpm,
+                                             int32_t right_rpm)
+{
+    char line[kOledTextCols + 1U];
+    char *cursor = AppendString(line, &line[kOledTextCols], label);
+    cursor = AppendString(cursor, &line[kOledTextCols], " L:");
+    cursor = AppendIntDec(cursor, &line[kOledTextCols], left_rpm);
+    cursor = AppendString(cursor, &line[kOledTextCols], " R:");
+    cursor = AppendIntDec(cursor, &line[kOledTextCols], right_rpm);
     FinishOledLine(line, cursor);
     return board::Board_OledWriteText(row, 0U, line);
 }
 
-drivers::DriverStatus GrayOledShowRaw(const uint16_t raw[8])
+drivers::DriverStatus GrayOledShowTracking(const AppGrayscaleData *data,
+                                           const ChassisState *chassis)
 {
-    drivers::DriverStatus status = GrayOledWriteStatusLine();
+    drivers::DriverStatus status = GrayOledWritePositionLine(data);
     if (status != drivers::DRIVER_OK) {
         return status;
     }
-    status = GrayOledWriteRawLine(1U, 0U, 3U, raw);
+    status = GrayOledWriteQualityLine(data);
     if (status != drivers::DRIVER_OK) {
         return status;
     }
-    status = GrayOledWriteRawLine(2U, 3U, 3U, raw);
+    status = GrayOledWriteWheelLine(2U,
+                                    "T",
+                                    chassis->left.target_rpm,
+                                    chassis->right.target_rpm);
     if (status != drivers::DRIVER_OK) {
         return status;
     }
-    return GrayOledWriteRawLine(3U, 6U, 2U, raw);
+    return GrayOledWriteWheelLine(3U,
+                                  "A",
+                                  chassis->left.actual_rpm,
+                                  chassis->right.actual_rpm);
 }
 
 drivers::DriverStatus GrayOledShowError(drivers::DriverStatus read_status)
@@ -1226,15 +1248,27 @@ drivers::DriverStatus GrayOledUpdateDisplay(void)
         }
     }
 
-    uint16_t raw[8] = { 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U };
-    const drivers::DriverStatus read_status = board::Board_GrayscaleReadAll(raw);
-    if (read_status != drivers::DRIVER_OK) {
-        g_grayOledLastStatus = read_status;
-        (void) GrayOledShowError(read_status);
-        return read_status;
+    const AppGrayscaleData *data = App_GrayscaleGetData();
+    if ((data == 0) || (!data->valid) || (!data->processed_valid)) {
+        const drivers::DriverStatus data_status = (data != 0)
+            ? data->processing_status
+            : drivers::DRIVER_ERROR;
+        g_grayOledLastStatus = data_status;
+        (void) GrayOledShowError(data_status);
+        return data_status;
     }
 
-    const drivers::DriverStatus oled_status = GrayOledShowRaw(raw);
+    const ChassisState *chassis = Chassis_GetState();
+    if (chassis == 0) {
+        g_grayOledLastStatus = drivers::DRIVER_ERROR;
+        return g_grayOledLastStatus;
+    }
+
+    /* Use the existing application snapshots. This page adds no ADC read and
+     * no MotorDriver transaction, so OLED refresh cannot disturb the 5 ms
+     * grayscale pipeline or the 20 ms chassis-feedback cadence. */
+    const drivers::DriverStatus oled_status =
+        GrayOledShowTracking(data, chassis);
     g_grayOledLastStatus = oled_status;
     return oled_status;
 }
@@ -1349,7 +1383,7 @@ void PrintImuUsage(void)
 }
 #endif
 
-#if FEATURE_ENABLE_LORA
+#if FEATURE_ENABLE_LORA && !FEATURE_SHELL_USE_LORA_UART
 void PrintLoraUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -4286,7 +4320,7 @@ void I2cCommand(int argc, const char * const argv[])
 }
 #endif
 
-#if FEATURE_ENABLE_LORA
+#if FEATURE_ENABLE_LORA && !FEATURE_SHELL_USE_LORA_UART
 drivers::DriverStatus LoraWriteArgs(int argc,
                                     const char * const argv[],
                                     bool append_newline,
@@ -5375,8 +5409,8 @@ void PrintLFUsage(void)
     services::Shell_WriteLine("  lf kp <val>");
     services::Shell_WriteLine("  lf kd <val>");
     services::Shell_WriteLine("  lf maxcorr <val>");
-    services::Shell_WriteLine("  lf losthold <ms>");
-    services::Shell_WriteLine("  lf losttimeout <ms>");
+    services::Shell_WriteLine("  lf losthold <ms> (compatibility only)");
+    services::Shell_WriteLine("  lf losttimeout <ms> (compatibility only)");
 }
 
 const char *GrayscalePositionSourceText(
@@ -5394,6 +5428,25 @@ const char *GrayscalePositionSourceText(
     case drivers::GRAYSCALE_POSITION_NONE:
     default:
         return "none";
+    }
+}
+
+const char *GrayscaleTrackStateText(drivers::GrayscaleTrackState state)
+{
+    switch (state) {
+    case drivers::GRAYSCALE_TRACK_VALID:
+        return "valid";
+    case drivers::GRAYSCALE_TRACK_LOST:
+        return "lost";
+    case drivers::GRAYSCALE_TRACK_MULTIPLE:
+        return "multiple";
+    case drivers::GRAYSCALE_TRACK_WIDE:
+        return "wide";
+    case drivers::GRAYSCALE_TRACK_SENSOR_FAULT:
+        return "sensor_fault";
+    case drivers::GRAYSCALE_TRACK_UNKNOWN:
+    default:
+        return "unknown";
     }
 }
 
@@ -5441,6 +5494,23 @@ void LFCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" source=");
         services::Shell_WriteString(
             GrayscalePositionSourceText(st->position_source));
+        services::Shell_WriteString(" track_state=");
+        services::Shell_WriteString(GrayscaleTrackStateText(st->track_state));
+        services::Shell_WriteString(" weak_frames=");
+        services::Shell_WriteUInt32(st->weak_tracking_frames);
+        services::Shell_WriteString(" invalid_frames=");
+        services::Shell_WriteUInt32(st->invalid_frames);
+        services::Shell_WriteString(" invalid_policy=confirm");
+        services::Shell_WriteUInt32(
+            static_cast<uint32_t>(app::LF_INVALID_TRACK_STOP_FRAMES));
+        services::Shell_WriteString(" ref_rpm=");
+        services::Shell_WriteUInt32(
+            static_cast<uint32_t>(app::LF_REFERENCE_RPM));
+        services::Shell_WriteString(" max_ratio_permille=");
+        services::Shell_WriteUInt32(app::LF_MAX_STEERING_PERMILLE);
+        services::Shell_WriteString(" deadband=");
+        services::Shell_WriteUInt32(
+            static_cast<uint32_t>(app::LF_ERROR_DEADBAND_MPOS));
         services::Shell_WriteString("\r\n");
         return;
     }
@@ -5819,7 +5889,20 @@ void MotorCommand(int argc, const char * const argv[])
         ramp.decel_rpm_per_s = static_cast<uint16_t>(decel_rpm_per_s);
         const drivers::DriverStatus status =
             motor::SetSpeedRamp(&g_motorClient, ramp);
-        WriteStatusLine("motor ramp: ", status);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor ramp: ", status);
+            return;
+        }
+
+        drivers::DriverStatus param_status =
+            ConfigStore_Set("speed_accel_rpm_s",
+                            static_cast<int32_t>(accel_rpm_per_s));
+        if (param_status == drivers::DRIVER_OK) {
+            param_status =
+                ConfigStore_Set("speed_decel_rpm_s",
+                                static_cast<int32_t>(decel_rpm_per_s));
+        }
+        WriteStatusLine("motor ramp: ", param_status);
         return;
     }
 
@@ -5978,6 +6061,22 @@ void MotorCommand(int argc, const char * const argv[])
         if (status != drivers::DRIVER_OK) {
             WriteStatusLine("motor pid: ", status);
             return;
+        }
+
+        static const char *const kPidParamNames[motor::kSpeedPidLength] = {
+            "speed_kp",
+            "speed_ki",
+            "speed_kd",
+            "speed_max_duty",
+            "speed_min_duty",
+        };
+        for (uint8_t i = 0U; i < length; i++) {
+            const drivers::DriverStatus param_status =
+                ConfigStore_Set(kPidParamNames[i], data[i]);
+            if (param_status != drivers::DRIVER_OK) {
+                WriteStatusLine("motor pid param: ", param_status);
+                return;
+            }
         }
 
         services::Shell_WriteLine("motor pid: ok");
@@ -6692,6 +6791,13 @@ void GrayCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" source=");
         services::Shell_WriteString(
             GrayscalePositionSourceText(data->position_source));
+        services::Shell_WriteString(" track_state=");
+        services::Shell_WriteString(
+            GrayscaleTrackStateText(data->track_state));
+        services::Shell_WriteString(" weak_frames=");
+        services::Shell_WriteUInt32(data->weak_tracking_frames);
+        services::Shell_WriteString(" invalid_frames=");
+        services::Shell_WriteUInt32(data->invalid_frames);
         services::Shell_WriteString(" road=");
         services::Shell_WriteString(app::GrayscaleRoad_TypeText(data->road_type));
         services::Shell_WriteString(" on=");
@@ -7192,7 +7298,9 @@ void SeqCommand(int argc, const char * const argv[])
 void TelemSendHeader(void)
 {
     services::DebugUart_WriteString(
-        "#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,err,corr\n");
+        "#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,head_err,"
+        "head_corr,gray_pos,gray_strength,gray_conf,gray_valid,"
+        "gray_state,lf_err,lf_corr,lf_weak,lf_invalid\n");
 }
 
 void TelemSendData(void)
@@ -7202,6 +7310,8 @@ void TelemSendData(void)
     const app::ChassisState *cs = app::Chassis_GetState();
     const app::HeadingState *hs = app::Heading_GetState();
     const app::ActionRunnerState *as = app::ActionRunner_GetState();
+    const app::AppGrayscaleData *gray = app::App_GrayscaleGetData();
+    const app::LFState *lf = app::LF_GetState();
 
     /* t */
     services::Shell_WriteUInt32(now);
@@ -7234,6 +7344,29 @@ void TelemSendData(void)
     /* corr */
     services::Shell_WriteString(",");
     WriteInt32(hs->correction_rpm);
+    /* Grayscale interpolation and line-follow control diagnostics. */
+    services::Shell_WriteString(",");
+    WriteInt32((gray != 0) ? gray->line_position : 0);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((gray != 0) ? gray->line_strength : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        (gray != 0) ? gray->position_confidence : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        ((gray != 0) && gray->position_valid) ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((gray != 0)
+        ? static_cast<uint32_t>(gray->track_state)
+        : 0U);
+    services::Shell_WriteString(",");
+    WriteInt32((lf != 0) ? lf->error_mpos : 0);
+    services::Shell_WriteString(",");
+    WriteInt32((lf != 0) ? lf->correction_rpm : 0);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((lf != 0) ? lf->weak_tracking_frames : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((lf != 0) ? lf->invalid_frames : 0U);
     services::Shell_WriteString("\n");
 }
 
@@ -7442,7 +7575,7 @@ void AppShell_RegisterCommands(void)
         "Grayscale: status|read <0..7>|all|data|oled",
         GrayCommand);
 #endif
-#if FEATURE_ENABLE_LORA
+#if FEATURE_ENABLE_LORA && !FEATURE_SHELL_USE_LORA_UART
     (void) services::Shell_RegisterCommand(
         "lora",
         "LoRa UART and framed protocol diagnostics",

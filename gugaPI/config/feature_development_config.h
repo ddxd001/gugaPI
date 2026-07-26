@@ -10,6 +10,8 @@
 #define FEATURE_ENABLE_SHELL_PROMPT        (1U)
 #define FEATURE_ENABLE_SHELL_ECHO          (1U)
 #define FEATURE_ENABLE_DEBUG_UART          (1U)
+/* 0: Shell/log on UART3 PA14/PA13; 1: Shell/log over LoRa UART0 PB0/PB1. */
+#define FEATURE_SHELL_USE_LORA_UART         (0U)
 #define FEATURE_ENABLE_UART_COUNTER_TEST   (0U)
 
 #define FEATURE_ENABLE_STATUS_LED          (1U)

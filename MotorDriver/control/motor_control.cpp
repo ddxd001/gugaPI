@@ -6,11 +6,14 @@
 namespace control {
 namespace {
 
-constexpr uint32_t kSpeedControlPeriodMs = 100U;
+constexpr uint32_t kSpeedControlPeriodMs = 10U;
+constexpr uint32_t kPositionControlPeriodMs = 100U;
+constexpr uint32_t kPidReferencePeriodMs = 100U;
+constexpr uint32_t kMaximumPidElapsedMs = 100U;
 constexpr int32_t kPidScale = 16;
 
 struct SpeedPidState {
-    int32_t integral_q4;
+    int64_t integral_q4_ms;
     int32_t previous_error_rpm;
     uint32_t ramp_remainder;
     int32_t hold_count;
@@ -20,6 +23,7 @@ struct SpeedPidState {
     uint32_t last_update_ms;
     uint32_t position_settle_until_ms;
     uint16_t control_target_rpm;
+    uint16_t output_duty_q8;
     uint8_t previous_mode;
     uint8_t previous_direction;
     int8_t ramp_direction;
@@ -47,7 +51,7 @@ uint8_t ToggleDirection(uint8_t direction)
 
 void ResetPid(SpeedPidState *state)
 {
-    state->integral_q4 = 0;
+    state->integral_q4_ms = 0;
     state->previous_error_rpm = 0;
     state->ramp_remainder = 0U;
     state->hold_count = 0;
@@ -55,6 +59,7 @@ void ResetPid(SpeedPidState *state)
     state->previous_target_position = 0;
     state->position_integral_q4 = 0;
     state->control_target_rpm = 0U;
+    state->output_duty_q8 = 0U;
     state->previous_mode = protocol::MOTOR_MODE_COAST;
     state->previous_direction = protocol::MOTOR_DIRECTION_FORWARD;
     state->ramp_direction = 0;
@@ -126,7 +131,7 @@ uint16_t AdvanceControlTarget(SpeedPidState *state,
     return state->control_target_rpm;
 }
 
-uint8_t ClampDuty(int32_t duty_q4, uint8_t min_duty, uint8_t max_duty)
+uint16_t ClampDutyQ8(int64_t duty_q4, uint8_t min_duty, uint8_t max_duty)
 {
     if (max_duty > 100U) {
         max_duty = 100U;
@@ -139,8 +144,8 @@ uint8_t ClampDuty(int32_t duty_q4, uint8_t min_duty, uint8_t max_duty)
         return 0U;
     }
 
-    const int32_t min_q4 = static_cast<int32_t>(min_duty) * kPidScale;
-    const int32_t max_q4 = static_cast<int32_t>(max_duty) * kPidScale;
+    const int64_t min_q4 = static_cast<int64_t>(min_duty) * kPidScale;
+    const int64_t max_q4 = static_cast<int64_t>(max_duty) * kPidScale;
 
     if (duty_q4 < min_q4) {
         duty_q4 = min_q4;
@@ -149,7 +154,17 @@ uint8_t ClampDuty(int32_t duty_q4, uint8_t min_duty, uint8_t max_duty)
         duty_q4 = max_q4;
     }
 
-    return static_cast<uint8_t>((duty_q4 + (kPidScale / 2)) / kPidScale);
+    return static_cast<uint16_t>(
+        duty_q4 * drivers::kDutyPercentQ8Scale / kPidScale);
+}
+
+uint8_t DutyQ8ToPercent(uint16_t duty_q8)
+{
+    const uint32_t rounded =
+        static_cast<uint32_t>(duty_q8) +
+        (drivers::kDutyPercentQ8Scale / 2U);
+    const uint32_t percent = rounded / drivers::kDutyPercentQ8Scale;
+    return static_cast<uint8_t>((percent > 100U) ? 100U : percent);
 }
 
 int64_t ClampQ4(int64_t value, uint16_t max_rpm)
@@ -353,6 +368,8 @@ bool UpdatePositionMotor(protocol::RegisterMap &registers,
         registers.UpdateTargetRpmFromControl(motor1, command_rpm);
     }
     registers.SetMotorOutputFromControl(motor1, output_duty, output_direction);
+    state->output_duty_q8 =
+        static_cast<uint16_t>(output_duty) * drivers::kDutyPercentQ8Scale;
     state->previous_position_error = position_error;
     return true;
 }
@@ -441,7 +458,10 @@ bool UpdateSpeedMotor(protocol::RegisterMap &registers,
     }
 
     const uint32_t elapsed_ms = now_ms - state->last_update_ms;
-    if (elapsed_ms < kSpeedControlPeriodMs) {
+    const uint32_t control_period_ms =
+        (hold_mode || position_mode) ? kPositionControlPeriodMs :
+                                      kSpeedControlPeriodMs;
+    if (elapsed_ms < control_period_ms) {
         return false;
     }
     state->last_update_ms = now_ms;
@@ -471,31 +491,60 @@ bool UpdateSpeedMotor(protocol::RegisterMap &registers,
             : static_cast<int32_t>(measured_rpm);
     const int32_t error_rpm =
         static_cast<int32_t>(command_rpm) - measured_aligned;
-    const int32_t derivative_rpm = error_rpm - state->previous_error_rpm;
+    uint32_t pid_elapsed_ms = elapsed_ms;
+    if (pid_elapsed_ms > kMaximumPidElapsedMs) {
+        pid_elapsed_ms = kMaximumPidElapsedMs;
+    }
+    const int64_t derivative_rpm =
+        (static_cast<int64_t>(error_rpm - state->previous_error_rpm) *
+         kPidReferencePeriodMs) / pid_elapsed_ms;
     state->previous_error_rpm = error_rpm;
 
-    const int32_t max_q4 =
-        static_cast<int32_t>(registers.SpeedMaxDuty()) * kPidScale;
-    state->integral_q4 +=
-        static_cast<int32_t>(registers.SpeedKiQ4_4()) * error_rpm;
-    if (state->integral_q4 > max_q4) {
-        state->integral_q4 = max_q4;
-    } else if (state->integral_q4 < -max_q4) {
-        state->integral_q4 = -max_q4;
+    const int64_t max_q4 =
+        static_cast<int64_t>(registers.SpeedMaxDuty()) * kPidScale;
+    const int64_t max_integral_q4_ms =
+        max_q4 * kPidReferencePeriodMs;
+    int64_t proposed_integral_q4_ms =
+        state->integral_q4_ms +
+        (static_cast<int64_t>(registers.SpeedKiQ4_4()) * error_rpm *
+         pid_elapsed_ms);
+    if (proposed_integral_q4_ms > max_integral_q4_ms) {
+        proposed_integral_q4_ms = max_integral_q4_ms;
+    } else if (proposed_integral_q4_ms < -max_integral_q4_ms) {
+        proposed_integral_q4_ms = -max_integral_q4_ms;
     }
 
-    const int32_t output_q4 =
-        (static_cast<int32_t>(registers.SpeedKpQ4_4()) * error_rpm) +
-        state->integral_q4 +
-        (static_cast<int32_t>(registers.SpeedKdQ4_4()) * derivative_rpm);
-    const uint8_t duty = ClampDuty(output_q4,
-                                   registers.SpeedMinDuty(),
-                                   registers.SpeedMaxDuty());
+    const int64_t proportional_q4 =
+        static_cast<int64_t>(registers.SpeedKpQ4_4()) * error_rpm;
+    const int64_t derivative_q4 =
+        static_cast<int64_t>(registers.SpeedKdQ4_4()) * derivative_rpm;
+    const int64_t proposed_output_q4 =
+        proportional_q4 +
+        (proposed_integral_q4_ms / kPidReferencePeriodMs) +
+        derivative_q4;
+    const bool saturating_high =
+        (proposed_output_q4 > max_q4) && (error_rpm > 0);
+    const bool saturating_low =
+        (proposed_output_q4 < 0) && (error_rpm < 0);
+    if ((!saturating_high) && (!saturating_low)) {
+        state->integral_q4_ms = proposed_integral_q4_ms;
+    }
+
+    const int64_t integral_q4 =
+        state->integral_q4_ms / kPidReferencePeriodMs;
+    const int64_t output_q4 =
+        proportional_q4 + integral_q4 + derivative_q4;
+    const uint16_t duty_q8 = ClampDutyQ8(output_q4,
+                                         registers.SpeedMinDuty(),
+                                         registers.SpeedMaxDuty());
+    const uint8_t duty = DutyQ8ToPercent(duty_q8);
+    state->output_duty_q8 = duty_q8;
 
     registers.UpdateSpeedControlTelemetry(motor1,
                                           command_rpm,
                                           SaturateInt16(error_rpm),
-                                          SaturateInt16(state->integral_q4),
+                                          SaturateInt16(
+                                              static_cast<int32_t>(integral_q4)),
                                           duty);
     registers.SetMotorOutputFromControl(motor1, duty, output_direction);
     return true;
@@ -503,19 +552,20 @@ bool UpdateSpeedMotor(protocol::RegisterMap &registers,
 
 void ApplyMotor(drivers::MotorId motor,
                 uint8_t mode,
-                uint8_t duty,
+                uint16_t duty_q8,
                 uint8_t direction)
 {
     switch (mode) {
     case protocol::MOTOR_MODE_RUN:
     case protocol::MOTOR_MODE_SPEED:
     case protocol::MOTOR_MODE_POSITION:
-        if (duty == 0U) {
+        if (duty_q8 == 0U) {
             board::BoardMotorOutputs_Coast(motor);
         } else {
-            board::BoardMotorOutputs_Run(motor,
-                                         DirectionFromRegister(direction),
-                                         duty);
+            board::BoardMotorOutputs_RunFine(
+                motor,
+                DirectionFromRegister(direction),
+                duty_q8);
         }
         break;
 
@@ -572,15 +622,30 @@ void MotorControl_Apply(const protocol::RegisterMap &registers,
         return;
     }
 
+    const uint8_t m1_mode = registers.Read(protocol::REG_M1_MODE);
+    const uint8_t m2_mode = registers.Read(protocol::REG_M2_MODE);
+    const uint16_t m1_duty_q8 =
+        ((m1_mode == protocol::MOTOR_MODE_SPEED) ||
+         (m1_mode == protocol::MOTOR_MODE_POSITION))
+            ? g_m1_speed.output_duty_q8
+            : static_cast<uint16_t>(registers.Read(protocol::REG_M1_DUTY)) *
+                  drivers::kDutyPercentQ8Scale;
+    const uint16_t m2_duty_q8 =
+        ((m2_mode == protocol::MOTOR_MODE_SPEED) ||
+         (m2_mode == protocol::MOTOR_MODE_POSITION))
+            ? g_m2_speed.output_duty_q8
+            : static_cast<uint16_t>(registers.Read(protocol::REG_M2_DUTY)) *
+                  drivers::kDutyPercentQ8Scale;
+
     ApplyMotor(drivers::MotorId::Motor1,
-               registers.Read(protocol::REG_M1_MODE),
-               registers.Read(protocol::REG_M1_DUTY),
+               m1_mode,
+               m1_duty_q8,
                registers.MotorOutputInverted(true) ?
                    ToggleDirection(registers.Read(protocol::REG_M1_DIRECTION)) :
                    registers.Read(protocol::REG_M1_DIRECTION));
     ApplyMotor(drivers::MotorId::Motor2,
-               registers.Read(protocol::REG_M2_MODE),
-               registers.Read(protocol::REG_M2_DUTY),
+               m2_mode,
+               m2_duty_q8,
                registers.MotorOutputInverted(false) ?
                    ToggleDirection(registers.Read(protocol::REG_M2_DIRECTION)) :
                    registers.Read(protocol::REG_M2_DIRECTION));

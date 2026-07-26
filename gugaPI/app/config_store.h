@@ -29,6 +29,9 @@ struct ConfigStoreParams {
     uint8_t speed_kd_q4_4;
     uint8_t speed_max_duty;
     uint8_t speed_min_duty;
+    /* MotorDriver target-speed ramp restored by gugaPI at chassis init. */
+    uint16_t speed_accel_rpm_s;
+    uint16_t speed_decel_rpm_s;
 
     uint8_t position_kp_q4_4;
     uint8_t position_ki_q4_4;
@@ -119,6 +122,14 @@ drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
     const uint16_t white[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
     const uint16_t black[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
     uint16_t threshold);
+drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
+    const uint16_t white[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
+    const uint16_t black[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
+    uint16_t threshold,
+    uint16_t hysteresis,
+    uint16_t position_floor,
+    uint16_t min_line_strength,
+    uint8_t track_mask);
 bool ConfigStore_GetValue(const char *name,
                           int32_t *value,
                           int32_t *min_value,

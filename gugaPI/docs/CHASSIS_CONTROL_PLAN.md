@@ -34,7 +34,7 @@
 | 运动指令续租 | 已完成 | 主控每 100 ms 刷新目标转速，避免电机板看门狗超时 |
 | 续租不清零 PWM | 已完成 | 续租只写目标转速，不重复写模式和占空比 |
 | 双轮命令失败保护 | 已完成 | 任一侧命令失败时停止两侧电机并清除活动命令 |
-| Shell 串口迁移 | 已完成 | UART0，PB1/RX，PB0/TX，115200 8N1 |
+| Shell 串口迁移 | 已完成 | UART3，PA13/RX，PA14/TX，115200 8N1；比赛配置关闭 Shell |
 | 编码器方向 | 已完成 | M1 输出和编码器反向，M2 保持正常方向 |
 | 编码器 CPR | 已完成 | 13 PPR × QEI四倍频 × 28:1，左右轮均为 1456 counts/rev |
 | 轮径表示 | 已完成 | 1 m实测标定为 `wheel_radius_um=33050`（33.050 mm有效滚动半径）；保留整数毫米兼容入口 |
@@ -415,8 +415,8 @@ right_rpm = base_rpm + correction
 实现内容（`linefollow.cpp` `LF_FOLLOW` 模式）：
 
 - 中间 `track_mask` 通道按连续黑度计算位置，外侧通道只参与路口位图，避免支路拉偏巡线质心。
-- `correction = (error * kp + filtered_derivative * kd) / 1e6`，默认 `kd=0`，按灰度完整帧序号更新。
-- 丢线先以一半基础速度保持方向，超过 `lost_hold_ms` 后原地搜索，达到 `lost_stop_ms` 停车。
+- 在 40 RPM 参考速度计算 `reference_correction = (error * kp + filtered_derivative * kd) / 1e6`，随后按基础速度同比缩放，并限制在基础速度的 40%；中心 `±100` 使用死区，微分滤波使用 40 ms 时间常数，按灰度完整帧序号更新。
+- 灰度硬件故障、数据超时或通道异常时立即停车；强线之后的短暂全白间隙与连续相邻弱模拟线段共享最多 8 个位置帧（约 40 ms）的恢复预算。全白帧同时计入连续异常计数，相邻弱线恢复会将其清零；`lost/multiple/wide` 连续 6 个完整位置帧（约 30 ms）仍异常即停车。因此连续全白不会等待完整 40 ms。可信度仅作诊断，不执行无限保持或原地搜索。`lost_hold_ms`/`lost_stop_ms` 仅为旧配置兼容字段。
 - 持续时间到达 `follow_duration_ms` 后自动停车。
 - 安全：灰度数据无效 → `FAULT_SENSOR_LOST` 停车；故障 → 停车。
 
@@ -425,9 +425,9 @@ Shell 在线调参：
 ```text
 lf kp <val>           # 设置 kp（0..1000000）
 lf kd <val>           # 设置 kd（0..1000000）
-lf maxcorr <val>      # 设置最大修正 RPM（0..500）
-lf losthold <ms>      # 设置减速保持时间
-lf losttimeout <ms>   # 设置丢线停车时间
+lf maxcorr <val>      # 设置 40 RPM 参考速度下的最大修正 RPM（0..500）
+lf losthold <ms>      # 兼容旧配置，当前不参与运动
+lf losttimeout <ms>   # 兼容旧配置，当前不延迟停车
 ```
 
 ### 8.3 赛道事件识别
@@ -453,7 +453,7 @@ lf losttimeout <ms>   # 设置丢线停车时间
 实现内容（`config_store.cpp`，FRAM v7 布局）：
 
 - 速度环、航向闭环、IMU 偏置和底盘几何参数统一进入 ConfigStore，持久化到 FRAM（地址 0x0000，magic "CFPG"，CRC32 校验）。
-- 当前版本 v8，payload 177 字节；兼容加载 v1-v7 历史布局。旧版默认组合 `364/364/32` 加载时自动迁移为 `1456/1456/33050 um`，并标记 dirty，等待 `param save` 写回。
+- 当前版本 v9，payload 181 字节；兼容加载 v1-v8 历史布局。v8及更早布局缺少MotorDriver ramp时补入1500/2000 RPM/s。旧版默认组合 `364/364/32` 加载时自动迁移为 `1456/1456/33050 um`，并标记 dirty，等待 `param save` 写回。
 - `param set` 修改后显示 dirty 状态，`param save` 显式持久化，`param load` 从 FRAM 重新加载，`param reset` 恢复源码默认值。
 - 参数列表：
   - 底盘：`left/right_counts_per_rev`、`wheel_radius_um`、兼容参数 `wheel_radius_mm`、`wheel_track_mm`、`max_wheel_rpm`、`motor_output/encoder_invert_flags`

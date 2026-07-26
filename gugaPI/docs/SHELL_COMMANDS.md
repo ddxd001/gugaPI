@@ -4,6 +4,11 @@
 
 数字参数支持十进制或 `0x` 开头的十六进制，例如 `16` 和 `0x10`。
 
+开发配置默认使用 UART3（PA14/TX、PA13/RX）。将
+`FEATURE_SHELL_USE_LORA_UART` 改为 `1` 后，Shell 和日志改走 UART0
+（PB0/TX、PB1/RX）的 LoRa 透明串口，同时不再注册 `lora` 命令。
+比赛配置始终关闭 Shell。
+
 ## 通用命令
 
 ### `version`
@@ -32,7 +37,9 @@ sched
 
 ### `txstat`
 
-查看调试 UART（UART0）TX/RX 队列状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
+查看当前 Shell/日志 UART 的 TX/RX 队列状态。默认是 UART3
+（PA14/TX、PA13/RX）；启用 LoRa UART Shell 后是 UART0
+（PB0/TX、PB1/RX）。仅在启用 Shell 和调试 UART的开发配置下可用。
 
 ```text
 txstat
@@ -743,7 +750,7 @@ Yaw: <ddd.ddd> deg
 
 ## 灰度传感器（8 路 ADC）
 
-8:1 多路复用灰度阵列：3 个选位引脚（PA16=bit2、PC20=bit1、PC21=bit0）选 1 路，PA15（ADC1 ADCIN0）读模拟值（0..4095）。2 ms 周期任务每次采一路，约 16 ms 原子发布完整 8 路帧（约 62.5 Hz）。
+8:1 多路复用灰度阵列：3 个选位引脚（PA16=bit2、PC20=bit1、PC21=bit0）选 1 路，PA15（ADC1 ADCIN0）读模拟值（0..4095）。1 ms 周期任务优先连续采集中间 2..5 路，每 5 ms 左右发布一个位置帧；四个外侧道路识别通道在 20 ms 内轮流更新。每路使用 ADC 四次硬件平均。详见 `GRAYSCALE_GUIDE.md`。
 
 ### `gray status`
 
@@ -785,10 +792,10 @@ gray data
 gray process
 ```
 
-输出包含归一化值、迟滞位图 `mask`、主循迹区 `track`、实际插值线段 `selected`、
+输出包含归一化值、迟滞位图 `mask`、主循迹区 `track`、实际插值通道 `selected`、
 异常位图、线位置、线强度、道路类型和迟滞阈值。`pos` 使用左正右负坐标，
-`pos_valid` 表示位置是否可用于闭环，`confidence` 范围 0..1000，`source` 为
-`core`、`left_edge`、`right_edge`、`held` 或 `none`。调试通道顺序、黑白极性、
+`pos_valid` 表示位置是否可用于闭环，`confidence` 范围 0..1000，`track_state` 为
+`valid/lost/multiple/wide/sensor_fault`，`weak_frames` 为有界弱模拟跟踪帧数，`invalid_frames` 为连续异常帧数。调试通道顺序、黑白极性、
 岔路选择和丢线判断时应以此命令为准；循迹控制消费同一份处理结果。
 
 ### `gray calib ...`
@@ -796,16 +803,16 @@ gray process
 推荐使用白、黑两阶段多帧平均标定：
 
 ```text
-gray calib white 16
+gray calib white
 gray calib status
-gray calib black 16
+gray calib black
 gray calib status
 gray calib commit
 param save
 ```
 
-`white`/`black` 默认采集 16 个完整帧，可设为 1..128。两个阶段都完成后执行
-`commit`；每个通道的黑白跨度必须至少为 200 ADC counts。`commit` 只更新运行参数并
+`white`/`black` 默认采集 64 个位置帧，可设为 1..128。两个阶段都完成后执行
+`commit`；去掉两端各 1/8 样本后求均值，每个通道的黑白跨度必须至少为 400 ADC counts，且至少为采集噪声的 8 倍。`commit` 更新标定值和推荐处理参数，并
 将 ConfigStore 标记为 dirty，断电保存还需执行 `param save`。
 
 辅助命令：
@@ -824,7 +831,7 @@ gray calib cancel
 
 ### `gray oled on [period_ms]`
 
-按 INA219 OLED 显示任务的同样风格，将灰度传感器 8 路 ADC 原始值持续显示到 OLED。开启后会关闭其它传感器的 OLED 周期显示任务。
+按 INA219 OLED 显示任务的同样风格，将灰度插值位置和底盘左右轮速度持续显示到 OLED。页面直接读取应用层已有快照，不会额外触发 ADC 采样或 MotorDriver 通信。开启后会关闭其它传感器的 OLED 周期显示任务。
 ```text
 gray oled on
 gray oled on 200
@@ -835,11 +842,15 @@ gray oled once
 
 OLED 4 行显示格式：
 ```text
-GRAY 200ms
-0-2 1234 1234 1234
-3-5 1234 1234 1234
-6-7 1234 1234
+P:374 V:1 C:1000
+S:1310 W:0 I:0
+T L:56 R:64
+A L:55 R:63
 ```
+
+`P` 是归一化模拟量加权得到的插值位置，`V` 是位置有效标志，`C` 是置信度；
+`S/W/I` 分别是线强度、弱跟踪窗口帧数和连续异常帧数。`T` 是左右目标 RPM，
+`A` 是底盘反馈的左右实际 RPM。
 
 `period_ms` 范围为 50..5000，默认 200ms。`gray oled once` 只刷新一次 OLED，不开启周期任务。
 
@@ -1137,10 +1148,12 @@ motor rpm
 
 ```text
 motor ramp
-motor ramp 600 900
+motor ramp 1500 2000
 ```
 
-普通目标转速变化受斜坡限制；停车、故障和控制器禁用仍立即清除输出。
+普通目标转速变化受斜坡限制；停车、故障和控制器禁用仍立即清除输出。设置成功后还会同步更新
+gugaPI ConfigStore 的 `speed_accel_rpm_s` / `speed_decel_rpm_s` 并标记dirty；执行
+`param save` 后写入FRAM。下一次 `Chassis_Init()` 会自动重新下发到MotorDriver。
 
 ### `motor reg <addr> <len>`
 
@@ -1468,10 +1481,11 @@ heading profile save
 | `tolerance` | `distance_tolerance_mm` | 1..100 | 3 | 终点容差 |
 
 修改后立即作用于下一次定距动作，并将参数标为dirty；执行 `heading profile save` 或
-`param save` 才会写入FRAM。旧V1～V7配置加载后使用上述默认曲线参数并标记dirty，保存
-后升级为V8。定距动作正在运行时，`heading profile` 只允许查看，修改或保存返回
-`busy`；先执行 `heading stop`。曲线加减速度是gugaPI的目标整形参数，不能超过底层电机
-实际能够达到的加减速度；默认600/900 RPM/s与MotorDriver默认 `motor ramp` 一致。
+`param save` 才会写入FRAM。旧V1～V7配置加载后使用上述默认曲线参数；旧V1～V8配置
+加载后使用1500/2000 RPM/s的MotorDriver ramp默认值。兼容加载会标记dirty，保存后统一
+升级为V9。定距动作正在运行时，`heading profile` 只允许查看，修改或保存返回`busy`；
+先执行 `heading stop`。这里的600/900 RPM/s是gugaPI定距目标整形参数，与底层持久化的
+MotorDriver ramp 1500/2000 RPM/s是两层不同的限速。
 
 ### `heading stop`
 
@@ -1483,9 +1497,9 @@ heading stop
 
 ## 循迹控制
 
-8 路灰度循迹。需先标定（`lf cal`）再循迹（`lf start`）。20 ms 周期任务 `LF_Update` 只在灰度完整帧序号变化时消费统一处理结果。位置处理会从八路中选择一段连续黑线插值，全八路迟滞位图独立识别路口。
+8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间四路位置帧约 5 ms；10 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置只由 `track_mask=0x3C` 的中间四路插值，全八路迟滞位图独立识别道路类型。
 
-安全机制：灰度数据无效或超过 200 ms → `FAULT_SENSOR_LOST` 停车；可信度 300..699 或存在运行诊断异常时自动半速，低于 300 或位置无效按丢线处理；丢线先减速保持方向，再原地搜索，超过 `lost_timeout_ms` 停车；故障 → 停车。
+安全机制：灰度数据无效或超过 200 ms、通道诊断异常 → 立即停车。强线之后允许短暂全白间隙，并可在相邻单段弱模拟信号重新出现时继续位置插值；全白与弱跟踪共享最多 8 个完整帧（约 40 ms）的恢复预算。每个全白帧同时计入独立的连续异常计数，相邻弱线恢复会将该计数清零；`lost/multiple/wide` 连续 6 个完整帧（约 30 ms）仍异常即停车。因此连续全白不会等待完整 40 ms，也不进行无限保持或盲目搜线。`confidence` 只作诊断，不再独立决定停车。正常跟踪期间始终使用命令指定的基础速度，不根据位置误差自动降速。
 
 ### `lf status`
 
@@ -1506,17 +1520,24 @@ lf status
 | `lost` | 当前是否丢线 |
 | `kp` | 循迹比例增益 |
 | `kd` | 循迹微分增益 |
-| `maxcorr` | 最大修正 RPM |
+| `maxcorr` | 40 RPM 参考速度下的最大修正 RPM |
 | `seq` | 最后消费的灰度完整帧序号 |
 | `road` | 两帧确认后的道路类型 |
 | `pos_valid` | 当前插值位置是否可用于闭环 |
 | `selected` | 实际用于插值的连续通道位图 |
 | `confidence` | 位置可信度，0..1000 |
 | `source` | `core` / `left_edge` / `right_edge` / `held` / `none` |
+| `track_state` | `valid` / `lost` / `multiple` / `wide` / `sensor_fault` |
+| `weak_frames` | 有界弱模拟跟踪的连续帧数，0 表示当前使用正常强度证据，最大 8 |
+| `invalid_frames` | 连续几何异常完整帧数 |
+| `invalid_policy` | `confirm6` 表示连续 6 个几何异常完整帧（约 30 ms）后停车；硬件、过期和通道异常仍立即停车 |
+| `ref_rpm` | 转向比例换算的参考速度，当前为 40 RPM |
+| `max_ratio_permille` | 修正量相对基础速度的硬限幅，当前为 400‰ |
+| `deadband` | 中心误差死区，单位为位置刻度 |
 
 ### `lf cal`
 
-启动兼容扫动标定（2 秒）。在黑线和白底之间来回扫动，记录各通道 min/max；每通道跨度至少 200 才会更新统一灰度校准并设 `calibrated = true`。推荐精确校准使用 `gray calib white/black/commit`。
+启动兼容扫动标定（2 秒）。在黑线和白底之间来回扫动，记录各通道 min/max；每通道跨度至少 400 才会更新统一灰度校准并设 `calibrated = true`。推荐精确校准使用 `gray calib white/black/commit`。
 
 ```text
 lf cal
@@ -1530,7 +1551,7 @@ lf cal
 lf start 80 10000
 ```
 
-修正公式：`correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，限幅到 `max_correction_rpm`。`left = base - correction`，`right = base + correction`。
+修正先在 40 RPM 参考速度计算：`reference_correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，再按 `abs(base_rpm) / 40` 缩放并限制在基础速度的 40%。中心 `±100` 位置刻度使用死区，微分滤波时间常数为 40 ms，修正量反向变化带轻量斜率限制。`left = base - correction`，`right = base + correction`。
 
 ### `lf stop`
 
@@ -1558,7 +1579,7 @@ lf kd 500
 
 ### `lf maxcorr <val>`
 
-设置最大修正 RPM（范围 `0..500`）。默认 30。
+设置 40 RPM 参考速度下的最大修正 RPM（范围 `0..500`）。实际修正按基础速度同比缩放，并额外受 40% 转向比例硬限幅。默认 30。
 
 ```text
 lf maxcorr 50
@@ -1566,7 +1587,7 @@ lf maxcorr 50
 
 ### `lf losthold <ms>`
 
-设置丢线后减速保持最后方向的时间，必须不大于 `losttimeout`。默认 150 ms。
+兼容旧配置的保留命令，必须不大于 `losttimeout`。当前策略为硬件异常立即停车、几何异常确认 6 帧，此参数不再产生丢线搜索运动。默认值仍为 150 ms。
 
 ```text
 lf losthold 150
@@ -1574,7 +1595,7 @@ lf losthold 150
 
 ### `lf losttimeout <ms>`
 
-设置丢线停车超时（`0..10000` ms），必须不小于 `losthold`。默认 500 ms。
+兼容旧配置的保留命令（`0..10000` ms），必须不小于 `losthold`。当前策略为硬件异常立即停车、几何异常确认 6 帧，此参数不再控制停车延迟。默认值仍为 500 ms。
 
 ```text
 lf losttimeout 1000
@@ -1739,13 +1760,15 @@ param heading_kp=1000 range=0..100000
 | `wheel_radius_mm` | 1..1000 | 32 | 兼容旧脚本的整数毫米入口；设置后会覆盖 `wheel_radius_um` |
 | `wheel_track_mm` | 1..2000 | 160 | 轮距（mm） |
 | `max_wheel_rpm` | 1..1000 | 1000 | 最大轮速（RPM） |
-| `motor_output_invert_flags` | 0..3 | 1 | 电机输出反向标志 |
+| `motor_output_invert_flags` | 0..3 | 3 | 电机输出反向标志 |
 | `motor_encoder_invert_flags` | 0..3 | 1 | 编码器反向标志 |
-| `speed_kp` | 0..255 | 1 | 速度环 Kp（Q4.4） |
-| `speed_ki` | 0..255 | 1 | 速度环 Ki（Q4.4） |
+| `speed_kp` | 0..255 | 2 | 速度环 Kp（Q4.4） |
+| `speed_ki` | 0..255 | 2 | 速度环 Ki（Q4.4） |
 | `speed_kd` | 0..255 | 0 | 速度环 Kd（Q4.4） |
-| `speed_max_duty` | 0..100 | 40 | 速度环最大占空比（%） |
+| `speed_max_duty` | 0..100 | 60 | 速度环最大占空比（%） |
 | `speed_min_duty` | 0..100 | 4 | 速度环最小占空比（%） |
+| `speed_accel_rpm_s` | 0..65535 | 1500 | MotorDriver目标转速加速斜坡（RPM/s，0表示立即跟随） |
+| `speed_decel_rpm_s` | 0..65535 | 2000 | MotorDriver目标转速减速斜坡（RPM/s，0表示立即跟随） |
 | `position_kp` | 0..255 | 15 | 位置环 Kp（Q4.4） |
 | `position_ki` | 0..255 | 0 | 位置环 Ki（Q4.4） |
 | `position_kd` | 0..255 | 0 | 位置环 Kd（Q4.4） |
@@ -1863,8 +1886,17 @@ FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接�
 | `R_act` | 右轮实测 RPM |
 | `yaw_tgt` | 航向目标（度） |
 | `yaw` | 当前 yaw（度） |
-| `err` | 航向误差（度） |
-| `corr` | 航向修正量（RPM） |
+| `head_err` | 航向误差（度） |
+| `head_corr` | 航向修正量（RPM） |
+| `gray_pos` | 灰度加权插值位置（mpos，左正右负） |
+| `gray_strength` | 核心通道归一化线强度之和 |
+| `gray_conf` | 插值位置置信度（0..1000） |
+| `gray_valid` | 插值位置有效标志（0/1） |
+| `gray_state` | 灰度轨迹状态枚举值 |
+| `lf_err` | 循迹控制器当前位置误差（mpos） |
+| `lf_corr` | 循迹左右差速修正量（RPM） |
+| `lf_weak` | 弱线恢复窗口帧数 |
+| `lf_invalid` | 连续无效灰度帧数 |
 
 ### `telem on [period_ms]`
 
@@ -1878,9 +1910,15 @@ telem on 200
 输出示例：
 
 ```text
-#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,err,corr
-8435,1,-1,0,0,0,0,0.000,-6.056,0.000,0
-8640,1,-1,0,0,0,0,0.000,-6.043,0.000,0
+#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,head_err,head_corr,gray_pos,gray_strength,gray_conf,gray_valid,gray_state,lf_err,lf_corr,lf_weak,lf_invalid
+8435,1,-1,56,55,64,63,0.000,-6.056,0.000,0,374,1310,1000,1,1,374,4,0,0
+```
+
+仓库中的上位机工具可以同时启用该 OLED 页面、执行一次有时间上限的巡线、保存 CSV
+并生成 PNG 曲线（运行前必须确认场地安全并关闭占用串口的 VOFA+）：
+
+```text
+python host_tools/linefollow_capture.py --port COM14 --start-rpm 60 --run-ms 6000 --enable-oled
 ```
 
 ### `telem off`

@@ -16,7 +16,7 @@ void RegisterMap::Init(void)
     registers_[REG_FAULT_FLAGS] = 0U;
     registers_[REG_CONTROL_FLAGS] = CONTROL_ENABLE;
     registers_[REG_I2C_ADDRESS] = kDefaultI2cAddress;
-    registers_[REG_OUTPUT_INVERT_FLAGS] = 0x01U;
+    registers_[REG_OUTPUT_INVERT_FLAGS] = 0x03U;
     registers_[REG_ENCODER_INVERT_FLAGS] = 0x01U;
     registers_[REG_M1_MODE] = MOTOR_MODE_COAST;
     registers_[REG_M1_DUTY] = 0U;
@@ -30,11 +30,11 @@ void RegisterMap::Init(void)
     registers_[REG_M2_ENCODER_STATE] = 0U;
     registers_[REG_WATCHDOG_TIMEOUT] = 100U;
     registers_[REG_ENCODER_CONTROL] = 0U;
-    registers_[REG_SPEED_KP_Q4_4] = 1U;
-    registers_[REG_SPEED_KI_Q4_4] = 1U;
+    registers_[REG_SPEED_KP_Q4_4] = 2U;
+    registers_[REG_SPEED_KI_Q4_4] = 2U;
     registers_[REG_SPEED_KD_Q4_4] = 0U;
-    registers_[REG_SPEED_MAX_DUTY] = 50U;
-    registers_[REG_SPEED_MIN_DUTY] = 6U;
+    registers_[REG_SPEED_MAX_DUTY] = 60U;
+    registers_[REG_SPEED_MIN_DUTY] = 4U;
     StoreUint16(REG_SPEED_ACCEL_RPM_PER_S_0, 600U);
     StoreUint16(REG_SPEED_DECEL_RPM_PER_S_0, 900U);
     registers_[REG_POSITION_KP_Q4_4] = 20U;

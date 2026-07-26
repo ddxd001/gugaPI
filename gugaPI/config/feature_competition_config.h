@@ -11,17 +11,18 @@
  * - MotorDriver link for chassis control.
  * - ICM-45686 IMU for heading closed-loop (HOLD/TURN).
  * - Status LED + buzzer for competition state indication.
- * - Debug UART shell stays enabled for command/control, but startup prompt,
- *   echo, and debug logs are muted.
+ * - Shell is disabled. Debug UART remains available for fault/warning logs,
+ *   while startup prompt, echo, and debug-level logs stay muted.
  */
 
 #define FEATURE_ENABLE_LOG                 (1U)
 #define FEATURE_ENABLE_LOG_DEBUG           (0U)
-#define FEATURE_ENABLE_SHELL               (1U)
+#define FEATURE_ENABLE_SHELL               (0U)
 #define FEATURE_ENABLE_SHELL_BANNER        (0U)
 #define FEATURE_ENABLE_SHELL_PROMPT        (0U)
 #define FEATURE_ENABLE_SHELL_ECHO          (0U)
 #define FEATURE_ENABLE_DEBUG_UART          (1U)
+#define FEATURE_SHELL_USE_LORA_UART         (0U)
 #define FEATURE_ENABLE_UART_COUNTER_TEST   (0U)
 
 #define FEATURE_ENABLE_STATUS_LED          (1U)

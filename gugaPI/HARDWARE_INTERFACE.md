@@ -37,14 +37,14 @@ PB19 / SPIx_POCI <-------| IMU_SPI POCI/MISO    |---- ICM-45686 SDO, LIS3MDLTR S
 PC7              --------| ICM45686_CS          |---- ICM-45686 CS
 PC8              --------| LIS3MDLTR_CS         |---- LIS3MDLTR CS
                          |                      |
-PB0 / UART0_TX  -------->| DEBUG_UART TX        |---- USB-UART RX / PC RX
-PB1 / UART0_RX  <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
+PB0 / UART0_TX  -------->| LORA_UART TX         |---- LoRa RX
+PB1 / UART0_RX  <--------| LORA_UART RX         |---- LoRa TX
                          |                      |
 PA8 / UART1_TX  -------->| MOTOR_UART TX        |---- MotorDriver RX
 PA9 / UART1_RX  <--------| MOTOR_UART RX        |---- MotorDriver TX
                          |                      |
-PA14 / UART3_TX -------->| LORA_UART TX         |---- LoRa RX
-PA13 / UART3_RX <--------| LORA_UART RX         |---- LoRa TX
+PA14 / UART3_TX -------->| DEBUG_UART TX        |---- USB-UART RX / PC RX
+PA13 / UART3_RX <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
                          |                      |
 PA27             --------| LED1                 |---- Active-low LED
 PA26             --------| LED2                 |---- Active-low LED
@@ -71,10 +71,17 @@ All external UART/I2C modules must share GND with gugaPI.
 
 ## Debug UART
 
+Development builds select the console in
+`config/feature_development_config.h` with
+`FEATURE_SHELL_USE_LORA_UART`. The default `0` sends Shell and logs through
+UART3/PA14/PA13. Setting it to `1` sends Shell and logs through the transparent
+LoRa UART on UART0/PB0/PB1; in that mode the LoRa application protocol and
+the `lora` Shell command are disabled so the UART has exactly one owner.
+
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| DEBUG_UART_TX | PB0 | UART0_TX | USB-UART RX / PC RX | MCU output | N/A | 115200 8N1 |
-| DEBUG_UART_RX | PB1 | UART0_RX | USB-UART TX / PC TX | MCU input | Not configured in board code | 115200 8N1 |
+| DEBUG_UART_TX | PA14 | UART3_TX | USB-UART RX / PC RX | MCU output | N/A | 115200 8N1 |
+| DEBUG_UART_RX | PA13 | UART3_RX | USB-UART TX / PC TX | MCU input | Internal pull-up enabled in `DebugUart_Init()` | 115200 8N1 |
 
 UART configuration:
 
@@ -93,8 +100,8 @@ UART configuration:
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| LORA_UART_TX | PA14 | UART3_TX | LoRa module RX | MCU output | N/A | Moved from PB0 so UART0 can host the shell |
-| LORA_UART_RX | PA13 | UART3_RX | LoRa module TX | MCU input | Internal pull-up enabled in `Board_LoraInit()` | Moved from PB1 so UART0 can host the shell |
+| LORA_UART_TX | PB0 | UART0_TX | LoRa module RX | MCU output | N/A | Dedicated to the on-board radio link |
+| LORA_UART_RX | PB1 | UART0_RX | LoRa module TX | MCU input | Internal pull-up enabled in `Board_LoraInit()` | Dedicated to the on-board radio link |
 | LORA_GND | GND | N/A | LoRa module GND | N/A | N/A | Common ground required |
 
 LoRa UART configuration:
@@ -284,7 +291,9 @@ Grayscale configuration:
 | ADC peripheral | ADC1 | PA15 is ADC1 ADCIN0 on MSPM0G3519 |
 | Resolution | 12-bit | Result 0..4095, VREF = VDDA 3.3V |
 | Sample time | 125 us | ULPCLK / 8, tunable in SysConfig if source impedance needs more |
+| Hardware averaging | 4 samples / result | ADC accumulates 4 and divides by 4 |
 | Settle time | ~200 us | `BOARD_GRAYSCALE_SETTLE_US`; after switching select before ADC sample |
+| Position frame | ~5 ms | Core channels 2..5 sampled consecutively; outer channels refresh within 20 ms |
 | Select polarity | Active-high | Binary address driven directly on SEL0..SEL2 |
 | SysConfig name | `GRAYSCALE_ADC`, `GPIO_GRAY_C`, `GPIO_GRAY_A` | |
 | Board interface | `board/board_grayscale.h` | |
@@ -474,8 +483,8 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 
 | Interface | MCU Instance | TX | RX | Baud | External Peer | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| DEBUG_UART | UART0 | PB0 | PB1 | 115200 | USB-UART / PC | Shell and logs |
-| LORA_UART | UART3 | PA14 | PA13 | 115200 | LoRa module | Raw transparent serial |
+| DEBUG_UART | UART3 | PA14 | PA13 | 115200 | USB-UART / PC | Development Shell and logs; Shell disabled in competition profile |
+| LORA_UART | UART0 | PB0 | PB1 | 115200 | LoRa module | Transparent serial plus optional framed protocol |
 | MOTOR_UART | UART1 | PA8 | PA9 | 115200 | MotorDriver | Binary motor control protocol |
 
 ## SPI Bus Summary

@@ -11,7 +11,9 @@ namespace {
 
 static const uint16_t kFramAddress = 0x0000U;
 static const uint32_t kMagic = 0x47504643U; /* "CFPG" little-endian */
-static const uint16_t kVersion = 8U;
+static const uint16_t kVersion = 9U;
+static const uint16_t kV8Version = 8U;
+static const uint16_t kV8PayloadLength = 177U;
 static const uint16_t kV7Version = 7U;
 static const uint16_t kV7PayloadLength = 162U;
 static const uint16_t kV6Version = 6U;
@@ -25,7 +27,7 @@ static const uint16_t kV3PayloadLength = 90U;
 static const uint16_t kLegacyVersion = 1U;
 static const uint16_t kLegacyPayloadLength = 66U;
 static const uint16_t kV2PayloadLength = 68U; /* v2 layout length (motor_invert guard) */
-static const uint16_t kPayloadLength = 177U; /* v8: +15-byte distance profile */
+static const uint16_t kPayloadLength = 181U; /* v9: +4-byte motor speed ramp */
 static const uint16_t kHeaderLength = 8U;
 static const uint16_t kCrcLength = 4U;
 static const uint16_t kImageLength =
@@ -87,6 +89,10 @@ static const ParamDescriptor kParamDescriptors[] = {
     { "speed_kd", PARAM_U8, PARAM_OFFSET(speed_kd_q4_4), 0, 255 },
     { "speed_max_duty", PARAM_U8, PARAM_OFFSET(speed_max_duty), 0, 100 },
     { "speed_min_duty", PARAM_U8, PARAM_OFFSET(speed_min_duty), 0, 100 },
+    { "speed_accel_rpm_s", PARAM_U16,
+      PARAM_OFFSET(speed_accel_rpm_s), 0, 65535 },
+    { "speed_decel_rpm_s", PARAM_U16,
+      PARAM_OFFSET(speed_decel_rpm_s), 0, 65535 },
 
     { "position_kp", PARAM_U8, PARAM_OFFSET(position_kp_q4_4), 0, 255 },
     { "position_ki", PARAM_U8, PARAM_OFFSET(position_ki_q4_4), 0, 255 },
@@ -310,14 +316,16 @@ void SetDefaults(ConfigStoreParams *params)
     params->wheel_radius_mm = 33U;
     params->wheel_track_mm = 160U;
     params->max_wheel_rpm = 1000U;
-    params->motor_output_invert_flags = 0x01U;
+    params->motor_output_invert_flags = 0x03U;
     params->motor_encoder_invert_flags = 0x01U;
 
-    params->speed_kp_q4_4 = 1U;
-    params->speed_ki_q4_4 = 1U;
+    params->speed_kp_q4_4 = 2U;
+    params->speed_ki_q4_4 = 2U;
     params->speed_kd_q4_4 = 0U;
-    params->speed_max_duty = 40U;
+    params->speed_max_duty = 60U;
     params->speed_min_duty = 4U;
+    params->speed_accel_rpm_s = 1500U;
+    params->speed_decel_rpm_s = 2000U;
 
     params->position_kp_q4_4 = 15U;
     params->position_ki_q4_4 = 0U;
@@ -501,7 +509,9 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     cursor = AppendU16(cursor, params.distance_stop_latency_ms);
     cursor = AppendU16(cursor, params.distance_brake_margin_mm);
     cursor = AppendU16(cursor, params.distance_settle_rpm);
-    (void) AppendU16(cursor, params.distance_tolerance_mm);
+    cursor = AppendU16(cursor, params.distance_tolerance_mm);
+    cursor = AppendU16(cursor, params.speed_accel_rpm_s);
+    (void) AppendU16(cursor, params.speed_decel_rpm_s);
 }
 
 void DecodePayload(const uint8_t *payload,
@@ -624,7 +634,7 @@ void DecodePayload(const uint8_t *payload,
             params->wheel_radius_um = 33050U;
         }
     }
-    if (payload_length >= kPayloadLength) {
+    if (payload_length >= kV8PayloadLength) {
         cursor = ReadU8Field(cursor, &params->distance_speed_mode);
         cursor = ReadU16Field(cursor, &params->distance_accel_rpm_s);
         cursor = ReadU16Field(cursor, &params->distance_decel_rpm_s);
@@ -632,7 +642,11 @@ void DecodePayload(const uint8_t *payload,
         cursor = ReadU16Field(cursor, &params->distance_stop_latency_ms);
         cursor = ReadU16Field(cursor, &params->distance_brake_margin_mm);
         cursor = ReadU16Field(cursor, &params->distance_settle_rpm);
-        (void) ReadU16Field(cursor, &params->distance_tolerance_mm);
+        cursor = ReadU16Field(cursor, &params->distance_tolerance_mm);
+    }
+    if (payload_length >= kPayloadLength) {
+        cursor = ReadU16Field(cursor, &params->speed_accel_rpm_s);
+        (void) ReadU16Field(cursor, &params->speed_decel_rpm_s);
     }
     (void) cursor;
 }
@@ -770,6 +784,8 @@ drivers::DriverStatus ConfigStore_Load(void)
 
     const bool current_layout =
         (version == kVersion) && (length == kPayloadLength);
+    const bool v8_layout =
+        (version == kV8Version) && (length == kV8PayloadLength);
     const bool v7_layout =
         (version == kV7Version) && (length == kV7PayloadLength);
     const bool v6_layout =
@@ -784,8 +800,8 @@ drivers::DriverStatus ConfigStore_Load(void)
         (version == kLegacyVersion) && (length == kLegacyPayloadLength);
     const bool legacy_v2 = (version == 2U) && (length == kV2PayloadLength);
     const bool legacy_layout =
-        v7_layout || v6_layout || v5_layout || v4_layout || v3_layout ||
-        legacy_v1 || legacy_v2;
+        v8_layout || v7_layout || v6_layout || v5_layout || v4_layout ||
+        v3_layout || legacy_v1 || legacy_v2;
 
     if ((magic != kMagic) ||
         ((!current_layout) && (!legacy_layout))) {
@@ -909,8 +925,29 @@ drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
     const uint16_t black[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
     uint16_t threshold)
 {
+    return ConfigStore_SetGrayscaleCalibration(
+        white,
+        black,
+        threshold,
+        g_params.grayscale_hysteresis,
+        g_params.grayscale_position_floor,
+        g_params.grayscale_min_line_strength,
+        g_params.grayscale_track_mask);
+}
+
+drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
+    const uint16_t white[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
+    const uint16_t black[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
+    uint16_t threshold,
+    uint16_t hysteresis,
+    uint16_t position_floor,
+    uint16_t min_line_strength,
+    uint8_t track_mask)
+{
     if ((white == 0) || (black == 0) || (threshold == 0U) ||
-        (threshold >= 1000U)) {
+        (threshold >= 1000U) || (hysteresis > 998U) ||
+        (position_floor >= 1000U) || (min_line_strength == 0U) ||
+        (min_line_strength > 8000U) || (track_mask == 0U)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
 
@@ -924,6 +961,10 @@ drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
         updated.grayscale_black[i] = black[i];
     }
     updated.grayscale_threshold = threshold;
+    updated.grayscale_hysteresis = hysteresis;
+    updated.grayscale_position_floor = position_floor;
+    updated.grayscale_min_line_strength = min_line_strength;
+    updated.grayscale_track_mask = track_mask;
 
     if (!ValidateParams(updated)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;

@@ -245,6 +245,15 @@ drivers::DriverStatus ApplyPersistentMotorConfig(void)
         return status;
     }
 
+    const motor::SpeedRamp speed_ramp = {
+        params->speed_accel_rpm_s,
+        params->speed_decel_rpm_s
+    };
+    status = motor::SetSpeedRamp(&g_motorClient, speed_ramp);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
     uint8_t position_pid[motor::kPositionPidLength] = {
         params->position_kp_q4_4,
         params->position_ki_q4_4,

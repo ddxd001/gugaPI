@@ -13,6 +13,9 @@ void BoardMotorOutputs_Brake(drivers::MotorId motor);
 void BoardMotorOutputs_Run(drivers::MotorId motor,
                            drivers::MotorDirection direction,
                            uint8_t duty_percent);
+void BoardMotorOutputs_RunFine(drivers::MotorId motor,
+                               drivers::MotorDirection direction,
+                               uint16_t duty_percent_q8);
 
 }  // namespace board
 
