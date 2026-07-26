@@ -33,12 +33,6 @@
                 "name": "TEST",
                 "resourceId": "/TEST"
             }
-        },
-        {
-            "name": "MSPM0G3519.ccxml",
-            "type": "ccs-debug",
-            "request": "launch",
-            "targetConfig": "${workspaceFolder}\\gugaPI\\targetConfigs\\MSPM0G3519.ccxml"
         }
     ]
 }

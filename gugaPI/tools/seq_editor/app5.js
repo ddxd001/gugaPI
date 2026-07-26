@@ -9,6 +9,7 @@ var PARAM_GROUPS=[
   {id:'motor',section:'底盘',label:'电机方向'},
   {id:'speed',section:'底盘',label:'速度环'},
   {id:'position',section:'底盘',label:'位置环'},
+  {id:'distance',section:'底盘',label:'距离速度规划'},
   {id:'gy931',section:'姿态与航向',label:'GY931 零点'},
   {id:'imu',section:'姿态与航向',label:'IMU 偏置'},
   {id:'heading',section:'姿态与航向',label:'航向控制'},
@@ -28,25 +29,37 @@ function addParamMeta(name,label,group,def,min,max,unit,desc,restart,kind,previe
   PARAM_ORDER.push(name);
 }
 
-addParamMeta('left_counts_per_rev','左轮编码器每圈计数','chassis',364,1,100000000,'counts/rev','左轮对应 MotorDriver M2。修改后需重启，使 gugaPI 与 MotorDriver 使用相同计数。',true);
-addParamMeta('right_counts_per_rev','右轮编码器每圈计数','chassis',364,1,100000000,'counts/rev','右轮对应 MotorDriver M1。修改后需重启，使 gugaPI 与 MotorDriver 使用相同计数。',true);
-addParamMeta('wheel_radius_mm','车轮半径','chassis',32,1,1000,'mm','用于线速度与轮速之间的换算。',false);
+addParamMeta('left_counts_per_rev','左轮编码器每圈计数','chassis',1456,1,100000000,'counts/rev','左轮对应 MotorDriver M2，默认值包含 QEI 四倍频。修改后需重启，使 gugaPI 与 MotorDriver 使用相同计数。',true);
+addParamMeta('right_counts_per_rev','右轮编码器每圈计数','chassis',1456,1,100000000,'counts/rev','右轮对应 MotorDriver M1，默认值包含 QEI 四倍频。修改后需重启，使 gugaPI 与 MotorDriver 使用相同计数。',true);
+addParamMeta('wheel_radius_um','有效滚动半径','chassis',33050,1000,1000000,'um','实测有效滚动半径，底盘距离换算优先使用该精确值。',false);
+addParamMeta('wheel_radius_mm','兼容车轮半径','chassis',33,1,1000,'mm','兼容旧脚本的整数毫米入口；写入后会同步覆盖精确滚动半径。',false);
 addParamMeta('wheel_track_mm','轮距','chassis',160,1,2000,'mm','左右轮接地点中心之间的距离，用于角速度换算。',false);
 addParamMeta('max_wheel_rpm','最大轮速','chassis',1000,1,1000,'RPM','gugaPI 允许下发的最大轮速限幅。',false);
-addParamMeta('motor_output_invert_flags','电机输出方向','motor',1,0,3,'bitmask','位 0 控制右轮 M1，位 1 控制左轮 M2。应与编码器方向保持闭环一致。',true,'flags');
+addParamMeta('motor_output_invert_flags','电机输出方向','motor',3,0,3,'bitmask','位 0 控制右轮 M1，位 1 控制左轮 M2。应与编码器方向保持闭环一致。',true,'flags');
 addParamMeta('motor_encoder_invert_flags','编码器反馈方向','motor',1,0,3,'bitmask','位 0 控制右轮 M1，位 1 控制左轮 M2。错误方向可能形成正反馈。',true,'flags');
 
-addParamMeta('speed_kp','速度环 Kp','speed',1,0,255,'Q4.4 raw','MotorDriver 速度 PID 比例增益。',true,'number','q44');
-addParamMeta('speed_ki','速度环 Ki','speed',1,0,255,'Q4.4 raw','MotorDriver 速度 PID 积分增益。',true,'number','q44');
+addParamMeta('speed_kp','速度环 Kp','speed',2,0,255,'Q4.4 raw','MotorDriver 速度 PID 比例增益。',true,'number','q44');
+addParamMeta('speed_ki','速度环 Ki','speed',2,0,255,'Q4.4 raw','MotorDriver 速度 PID 积分增益。',true,'number','q44');
 addParamMeta('speed_kd','速度环 Kd','speed',0,0,255,'Q4.4 raw','MotorDriver 速度 PID 微分增益。',true,'number','q44');
-addParamMeta('speed_max_duty','速度环最大占空比','speed',40,0,100,'%','速度闭环输出上限，必须不小于最小占空比。',true);
+addParamMeta('speed_max_duty','速度环最大占空比','speed',60,0,100,'%','速度闭环输出上限，必须不小于最小占空比。',true);
 addParamMeta('speed_min_duty','速度环最小占空比','speed',4,0,100,'%','克服静摩擦的最小输出，必须不大于最大占空比。',true);
+addParamMeta('speed_accel_rpm_s','电机目标加速斜坡','speed',1500,0,65535,'RPM/s','MotorDriver 本地目标转速加速斜坡；0 表示立即跟随。',true);
+addParamMeta('speed_decel_rpm_s','电机目标减速斜坡','speed',2000,0,65535,'RPM/s','MotorDriver 本地目标转速减速斜坡；0 表示立即跟随。',true);
 
 addParamMeta('position_kp','位置环 Kp','position',15,0,255,'Q4.4 raw','MotorDriver 位置 PID 比例增益。',true,'number','q44');
 addParamMeta('position_ki','位置环 Ki','position',0,0,255,'Q4.4 raw','MotorDriver 位置 PID 积分增益。',true,'number','q44');
 addParamMeta('position_kd','位置环 Kd','position',0,0,255,'Q4.4 raw','MotorDriver 位置 PID 微分增益。',true,'number','q44');
 addParamMeta('position_max_rpm','位置环最大转速','position',40,0,1000,'RPM','位置控制期间允许的最大轮速。',true);
 addParamMeta('position_tolerance_counts','位置到位容差','position',3,0,65535,'counts','位置误差进入该范围时视为接近目标。',true);
+
+addParamMeta('distance_speed_mode','距离速度模式','distance',1,0,1,'enum','0 为恒速，1 为梯形速度规划。',false);
+addParamMeta('distance_accel_rpm_s','距离规划加速度','distance',600,1,5000,'RPM/s','距离动作上层基础转速的加速度。',false);
+addParamMeta('distance_decel_rpm_s','距离规划减速度','distance',900,1,5000,'RPM/s','距离动作减速度和制动距离模型参数。',false);
+addParamMeta('distance_creep_rpm','终点逼近转速','distance',15,1,500,'RPM','接近目标距离时的最低单方向逼近速度。',false);
+addParamMeta('distance_stop_latency_ms','停车延迟补偿','distance',360,0,2000,'ms','MotorDriver 和调度链路的停车延迟补偿。',false,'number','ms');
+addParamMeta('distance_brake_margin_mm','提前制动余量','distance',5,0,1000,'mm','在模型制动距离之外额外提前制动的距离。',false);
+addParamMeta('distance_settle_rpm','停稳转速阈值','distance',3,0,100,'RPM','实际轮速低于该值时允许判定停稳。',false);
+addParamMeta('distance_tolerance_mm','距离到位容差','distance',3,1,100,'mm','终点位置误差进入该范围时判定到位。',false);
 
 ['roll','pitch','yaw'].forEach(function(axis){
   addParamMeta('gy931_'+axis+'_zero_mdeg','GY931 '+axis.toUpperCase()+' 零点','gy931',0,-180000000,180000000,'mdeg','GY931 '+axis.toUpperCase()+' 方向零点偏置。',true,'number','mdeg');
@@ -490,7 +503,7 @@ function paramSimCommand(cmd){
   paramSimInit();
   if(cmd==='comp status')return'comp mode=dev-running slot=0 valid=1 any_valid=1 count=5 step=0 result=none last=ok\r\n> ';
   if(cmd==='reset'){simParamValues=Object.assign({},simPersistedValues);simParamDirty=false;return'resetting...\r\n> '}
-  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=158 crc=0x5C758F1C load=ok save=ok\r\n> ';
+  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=181 crc=0x5C758F1C load=ok save=ok\r\n> ';
   if(cmd==='param get'||cmd==='param get '){
     var all='';
     PARAM_ORDER.forEach(function(name){var meta=PARAM_META[name];all+='param '+name+'='+simParamValues[name]+' range='+meta.min+'..'+meta.max+'\r\n'});
