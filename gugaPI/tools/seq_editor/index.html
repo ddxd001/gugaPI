@@ -2,7 +2,7 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>gugaPI Sequence Editor</title>
+<title>gugaPI Control Center</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;font-size:14px;background:#1e1e2e;color:#cdd6f4;display:flex;flex-direction:column;height:100vh}
@@ -50,11 +50,77 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 #termInput{flex:1;background:#1e1e2e;border:1px solid #585b70;border-radius:4px;padding:7px 10px;color:#cdd6f4;font-family:Consolas,"Cascadia Mono",monospace;font-size:13px}
 #termInput:focus{outline:none;border-color:#89b4fa}
 #termInput:disabled{opacity:.55;cursor:not-allowed}
+#paramView{background:#11131a;color:#e4e8f0}
+#paramShell{display:grid;grid-template-rows:auto 1fr;flex:1;min-width:0;overflow:hidden}
+#paramToolbar{display:flex;align-items:center;gap:8px;padding:9px 12px;background:#20242d;border-bottom:1px solid #343a46;flex-wrap:wrap}
+#paramToolbar .param-title{font-size:15px;font-weight:700;margin-right:4px}
+#paramToolbar .param-spacer{flex:1}
+#paramToolbar input[type=search]{width:min(340px,32vw);background:#151820;border:1px solid #3b4350;border-radius:5px;color:#edf1f7;padding:7px 10px}
+#paramToolbar input[type=search]:focus{outline:none;border-color:#4da3d9}
+#paramToolbar label{display:flex;align-items:center;gap:5px;color:#aeb7c5;font-size:12px}
+#paramToolbar button{background:#2c323d;border-color:#414a58;border-radius:4px}
+#paramToolbar button.primary{background:#2d8ac0;color:#fff}
+#paramToolbar button.warn{background:#8c6424;color:#fff;border-color:#a8782b}
+#paramLayout{display:grid;grid-template-columns:220px minmax(360px,1fr) 360px;min-height:0;overflow:hidden}
+.param-pane{min-width:0;min-height:0;overflow:auto;border-right:1px solid #303642;background:#171a22}
+.param-pane:last-child{border-right:none;background:#1c2029}
+#paramGroups{padding:10px}
+.param-group-section{font-size:10px;letter-spacing:.11em;color:#707b8c;padding:12px 9px 5px;text-transform:uppercase}
+.param-group{display:flex;width:100%;align-items:center;justify-content:space-between;padding:8px 10px;margin:2px 0;border:0;border-radius:4px;background:transparent;color:#cbd2dd;text-align:left}
+.param-group:hover{background:#252b35}
+.param-group.active{background:#263c4b;color:#73c7f1;border-left:3px solid #45a8d8;padding-left:7px}
+.param-group .count{font-size:11px;color:#788496;background:#20252e;padding:1px 6px;border-radius:9px}
+#paramListHeader{position:sticky;top:0;z-index:2;display:grid;grid-template-columns:minmax(180px,1fr) 110px 70px;padding:8px 14px;background:#20242d;border-bottom:1px solid #343a46;color:#8390a2;font-size:11px}
+#paramRows{padding-bottom:20px}
+.param-row{display:grid;grid-template-columns:minmax(180px,1fr) 110px 70px;width:100%;align-items:center;border:0;border-bottom:1px solid #252a33;border-radius:0;background:#171a22;color:#dce2eb;padding:9px 14px;text-align:left}
+.param-row:hover{background:#202630}
+.param-row.active{background:#26333e;box-shadow:inset 3px 0 #45a8d8}
+.param-row-name{min-width:0}
+.param-row-label{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.param-row-raw{display:block;color:#748093;font-family:Consolas,monospace;font-size:10px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.param-row-value{font-family:Consolas,monospace;color:#f0f3f8;text-align:right;padding-right:12px}
+.param-row-badges{display:flex;justify-content:flex-end;gap:4px;flex-wrap:wrap}
+.param-badge{display:inline-flex;align-items:center;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:700;letter-spacing:.03em}
+.param-badge.modified{background:#59451d;color:#ffd37a}
+.param-badge.reboot{background:#493447;color:#e9a7df}
+.param-badge.live{background:#233f37;color:#7ed9b4}
+#paramEmpty{padding:45px 20px;text-align:center;color:#758094}
+#paramDetails{padding:18px}
+.param-detail-kicker{font-size:10px;letter-spacing:.12em;color:#6f7d90;text-transform:uppercase}
+.param-detail-title{font-size:20px;line-height:1.25;margin:5px 0 3px;color:#f1f4f8}
+.param-detail-raw{font-family:Consolas,monospace;color:#57b8e8;font-size:12px;word-break:break-all}
+.param-detail-desc{color:#aeb7c5;line-height:1.55;margin:16px 0}
+.param-facts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}
+.param-fact{background:#151820;border:1px solid #2d3440;border-radius:5px;padding:9px}
+.param-fact span{display:block;color:#748093;font-size:10px;margin-bottom:4px}
+.param-fact strong{font-family:Consolas,monospace;font-size:12px;font-weight:500;color:#e7ebf1;word-break:break-all}
+.param-edit-card{margin-top:16px;padding:13px;background:#151820;border:1px solid #343c49;border-radius:6px}
+.param-edit-card label.edit-label{display:block;color:#8d99aa;font-size:11px;margin-bottom:6px}
+.param-edit-card input[type=number]{width:100%;padding:8px 9px;background:#0f1218;border:1px solid #3b4553;border-radius:4px;color:#f0f3f8;font-family:Consolas,monospace}
+.param-edit-card input:focus{outline:none;border-color:#4da3d9}
+.param-preview{min-height:18px;margin-top:5px;color:#7e8a9a;font-size:11px}
+.param-switch-row{display:flex;align-items:center;justify-content:space-between;padding:8px 2px;border-bottom:1px solid #292f39}
+.param-switch-row:last-child{border-bottom:0}
+.param-switch-row input{accent-color:#45a8d8;width:17px;height:17px}
+.param-detail-actions{display:flex;gap:7px;margin-top:12px}
+.param-detail-actions button{flex:1}
+.param-detail-actions button.primary{background:#2d8ac0;color:#fff}
+.param-statusbar{display:flex;gap:6px;align-items:center;color:#9aa5b4;font-size:11px}
+.param-status-dot{width:8px;height:8px;border-radius:50%;background:#697382}
+.param-status-dot.ok{background:#51bd8b}.param-status-dot.warn{background:#e0a64a}.param-status-dot.error{background:#e06767}
+#paramNotice{display:none;padding:8px 12px;background:#6e4c1b;color:#ffe1a4;border-bottom:1px solid #916628;font-size:12px}
+#paramNotice.show{display:block}
+#paramToast{position:fixed;right:18px;bottom:18px;z-index:20;max-width:420px;padding:10px 14px;border-radius:5px;background:#26303b;color:#ecf1f7;border:1px solid #465364;box-shadow:0 8px 26px #0008;opacity:0;transform:translateY(8px);pointer-events:none;transition:.18s}
+#paramToast.show{opacity:1;transform:none}
+#paramToast.error{background:#472b30;border-color:#7a3f47}
+#paramToast.ok{background:#203b33;border-color:#356554}
+#paramFileInput{display:none}
+@media(max-width:1100px){#paramLayout{grid-template-columns:190px minmax(330px,1fr) 310px}}
 </style>
 </head>
 <body>
 <header>
-<h1>gugaPI Sequence Editor</h1>
+<h1>gugaPI Control Center</h1>
 <button id="btnConnect" class="primary">Connect</button>
 <button id="btnSim">Simulate</button>
 <button id="btnRefresh" disabled>Refresh</button>
@@ -63,6 +129,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <div class="tabbar">
 <button class="tab active" id="tabEditor" type="button">序列编辑器</button>
 <button class="tab" id="tabTerminal" type="button">串口终端</button>
+<button class="tab" id="tabParameters" type="button">参数</button>
 </div>
 <div id="editorView" class="main">
 <div class="sidebar"><div style="font-size:12px;opacity:0.5;margin-bottom:6px">SLOTS</div><div id="slotList"></div></div>
@@ -84,10 +151,43 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 </div>
 </div>
 </div>
+<div id="paramView" class="main" hidden>
+<div id="paramShell">
+<div>
+<div id="paramToolbar">
+<span class="param-title">参数管理</span>
+<div class="param-statusbar"><span id="paramStatusDot" class="param-status-dot"></span><span id="paramStatusText">未连接</span></div>
+<span class="param-spacer"></span>
+<input id="paramSearch" type="search" autocomplete="off" placeholder="搜索名称、原始参数或说明">
+<label><input id="paramModifiedOnly" type="checkbox"> 仅看非默认值</label>
+<button id="btnParamRefresh" type="button">刷新</button>
+<button id="btnParamImport" type="button">导入</button>
+<button id="btnParamExport" type="button">导出</button>
+<button id="btnParamLoad" type="button">从 FRAM 重载</button>
+<button id="btnParamReset" class="warn" type="button">恢复默认</button>
+<button id="btnParamSave" class="primary" type="button">保存到 FRAM</button>
+<button id="btnParamReboot" type="button">重启设备</button>
+<input id="paramFileInput" type="file" accept=".json,application/json">
+</div>
+<div id="paramNotice"></div>
+</div>
+<div id="paramLayout">
+<aside class="param-pane"><div id="paramGroups"></div></aside>
+<section class="param-pane">
+<div id="paramListHeader"><span>参数</span><span style="text-align:right;padding-right:12px">当前值</span><span style="text-align:right">状态</span></div>
+<div id="paramRows"></div>
+<div id="paramEmpty" hidden>没有匹配的参数</div>
+</section>
+<aside class="param-pane"><div id="paramDetails"><div id="paramEmptyDetail" style="color:#758094;padding:30px 5px">选择一个参数查看详情</div></div></aside>
+</div>
+</div>
+</div>
 <div class="log" id="log"></div>
+<div id="paramToast" role="status" aria-live="polite"></div>
 <script src="app1.js"></script>
 <script src="app2.js"></script>
 <script src="app3.js"></script>
 <script src="app4.js"></script>
+<script src="app5.js"></script>
 </body>
 </html>

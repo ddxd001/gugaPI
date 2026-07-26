@@ -39,14 +39,22 @@ function terminalSetConnected(connected){
 onSerialData=terminalAppend;
 onSerialStateChange=terminalSetConnected;
 
+var currentView='editor';
 function switchTab(name){
+  currentView=name;
+  var editor=name==='editor';
   var terminal=name==='terminal';
-  $('editorView').hidden=terminal;
+  var parameters=name==='parameters';
+  $('editorView').hidden=!editor;
   $('termView').hidden=!terminal;
-  $('log').hidden=terminal;
-  $('tabEditor').classList.toggle('active',!terminal);
+  $('paramView').hidden=!parameters;
+  $('log').hidden=!editor;
+  $('tabEditor').classList.toggle('active',editor);
   $('tabTerminal').classList.toggle('active',terminal);
+  $('tabParameters').classList.toggle('active',parameters);
   if(terminal&&!$('termInput').disabled)$('termInput').focus();
+  if(parameters&&typeof ParamPage_OnShow==='function')ParamPage_OnShow();
+  if(!parameters&&typeof ParamPage_OnHide==='function')ParamPage_OnHide();
 }
 
 async function terminalSend(){
@@ -83,6 +91,7 @@ function terminalComplete(){
 
 $('tabEditor').addEventListener('click',function(){switchTab('editor')});
 $('tabTerminal').addEventListener('click',function(){switchTab('terminal')});
+$('tabParameters').addEventListener('click',function(){switchTab('parameters')});
 $('btnTermClear').addEventListener('click',function(){$('termDisplay').textContent=''});
 $('btnTermSend').addEventListener('click',terminalSend);
 $('btnTermHelp').addEventListener('click',function(){
