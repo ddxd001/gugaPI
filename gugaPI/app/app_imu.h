@@ -4,6 +4,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "drivers/common/driver_status.h"
+
 namespace app {
 
 struct AppImuData {
@@ -12,7 +14,12 @@ struct AppImuData {
     int32_t temp_centi_c;   /* temperature in centi-degrees Celsius */
     int32_t pitch_mdeg;     /* tilt pitch in milli-degrees, 0..360000 */
     int32_t roll_mdeg;      /* tilt roll in milli-degrees, 0..360000 */
+    int32_t yaw_mdeg;       /* relative yaw from gyro Z, -180000..180000 */
     bool valid;
+    uint32_t last_update_ms;
+    uint32_t error_count;
+    drivers::DriverStatus last_status;
+    uint32_t sequence;
 };
 
 void App_ImuInit(void);

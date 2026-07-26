@@ -78,7 +78,7 @@ drivers/oled/
 
 - `time`：1 ms 系统时间戳和延时
 - `scheduler`：无 RTOS 协作式任务调度
-- `debug_uart`：UART0 调试串口底层收发，内部维护 RX 中断环形缓冲区
+- `debug_uart`：UART6 调试串口底层收发，内部维护 RX 中断环形缓冲区
 - `log`：日志等级接口，提供 `LOG_INFO`、`LOG_WARN`、`LOG_ERROR`、`LOG_DEBUG`
 - `shell`：调试命令行，主循环中调用 `Shell_Process()` 解析命令
 - `fault`：统一错误码和严重错误处理
@@ -98,9 +98,9 @@ drivers/oled/
 推荐任务周期：
 
 ```text
-1 ms    按键扫描、编码器采样
+5 ms    按键扫描、IMU 200 Hz 采样
 5 ms    电机闭环、快速控制
-10 ms   传感器读取、姿态更新
+10 ms   其他快速应用任务
 50 ms   屏幕刷新
 100 ms  串口遥测、状态上报
 ```
@@ -213,7 +213,7 @@ LOG_DEBUG("control loop entered");
 app/app_shell.cpp       注册板级和业务命令
 services/shell.cpp      命令行输入、分词、命令分发
 services/log.cpp        日志等级格式
-services/debug_uart.cpp UART0 TX/RX、RX 中断环形缓冲
+services/debug_uart.cpp UART6 TX/RX、RX 中断环形缓冲
 ```
 
 要求：
@@ -233,11 +233,10 @@ led 1 on
 led 1 off
 buzzer on
 buzzer off
-adc
-pwm 50
 ```
 
-`adc` 和 `pwm` 当前是占位命令，等 ADC/PWM 驱动接入后再替换为真实读写逻辑。
+通用 `adc` 和 `pwm` 占位命令没有对应硬件对象，已经删除。灰度 ADC 使用 `gray`
+命令；新增 PWM 必须先完成引脚、频率、范围和安全状态设计。
 
 ### 9. SysConfig 要求
 
@@ -296,9 +295,9 @@ PA27、PA26、PB27 的初始输出配置为 `SET`，所以上电初始化后 LED
 
 PC16 的初始输出配置为 `CLEARED`，所以上电初始化后蜂鸣器默认不响。
 
-### 调试串口 UART0
+### 调试串口 UART6
 
-- 引脚：RX PB1，TX PB0
+- 引脚：RX PC10，TX PC11
 - 电平：TTL 串口电平
 - 波特率：115200
 - SysConfig 实例：`DEBUG_UART`

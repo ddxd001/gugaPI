@@ -31,6 +31,9 @@ struct ChassisState {
     ChassisWheelState right;
     ChassisConfig config;
     drivers::DriverStatus last_status;
+    drivers::DriverStatus last_feedback_status;
+    uint32_t feedback_sequence;
+    uint32_t last_feedback_ms;
 };
 
 drivers::DriverStatus Chassis_Init(void);
@@ -39,6 +42,11 @@ drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
                                           int32_t right_rpm);
 drivers::DriverStatus Chassis_SetVelocity(int32_t linear_mm_s,
                                           int32_t angular_mdeg_s);
+/* Keep a raw shell position command alive until it settles, without adding a
+ * scheduler task. The existing Chassis_Service() performs the refresh. */
+drivers::DriverStatus Chassis_TrackMotorPosition(bool motor1);
+void Chassis_ReleaseMotorCommand(bool motor1);
+void Chassis_ReleaseAllMotorCommands(void);
 drivers::DriverStatus Chassis_Service(void);
 drivers::DriverStatus Chassis_Update(void);
 const ChassisState *Chassis_GetState(void);

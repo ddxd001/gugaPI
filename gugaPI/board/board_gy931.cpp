@@ -176,6 +176,33 @@ drivers::DriverStatus Board_Gy931ReadRawRegisters(uint8_t start_reg,
                                            word_count);
 }
 
+drivers::DriverStatus Board_Gy931ReadAlgorithm(
+    drivers::Gy931Algorithm *algorithm)
+{
+    if (!drivers::Gy931_IsReady(&g_gy931Context)) {
+        const drivers::DriverStatus status = Board_Gy931Init();
+        if (status != drivers::DRIVER_OK) {
+            return status;
+        }
+    }
+
+    return drivers::Gy931_ReadAlgorithm(&g_gy931Context, algorithm);
+}
+
+drivers::DriverStatus Board_Gy931SetAlgorithmTemporary(
+    drivers::Gy931Algorithm algorithm)
+{
+    if (!drivers::Gy931_IsReady(&g_gy931Context)) {
+        const drivers::DriverStatus status = Board_Gy931Init();
+        if (status != drivers::DRIVER_OK) {
+            return status;
+        }
+    }
+
+    return drivers::Gy931_SetAlgorithmTemporary(&g_gy931Context,
+                                                 algorithm);
+}
+
 bool Board_Gy931IsReady(void)
 {
     return drivers::Gy931_IsReady(&g_gy931Context);

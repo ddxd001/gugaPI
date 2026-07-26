@@ -1,0 +1,229 @@
+/**
+ * These arguments were used when this file was generated. They will be automatically applied on subsequent loads
+ * via the GUI or CLI. Run CLI with '--help' for additional information on how to override these arguments.
+ * @cliArgs --device "MSPM0G350X" --part "Default" --package "VQFN-32(RHB)" --product "mspm0_sdk@2.10.00.04"
+ * @v2CliArgs --device "MSPM0G3507" --package "VQFN-32(RHB)" --product "mspm0_sdk@2.10.00.04"
+ * @versions {"tool":"1.26.2+4477"}
+ */
+
+const Board  = scripting.addModule("/ti/driverlib/Board", {}, false);
+const ADC12  = scripting.addModule("/ti/driverlib/ADC12", {}, false);
+const GPIO   = scripting.addModule("/ti/driverlib/GPIO", {}, false);
+const I2C    = scripting.addModule("/ti/driverlib/I2C", {}, false);
+const MCAN   = scripting.addModule("/ti/driverlib/MCAN", {}, false);
+const SPI    = scripting.addModule("/ti/driverlib/SPI", {}, false);
+const SYSCTL = scripting.addModule("/ti/driverlib/SYSCTL");
+const TIMER  = scripting.addModule("/ti/driverlib/TIMER", {}, false);
+const UART   = scripting.addModule("/ti/driverlib/UART", {}, false);
+
+const MOTOR_CTRL = GPIO.addInstance();
+const DRV_FAULT  = GPIO.addInstance();
+const CAN_CTRL   = GPIO.addInstance();
+const DRV_SPI    = SPI.addInstance();
+const ENCODER_I2C = I2C.addInstance();
+const CAN_DEBUG = MCAN.addInstance();
+const DEBUG_UART = UART.addInstance();
+const CURRENT_ADC0 = ADC12.addInstance();
+const CURRENT_ADC1 = ADC12.addInstance();
+const CURRENT_SAMPLE_TIMER = TIMER.addInstance();
+
+/*
+ * CANFD requires HFCLK or SYSPLLCLK1. Generate an 80 MHz SYSPLLCLK1 from
+ * the internal 32 MHz SYSOSC while leaving MCLK on SYSOSC at 32 MHz.
+ */
+const CAN_PLL_CLK1_DIV = system.clockTree["PLL_CLK1_DIV"];
+CAN_PLL_CLK1_DIV.divideValue = 2;
+
+const CAN_PLL_PDIV = system.clockTree["PLL_PDIV"];
+CAN_PLL_PDIV.divideValue = 2;
+
+const CAN_PLL_QDIV = system.clockTree["PLL_QDIV"];
+CAN_PLL_QDIV.multiplyValue = 10;
+
+const CAN_CLOCK_MUX = system.clockTree["CANCLKMUX"];
+CAN_CLOCK_MUX.inputSelect = "CANCLKMUX_PLLCLK1_OUT";
+
+SYSCTL.CANCLKSource        = "SYSPLLCLK1";
+SYSCTL.SYSPLL_CLK1En       = true;
+SYSCTL.validateClkStatus   = true;
+SYSCTL.forceDefaultClkConfig = true;
+SYSCTL.clockTreeEn         = true;
+
+Board.peripheral.$assign          = "DEBUGSS";
+Board.peripheral.swclkPin.$assign = "PA20";
+Board.peripheral.swdioPin.$assign = "PA19";
+
+MOTOR_CTRL.$name = "MOTOR_CTRL";
+MOTOR_CTRL.associatedPins.create(9);
+
+MOTOR_CTRL.associatedPins[0].$name            = "INHA_PWM";
+MOTOR_CTRL.associatedPins[0].pin.$assign      = "PA22";
+
+MOTOR_CTRL.associatedPins[1].$name            = "CAL";
+MOTOR_CTRL.associatedPins[1].pin.$assign      = "PA21";
+
+MOTOR_CTRL.associatedPins[2].$name            = "INLC_BRAKE_N";
+MOTOR_CTRL.associatedPins[2].initialValue     = "SET";
+MOTOR_CTRL.associatedPins[2].pin.$assign      = "PA18";
+
+MOTOR_CTRL.associatedPins[3].$name            = "SPI_CS_N";
+MOTOR_CTRL.associatedPins[3].initialValue     = "SET";
+MOTOR_CTRL.associatedPins[3].pin.$assign      = "PA17";
+
+MOTOR_CTRL.associatedPins[4].$name            = "INHC_DIR";
+MOTOR_CTRL.associatedPins[4].pin.$assign      = "PA12";
+
+MOTOR_CTRL.associatedPins[5].$name            = "INLB_STATE_C";
+MOTOR_CTRL.associatedPins[5].pin.$assign      = "PA11";
+
+MOTOR_CTRL.associatedPins[6].$name            = "ENABLE";
+MOTOR_CTRL.associatedPins[6].pin.$assign      = "PA10";
+
+MOTOR_CTRL.associatedPins[7].$name            = "INLA_STATE_A";
+MOTOR_CTRL.associatedPins[7].pin.$assign      = "PA4";
+
+MOTOR_CTRL.associatedPins[8].$name            = "INHB_STATE_B";
+MOTOR_CTRL.associatedPins[8].pin.$assign      = "PA3";
+
+DRV_FAULT.$name                                      = "DRV_FAULT";
+DRV_FAULT.associatedPins[0].$name                    = "NFAULT";
+DRV_FAULT.associatedPins[0].direction                = "INPUT";
+DRV_FAULT.associatedPins[0].internalResistor         = "PULL_UP";
+DRV_FAULT.associatedPins[0].interruptEn              = true;
+DRV_FAULT.associatedPins[0].polarity                 = "FALL";
+DRV_FAULT.associatedPins[0].pin.$assign              = "PA5";
+
+/* TCAN3413 standby input: low=Normal mode, high=Standby mode. */
+CAN_CTRL.$name                                      = "CAN_CTRL";
+CAN_CTRL.associatedPins[0].$name                    = "STB";
+CAN_CTRL.associatedPins[0].initialValue             = "CLEARED";
+CAN_CTRL.associatedPins[0].pin.$assign              = "PA23";
+
+DRV_SPI.$name                      = "DRV_SPI";
+DRV_SPI.targetBitRate              = 1000000;
+DRV_SPI.phase                      = "1";
+DRV_SPI.dataSize                   = 16;
+DRV_SPI.chipSelect                 = [];
+DRV_SPI.frameFormat                = "MOTO3";
+DRV_SPI.peripheral.$assign         = "SPI0";
+DRV_SPI.peripheral.sclkPin.$assign = "PA6";
+DRV_SPI.peripheral.mosiPin.$assign = "PA14";
+DRV_SPI.peripheral.misoPin.$assign = "PA13";
+
+/* AS5048B absolute magnetic encoder, A1=A2=GND gives address 0x40. */
+ENCODER_I2C.$name                     = "ENCODER_I2C";
+ENCODER_I2C.basicEnableController     = true;
+ENCODER_I2C.basicControllerBusSpeed   = 400000;
+ENCODER_I2C.advAnalogGlitchFilter     = "25";
+ENCODER_I2C.peripheral.$assign        = "I2C0";
+ENCODER_I2C.peripheral.sdaPin.$assign = "PA0";
+ENCODER_I2C.peripheral.sclPin.$assign = "PA1";
+
+DEBUG_UART.$name                      = "DEBUG_UART";
+DEBUG_UART.targetBaudRate             = 115200;
+DEBUG_UART.enableFIFO                 = true;
+DEBUG_UART.peripheral.$assign         = "UART1";
+DEBUG_UART.peripheral.txPin.$assign   = "PA8";
+DEBUG_UART.peripheral.rxPin.$assign   = "PA9";
+
+/*
+ * TCAN3413 classic-CAN debug port: PA26/CAN_TX -> TXD and PA27/CAN_RX <- RXD.
+ * Receive every 11-bit standard identifier into FIFO0. One dedicated TX
+ * buffer is used by the UART 't' command. PA23 drives the transceiver STB pin
+ * low for normal operation.
+ */
+CAN_DEBUG.$name                    = "CAN_DEBUG";
+CAN_DEBUG.fdMode                  = false;
+CAN_DEBUG.brsEnable               = false;
+CAN_DEBUG.desiredNomRate          = 500;
+CAN_DEBUG.spPercent               = 80;
+CAN_DEBUG.additionalCoreConfig    = true;
+CAN_DEBUG.wkupReqEnable           = true;
+CAN_DEBUG.autoWkupEnable          = true;
+CAN_DEBUG.emulationEnable         = true;
+CAN_DEBUG.tdcEnable               = false;
+CAN_DEBUG.rrfe                    = true;
+CAN_DEBUG.rrfs                    = true;
+CAN_DEBUG.anfe                    = "1";
+CAN_DEBUG.anfs                    = "1";
+CAN_DEBUG.flssa                   = 0;
+CAN_DEBUG.lss                     = 1;
+CAN_DEBUG.stdFiltElem             = "001";
+CAN_DEBUG.stdFiltType             = "00";
+CAN_DEBUG.stdFiltID1              = 0;
+CAN_DEBUG.stdFiltID2              = 2047;
+CAN_DEBUG.flesa                   = 0;
+CAN_DEBUG.lse                     = 0;
+CAN_DEBUG.txStartAddr             = 4;
+CAN_DEBUG.txBufNum                = 1;
+CAN_DEBUG.txFIFOSize              = 0;
+CAN_DEBUG.txBufElemSize           = "DL_MCAN_ELEM_SIZE_8BYTES";
+CAN_DEBUG.txEventFIFOStartAddr    = 20;
+CAN_DEBUG.txEventFIFOSize         = 0;
+CAN_DEBUG.rxFIFO0startAddr        = 20;
+CAN_DEBUG.rxFIFO0size             = 8;
+CAN_DEBUG.rxFIFO0waterMark        = 0;
+CAN_DEBUG.rxFIFO0ElemSize         = "DL_MCAN_ELEM_SIZE_8BYTES";
+CAN_DEBUG.rxFIFO1startAddr        = 0;
+CAN_DEBUG.rxFIFO1size             = 0;
+CAN_DEBUG.rxFIFO1waterMark        = 0;
+CAN_DEBUG.rxFIFO1ElemSize         = "DL_MCAN_ELEM_SIZE_8BYTES";
+CAN_DEBUG.rxBufStartAddr          = 148;
+CAN_DEBUG.rxBufElemSize           = "DL_MCAN_ELEM_SIZE_8BYTES";
+CAN_DEBUG.enableInterrupt         = true;
+CAN_DEBUG.interruptFlags          = ["DL_MCAN_INTERRUPT_BO","DL_MCAN_INTERRUPT_EP","DL_MCAN_INTERRUPT_EW","DL_MCAN_INTERRUPT_MRAF","DL_MCAN_INTERRUPT_PEA","DL_MCAN_INTERRUPT_PED","DL_MCAN_INTERRUPT_RF0L","DL_MCAN_INTERRUPT_RF0N","DL_MCAN_INTERRUPT_TC"];
+CAN_DEBUG.interruptLine           = ["DL_MCAN_INTR_LINE_NUM_1"];
+CAN_DEBUG.interruptLine1Flag      = ["DL_MCAN_INTR_MASK_ALL"];
+CAN_DEBUG.m0interrupts            = ["DL_MCAN_MSP_INTERRUPT_LINE1"];
+CAN_DEBUG.overrideRetention       = true;
+CAN_DEBUG.peripheral.$assign      = "CANFD0";
+CAN_DEBUG.peripheral.txPin.$assign = "PA26";
+CAN_DEBUG.peripheral.rxPin.$assign = "PA27";
+
+/* DRV8323RS current-shunt amplifier outputs. */
+CURRENT_ADC0.$name                      = "CURRENT_ADC0";
+CURRENT_ADC0.sampClkSrc                 = "DL_ADC12_CLOCK_ULPCLK";
+CURRENT_ADC0.powerDownMode              = "DL_ADC12_POWER_DOWN_MODE_MANUAL";
+CURRENT_ADC0.samplingOperationMode      = "sequence";
+CURRENT_ADC0.repeatMode                 = true;
+CURRENT_ADC0.trigSrc                    = "DL_ADC12_TRIG_SRC_EVENT";
+CURRENT_ADC0.subChanID                  = 14;
+CURRENT_ADC0.enabledInterrupts          = ["DL_ADC12_INTERRUPT_MEM1_RESULT_LOADED"];
+CURRENT_ADC0.interruptPriority          = "1";
+CURRENT_ADC0.endAdd                     = 1;
+CURRENT_ADC0.adcMem0chansel             = "DL_ADC12_INPUT_CHAN_3";
+CURRENT_ADC0.adcMem1chansel             = "DL_ADC12_INPUT_CHAN_2";
+CURRENT_ADC0.adcMem1trig                = "DL_ADC12_TRIGGER_MODE_TRIGGER_NEXT";
+CURRENT_ADC0.adcMem0avgen               = true;
+CURRENT_ADC0.adcMem1avgen               = true;
+CURRENT_ADC0.hwNumerator                = "DL_ADC12_HW_AVG_NUM_ACC_4";
+CURRENT_ADC0.hwDenominator              = "DL_ADC12_HW_AVG_DEN_DIV_BY_4";
+CURRENT_ADC0.sampleTime0                = "250ns";
+CURRENT_ADC0.sampleTime1                = "250ns";
+CURRENT_ADC0.peripheral.$assign         = "ADC0";
+CURRENT_ADC0.peripheral.adcPin3.$assign = "PA24";
+CURRENT_ADC0.peripheral.adcPin2.$assign = "PA25";
+
+CURRENT_ADC1.$name                      = "CURRENT_ADC1";
+CURRENT_ADC1.sampClkSrc                 = "DL_ADC12_CLOCK_ULPCLK";
+CURRENT_ADC1.powerDownMode              = "DL_ADC12_POWER_DOWN_MODE_MANUAL";
+CURRENT_ADC1.repeatMode                 = true;
+CURRENT_ADC1.trigSrc                    = "DL_ADC12_TRIG_SRC_EVENT";
+CURRENT_ADC1.subChanID                  = 14;
+CURRENT_ADC1.adcMem0chansel             = "DL_ADC12_INPUT_CHAN_0";
+CURRENT_ADC1.adcMem0trig                = "DL_ADC12_TRIGGER_MODE_TRIGGER_NEXT";
+CURRENT_ADC1.adcMem0avgen               = true;
+CURRENT_ADC1.hwNumerator                = "DL_ADC12_HW_AVG_NUM_ACC_4";
+CURRENT_ADC1.hwDenominator              = "DL_ADC12_HW_AVG_DEN_DIV_BY_4";
+CURRENT_ADC1.sampleTime0                = "250ns";
+CURRENT_ADC1.sampleTime1                = "250ns";
+CURRENT_ADC1.peripheral.$assign         = "ADC1";
+CURRENT_ADC1.peripheral.adcPin0.$assign = "PA15";
+
+/* A 20 kHz timer, phase shifted by firmware, triggers both ADCs together. */
+CURRENT_SAMPLE_TIMER.$name                       = "CURRENT_SAMPLE_TIMER";
+CURRENT_SAMPLE_TIMER.timerMode                   = "PERIODIC";
+CURRENT_SAMPLE_TIMER.timerPeriod                 = "50us";
+CURRENT_SAMPLE_TIMER.event1PublisherChannel      = 14;
+CURRENT_SAMPLE_TIMER.event1ControllerInterruptEn = ["ZERO_EVENT"];
+CURRENT_SAMPLE_TIMER.peripheral.$assign          = "TIMG0";

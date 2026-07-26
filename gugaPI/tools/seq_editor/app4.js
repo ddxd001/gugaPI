@@ -1,0 +1,122 @@
+'use strict';
+
+// Shared Web Serial terminal for the gugaPI UART6 debug shell.
+var termHistory=[];
+var termHistoryIndex=0;
+var TERM_MAX_CHARS=200000;
+var TERM_COMMANDS=[
+  'help','version','reset','sched','txstat','led','buzzer','button','fram',
+  'param','ina219','oled','gy931','imu','gray','lora','motor','chassis',
+  'heading','run','lf','comp','telem','seq','i2c','adc','pwm'
+];
+
+function terminalAppend(data,type){
+  var display=$('termDisplay');
+  var span=document.createElement('span');
+  span.className=type||'rx';
+  span.textContent=data;
+  display.appendChild(span);
+
+  while(display.textContent.length>TERM_MAX_CHARS&&display.firstChild){
+    display.removeChild(display.firstChild);
+  }
+  display.scrollTop=display.scrollHeight;
+}
+
+function terminalSetConnected(connected){
+  $('termInput').disabled=!connected;
+  $('btnTermSend').disabled=!connected;
+  $('btnTermHelp').disabled=!connected;
+  $('termInput').placeholder=connected?'输入命令后回车发送...':'请先连接 gugaPI 串口';
+  if(connected){
+    terminalAppend(simMode?'[模拟串口已连接]\n':'[gugaPI 串口已连接：115200 8N1]\n','hint');
+    if(!$('termView').hidden)$('termInput').focus();
+  }else{
+    terminalAppend('[串口已断开]\n','hint');
+  }
+}
+
+onSerialData=terminalAppend;
+onSerialStateChange=terminalSetConnected;
+
+function switchTab(name){
+  var terminal=name==='terminal';
+  $('editorView').hidden=terminal;
+  $('termView').hidden=!terminal;
+  $('log').hidden=terminal;
+  $('tabEditor').classList.toggle('active',!terminal);
+  $('tabTerminal').classList.toggle('active',terminal);
+  if(terminal&&!$('termInput').disabled)$('termInput').focus();
+}
+
+async function terminalSend(){
+  var input=$('termInput');
+  var command=input.value.trim();
+  if(!command||input.disabled)return;
+
+  if(termHistory.length===0||termHistory[termHistory.length-1]!==command){
+    termHistory.push(command);
+    if(termHistory.length>100)termHistory.shift();
+  }
+  termHistoryIndex=termHistory.length;
+  input.value='';
+  try{
+    await send(command);
+  }catch(error){
+    terminalAppend('[发送失败] '+error.message+'\n','error');
+  }
+}
+
+function terminalComplete(){
+  var input=$('termInput');
+  var beforeCursor=input.value.slice(0,input.selectionStart);
+  if(beforeCursor.trim().includes(' '))return;
+  var prefix=beforeCursor.trim();
+  var matches=TERM_COMMANDS.filter(function(command){return command.startsWith(prefix)});
+  if(matches.length===1){
+    input.value=matches[0]+' ';
+    input.setSelectionRange(input.value.length,input.value.length);
+  }else if(matches.length>1){
+    terminalAppend(matches.join('  ')+'\n','hint');
+  }
+}
+
+$('tabEditor').addEventListener('click',function(){switchTab('editor')});
+$('tabTerminal').addEventListener('click',function(){switchTab('terminal')});
+$('btnTermClear').addEventListener('click',function(){$('termDisplay').textContent=''});
+$('btnTermSend').addEventListener('click',terminalSend);
+$('btnTermHelp').addEventListener('click',function(){
+  $('termInput').value='help';
+  terminalSend();
+});
+$('termInput').addEventListener('keydown',function(event){
+  if(event.key==='Enter'){
+    event.preventDefault();
+    terminalSend();
+  }else if(event.key==='ArrowUp'){
+    event.preventDefault();
+    if(termHistoryIndex>0)termHistoryIndex--;
+    this.value=termHistory[termHistoryIndex]||'';
+    this.setSelectionRange(this.value.length,this.value.length);
+  }else if(event.key==='ArrowDown'){
+    event.preventDefault();
+    if(termHistoryIndex<termHistory.length-1){
+      termHistoryIndex++;
+      this.value=termHistory[termHistoryIndex]||'';
+    }else{
+      termHistoryIndex=termHistory.length;
+      this.value='';
+    }
+    this.setSelectionRange(this.value.length,this.value.length);
+  }else if(event.key==='Tab'){
+    event.preventDefault();
+    terminalComplete();
+  }else if(event.ctrlKey&&event.key.toLowerCase()==='l'){
+    event.preventDefault();
+    $('termDisplay').textContent='';
+  }
+});
+
+if(!('serial' in navigator)){
+  terminalAppend('[当前浏览器不支持 Web Serial，请使用 Chrome 或 Edge。]\n','error');
+}

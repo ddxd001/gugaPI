@@ -37,8 +37,8 @@ PB19 / SPIx_POCI <-------| IMU_SPI POCI/MISO    |---- ICM-45686 SDO, LIS3MDLTR S
 PC7              --------| ICM45686_CS          |---- ICM-45686 CS
 PC8              --------| LIS3MDLTR_CS         |---- LIS3MDLTR CS
                          |                      |
-PB0 / UART0_TX  -------->| DEBUG_UART TX        |---- USB-UART RX / PC RX
-PB1 / UART0_RX  <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
+PC11 / UART6_TX -------->| DEBUG_UART TX        |---- USB-UART RX / PC RX
+PC10 / UART6_RX <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
                          |                      |
 PA8 / UART1_TX  -------->| MOTOR_UART TX        |---- MotorDriver RX
 PA9 / UART1_RX  <--------| MOTOR_UART RX        |---- MotorDriver TX
@@ -73,8 +73,8 @@ All external UART/I2C modules must share GND with gugaPI.
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| DEBUG_UART_TX | PB0 | UART0_TX | USB-UART RX / PC RX | MCU output | N/A | 115200 8N1 |
-| DEBUG_UART_RX | PB1 | UART0_RX | USB-UART TX / PC TX | MCU input | Not configured in board code | 115200 8N1 |
+| DEBUG_UART_TX | PC11 | UART6_TX | USB-UART RX / PC RX | MCU output | N/A | 115200 8N1 |
+| DEBUG_UART_RX | PC10 | UART6_RX | USB-UART TX / PC TX | MCU input | Not configured in board code | 115200 8N1 |
 
 UART configuration:
 
@@ -93,8 +93,8 @@ UART configuration:
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| LORA_UART_TX | PA14 | UART3_TX | LoRa module RX | MCU output | N/A | Moved from PB0 so UART0 can host the shell |
-| LORA_UART_RX | PA13 | UART3_RX | LoRa module TX | MCU input | Internal pull-up enabled in `Board_LoraInit()` | Moved from PB1 so UART0 can host the shell |
+| LORA_UART_TX | PA14 | UART3_TX | LoRa module RX | MCU output | N/A | Dedicated LoRa link |
+| LORA_UART_RX | PA13 | UART3_RX | LoRa module TX | MCU input | Internal pull-up enabled in `Board_LoraInit()` | Dedicated LoRa link |
 | LORA_GND | GND | N/A | LoRa module GND | N/A | N/A | Common ground required |
 
 LoRa UART configuration:
@@ -370,7 +370,7 @@ ICM-45686 configuration:
 | Bus | Shared SPI | Same SPI peripheral as LIS3MDLTR |
 | Chip select | PC7 | Dedicated GPIO, not shared |
 | WHO_AM_I / device ID | 0xE9 @ reg 0x72 | Confirmed from ICM-45686 datasheet DS-000489 |
-| SPI read/write command format | MSB=1 read, MSB=0 write; 7-bit addr; MSB-first; burst auto-increment; big-endian data | Confirmed from datasheet section 9.1 |
+| SPI read/write command format | MSB=1 read, MSB=0 write; 7-bit addr; MSB-first; burst auto-increment | SPI bit order from datasheet section 9.1. 16-bit register data is LITTLE-ENDIAN by default (first byte of a burst is the low byte); big-endian is configurable via datasheet section 14 but is NOT enabled here. Verified on hardware: accel_z raw 0x40,0x20 -> 0x2040 ~= 1 g, temp 0x38,0x04 -> ~33 C. |
 | Interrupt use | INT1 on PC6 for data-ready | INT polarity/function is register-configurable; verify from ICM-45686 datasheet during driver work |
 | INT2 interrupt | PA31 used as INT2 interrupt input | Open-drain output from sensor; sensor internal pull-up default-enabled (regs `pads_int2_pe_trim_d2a[0]` / `pads_int2_pud_trim_d2a[0]`). MCU pin configured as INPUT (no pull). FSYNC input mode not used. |
 | Reset line | Not connected / TBD | Fill only if schematic has a reset pin connection |
@@ -474,7 +474,7 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 
 | Interface | MCU Instance | TX | RX | Baud | External Peer | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| DEBUG_UART | UART0 | PB0 | PB1 | 115200 | USB-UART / PC | Shell and logs |
+| DEBUG_UART | UART6 | PC11 | PC10 | 115200 | USB-UART / PC | Shell and logs |
 | LORA_UART | UART3 | PA14 | PA13 | 115200 | LoRa module | Raw transparent serial |
 | MOTOR_UART | UART1 | PA8 | PA9 | 115200 | MotorDriver | Binary motor control protocol |
 

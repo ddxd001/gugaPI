@@ -28,6 +28,11 @@ public:
                                int32_t m2_counts_per_second,
                                uint8_t m2_state);
     void UpdateMeasuredRpm(int16_t m1_rpm, int16_t m2_rpm);
+    void UpdateSpeedControlTelemetry(bool motor1,
+                                     uint16_t control_rpm,
+                                     int16_t error_rpm,
+                                     int16_t integral_q4,
+                                     uint8_t duty);
     void SetMotorDutyFromControl(bool motor1, uint8_t duty);
     void SetMotorOutputFromControl(bool motor1,
                                    uint8_t duty,
@@ -49,6 +54,8 @@ public:
     uint8_t SpeedKdQ4_4(void) const;
     uint8_t SpeedMaxDuty(void) const;
     uint8_t SpeedMinDuty(void) const;
+    uint16_t SpeedAccelRpmPerSecond(void) const;
+    uint16_t SpeedDecelRpmPerSecond(void) const;
     uint32_t M1CountsPerRev(void) const;
     uint32_t M2CountsPerRev(void) const;
     int32_t M1TargetPosition(void) const;

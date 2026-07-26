@@ -18,7 +18,7 @@ MotorDriver 是基于 MSPM0G3519 的双路 DRV8701 PH/EN 电机驱动固件。
 - UART 控制口：UART4，PB17 TX，PB18 RX，115200 8N1
 - I2C 从机：I2C1，PA17 SCL，PA18 SDA，默认地址 `0x20`
 - 电机 1：PA5 PH，PA6 TIMG0_CCP1 EN PWM
-- 电机 2：PA24 PH，PA25 TIMG12_CCP1 EN PWM
+- 电机 2：PB24 PH，PA23 TIMG0_CCP0 EN PWM（与 M1 共用 TIMG0 双通道）
 - 电机 1 编码器：PB7 A，PB9 B
 - 电机 2 编码器：PA22 A，PA21 B
 - PWM 频率：20 kHz
@@ -48,7 +48,8 @@ I2C 不再套 UART 的 `0xAA CMD...CRC` 帧，而是直接访问同一张寄存�
 ```
 
 - 默认 7-bit 地址：`0x20`。
-- 当前固件把地址固定为 `0x20`；硬件文档中的 ADDR0/1/2 DIP 地址位后续再接入。
+- 可通过 UART 写寄存器 `0x05` 修改地址（有效范围 `0x08`-`0x77`），修改后立即生效并掉电保存到 FLASH。
+- 硬件文档中的 ADDR0/1/2 DIP 地址位后续再接入。
 - I2C 读寄存器不会刷新 watchdog。
 - I2C 写寄存器成功提交后会刷新 watchdog，和 UART 写命令一致。
 - I2C 当前没有专用 heartbeat 寄存器；gugaPI 的 `motor ping` 在 I2C 模式下只做地址探测，不刷新 watchdog。
@@ -57,11 +58,11 @@ I2C 不再套 UART 的 `0xAA CMD...CRC` 帧，而是直接访问同一张寄存�
 
 ```text
 0x00 DEVICE_ID          R       0xA5
-0x01 FW_VERSION         R       0x01
+0x01 FW_VERSION         R       0x02
 0x02 STATUS             R
 0x03 FAULT_FLAGS        R/W1C
 0x04 CONTROL_FLAGS      R/W     默认 0x01，全局使能
-0x05 I2C_ADDRESS        R       默认 0x20，当前固定地址
+0x05 I2C_ADDRESS        R/W     默认 0x20，可通过 UART 写入修改并掉电保存
 
 0x10 M1_MODE            R/W     0 coast，1 run，2 brake，3 speed，4 position
 0x11 M1_DUTY            R/W     0..100，speed/position 模式下为控制器输出
@@ -88,11 +89,11 @@ I2C 不再套 UART 的 `0xAA CMD...CRC` 帧，而是直接访问同一张寄存�
 0x3A SPEED_KP_Q4_4      R/W     默认 1
 0x3B SPEED_KI_Q4_4      R/W     默认 1
 0x3C SPEED_KD_Q4_4      R/W     默认 0
-0x3D SPEED_MAX_DUTY     R/W     默认 100
-0x3E SPEED_MIN_DUTY     R/W     默认 0
+0x3D SPEED_MAX_DUTY     R/W     默认 50
+0x3E SPEED_MIN_DUTY     R/W     默认 6
 
-0x40 M1_COUNTS_PER_REV  R/W     uint32 小端，M1 输出轴每圈编码器计数，默认 22400
-0x44 M2_COUNTS_PER_REV  R/W     uint32 小端，M2 输出轴每圈编码器计数，默认 22400
+0x40 M1_COUNTS_PER_REV  R/W     uint32 小端，M1 输出轴每圈编码器计数，默认 364
+0x44 M2_COUNTS_PER_REV  R/W     uint32 小端，M2 输出轴每圈编码器计数，默认 364
 0x48 M1_HOLD_COUNT      R       int32 小端，M1 speed 0 保持目标
 0x4C M2_HOLD_COUNT      R       int32 小端，M2 speed 0 保持目标
 
@@ -110,6 +111,17 @@ I2C 不再套 UART 的 `0xAA CMD...CRC` 帧，而是直接访问同一张寄存�
 0x69 POSITION_MAX_DUTY  R/W     默认 25，位置修正最大占空比
 0x6A POSITION_EXIT_TOL  R/W     uint16 小端，默认 800 counts，离开目标区阈值
 0x6C POSITION_SETTLE    R/W     10ms 单位，默认 10，也就是 100ms
+
+0x6D M1_CONTROL_RPM     R       uint16 小端，速度斜坡后的控制目标
+0x6F M2_CONTROL_RPM     R       uint16 小端，速度斜坡后的控制目标
+0x71 M1_SPEED_ERROR     R       int16 小端，控制目标减去方向对齐后的实测 RPM
+0x73 M2_SPEED_ERROR     R       int16 小端，控制目标减去方向对齐后的实测 RPM
+0x75 M1_SPEED_INTEGRAL  R       int16 小端，速度环积分状态，Q4
+0x77 M2_SPEED_INTEGRAL  R       int16 小端，速度环积分状态，Q4
+0x79 M1_CONTROL_DUTY    R       速度控制器最终输出占空比
+0x7A M2_CONTROL_DUTY    R       速度控制器最终输出占空比
+0x7B SPEED_ACCEL        R/W     uint16 小端，RPM/s，默认 600；0 表示立即跟随
+0x7D SPEED_DECEL        R/W     uint16 小端，RPM/s，默认 900；0 表示立即跟随
 ```
 
 写寄存器是事务式的：整帧先校验，任意字段非法时整帧拒绝，不会部分修改电机输出。
@@ -170,7 +182,7 @@ bit2 AT_TARGET
 当前默认参数按测试电机设置：
 
 ```text
-448 CPR * 50 减速比 = 22400 counts/output-shaft revolution
+当前实车标定值 = 364 counts/output-shaft revolution
 ```
 
 更换电机时可以运行时覆盖输出轴每圈编码器计数：
@@ -188,7 +200,8 @@ count = deg * counts_per_rev / 360
 默认速度 PID 参数等价于：
 
 ```text
-motor pid 1 1 0 100 0
+motor pid 1 1 0 50 6
+motor ramp 600 900
 ```
 
 默认位置环参数等价于：
@@ -240,6 +253,8 @@ motor enc reset
 motor cfg
 motor cfg <m1_counts_per_rev> <m2_counts_per_rev>
 motor rpm
+motor ramp
+motor ramp <accel_rpm_s> <decel_rpm_s>
 motor pid
 motor pid <kp_q4.4> <ki_q4.4> <kd_q4.4> [max_duty [min_duty]]
 motor pos

@@ -22,6 +22,22 @@ version
 reset
 ```
 
+### `sched`
+
+查看调度器运行时统计（各任务周期、执行次数、最大/平均执行时间）。仅在开发配置（`FEATURE_ENABLE_SCHEDULER_STATS`）下可用。
+
+```text
+sched
+```
+
+### `txstat`
+
+查看调试 UART（UART6）TX/RX 队列状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
+
+```text
+txstat
+```
+
 ## LED
 
 ### `led status`
@@ -111,6 +127,36 @@ button
 | button1 | 等效 `ina219 oled on 100` |
 | button2 | 等效 `gy931 oled on 100` |
 | button3 | 等效 `gray oled on 100` |
+
+按键任务每 5 ms 扫描一次，使用 20 ms 软件消抖和 800 ms 长按门限。`button` 输出中的
+`held_ms` 是当前或最近一次按压时长，`events` 四位依次表示 `D`(按下)、`U`(松开)、
+`S`(短按)、`L`(长按)。命令会取走显示出的待处理事件。
+
+开发配置还会在事件产生时自动打印，不消费上述待处理事件；比赛配置默认关闭自动打印：
+
+```text
+button event button1 types=pressed held_ms=0
+button event button1 types=released,short held_ms=126
+button event button1 types=long held_ms=800
+```
+
+### `button watch [duration_ms]`
+
+实时监控按键 GPIO 电平变化，默认持续 5 秒，可设置 `100..30000` ms。按电平变化时打印时间戳和 GPIOB/GPIOC 输入寄存器快照。
+
+```text
+button watch
+button watch 10000
+```
+
+### `button scan [duration_ms]`
+
+扫描全部 GPIOA/GPIOB/GPIOC 引脚变化（比 `watch` 范围更广），默认持续 5 秒，可设置 `100..30000` ms。用于排查按键映射到哪个引脚。
+
+```text
+button scan
+button scan 10000
+```
 
 ## FRAM
 
@@ -345,6 +391,18 @@ gy931 angle
 ```text
 gy931 angle raw=123,-45,1000 deg=0.675,-0.247,5.493
 ```
+
+### `gy931 algorithm [6axis|9axis]`
+
+查看或临时切换姿态解算算法。`6axis` 使用加速度计和陀螺仪积分输出相对航向，`9axis` 使用磁场参与解算绝对航向。切换命令会解锁并读回校验 `AXIS6(0x24)`，但不会执行保存，传感器重新上电后恢复其已保存配置。
+
+```text
+gy931 algorithm
+gy931 algorithm 6axis
+gy931 algorithm 9axis
+```
+
+六轴模式不受磁场干扰，但 yaw 会随时间漂移，适合持续时间较短的直行保持和相对角度转弯。
 
 ### `gy931 sample`
 
@@ -597,19 +655,19 @@ imu icm wreg 0x1B 0x39
 
 ### `imu sample`
 
-打印周期采样任务（10ms 一次，`app_imu`）缓存的最新数据，已按量程换算为 mg / mdps / centi℃，并减去 `ConfigStore` 里的 `imu_accel_bias_*` / `imu_gyro_bias_*` 偏置。
+打印周期采样任务（5 ms 一次，200 Hz，`app_imu`）缓存的最新数据。IMU SPI 为 1 MHz、mode 3，每次突发读取 14 字节；数据按量程换算为 mg / mdps / centi℃，并减去 `ConfigStore` 里的 `imu_accel_bias_*` / `imu_gyro_bias_*` 偏置。
 ```text
 imu sample
 ```
 输出：
 ```text
-imu acc=<mg>,<mg>,<mg> mg gyr=<mdps>,<mdps>,<mdps> mdps t=<cC> cC
+imu acc=<mg>,<mg>,<mg> mg gyr=<mdps>,<mdps>,<mdps> mdps t=<cC> cC yaw=<deg> deg
 ```
 若未就绪会提示 `imu sample: no data (run 'imu icm init')`。
 
 ### `imu oled on [period_ms]` / `off` / `status` / `once`
 
-把 IMU 角度数据显示到 OLED（沿用 INA219 的 OLED 方案，与其他 OLED 数据源互斥）。周期采样任务（10ms）算出俯仰/横滚角后，OLED 任务按 `period_ms` 刷新。角度由加速度计算（CORDIC atan2，无浮点），归一化到 0~360°。
+把 IMU 角度数据显示到 OLED（沿用 INA219 的 OLED 方案，与其他 OLED 数据源互斥）。周期采样任务（5 ms）算出俯仰/横滚角并积分 Z 轴角速度得到相对 Yaw，OLED 任务按 `period_ms` 刷新。
 
 ```text
 imu oled on
@@ -624,16 +682,16 @@ imu oled once
 IMU 200ms
 Pit: <ddd.ddd> deg
 Rol: <ddd.ddd> deg
-Gz:  <ddd.ddd> d/s
+Yaw: <ddd.ddd> deg
 ```
 
 - `Pit`/`Rol`：由加速度计算的俯仰/横滚角，0~360°（"360 度单位"）。
-- `Gz`：陀螺仪 Z 轴角速率，°/s（带符号）。
+- `Yaw`：陀螺仪 Z 轴按真实采样间隔积分得到的相对角度，范围 -180°~180°。
 - 无数据时显示 `IMU no data / run 'imu icm init'`。
 
 ## 灰度传感器（8 路 ADC）
 
-8:1 多路复用灰度阵列：3 个选位引脚（PA16=bit2、PC20=bit1、PC21=bit0）选 1 路，PA15（ADC1 ADCIN0）读模拟值（0..4095）。10ms 周期任务缓存全 8 路。
+8:1 多路复用灰度阵列：3 个选位引脚（PA16=bit2、PC20=bit1、PC21=bit0）选 1 路，PA15（ADC1 ADCIN0）读模拟值（0..4095）。2 ms 周期任务每次采一路，约 16 ms 原子发布完整 8 路帧（约 62.5 Hz）。
 
 ### `gray status`
 
@@ -661,11 +719,54 @@ gray all
 
 ### `gray data`
 
-打印 10ms 周期任务缓存的最新 8 路数据（不触发新转换）。
+打印周期任务缓存的最新完整 8 路帧（不触发新转换）。
 ```text
 gray data
 ```
 未就绪时提示 `gray: no data`。
+
+### `gray process`
+
+查看统一处理链输出，不触发新的 ADC 转换：
+
+```text
+gray process
+```
+
+输出包含归一化值、有效/循迹掩码、线位置、线强度、道路类型、迟滞开启/关闭阈值
+和处理状态。调试通道顺序、黑白极性、迟滞以及丢线判断时应以此命令为准；循迹控制
+也消费同一份处理结果。
+
+### `gray calib ...`
+
+推荐使用白、黑两阶段多帧平均标定：
+
+```text
+gray calib white 16
+gray calib status
+gray calib black 16
+gray calib status
+gray calib commit
+param save
+```
+
+`white`/`black` 默认采集 16 个完整帧，可设为 1..128。两个阶段都完成后执行
+`commit`；每个通道的黑白跨度必须至少为 200 ADC counts。`commit` 只更新运行参数并
+将 ConfigStore 标记为 dirty，断电保存还需执行 `param save`。
+
+辅助命令：
+
+```text
+gray calib show
+gray calib status
+gray calib reload
+gray calib sweep [ms]
+gray calib cancel
+```
+
+`show` 查看当前白点、黑点和处理参数；`reload` 从 ConfigStore 重新装载；`sweep`
+是在黑线和白底间扫动的兼容标定方式，默认 2000 ms，并假定白色 ADC 值高于黑色；
+极性相反时必须使用显式 `white`/`black` 标定。`cancel` 终止尚未完成的采集。
 
 ### `gray oled on [period_ms]`
 
@@ -957,6 +1058,36 @@ motor info
 | `ctrl` | 控制标志 |
 | `i2c` | MotorDriver I2C 地址 |
 
+### `motor rpm`
+
+读取两路速度环状态。MotorDriver 固件版本 2 及以上会额外显示内部控制遥测。
+
+```text
+motor rpm
+```
+
+字段含义：
+
+| 字段 | 含义 |
+| --- | --- |
+| `target` | 主控请求的最终目标转速 |
+| `control` | 经过加减速斜坡后的当前控制目标 |
+| `actual` | 编码器实测转速 |
+| `error` | 控制目标减去方向对齐后的实测转速 |
+| `integral_q4` | 速度 PID 积分状态，Q4 格式 |
+| `duty` | 速度控制器最终输出占空比 |
+
+### `motor ramp [accel_rpm_s decel_rpm_s]`
+
+查看或设置 MotorDriver 内部目标转速斜坡，单位为 RPM/s。参数为 `0` 时对应方向立即跟随请求目标，不执行斜坡限制。
+
+```text
+motor ramp
+motor ramp 600 900
+```
+
+普通目标转速变化受斜坡限制；停车、故障和控制器禁用仍立即清除输出。
+
 ### `motor reg <addr> <len>`
 
 读取 MotorDriver 寄存器。
@@ -1064,6 +1195,31 @@ motor m2 run 10 rev
 `duty` 范围是 `0..100`。
 开环 `run duty > 0` 期间 MotorDriver 会暂停对应电机的编码器 GPIO 中断，停止后约 3 秒再恢复，以保证高占空比测试和惯性转动期间通信仍能处理；此时该路编码器 count/RPM 不保证更新。需要编码器闭环时使用 `motor m2 speed` / `hold` / `pos` / `posrel`。
 
+### 固定角度位置控制
+
+```text
+motor m1 pos <deg>
+motor m1 posrel <deg>
+motor m2 pos <deg>
+motor m2 posrel <deg>
+```
+
+`pos` 设置相对于编码器零点的绝对角度，`posrel` 从当前编码器位置继续转动指定角度，正负号表示两个方向。默认位置参数为 `kp=15`、`ki=0`、`kd=0`、`max_rpm=40`、`tol_counts=3`；启动时还会设置 `min_duty=6`、`max_duty=10`、`exit_tol_counts=5`、`settle_ms=0`。
+
+gugaPI 会通过已有的 100 ms `chassis` 服务自动刷新位置目标，避免超过 MotorDriver 的 1 秒看门狗期限。控制器第一次越过目标时不会立即结束；误差必须连续 5 个服务周期保持在到位窗口内，随后才切换到 coast。任一周期重新超出窗口都会清除稳定计数并继续纠偏。
+
+查看和临时修改位置参数：
+
+```text
+motor pos
+motor pospid
+motor pospid 15 0 0 40 3
+motor posctl
+motor posctl 6 10 5 0
+```
+
+`motor pospid` / `motor posctl` 只修改 MotorDriver 当前运行值。需要让 `pospid` 参数跨 gugaPI 重启保存，应同时使用 `param set position_*` 和 `param save`；`posctl` 使用上述经过实机验证的启动默认值。
+
 ### MotorDriver 原始串口调试命令
 
 这些命令绕过 MotorDriver 协议，只做原始串口收发，适合排查线序、波特率和电平。
@@ -1087,20 +1243,554 @@ motor read 16
 
 如果能读到 `ping`，说明 gugaPI 侧 UART1 的 TX/RX 正常。
 
-## ADC 和 PWM 占位命令
+## 底盘控制
 
-### `adc`
+底盘控制层封装左右轮转速命令、线速度/角速度转换和编码器读取，是航向闭环、循迹和动作序列的基础。底层仍通过 `motor` 命令的 I2C/UART 通道访问 MotorDriver。
 
-当前没有注册 ADC 驱动，只会提示占位信息。
+### `chassis status`
 
-```text
-adc
-```
-
-### `pwm <0..100>`
-
-当前没有注册 PWM 驱动，只会提示占位信息。
+主动刷新并查看底盘完整状态（含两轮目标/实测 RPM、编码器 count/cps、底盘几何配置）。会触发一次 I2C 往返。
 
 ```text
-pwm 50
+chassis status
 ```
+
+### `chassis stat`
+
+查看缓存状态（单行摘要）。不触发 I2C 往返，数据来自 20 ms 周期反馈任务。用于快速确认 actual_rpm 是否在刷新。
+
+```text
+chassis stat
+```
+
+输出示例：
+
+```text
+chassis stat: L tgt=80 act=76 R tgt=80 act=78 last=ok
+```
+
+### `chassis stop`
+
+停止底盘（两轮写入 coast + duty 0）。同时清除航向和循迹状态。
+
+```text
+chassis stop
+```
+
+### `chassis wheel <left_rpm> <right_rpm>`
+
+直接设置左右轮目标转速，范围为 `-max_wheel_rpm..max_wheel_rpm`（默认 1000）。正值前进，负值后退。此命令会刷新 MotorDriver 看门狗。
+
+```text
+chassis wheel 80 80
+chassis wheel -50 -50
+chassis wheel 60 -60
+```
+
+### `chassis vel <linear_mm_s> <angular_mdeg_s>`
+
+通过线速度和角速度设置底盘目标。线速度范围 `-5000..5000 mm/s`，角速度范围 `-720000..720000 mdeg/s`。内部根据 `wheel_radius_mm` 和 `wheel_track_mm` 换算为左右轮 RPM。
+
+```text
+chassis vel 200 0
+chassis vel 0 90000
+```
+
+## 航向闭环
+
+航向闭环使用 ICM-45686 陀螺仪 Z 轴 yaw 积分实现行走中的直行保持、相对角度转弯，以及带航向修正的编码器距离行驶。航向源为 IMU yaw（毫度），不是 GY931。
+
+50 ms 周期任务 `Heading_Update` 消费 IMU 数据并输出左右轮差速命令。距离模式同时消费20 ms底盘编码器反馈。安全机制：IMU无效或数据过期（>200 ms）、编码器反馈超过100 ms未更新、航向误差超过90°、转弯或距离行为超时，均会停车并置故障。
+
+### `heading status`
+
+查看航向闭环当前状态。
+
+```text
+heading status
+```
+
+输出字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `mode` | `idle` / `hold` / `turn` / `distance` |
+| `target` | 目标航向（度） |
+| `error` | 当前航向误差（度，最短角度差） |
+| `corr` | 航向差速修正RPM（hold/distance）或转弯速度（turn） |
+| `at_target` | 转弯或距离行为是否进入目标容差区间 |
+| `last` | 上一次操作结果 |
+
+### `heading hold <base_rpm>`
+
+启动直行航向保持。锁定当前 IMU yaw 为目标航向，以 `base_rpm` 为基础速度直行，根据航向误差差速修正。范围为 `-max_wheel_rpm..max_wheel_rpm`。
+
+这是“车辆行走时的航向保持”，没有位置完成条件，会持续运行直到执行 `heading stop`、被动作序列切换或发生故障；它不是独立的静止航向角保持。
+
+```text
+heading hold 80
+heading hold -50
+```
+
+修正公式：`correction = error_mdeg * heading_kp / 1e6`，限幅到 `heading_max_correction_rpm`。`left = base - correction`，`right = base + correction`。
+
+### `heading turn <deg>`
+
+启动相对角度转弯。`deg` 范围 `-180..180`，正值左转，负值右转（取决于 `kYawSign`），走最短路径。接近目标后保持 `heading_settle_ms` 判定完成。
+
+```text
+heading turn 90
+heading turn -180
+heading turn 45
+```
+
+转弯速度：`speed = abs_err * heading_kp / 1e6`，限幅到 `[heading_turn_min_rpm, heading_turn_max_rpm]`。
+
+### `heading distance <mm> <max_rpm> [timeout_ms]`
+
+按编码器距离闭环行驶，并锁定启动瞬间的IMU航向。正距离前进，负距离倒退；范围为
+`-10000..10000 mm`（不能为0）。基础速度按剩余距离逐渐降低，航向误差仍通过左右轮
+差速修正。
+
+```text
+heading distance 500 60
+heading distance -200 40
+heading distance 1000 80 15000
+heading status
+```
+
+`timeout_ms` 可省略，固件根据距离、轮径和最大RPM生成有界超时。左右轮都进入目标
+`±3 mm` 后停车，稳定100 ms后回到 `idle`。该行为依赖正确的
+`wheel_radius_mm`、左右轮 `counts_per_rev` 和编码器方向配置。
+
+### `heading stop`
+
+停止航向闭环并停车。
+
+```text
+heading stop
+```
+
+## 循迹控制
+
+8 路灰度循迹。需先标定（`lf cal`）再循迹（`lf start`）。20 ms 周期任务 `LF_Update` 只在灰度完整帧序号变化时消费统一处理结果，使用中间通道位置进行 PD 控制；全八路迟滞位图独立识别路口。
+
+安全机制：灰度数据无效或超过 200 ms → `FAULT_SENSOR_LOST` 停车；丢线先减速保持方向，再原地搜索，超过 `lost_timeout_ms` 停车；故障 → 停车。
+
+### `lf status`
+
+查看循迹状态。
+
+```text
+lf status
+```
+
+输出字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `mode` | `idle` / `cal` / `follow` |
+| `cal` | 是否已完成标定 |
+| `error` | 线路位置误差（默认约 `-1500..+1500`，0 = 居中） |
+| `corr` | 当前差速修正 RPM |
+| `lost` | 当前是否丢线 |
+| `kp` | 循迹比例增益 |
+| `kd` | 循迹微分增益 |
+| `maxcorr` | 最大修正 RPM |
+| `seq` | 最后消费的灰度完整帧序号 |
+| `road` | 两帧确认后的道路类型 |
+
+### `lf cal`
+
+启动兼容扫动标定（2 秒）。在黑线和白底之间来回扫动，记录各通道 min/max；每通道跨度至少 200 才会更新统一灰度校准并设 `calibrated = true`。推荐精确校准使用 `gray calib white/black/commit`。
+
+```text
+lf cal
+```
+
+### `lf start <rpm> <ms>`
+
+启动循迹，以 `rpm` 为基础速度循迹 `ms` 毫秒。`rpm` 范围 `-max_wheel_rpm..max_wheel_rpm`，`ms` 范围 `0..30000`。必须先完成标定。
+
+```text
+lf start 80 10000
+```
+
+修正公式：`correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，限幅到 `max_correction_rpm`。`left = base - correction`，`right = base + correction`。
+
+### `lf stop`
+
+停止循迹并停车。
+
+```text
+lf stop
+```
+
+### `lf kp <val>`
+
+设置循迹比例增益（范围 `0..1000000`），立即生效并将配置标记为 dirty。默认 10000。
+
+```text
+lf kp 15000
+```
+
+### `lf kd <val>`
+
+设置滤波微分增益（`0..1000000`）。默认 0；实车确认比例控制方向后再小步增加。
+
+```text
+lf kd 500
+```
+
+### `lf maxcorr <val>`
+
+设置最大修正 RPM（范围 `0..500`）。默认 30。
+
+```text
+lf maxcorr 50
+```
+
+### `lf losthold <ms>`
+
+设置丢线后减速保持最后方向的时间，必须不大于 `losttimeout`。默认 150 ms。
+
+```text
+lf losthold 150
+```
+
+### `lf losttimeout <ms>`
+
+设置丢线停车超时（`0..10000` ms），必须不小于 `losthold`。默认 500 ms。
+
+```text
+lf losttimeout 1000
+```
+
+## 动作序列
+
+条件驱动的指令表解释器，通过 `run add` 逐条构建指令序列，`run start` 启动。50 ms 周期任务 `ActionRunner_Update` 执行当前指令，满足完成条件后跳转到 `on_success` / `on_timeout` 目标。
+
+安全机制：故障 → 中止序列并停车；整序列超时 60 s → 中止；指令启动失败 → 走 `on_timeout` 路径；每条指令完成后调用 `StopAll` 清除运动状态。
+
+### 指令格式
+
+每条指令 6 个参数：
+
+```text
+run add <op> <param1> <param2> <until> <onsuccess> <ontimeout>
+```
+
+| 参数 | 含义 |
+| --- | --- |
+| `op` | 操作码：`drive` / `drive_mm` / `turn` / `follow` / `wait` / `stop` / `branch` / `end` |
+| `param1` | DRIVE/FOLLOW: 基础RPM；TURN: 相对角度；DRIVE_MM: 有符号毫米 |
+| `param2` | 一般为超时/持续时间ms；DRIVE_MM为最大RPM |
+| `until` | 完成条件：`timeout` / `heading_reached` / `distance_reached` / `line_detected` / `line_lost` / `button` / `immediate` |
+| `onsuccess` | 成功跳转目标：`next`（下一条）或索引 `0..15` |
+| `ontimeout` | 超时跳转目标：`abort`（中止序列）或索引 `0..15` |
+
+操作码说明：
+
+| 操作码 | 动作 | 典型条件 |
+| --- | --- | --- |
+| `drive` | 航向保持直行（`heading hold`） | `timeout` / `line_detected` / `line_lost` |
+| `drive_mm` | 编码器距离闭环并保持启动航向 | `distance_reached` |
+| `turn` | 相对角度转弯（`heading turn`） | `heading_reached` |
+| `follow` | 循迹（`lf start`） | `timeout` / `line_lost` |
+| `wait` | 等待（不产生运动） | `timeout` / `button` |
+| `stop` | 立即停车 | `immediate` |
+| `branch` | 条件跳转（不产生运动），成功走 onsuccess，失败走 ontimeout | 任意条件 |
+| `end` | 序列完成（成功） | `immediate` |
+
+### `run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>`
+
+追加一条指令到序列末尾。最多 16 条。
+
+```text
+run add drive  80  5000  timeout          next abort
+run add drive_mm 500 60 distance_reached  next abort
+run add turn   90  8000  heading_reached  next abort
+run add follow 80  30000 line_lost        next abort
+run add wait   0   100   timeout          next abort
+run add stop   0   0     immediate        next abort
+run add end    0   0     immediate        next abort
+```
+
+### `run clear`
+
+清空指令表（序列运行中时拒绝）。
+
+```text
+run clear
+```
+
+### `run start`
+
+启动序列（从第 0 条指令开始）。有故障时拒绝启动。
+
+```text
+run start
+```
+
+### `run cancel`
+
+中止正在运行的序列并停车。
+
+```text
+run cancel
+```
+
+### `run status`
+
+查看序列执行状态。
+
+```text
+run status
+```
+
+输出示例：
+
+```text
+run 2/5 running=1 last=1 cur=turn
+```
+
+字段：`当前步/总步数`、`running`、`last`（上一步是否成功）、`cur`（当前操作码）。
+
+### `run dump`
+
+打印完整指令表。
+
+```text
+run dump
+```
+
+输出示例：
+
+```text
+seq 5
+0 drive 80 5000 timeout 255 255
+1 turn 90 8000 heading_reached 255 255
+2 follow 80 30000 line_lost 255 255
+3 stop 0 0 immediate 255 255
+4 end 0 0 immediate 255 255
+```
+
+`255` = `ACT_NEXT`（onsuccess=下一条，ontimeout=中止）。
+
+## 参数管理
+
+参数持久化系统。所有底盘几何、速度环、位置环、IMU 偏置和航向闭环参数统一存储在 FRAM 中（地址 0x0000，magic "CFPG"，CRC32 校验）。当前版本 v3，兼容加载 v1/v2 历史布局。
+
+### `param status`
+
+查看参数存储状态。
+
+```text
+param status
+```
+
+输出字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `loaded` | 是否从 FRAM 成功加载 |
+| `dirty` | 是否有未保存的修改 |
+| `len` | 存储的 payload 长度 |
+| `crc` | 存储的 CRC32 |
+| `load` | 上次加载结果 |
+| `save` | 上次保存结果 |
+
+### `param get [name]`
+
+查看所有参数或单个参数。不带参数列出全部 32 项参数（含当前值和合法范围）。
+
+```text
+param get
+param get heading_kp
+```
+
+输出示例：
+
+```text
+param heading_kp=1000 range=0..100000
+```
+
+参数列表：
+
+| 参数名 | 范围 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `left_counts_per_rev` | 1..100000000 | 364 | 左轮编码器 CPR |
+| `right_counts_per_rev` | 1..100000000 | 364 | 右轮编码器 CPR |
+| `wheel_radius_mm` | 1..1000 | 32 | 轮半径（mm） |
+| `wheel_track_mm` | 1..2000 | 160 | 轮距（mm） |
+| `max_wheel_rpm` | 1..1000 | 1000 | 最大轮速（RPM） |
+| `motor_output_invert_flags` | 0..3 | 1 | 电机输出反向标志 |
+| `motor_encoder_invert_flags` | 0..3 | 1 | 编码器反向标志 |
+| `speed_kp` | 0..255 | 1 | 速度环 Kp（Q4.4） |
+| `speed_ki` | 0..255 | 1 | 速度环 Ki（Q4.4） |
+| `speed_kd` | 0..255 | 0 | 速度环 Kd（Q4.4） |
+| `speed_max_duty` | 0..100 | 40 | 速度环最大占空比（%） |
+| `speed_min_duty` | 0..100 | 4 | 速度环最小占空比（%） |
+| `position_kp` | 0..255 | 15 | 位置环 Kp（Q4.4） |
+| `position_ki` | 0..255 | 0 | 位置环 Ki（Q4.4） |
+| `position_kd` | 0..255 | 0 | 位置环 Kd（Q4.4） |
+| `position_max_rpm` | 0..1000 | 40 | 位置环最大转速（RPM） |
+| `position_tolerance_counts` | 0..65535 | 3 | 位置环容差（counts） |
+| `gy931_roll_zero_mdeg` | ±180000000 | 0 | GY931 Roll 零点（mdeg） |
+| `gy931_pitch_zero_mdeg` | ±180000000 | 0 | GY931 Pitch 零点（mdeg） |
+| `gy931_yaw_zero_mdeg` | ±180000000 | 0 | GY931 Yaw 零点（mdeg） |
+| `imu_accel_bias_x_mg` | ±200000 | 0 | IMU 加速度 X 偏置（mg） |
+| `imu_accel_bias_y_mg` | ±200000 | 0 | IMU 加速度 Y 偏置（mg） |
+| `imu_accel_bias_z_mg` | ±200000 | 0 | IMU 加速度 Z 偏置（mg） |
+| `imu_gyro_bias_x_mdps` | ±2000000 | 0 | IMU 陀螺仪 X 偏置（mdps） |
+| `imu_gyro_bias_y_mdps` | ±2000000 | 0 | IMU 陀螺仪 Y 偏置（mdps） |
+| `imu_gyro_bias_z_mdps` | ±2000000 | 0 | IMU 陀螺仪 Z 偏置（mdps） |
+| `heading_kp` | 0..100000 | 1000 | 航向增益（1 RPM/deg） |
+| `heading_max_correction_rpm` | 0..500 | 30 | 直行最大差速修正（RPM） |
+| `heading_turn_max_rpm` | 0..1000 | 60 | 转弯最大轮速（RPM） |
+| `heading_turn_min_rpm` | 0..500 | 20 | 转弯最小轮速（RPM） |
+| `heading_tolerance_mdeg` | 0..90000 | 3000 | 转弯容差（mdeg，3000=3°） |
+| `heading_settle_ms` | 0..5000 | 300 | 转弯到位保持时间（ms） |
+
+### `param set <name> <value>`
+
+修改单个参数（RAM，标记 dirty）。修改后需 `param save` 才会持久化到 FRAM。参数值超出合法范围或校验失败（如 `speed_min_duty > speed_max_duty`）时拒绝。
+
+```text
+param set heading_kp 1500
+param set speed_max_duty 60
+```
+
+### `param save`
+
+将当前参数持久化到 FRAM。清除 dirty 标志。
+
+```text
+param save
+```
+
+### `param load`
+
+从 FRAM 重新加载参数。如果 FRAM 数据损坏或不兼容，回退到源码默认值。
+
+```text
+param load
+```
+
+### `param reset`
+
+恢复源码默认值（RAM，不清除 dirty 标志，需 `param save` 持久化）。
+
+```text
+param reset
+```
+
+## 比赛模式
+
+比赛模式状态机：`ARMED`（安全静止）→ `RUNNING`（序列执行中）→ `ARMED`。在比赛配置（`FEATURE_PROFILE_COMPETITION=1`）下上电自动进入 ARMED；开发配置下可用 `comp arm` 手动进入。
+
+LED 指示：ARMED 慢闪（1Hz）、RUNNING 常亮、FAULT 快闪（5Hz）+ 蜂鸣器。
+
+### `comp arm`
+
+从开发模式进入比赛武装状态。停止底盘，禁用 chassis 任务。仅在 `dev-running` 模式下可用。
+
+```text
+comp arm
+```
+
+### `comp start`
+
+启动比赛序列。需要预先用 `run add` 加载指令序列。可通过按键 1 替代。仅在 `armed` 模式下可用。
+
+```text
+comp start
+```
+
+### `comp stop`
+
+取消比赛序列并返回武装状态。可通过按键 1 替代。仅在 `running` 模式下可用。
+
+```text
+comp stop
+```
+
+### `comp status`
+
+查看当前比赛模式状态。
+
+```text
+comp status
+```
+
+输出示例：
+
+```text
+comp mode=armed
+```
+
+模式值：`armed`（安全静止）、`running`（序列执行中）、`fault`（故障锁定）、`dev-running`（开发模式）。
+
+## 遥测（FireWater / VOFA+）
+
+FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接收实时画图。非阻塞，TX 缓冲接近满时自动丢帧。
+
+通道定义：
+
+| 通道 | 含义 |
+| --- | --- |
+| `t` | 系统运行时间（ms） |
+| `mode` | App 模式（0=idle, 1=running, 2=fault, 3=armed, 4=comp-running） |
+| `step` | ActionRunner 当前步（-1=未运行） |
+| `L_tgt` | 左轮目标 RPM |
+| `L_act` | 左轮实测 RPM |
+| `R_tgt` | 右轮目标 RPM |
+| `R_act` | 右轮实测 RPM |
+| `yaw_tgt` | 航向目标（度） |
+| `yaw` | 当前 yaw（度） |
+| `err` | 航向误差（度） |
+| `corr` | 航向修正量（RPM） |
+
+### `telem on [period_ms]`
+
+开启遥测输出。默认周期 100ms（10Hz），范围 `50..5000`ms。开启时先发送通道名行（`#` 开头），然后周期输出数据行。
+
+```text
+telem on
+telem on 200
+```
+
+输出示例：
+
+```text
+#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,err,corr
+8435,1,-1,0,0,0,0,0.000,-6.056,0.000,0
+8640,1,-1,0,0,0,0,0.000,-6.043,0.000,0
+```
+
+### `telem off`
+
+关闭遥测输出。
+
+```text
+telem off
+```
+
+### `telem status`
+
+查看遥测状态。
+
+```text
+telem status
+```
+
+## ADC 和 PWM 资源入口
+
+没有硬件对象的通用 `adc`、`pwm` 占位命令已经删除。
+
+- ADC1/PA15 属于八路灰度传感器，使用 `gray status|read|data|process`。
+- 蜂鸣器使用 `buzzer on|off|toggle`，不是通用 PWM。
+- 新增辅助 ADC/PWM 前必须先定义原理图网络、SysConfig 资源、参数范围和安全状态。
+
+LoRa 帧协议、LIS3MDL、INA219 保护和灰度处理的新命令请参阅
+`docs/devices/gugaPI/` 下对应设备手册。

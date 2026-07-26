@@ -15,6 +15,8 @@ static const uint8_t GY931_REG_GX = 0x37U;
 static const uint8_t GY931_REG_HX = 0x3AU;
 static const uint8_t GY931_REG_ROLL = 0x3DU;
 static const uint8_t GY931_REG_TEMP = 0x40U;
+static const uint8_t GY931_REG_AXIS6 = 0x24U;
+static const uint8_t GY931_REG_KEY = 0x69U;
 static const uint8_t GY931_REG_CHIP_ID_L = 0x8DU;
 static const uint8_t GY931_MAX_READ_WORDS = 16U;
 
@@ -47,6 +49,11 @@ struct Gy931Sample {
     int32_t angle_mdeg[3];
 };
 
+enum Gy931Algorithm {
+    GY931_ALGORITHM_9_AXIS = 0U,
+    GY931_ALGORITHM_6_AXIS = 1U
+};
+
 DriverStatus Gy931_Init(Gy931Context *ctx, const Gy931Config *config);
 DriverStatus Gy931_Probe(Gy931Context *ctx);
 DriverStatus Gy931_ReadAngles(Gy931Context *ctx, Gy931Angles *angles);
@@ -55,6 +62,10 @@ DriverStatus Gy931_ReadRawRegisters(Gy931Context *ctx,
                                     uint8_t start_reg,
                                     int16_t *words,
                                     uint8_t word_count);
+DriverStatus Gy931_ReadAlgorithm(Gy931Context *ctx,
+                                 Gy931Algorithm *algorithm);
+DriverStatus Gy931_SetAlgorithmTemporary(Gy931Context *ctx,
+                                         Gy931Algorithm algorithm);
 bool Gy931_IsReady(const Gy931Context *ctx);
 int32_t Gy931_AngleRawToMdeg(int16_t raw);
 int32_t Gy931_AccRawToMg(int16_t raw);

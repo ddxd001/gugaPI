@@ -46,6 +46,19 @@ bool WaitTxFifoSpace(const LoraUartConfig *config)
     return true;
 }
 
+/* Clear RX plus every error flag so an overrun/framing/parity/noise event
+ * does not leave the flag set and re-fire the ISR forever. Mirrors the
+ * motor_driver_uart handler. */
+uint32_t RxClearMask(void)
+{
+    return DL_UART_MAIN_INTERRUPT_RX |
+           DL_UART_MAIN_INTERRUPT_RX_TIMEOUT_ERROR |
+           DL_UART_MAIN_INTERRUPT_OVERRUN_ERROR |
+           DL_UART_MAIN_INTERRUPT_FRAMING_ERROR |
+           DL_UART_MAIN_INTERRUPT_PARITY_ERROR |
+           DL_UART_MAIN_INTERRUPT_NOISE_ERROR;
+}
+
 } /* namespace */
 
 DriverStatus LoraUart_Init(LoraUartContext *context,
@@ -63,7 +76,7 @@ DriverStatus LoraUart_Init(LoraUartContext *context,
     context->rx_dropped_count = 0U;
 
     /* LoRa 模块为串口透传模式，UART 时钟和引脚复用由 SysConfig 完成。 */
-    DL_UART_Main_clearInterruptStatus(config->uart, DL_UART_MAIN_INTERRUPT_RX);
+    DL_UART_Main_clearInterruptStatus(config->uart, RxClearMask());
     NVIC_ClearPendingIRQ(config->irq);
 
     context->initialized = true;
@@ -212,20 +225,15 @@ void LoraUart_IrqHandler(LoraUartContext *context)
         return;
     }
 
-    switch (DL_UART_Main_getPendingInterrupt(context->config->uart)) {
-    case DL_UART_MAIN_IIDX_RX:
-        while (!DL_UART_Main_isRXFIFOEmpty(context->config->uart)) {
-            PushRxByteFromIsr(
-                context,
-                DL_UART_Main_receiveData(context->config->uart));
-        }
-        DL_UART_Main_clearInterruptStatus(context->config->uart,
-                                          DL_UART_MAIN_INTERRUPT_RX);
-        break;
+    (void) DL_UART_Main_getPendingInterrupt(context->config->uart);
 
-    default:
-        break;
+    while (!DL_UART_Main_isRXFIFOEmpty(context->config->uart)) {
+        PushRxByteFromIsr(
+            context,
+            DL_UART_Main_receiveData(context->config->uart));
     }
+
+    DL_UART_Main_clearInterruptStatus(context->config->uart, RxClearMask());
 }
 
 } /* namespace drivers */

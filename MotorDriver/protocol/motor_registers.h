@@ -6,8 +6,8 @@
 namespace protocol {
 
 constexpr uint8_t kDeviceId = 0xA5U;
-constexpr uint8_t kFirmwareVersion = 0x01U;
-constexpr uint8_t kRegisterCount = 0x6DU;
+constexpr uint8_t kFirmwareVersion = 0x02U;
+constexpr uint8_t kRegisterCount = 0x7FU;
 constexpr uint8_t kMaxPayloadLength = 32U;
 constexpr uint8_t kDefaultI2cAddress = 0x20U;
 
@@ -121,6 +121,25 @@ enum Register : uint8_t {
     REG_POSITION_EXIT_TOLERANCE_0 = 0x6AU,
     REG_POSITION_EXIT_TOLERANCE_1 = 0x6BU,
     REG_POSITION_SETTLE_10MS = 0x6CU,
+
+    REG_M1_CONTROL_RPM_0 = 0x6DU,
+    REG_M1_CONTROL_RPM_1 = 0x6EU,
+    REG_M2_CONTROL_RPM_0 = 0x6FU,
+    REG_M2_CONTROL_RPM_1 = 0x70U,
+    REG_M1_SPEED_ERROR_0 = 0x71U,
+    REG_M1_SPEED_ERROR_1 = 0x72U,
+    REG_M2_SPEED_ERROR_0 = 0x73U,
+    REG_M2_SPEED_ERROR_1 = 0x74U,
+    REG_M1_SPEED_INTEGRAL_0 = 0x75U,
+    REG_M1_SPEED_INTEGRAL_1 = 0x76U,
+    REG_M2_SPEED_INTEGRAL_0 = 0x77U,
+    REG_M2_SPEED_INTEGRAL_1 = 0x78U,
+    REG_M1_CONTROL_DUTY = 0x79U,
+    REG_M2_CONTROL_DUTY = 0x7AU,
+    REG_SPEED_ACCEL_RPM_PER_S_0 = 0x7BU,
+    REG_SPEED_ACCEL_RPM_PER_S_1 = 0x7CU,
+    REG_SPEED_DECEL_RPM_PER_S_0 = 0x7DU,
+    REG_SPEED_DECEL_RPM_PER_S_1 = 0x7EU,
 };
 
 enum MotorMode : uint8_t {
@@ -172,6 +191,9 @@ enum EncoderControlFlags : uint8_t {
     ENCODER_CONTROL_RESET_M1 = 0x01U,
     ENCODER_CONTROL_RESET_M2 = 0x02U,
 };
+
+static_assert(kRegisterCount == (REG_SPEED_DECEL_RPM_PER_S_1 + 1U),
+              "register count must include the final register");
 
 }  // namespace protocol
 

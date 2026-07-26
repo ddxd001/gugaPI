@@ -35,7 +35,11 @@
 #include "app/app_main.h"
 #include "app/app_shell.h"
 #include "board/board.h"
+#include "board/board_buzzer.h"
+#include "board/board_led.h"
+#include "board/board_oled.h"
 #include "config/feature_config.h"
+#include "drivers/common/driver_status.h"
 #include "services/debug_uart.h"
 #include "services/fault.h"
 #include "services/log.h"
@@ -216,6 +220,46 @@ extern "C" void SYSCFG_DL_init(void)
 }
 #endif
 
+/* Observable panic: blink the status LED (and attempt one log line) instead
+ * of a silent hang. Registered with services::Fault so the services layer does
+ * not need to depend on board/app. Owns the loop; Fault_Panic hangs if this
+ * ever returns. */
+static void PanicHandler(services::FaultCode code)
+{
+#if FEATURE_ENABLE_LOG
+    services::Log_Error("panic");
+#endif
+#if FEATURE_ENABLE_BUZZER
+    if (board::Board_BuzzerIsReady()) {
+        (void) board::Board_BuzzerOff();
+    }
+#endif
+#if FEATURE_ENABLE_OLED
+    if (board::Board_OledIsReady()) {
+        (void) board::Board_OledClear();
+        (void) board::Board_OledWriteText(0U, 0U, "SYSTEM FAULT");
+        (void) board::Board_OledWriteText(
+            1U,
+            0U,
+            (code == services::FAULT_ASSERT) ? "ASSERT" : "PANIC");
+        (void) board::Board_OledWriteText(2U, 0U, "EXECUTION HALTED");
+        (void) board::Board_OledWriteText(3U, 0U, "RESET TO RECOVER");
+    }
+#else
+    (void) code;
+#endif
+    for (;;) {
+#if FEATURE_ENABLE_STATUS_LED
+        (void) board::Board_StatusLedOn();
+#endif
+        delay_cycles(8000000U); /* ~200 ms at 40 MHz */
+#if FEATURE_ENABLE_STATUS_LED
+        (void) board::Board_StatusLedOff();
+#endif
+        delay_cycles(8000000U);
+    }
+}
+
 int main(void)
 {
     SYSCFG_DL_init();
@@ -223,9 +267,45 @@ int main(void)
     services::Fault_Init();
     services::Scheduler_Init();
     services::Time_Init();
-    board::Board_Init();
     services::DebugUart_Init();
     services::Log_Init();
+    services::Fault_SetPanicHandler(&PanicHandler);
+
+    /* Retry the complete checked initialization once because some I2C/SPI
+     * devices need additional power-up time. The final report still records
+     * every enabled peripheral and distinguishes degraded failures from
+     * failures that must inhibit motion. */
+    if (board::Board_Init() != drivers::DRIVER_OK) {
+        LOG_WARN("board init incomplete; retrying");
+        delay_cycles(4000000U); /* ~100 ms at 40 MHz */
+        if (board::Board_Init() != drivers::DRIVER_OK) {
+            const board::BoardInitReport *report =
+                board::Board_GetInitReport();
+            const bool motion_inhibited =
+                (report != 0) && report->motion_inhibited;
+            if (motion_inhibited) {
+                LOG_ERROR("board init failed after retry; motion inhibited");
+            } else {
+                LOG_WARN("board init degraded after retry");
+            }
+            if (report != 0) {
+                for (uint8_t i = 0U; i < report->count; i++) {
+                    if (report->entries[i].status != drivers::DRIVER_OK) {
+                        services::DebugUart_WriteString("  failed: ");
+                        services::DebugUart_WriteString(
+                            report->entries[i].name);
+                        services::DebugUart_WriteString("\r\n");
+                    }
+                }
+            }
+            if (motion_inhibited) {
+                services::Fault_Set(services::FAULT_DRIVER_INIT);
+            }
+        } else {
+            LOG_WARN("board init recovered after retry");
+        }
+    }
+
     services::Shell_Init();
     app::AppShell_RegisterCommands();
     app::App_Init();
@@ -235,5 +315,6 @@ int main(void)
         services::Scheduler_Run();
         app::App_Run();
         services::Shell_Process();
+        services::DebugUart_TxPump();
     }
 }

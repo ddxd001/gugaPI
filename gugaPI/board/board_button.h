@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "drivers/common/driver_status.h"
+#include "drivers/button/button.h"
 
 namespace board {
 
@@ -21,8 +22,14 @@ drivers::DriverStatus Board_ButtonReadRaw(BoardButtonId id, bool *pressed);
 const char *Board_ButtonGetName(BoardButtonId id);
 bool Board_ButtonIsReady(BoardButtonId id);
 bool Board_ButtonIsPressed(BoardButtonId id);
+uint32_t Board_ButtonPeekEvents(BoardButtonId id);
+uint32_t Board_ButtonGetGeneratedEvents(BoardButtonId id);
+uint32_t Board_ButtonTakeEvents(BoardButtonId id, uint32_t event_mask);
+uint32_t Board_ButtonGetPressDurationMs(BoardButtonId id);
 bool Board_ButtonWasPressed(BoardButtonId id);
 bool Board_ButtonWasReleased(BoardButtonId id);
+bool Board_ButtonWasShortPressed(BoardButtonId id);
+bool Board_ButtonWasLongPressed(BoardButtonId id);
 
 } /* namespace board */
 
