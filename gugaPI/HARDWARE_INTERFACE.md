@@ -71,6 +71,8 @@ All external UART/I2C modules must share GND with gugaPI.
 
 ## Debug UART
 
+Shell and log output use the dedicated DEBUG UART configured by SysConfig.
+
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | DEBUG_UART_TX | PC11 | UART6_TX | USB-UART RX / PC RX | MCU output | N/A | 115200 8N1 |
@@ -162,7 +164,7 @@ MotorDriver I2C configuration:
 | Use case | Default MotorDriver high-level control | Shell `motor` commands default to this bus |
 | Board bus name | IIC1 | Dedicated to MotorDriver |
 | MCU I2C instance | I2C1 | `MOTOR_I2C_INST` |
-| Bus speed | 100 kHz | Conservative bring-up speed |
+| Bus speed | 400 kHz | Validated with external pull-up resistors; 50 ns analog glitch filter enabled |
 | 7-bit address | 0x20 | `BOARD_MOTOR_DRIVER_I2C_ADDRESS` |
 | Protocol | Direct register access | No UART frame wrapper on I2C |
 
@@ -187,7 +189,7 @@ GY931 configuration:
 | Enabled | Yes | `FEATURE_ENABLE_GY931` |
 | Board bus name | GY931 software I2C | Not registered in generic hardware I2C diagnostic table |
 | MCU pins | PA29/SCL, PA30/SDA | `GPIO_GY931_I2C` SysConfig group |
-| Bus speed | Conservative software I2C | `BOARD_GY931_I2C_HALF_PERIOD_CYCLES` controls timing |
+| Bus speed | Conservative software I2C | `BOARD_GY931_I2C_HALF_PERIOD_US` controls timing |
 | 7-bit address | 0x50 | `BOARD_GY931_I2C_ADDRESS`; shell can scan or change runtime address |
 | Angle registers | Roll/Pitch/Yaw at 0x3D/0x3E/0x3F | WIT standard register map |
 | Angle scale | raw / 32768 * 180 deg | Firmware reports fixed 0.001 deg units |
@@ -284,7 +286,9 @@ Grayscale configuration:
 | ADC peripheral | ADC1 | PA15 is ADC1 ADCIN0 on MSPM0G3519 |
 | Resolution | 12-bit | Result 0..4095, VREF = VDDA 3.3V |
 | Sample time | 125 us | ULPCLK / 8, tunable in SysConfig if source impedance needs more |
-| Settle time | ~100 us | `BOARD_GRAYSCALE_SETTLE_CYCLES`; after switching select before ADC sample |
+| Hardware averaging | 4 samples / result | ADC accumulates 4 and divides by 4 |
+| Settle time | ~200 us | `BOARD_GRAYSCALE_SETTLE_US`; after switching select before ADC sample |
+| Position frame | ~5 ms | Core channels 2..5 sampled consecutively; outer channels refresh within 20 ms |
 | Select polarity | Active-high | Binary address driven directly on SEL0..SEL2 |
 | SysConfig name | `GRAYSCALE_ADC`, `GPIO_GRAY_C`, `GPIO_GRAY_A` | |
 | Board interface | `board/board_grayscale.h` | |
@@ -464,7 +468,7 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 
 | Bus Alias | MCU Instance | SCL | SDA | Speed | Devices | Address Range Used |
 | --- | --- | --- | --- | --- | --- | --- |
-| `motor` | I2C1 | PA11 | PA10 | 100 kHz | MotorDriver I2C target on dedicated IIC1 | Default 0x20, planned 0x20 - 0x27 |
+| `motor` | I2C1 | PA11 | PA10 | 400 kHz | MotorDriver I2C target on dedicated IIC1 | Default 0x20, planned 0x20 - 0x27 |
 | `gy931` | GPIO bit-bang | PA29 | PA30 | Software I2C | WIT GY931 angle sensor | Default 0x50 |
 | `fram` | I2C2 | PC2 | PC3 | 400 kHz | FM24CL64B on shared IIC3 | Default 0x50 |
 | `oled` | I2C2 | PC2 | PC3 | 400 kHz | HS91L02W2C01 OLED on shared IIC3 | Default 0x3C |

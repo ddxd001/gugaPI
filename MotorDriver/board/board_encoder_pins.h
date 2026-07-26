@@ -35,7 +35,7 @@ namespace board {
 
 constexpr int8_t kM1QeiCountSign = -1;
 constexpr int8_t kM2QeiCountSign = -1;
-constexpr uint32_t kEncoderSamplePeriodMs = 50U;
+constexpr uint32_t kEncoderSamplePeriodMs = 10U;
 
 }  // namespace board
 

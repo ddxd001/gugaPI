@@ -7,7 +7,7 @@
 
 namespace board {
 
-constexpr uint32_t kMotorPwmPeriodCounts = 1600U;
+constexpr uint32_t kMotorPwmPeriodCounts = 2000U;
 constexpr uint32_t kUartTxTimeoutIterations = 100000U;
 constexpr uint16_t kUartRxBufferSize = 256U;
 constexpr uint8_t kI2cTargetAddress = 0x20U;

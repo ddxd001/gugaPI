@@ -4,6 +4,9 @@
 
 数字参数支持十进制或 `0x` 开头的十六进制，例如 `16` 和 `0x10`。
 
+DEBUG UART 固定使用 UART6（PC11/TX、PC10/RX）。比赛配置仍保留
+Shell 命令解析，但关闭 banner、提示符、输入回显和调试级日志。
+
 ## 通用命令
 
 ### `version`
@@ -336,6 +339,58 @@ ina219 oled status
 只刷新一次 OLED，用于先验证接线和显示格式。
 ```text
 ina219 oled once
+```
+
+## 3S1P 电量监测
+
+电量监测复用 INA219 的 100 ms 后台采样，当前固定按 `3S1P`、`3000 mAh` 锂离子电池包计算。上电后先收集 20 个有效电压样本并根据整包电压估算初始 SOC，随后根据电流进行库仑积分。电流正值表示放电，负值表示充电。
+
+所有电量状态只保存在 SRAM 中，不写入 FRAM；MCU 复位或断电后会重新执行电压估算。持续负载、电机启动压降、电芯老化和温度都会影响电压估算精度，因此 `soc` 适合用作运行状态参考，不代替 BMS，也不能判断三节串联电芯是否失衡。
+
+### `battery status`
+
+查看当前电池包电压、平均单节电压、电流、功率、SOC、累计消耗量、峰值电流、INA219 溢出和读取错误计数。
+
+```text
+battery status
+```
+
+关键字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `source=estimating` | 尚在收集上电电压样本，`ready=0` |
+| `source=voltage` | 初始 SOC 来自电压估算，之后使用电流积分 |
+| `source=full` | 已通过 `battery full` 将本次运行的 SOC 校准为 100% |
+| `remaining_uAh` / `consumed_uAh` | 本次运行期估算的剩余/消耗容量 |
+| `low` / `critical` | 整包滤波电压低于 10.8 V / 9.9 V；仅作提示，不触发电机保护 |
+| `overflow` | INA219 数学溢出次数；若持续增加，应检查分流器和电流量程 |
+
+### `battery full`
+
+确认电池包确实充满后，把本次运行期的剩余容量校准为 `3000 mAh`、SOC 设为 100%。该命令不写 FRAM。
+
+```text
+battery full
+```
+
+### `battery reset`
+
+清除本次运行期的 SOC、积分量、峰值和错误计数，并重新收集 20 个电压样本。该命令不复位 INA219，也不写 FRAM。
+
+```text
+battery reset
+```
+
+### `battery log on [period_ms]` / `off` / `status`
+
+周期输出实时电量采样，默认周期为 500 ms，可设置为 `100..5000` ms。任务由协作式调度器驱动，不保存历史数据；串口发送队列接近满时会主动丢弃当前一帧。
+
+```text
+battery log on
+battery log on 1000
+battery log status
+battery log off
 ```
 
 ## GY931 角度传感器
@@ -691,7 +746,7 @@ Yaw: <ddd.ddd> deg
 
 ## 灰度传感器（8 路 ADC）
 
-8:1 多路复用灰度阵列：3 个选位引脚（PA16=bit2、PC20=bit1、PC21=bit0）选 1 路，PA15（ADC1 ADCIN0）读模拟值（0..4095）。2 ms 周期任务每次采一路，约 16 ms 原子发布完整 8 路帧（约 62.5 Hz）。
+8:1 多路复用灰度阵列：3 个选位引脚（PA16=bit2、PC20=bit1、PC21=bit0）选 1 路，PA15（ADC1 ADCIN0）读模拟值（0..4095）。1 ms 周期任务优先连续采集中间 2..5 路，每 5 ms 左右发布一个位置帧；四个外侧道路识别通道在 20 ms 内轮流更新。每路使用 ADC 四次硬件平均。详见 `GRAYSCALE_GUIDE.md`。
 
 ### `gray status`
 
@@ -733,25 +788,27 @@ gray data
 gray process
 ```
 
-输出包含归一化值、有效/循迹掩码、线位置、线强度、道路类型、迟滞开启/关闭阈值
-和处理状态。调试通道顺序、黑白极性、迟滞以及丢线判断时应以此命令为准；循迹控制
-也消费同一份处理结果。
+输出包含归一化值、迟滞位图 `mask`、主循迹区 `track`、实际插值通道 `selected`、
+异常位图、线位置、线强度、道路类型和迟滞阈值。`pos` 使用左正右负坐标，
+`pos_valid` 表示位置是否可用于闭环，`confidence` 范围 0..1000，`track_state` 为
+`valid/lost/multiple/wide/sensor_fault`，`weak_frames` 为有界弱模拟跟踪帧数，`invalid_frames` 为连续异常帧数。调试通道顺序、黑白极性、
+岔路选择和丢线判断时应以此命令为准；循迹控制消费同一份处理结果。
 
 ### `gray calib ...`
 
 推荐使用白、黑两阶段多帧平均标定：
 
 ```text
-gray calib white 16
+gray calib white
 gray calib status
-gray calib black 16
+gray calib black
 gray calib status
 gray calib commit
 param save
 ```
 
-`white`/`black` 默认采集 16 个完整帧，可设为 1..128。两个阶段都完成后执行
-`commit`；每个通道的黑白跨度必须至少为 200 ADC counts。`commit` 只更新运行参数并
+`white`/`black` 默认采集 64 个位置帧，可设为 1..128。两个阶段都完成后执行
+`commit`；去掉两端各 1/8 样本后求均值，每个通道的黑白跨度必须至少为 400 ADC counts，且至少为采集噪声的 8 倍。`commit` 更新标定值和推荐处理参数，并
 将 ConfigStore 标记为 dirty，断电保存还需执行 `param save`。
 
 辅助命令：
@@ -770,7 +827,7 @@ gray calib cancel
 
 ### `gray oled on [period_ms]`
 
-按 INA219 OLED 显示任务的同样风格，将灰度传感器 8 路 ADC 原始值持续显示到 OLED。开启后会关闭其它传感器的 OLED 周期显示任务。
+按 INA219 OLED 显示任务的同样风格，将灰度插值位置和底盘左右轮速度持续显示到 OLED。页面直接读取应用层已有快照，不会额外触发 ADC 采样或 MotorDriver 通信。开启后会关闭其它传感器的 OLED 周期显示任务。
 ```text
 gray oled on
 gray oled on 200
@@ -781,11 +838,15 @@ gray oled once
 
 OLED 4 行显示格式：
 ```text
-GRAY 200ms
-0-2 1234 1234 1234
-3-5 1234 1234 1234
-6-7 1234 1234
+P:374 V:1 C:1000
+S:1310 W:0 I:0
+T L:56 R:64
+A L:55 R:63
 ```
+
+`P` 是归一化模拟量加权得到的插值位置，`V` 是位置有效标志，`C` 是置信度；
+`S/W/I` 分别是线强度、弱跟踪窗口帧数和连续异常帧数。`T` 是左右目标 RPM，
+`A` 是底盘反馈的左右实际 RPM。
 
 `period_ms` 范围为 50..5000，默认 200ms。`gray oled once` 只刷新一次 OLED，不开启周期任务。
 
@@ -1083,10 +1144,12 @@ motor rpm
 
 ```text
 motor ramp
-motor ramp 600 900
+motor ramp 1500 2000
 ```
 
-普通目标转速变化受斜坡限制；停车、故障和控制器禁用仍立即清除输出。
+普通目标转速变化受斜坡限制；停车、故障和控制器禁用仍立即清除输出。设置成功后还会同步更新
+gugaPI ConfigStore 的 `speed_accel_rpm_s` / `speed_decel_rpm_s` 并标记dirty；执行
+`param save` 后写入FRAM。下一次 `Chassis_Init()` 会自动重新下发到MotorDriver。
 
 ### `motor reg <addr> <len>`
 
@@ -1289,7 +1352,7 @@ chassis wheel 60 -60
 
 ### `chassis vel <linear_mm_s> <angular_mdeg_s>`
 
-通过线速度和角速度设置底盘目标。线速度范围 `-5000..5000 mm/s`，角速度范围 `-720000..720000 mdeg/s`。内部根据 `wheel_radius_mm` 和 `wheel_track_mm` 换算为左右轮 RPM。
+通过线速度和角速度设置底盘目标。线速度范围 `-5000..5000 mm/s`，角速度范围 `-720000..720000 mdeg/s`。内部根据高精度参数 `wheel_radius_um` 和 `wheel_track_mm` 换算为左右轮 RPM。
 
 ```text
 chassis vel 200 0
@@ -1320,6 +1383,9 @@ heading status
 | `corr` | 航向差速修正RPM（hold/distance）或转弯速度（turn） |
 | `at_target` | 转弯或距离行为是否进入目标容差区间 |
 | `last` | 上一次操作结果 |
+| `profile` | 距离曲线阶段：`idle/legacy/accel/cruise/brake/creep/settle` |
+| `profile_rpm` | gugaPI曲线当前输出的基础转速绝对值 |
+| `brake_mm` | 根据实测转速计算的当前预计制动距离 |
 
 ### `heading hold <base_rpm>`
 
@@ -1349,8 +1415,8 @@ heading turn 45
 ### `heading distance <mm> <max_rpm> [timeout_ms]`
 
 按编码器距离闭环行驶，并锁定启动瞬间的IMU航向。正距离前进，负距离倒退；范围为
-`-10000..10000 mm`（不能为0）。基础速度按剩余距离逐渐降低，航向误差仍通过左右轮
-差速修正。
+`-10000..10000 mm`（不能为0）。`max_rpm` 是本次动作的巡航速度。具体加减速行为由
+`heading profile` 选择，航向误差仍通过左右轮差速修正。
 
 ```text
 heading distance 500 60
@@ -1359,9 +1425,63 @@ heading distance 1000 80 15000
 heading status
 ```
 
-`timeout_ms` 可省略，固件根据距离、轮径和最大RPM生成有界超时。左右轮都进入目标
-`±3 mm` 后停车，稳定100 ms后回到 `idle`。该行为依赖正确的
-`wheel_radius_mm`、左右轮 `counts_per_rev` 和编码器方向配置。
+`timeout_ms` 可省略，固件根据距离、轮径和最大RPM生成有界超时。梯形模式在进入目标
+容差或越过目标后立即停车，不会反向寻找；左右实测速度连续3次低于 `settle_rpm` 且
+至少经过100 ms后回到 `idle`。该行为依赖正确的
+`wheel_radius_um`、左右轮 `counts_per_rev` 和编码器方向配置。
+
+65 mm 轮胎、13 PPR 霍尔编码器、28:1 减速比的理论参数为：
+
+```text
+param set left_counts_per_rev 1456
+param set right_counts_per_rev 1456
+param set wheel_radius_um 33050
+param save
+```
+
+`wheel_radius_um=33050` 表示本车实测标定后的 `33.050 mm` 有效滚动半径。`wheel_radius_mm` 仍作为旧脚本兼容入口，但只能设置整数毫米；设置该旧参数会同时覆盖高精度值。
+
+### `heading profile`
+
+查看或设置定距动作的速度曲线。它只整形gugaPI发送给MotorDriver的RPM目标，**不会修改
+MotorDriver当前100 ms速度环周期**，也不修改调度器。
+
+```text
+heading profile
+heading profile mode trapezoid
+heading profile accel 600
+heading profile decel 900
+heading profile creep 15
+heading profile latency 360
+heading profile margin 5
+heading profile settle 3
+heading profile tolerance 3
+heading profile save
+```
+
+模式：
+
+- `legacy`：保留旧的“剩余毫米数映射RPM”行为，越过目标后可能反向修正，仅用于回归对比。
+- `trapezoid`：加速、巡航、预测制动、单方向低速逼近和停稳五阶段；默认模式。
+
+参数：
+
+| Shell项 | 持久化参数 | 范围 | 默认值 | 含义 |
+| --- | --- | ---: | ---: | --- |
+| `accel` | `distance_accel_rpm_s` | 1..5000 | 600 | 上层RPM命令加速度 |
+| `decel` | `distance_decel_rpm_s` | 1..5000 | 900 | 上层RPM命令减速度及制动距离模型 |
+| `creep` | `distance_creep_rpm` | 1..500 | 15 | 终点前最低逼近速度 |
+| `latency` | `distance_stop_latency_ms` | 0..2000 | 360 | 固定时间延迟补偿；对应距离按实时轮速动态计算 |
+| `margin` | `distance_brake_margin_mm` | 0..1000 | 5 | 额外提前制动距离 |
+| `settle` | `distance_settle_rpm` | 0..100 | 3 | 判定车轮停稳的RPM阈值 |
+| `tolerance` | `distance_tolerance_mm` | 1..100 | 3 | 终点容差 |
+
+修改后立即作用于下一次定距动作，并将参数标为dirty；执行 `heading profile save` 或
+`param save` 才会写入FRAM。旧V1～V7配置加载后使用上述默认曲线参数；旧V1～V8配置
+加载后使用1500/2000 RPM/s的MotorDriver ramp默认值。兼容加载会标记dirty，保存后统一
+升级为V9。定距动作正在运行时，`heading profile` 只允许查看，修改或保存返回`busy`；
+先执行 `heading stop`。这里的600/900 RPM/s是gugaPI定距目标整形参数，与底层持久化的
+MotorDriver ramp 1500/2000 RPM/s是两层不同的限速。
 
 ### `heading stop`
 
@@ -1373,9 +1493,9 @@ heading stop
 
 ## 循迹控制
 
-8 路灰度循迹。需先标定（`lf cal`）再循迹（`lf start`）。20 ms 周期任务 `LF_Update` 只在灰度完整帧序号变化时消费统一处理结果，使用中间通道位置进行 PD 控制；全八路迟滞位图独立识别路口。
+8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间四路位置帧约 5 ms；10 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置只由 `track_mask=0x3C` 的中间四路插值，全八路迟滞位图独立识别道路类型。
 
-安全机制：灰度数据无效或超过 200 ms → `FAULT_SENSOR_LOST` 停车；丢线先减速保持方向，再原地搜索，超过 `lost_timeout_ms` 停车；故障 → 停车。
+安全机制：灰度数据无效或超过 200 ms、通道诊断异常 → 立即停车。强线之后允许短暂全白间隙，并可在相邻单段弱模拟信号重新出现时继续位置插值；全白与弱跟踪共享最多 8 个完整帧（约 40 ms）的恢复预算。每个全白帧同时计入独立的连续异常计数，相邻弱线恢复会将该计数清零；`lost/multiple/wide` 连续 6 个完整帧（约 30 ms）仍异常即停车。因此连续全白不会等待完整 40 ms，也不进行无限保持或盲目搜线。`confidence` 只作诊断，不再独立决定停车。正常跟踪期间始终使用命令指定的基础速度，不根据位置误差自动降速。
 
 ### `lf status`
 
@@ -1396,13 +1516,24 @@ lf status
 | `lost` | 当前是否丢线 |
 | `kp` | 循迹比例增益 |
 | `kd` | 循迹微分增益 |
-| `maxcorr` | 最大修正 RPM |
+| `maxcorr` | 40 RPM 参考速度下的最大修正 RPM |
 | `seq` | 最后消费的灰度完整帧序号 |
 | `road` | 两帧确认后的道路类型 |
+| `pos_valid` | 当前插值位置是否可用于闭环 |
+| `selected` | 实际用于插值的连续通道位图 |
+| `confidence` | 位置可信度，0..1000 |
+| `source` | `core` / `left_edge` / `right_edge` / `held` / `none` |
+| `track_state` | `valid` / `lost` / `multiple` / `wide` / `sensor_fault` |
+| `weak_frames` | 有界弱模拟跟踪的连续帧数，0 表示当前使用正常强度证据，最大 8 |
+| `invalid_frames` | 连续几何异常完整帧数 |
+| `invalid_policy` | `confirm6` 表示连续 6 个几何异常完整帧（约 30 ms）后停车；硬件、过期和通道异常仍立即停车 |
+| `ref_rpm` | 转向比例换算的参考速度，当前为 40 RPM |
+| `max_ratio_permille` | 修正量相对基础速度的硬限幅，当前为 400‰ |
+| `deadband` | 中心误差死区，单位为位置刻度 |
 
 ### `lf cal`
 
-启动兼容扫动标定（2 秒）。在黑线和白底之间来回扫动，记录各通道 min/max；每通道跨度至少 200 才会更新统一灰度校准并设 `calibrated = true`。推荐精确校准使用 `gray calib white/black/commit`。
+启动兼容扫动标定（2 秒）。在黑线和白底之间来回扫动，记录各通道 min/max；每通道跨度至少 400 才会更新统一灰度校准并设 `calibrated = true`。推荐精确校准使用 `gray calib white/black/commit`。
 
 ```text
 lf cal
@@ -1416,7 +1547,7 @@ lf cal
 lf start 80 10000
 ```
 
-修正公式：`correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，限幅到 `max_correction_rpm`。`left = base - correction`，`right = base + correction`。
+修正先在 40 RPM 参考速度计算：`reference_correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，再按 `abs(base_rpm) / 40` 缩放并限制在基础速度的 40%。中心 `±100` 位置刻度使用死区，微分滤波时间常数为 40 ms，修正量反向变化带轻量斜率限制。`left = base - correction`，`right = base + correction`。
 
 ### `lf stop`
 
@@ -1444,7 +1575,7 @@ lf kd 500
 
 ### `lf maxcorr <val>`
 
-设置最大修正 RPM（范围 `0..500`）。默认 30。
+设置 40 RPM 参考速度下的最大修正 RPM（范围 `0..500`）。实际修正按基础速度同比缩放，并额外受 40% 转向比例硬限幅。默认 30。
 
 ```text
 lf maxcorr 50
@@ -1452,7 +1583,7 @@ lf maxcorr 50
 
 ### `lf losthold <ms>`
 
-设置丢线后减速保持最后方向的时间，必须不大于 `losttimeout`。默认 150 ms。
+兼容旧配置的保留命令，必须不大于 `losttimeout`。当前策略为硬件异常立即停车、几何异常确认 6 帧，此参数不再产生丢线搜索运动。默认值仍为 150 ms。
 
 ```text
 lf losthold 150
@@ -1460,7 +1591,7 @@ lf losthold 150
 
 ### `lf losttimeout <ms>`
 
-设置丢线停车超时（`0..10000` ms），必须不小于 `losthold`。默认 500 ms。
+兼容旧配置的保留命令（`0..10000` ms），必须不小于 `losthold`。当前策略为硬件异常立即停车、几何异常确认 6 帧，此参数不再控制停车延迟。默认值仍为 500 ms。
 
 ```text
 lf losttimeout 1000
@@ -1602,7 +1733,7 @@ param status
 
 ### `param get [name]`
 
-查看所有参数或单个参数。不带参数列出全部 32 项参数（含当前值和合法范围）。
+查看所有参数或单个参数。不带参数列出全部参数（含当前值和合法范围）。
 
 ```text
 param get
@@ -1619,18 +1750,21 @@ param heading_kp=1000 range=0..100000
 
 | 参数名 | 范围 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `left_counts_per_rev` | 1..100000000 | 364 | 左轮编码器 CPR |
-| `right_counts_per_rev` | 1..100000000 | 364 | 右轮编码器 CPR |
-| `wheel_radius_mm` | 1..1000 | 32 | 轮半径（mm） |
+| `left_counts_per_rev` | 1..100000000 | 1456 | 左轮编码器 CPR（含QEI四倍频） |
+| `right_counts_per_rev` | 1..100000000 | 1456 | 右轮编码器 CPR（含QEI四倍频） |
+| `wheel_radius_um` | 1000..1000000 | 33050 | 实测有效滚动半径（微米），内部换算使用此值 |
+| `wheel_radius_mm` | 1..1000 | 32 | 兼容旧脚本的整数毫米入口；设置后会覆盖 `wheel_radius_um` |
 | `wheel_track_mm` | 1..2000 | 160 | 轮距（mm） |
 | `max_wheel_rpm` | 1..1000 | 1000 | 最大轮速（RPM） |
-| `motor_output_invert_flags` | 0..3 | 1 | 电机输出反向标志 |
+| `motor_output_invert_flags` | 0..3 | 3 | 电机输出反向标志 |
 | `motor_encoder_invert_flags` | 0..3 | 1 | 编码器反向标志 |
-| `speed_kp` | 0..255 | 1 | 速度环 Kp（Q4.4） |
-| `speed_ki` | 0..255 | 1 | 速度环 Ki（Q4.4） |
+| `speed_kp` | 0..255 | 2 | 速度环 Kp（Q4.4） |
+| `speed_ki` | 0..255 | 2 | 速度环 Ki（Q4.4） |
 | `speed_kd` | 0..255 | 0 | 速度环 Kd（Q4.4） |
-| `speed_max_duty` | 0..100 | 40 | 速度环最大占空比（%） |
+| `speed_max_duty` | 0..100 | 60 | 速度环最大占空比（%） |
 | `speed_min_duty` | 0..100 | 4 | 速度环最小占空比（%） |
+| `speed_accel_rpm_s` | 0..65535 | 1500 | MotorDriver目标转速加速斜坡（RPM/s，0表示立即跟随） |
+| `speed_decel_rpm_s` | 0..65535 | 2000 | MotorDriver目标转速减速斜坡（RPM/s，0表示立即跟随） |
 | `position_kp` | 0..255 | 15 | 位置环 Kp（Q4.4） |
 | `position_ki` | 0..255 | 0 | 位置环 Ki（Q4.4） |
 | `position_kd` | 0..255 | 0 | 位置环 Kd（Q4.4） |
@@ -1759,8 +1893,17 @@ FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接�
 | `R_act` | 右轮实测 RPM |
 | `yaw_tgt` | 航向目标（度） |
 | `yaw` | 当前 yaw（度） |
-| `err` | 航向误差（度） |
-| `corr` | 航向修正量（RPM） |
+| `head_err` | 航向误差（度） |
+| `head_corr` | 航向修正量（RPM） |
+| `gray_pos` | 灰度加权插值位置（mpos，左正右负） |
+| `gray_strength` | 核心通道归一化线强度之和 |
+| `gray_conf` | 插值位置置信度（0..1000） |
+| `gray_valid` | 插值位置有效标志（0/1） |
+| `gray_state` | 灰度轨迹状态枚举值 |
+| `lf_err` | 循迹控制器当前位置误差（mpos） |
+| `lf_corr` | 循迹左右差速修正量（RPM） |
+| `lf_weak` | 弱线恢复窗口帧数 |
+| `lf_invalid` | 连续无效灰度帧数 |
 
 ### `telem on [period_ms]`
 
@@ -1774,9 +1917,15 @@ telem on 200
 输出示例：
 
 ```text
-#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,err,corr
-8435,1,-1,0,0,0,0,0.000,-6.056,0.000,0
-8640,1,-1,0,0,0,0,0.000,-6.043,0.000,0
+#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,head_err,head_corr,gray_pos,gray_strength,gray_conf,gray_valid,gray_state,lf_err,lf_corr,lf_weak,lf_invalid
+8435,1,-1,56,55,64,63,0.000,-6.056,0.000,0,374,1310,1000,1,1,374,4,0,0
+```
+
+仓库中的上位机工具可以同时启用该 OLED 页面、执行一次有时间上限的巡线、保存 CSV
+并生成 PNG 曲线（运行前必须确认场地安全并关闭占用串口的 VOFA+）：
+
+```text
+python host_tools/linefollow_capture.py --port COM14 --start-rpm 60 --run-ms 6000 --enable-oled
 ```
 
 ### `telem off`

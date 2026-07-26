@@ -5,14 +5,40 @@
 namespace drivers {
 namespace {
 
-uint32_t DutyToCompare(uint8_t duty_percent)
+enum class EnableOutputMode : uint8_t {
+    Unknown = 0U,
+    Low,
+    Pwm,
+    High,
+};
+
+struct OutputState {
+    MotorDirection direction;
+    EnableOutputMode mode;
+    bool direction_valid;
+};
+
+OutputState g_m1_output = {};
+OutputState g_m2_output = {};
+
+OutputState *StateForMotor(MotorId motor)
 {
-    if (duty_percent > 100U) {
-        duty_percent = 100U;
+    return (motor == MotorId::Motor1) ? &g_m1_output : &g_m2_output;
+}
+
+uint32_t DutyToCompare(uint16_t duty_percent_q8)
+{
+    const uint32_t maximum = 100U * kDutyPercentQ8Scale;
+    if (duty_percent_q8 > maximum) {
+        duty_percent_q8 = static_cast<uint16_t>(maximum);
     }
 
-    return board::kMotorPwmPeriodCounts -
-           ((board::kMotorPwmPeriodCounts * duty_percent) / 100U);
+    const uint64_t scaled =
+        (static_cast<uint64_t>(board::kMotorPwmPeriodCounts) *
+         duty_percent_q8) + (maximum / 2U);
+    const uint32_t active_counts =
+        static_cast<uint32_t>(scaled / maximum);
+    return board::kMotorPwmPeriodCounts - active_counts;
 }
 
 void ForceEnableLow(MotorId motor)
@@ -73,19 +99,28 @@ void SetPhase(MotorId motor, MotorDirection direction)
     }
 }
 
-void SetEnableDuty(MotorId motor, uint8_t duty_percent)
+void SetEnableDuty(MotorId motor, uint16_t duty_percent_q8)
 {
-    if (duty_percent == 0U) {
-        ForceEnableLow(motor);
+    OutputState *state = StateForMotor(motor);
+    const uint32_t full_scale = 100U * kDutyPercentQ8Scale;
+
+    if (duty_percent_q8 == 0U) {
+        if (state->mode != EnableOutputMode::Low) {
+            ForceEnableLow(motor);
+            state->mode = EnableOutputMode::Low;
+        }
         return;
     }
 
-    if (duty_percent >= 100U) {
-        ForceEnableHigh(motor);
+    if (duty_percent_q8 >= full_scale) {
+        if (state->mode != EnableOutputMode::High) {
+            ForceEnableHigh(motor);
+            state->mode = EnableOutputMode::High;
+        }
         return;
     }
 
-    const uint32_t compare = DutyToCompare(duty_percent);
+    const uint32_t compare = DutyToCompare(duty_percent_q8);
 
     if (motor == MotorId::Motor1) {
         DL_TimerG_setCaptureCompareValue(BOARD_M1_PWM_INST,
@@ -97,13 +132,18 @@ void SetEnableDuty(MotorId motor, uint8_t duty_percent)
                                          BOARD_M2_PWM_INDEX);
     }
 
-    ConfigureEnablePwm(motor);
+    if (state->mode != EnableOutputMode::Pwm) {
+        ConfigureEnablePwm(motor);
+        state->mode = EnableOutputMode::Pwm;
+    }
 }
 
 }  // namespace
 
 void Drv8701_Init(void)
 {
+    g_m1_output = {};
+    g_m2_output = {};
     DL_TimerG_setCaptureCompareValue(BOARD_M1_PWM_INST,
                                      board::kMotorPwmPeriodCounts,
                                      BOARD_M1_PWM_INDEX);
@@ -130,9 +170,27 @@ void Drv8701_SetBrake(MotorId motor)
 
 void Drv8701_SetRun(MotorId motor, MotorDirection direction, uint8_t duty_percent)
 {
-    ForceEnableLow(motor);
-    SetPhase(motor, direction);
-    SetEnableDuty(motor, duty_percent);
+    Drv8701_SetRunFine(
+        motor,
+        direction,
+        static_cast<uint16_t>(duty_percent) * kDutyPercentQ8Scale);
+}
+
+void Drv8701_SetRunFine(MotorId motor,
+                        MotorDirection direction,
+                        uint16_t duty_percent_q8)
+{
+    OutputState *state = StateForMotor(motor);
+    if ((!state->direction_valid) || (state->direction != direction)) {
+        if (state->mode != EnableOutputMode::Low) {
+            ForceEnableLow(motor);
+            state->mode = EnableOutputMode::Low;
+        }
+        SetPhase(motor, direction);
+        state->direction = direction;
+        state->direction_valid = true;
+    }
+    SetEnableDuty(motor, duty_percent_q8);
 }
 
 }  // namespace drivers

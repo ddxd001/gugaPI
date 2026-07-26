@@ -15,6 +15,16 @@ enum HeadingMode {
     HEADING_DISTANCE
 };
 
+enum DistanceProfilePhase {
+    DISTANCE_PHASE_IDLE = 0,
+    DISTANCE_PHASE_LEGACY,
+    DISTANCE_PHASE_ACCEL,
+    DISTANCE_PHASE_CRUISE,
+    DISTANCE_PHASE_BRAKE,
+    DISTANCE_PHASE_CREEP,
+    DISTANCE_PHASE_SETTLE
+};
+
 struct HeadingState {
     HeadingMode mode;
     int32_t target_yaw_mdeg;   /* HOLD: locked yaw; TURN: wrapped target */
@@ -30,8 +40,17 @@ struct HeadingState {
     int32_t distance_max_rpm;
     int32_t start_left_encoder_count;
     int32_t start_right_encoder_count;
+    int32_t left_target_delta_counts;
+    int32_t right_target_delta_counts;
+    int32_t profile_command_rpm;
+    int32_t brake_distance_mm;
+    DistanceProfilePhase distance_phase;
+    uint8_t distance_settle_cycles;
     uint32_t distance_start_ms;
     uint32_t distance_timeout_ms;
+    uint32_t profile_last_update_ms;
+    uint32_t profile_ramp_remainder;
+    int8_t profile_ramp_direction;
     uint32_t last_feedback_sequence;
     uint32_t last_run_ms;      /* scheduler-cadence / freshness watchdog */
     drivers::DriverStatus last_status;

@@ -7,6 +7,8 @@
 namespace services {
 namespace {
 
+#if FEATURE_ENABLE_SHELL
+
 struct ShellCommandSlot {
     const char *name;
     const char *help;
@@ -181,6 +183,8 @@ void HandleInputByte(uint8_t value)
     Shell_WriteChar((char) value);
 #endif
 }
+
+#endif /* FEATURE_ENABLE_SHELL */
 
 } /* namespace */
 

@@ -15,10 +15,15 @@ enum class MotorDirection : uint8_t {
     Reverse = 1U,
 };
 
+constexpr uint16_t kDutyPercentQ8Scale = 256U;
+
 void Drv8701_Init(void);
 void Drv8701_SetCoast(MotorId motor);
 void Drv8701_SetBrake(MotorId motor);
 void Drv8701_SetRun(MotorId motor, MotorDirection direction, uint8_t duty_percent);
+void Drv8701_SetRunFine(MotorId motor,
+                        MotorDirection direction,
+                        uint16_t duty_percent_q8);
 
 }  // namespace drivers
 

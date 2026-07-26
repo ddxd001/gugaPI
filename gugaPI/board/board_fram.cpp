@@ -19,7 +19,15 @@ static drivers::Fm24cl64bContext g_framContext = {
 drivers::DriverStatus Board_FramInit(void)
 {
     g_framConfig.bus = Board_I2cBusFind("fram");
-    return drivers::Fm24cl64b_Init(&g_framContext, &g_framConfig);
+    drivers::DriverStatus status =
+        drivers::Fm24cl64b_Init(&g_framContext, &g_framConfig);
+    if ((status != drivers::DRIVER_OK) &&
+        (g_framConfig.bus != 0) &&
+        (drivers::I2cController_RecoverBus(g_framConfig.bus) ==
+         drivers::DRIVER_OK)) {
+        status = drivers::Fm24cl64b_Init(&g_framContext, &g_framConfig);
+    }
+    return status;
 }
 
 drivers::DriverStatus Board_FramRead(uint16_t address,

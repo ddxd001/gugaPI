@@ -1,10 +1,13 @@
 #include "drivers/i2c_controller/i2c_controller.h"
 
+#include "services/time.h"
+
 namespace drivers {
 namespace {
 
-static const uint32_t kI2cErrataDelayCycles = 100U;
-static const uint32_t kBusRecoveryDelayCycles = 320U;
+/* Preserve the original 40 MHz timing while allowing CPUCLK to change. */
+static const uint32_t kI2cErrataDelayNs = 2500U;
+static const uint32_t kBusRecoveryDelayUs = 8U;
 static const uint8_t kBusRecoveryClockPulses = 9U;
 static const uint8_t kProbeByte = 0x00U;
 
@@ -235,31 +238,31 @@ DriverStatus I2cController_RecoverBus(const I2cControllerConfig *config)
 
     ReleaseLine(config->sda_port, config->sda_pin);
     ReleaseLine(config->scl_port, config->scl_pin);
-    delay_cycles(kBusRecoveryDelayCycles);
+    services::Time_DelayUs(kBusRecoveryDelayUs);
 
     for (uint8_t i = 0U; i < kBusRecoveryClockPulses; i++) {
         if (RecoveryLinesHigh(config)) {
             break;
         }
         DriveLineLow(config->scl_port, config->scl_pin);
-        delay_cycles(kBusRecoveryDelayCycles);
+        services::Time_DelayUs(kBusRecoveryDelayUs);
         ReleaseLine(config->scl_port, config->scl_pin);
-        delay_cycles(kBusRecoveryDelayCycles);
+        services::Time_DelayUs(kBusRecoveryDelayUs);
     }
 
     /* Generate a software STOP: SDA low, SCL released high, SDA released. */
     DriveLineLow(config->sda_port, config->sda_pin);
-    delay_cycles(kBusRecoveryDelayCycles);
+    services::Time_DelayUs(kBusRecoveryDelayUs);
     ReleaseLine(config->scl_port, config->scl_pin);
-    delay_cycles(kBusRecoveryDelayCycles);
+    services::Time_DelayUs(kBusRecoveryDelayUs);
     ReleaseLine(config->sda_port, config->sda_pin);
-    delay_cycles(kBusRecoveryDelayCycles);
+    services::Time_DelayUs(kBusRecoveryDelayUs);
 
     const bool recovered = RecoveryLinesHigh(config);
     RestoreI2cPins(config);
     ResetTransfer(config->i2c);
     DL_I2C_enableController(config->i2c);
-    delay_cycles(kI2cErrataDelayCycles);
+    services::Time_DelayNs(kI2cErrataDelayNs);
     return recovered ? DRIVER_OK : DRIVER_ERROR_BUSY;
 }
 
@@ -285,7 +288,7 @@ DriverStatus I2cController_Probe(const I2cControllerConfig *config,
                                    target_address,
                                    DL_I2C_CONTROLLER_DIRECTION_TX,
                                    1U);
-    delay_cycles(kI2cErrataDelayCycles);
+    services::Time_DelayNs(kI2cErrataDelayNs);
 
     uint32_t timeout = config->timeout_iterations;
     while ((DL_I2C_getControllerStatus(config->i2c) &
@@ -350,7 +353,7 @@ DriverStatus I2cController_Write(const I2cControllerConfig *config,
                                    target_address,
                                    DL_I2C_CONTROLLER_DIRECTION_TX,
                                    transfer_length);
-    delay_cycles(kI2cErrataDelayCycles);
+    services::Time_DelayNs(kI2cErrataDelayNs);
 
     uint32_t timeout = config->timeout_iterations;
     while ((DL_I2C_getControllerStatus(config->i2c) &
@@ -405,7 +408,7 @@ DriverStatus I2cController_Read(const I2cControllerConfig *config,
                                    target_address,
                                    DL_I2C_CONTROLLER_DIRECTION_RX,
                                    length);
-    delay_cycles(kI2cErrataDelayCycles);
+    services::Time_DelayNs(kI2cErrataDelayNs);
     return ReceiveStartedTransfer(config, data, length);
 }
 
@@ -445,7 +448,7 @@ DriverStatus I2cController_WriteRead(const I2cControllerConfig *config,
                                            DL_I2C_CONTROLLER_START_ENABLE,
                                            DL_I2C_CONTROLLER_STOP_ENABLE,
                                            DL_I2C_CONTROLLER_ACK_DISABLE);
-    delay_cycles(kI2cErrataDelayCycles);
+    services::Time_DelayNs(kI2cErrataDelayNs);
     status = ReceiveStartedTransfer(config, read_data, read_length);
     DL_I2C_disableControllerReadOnTXEmpty(config->i2c);
     return status;

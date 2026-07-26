@@ -82,8 +82,29 @@ static const uint32_t kPositionMaxRpm = 1000U;
 static const uint32_t kPositionToleranceMax = 65535U;
 static const uint32_t kPositionSettleMsMax = 2550U;
 static const int32_t kPositionDegreeLimit = 360000;
+static const uint8_t kI2cTransferAttempts = 3U;
+/* The MotorDriver target finishes STOP/RX bookkeeping in its interrupt
+ * handler.  Leave a short guard after every controller transaction so the
+ * next scheduler task or Shell command cannot issue another START while that
+ * bookkeeping is still pending. */
+static const uint32_t kI2cInterTransferDelayUs = 200U;
+static const uint32_t kI2cRetryDelayUs = 500U;
 static const uint8_t kI2cWriteVerifyAttempts = 5U;
-static const uint32_t kI2cWriteVerifyDelayCycles = 8000U;
+static const uint32_t kI2cWriteVerifyDelayUs = 200U;
+
+inline void FinishI2cTransfer(void)
+{
+    services::Time_DelayUs(kI2cInterTransferDelayUs);
+}
+
+inline bool RecoverI2cBeforeRetry(
+    const drivers::I2cDiagBusConfig *bus)
+{
+    const drivers::DriverStatus recovery_status =
+        drivers::I2cDiag_RecoverBus(bus);
+    services::Time_DelayUs(kI2cRetryDelayUs);
+    return recovery_status == drivers::DRIVER_OK;
+}
 
 enum Transport : uint8_t {
     TRANSPORT_UART = 0U,
@@ -462,11 +483,35 @@ inline drivers::DriverStatus I2cWriteReg(Client *client,
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
 
-    return drivers::I2cDiag_WriteReg8Block(bus,
-                                           client->i2c_address,
-                                           reg,
-                                           data,
-                                           length);
+    drivers::DriverStatus status = drivers::DRIVER_ERROR;
+    for (uint8_t attempt = 0U; attempt < kI2cTransferAttempts; attempt++) {
+        status = drivers::I2cDiag_WriteReg8Block(bus,
+                                                 client->i2c_address,
+                                                 reg,
+                                                 data,
+                                                 length);
+        if (status == drivers::DRIVER_OK) {
+            FinishI2cTransfer();
+            return status;
+        }
+        if ((status != drivers::DRIVER_ERROR_NACK) &&
+            (status != drivers::DRIVER_ERROR_TIMEOUT) &&
+            (status != drivers::DRIVER_ERROR_BUSY) &&
+            (status != drivers::DRIVER_ERROR)) {
+            return status;
+        }
+        if (attempt + 1U >= kI2cTransferAttempts) {
+            break;
+        }
+        /* An address-only probe may still succeed when the target is not
+         * accepting its register byte.  Recover on data NACK as well as on
+         * timeout/busy/error so the retry starts after an explicit STOP. */
+        if (!RecoverI2cBeforeRetry(bus)) {
+            return status;
+        }
+    }
+    FinishI2cTransfer();
+    return status;
 }
 
 inline drivers::DriverStatus I2cRequest(Client *client,
@@ -492,15 +537,32 @@ inline drivers::DriverStatus I2cRequest(Client *client,
             return drivers::DRIVER_ERROR_INVALID_ARG;
         }
 
-        const drivers::DriverStatus status = drivers::I2cDiag_ReadReg8(
-            bus,
-            client->i2c_address,
-            reg,
-            response->data,
-            length);
-        if (status == drivers::DRIVER_OK) {
-            response->length = length;
+        drivers::DriverStatus status = drivers::DRIVER_ERROR;
+        for (uint8_t attempt = 0U; attempt < kI2cTransferAttempts; attempt++) {
+            status = drivers::I2cDiag_ReadReg8(bus,
+                                               client->i2c_address,
+                                               reg,
+                                               response->data,
+                                               length);
+            if (status == drivers::DRIVER_OK) {
+                response->length = length;
+                FinishI2cTransfer();
+                return status;
+            }
+            if ((status != drivers::DRIVER_ERROR_NACK) &&
+                (status != drivers::DRIVER_ERROR_TIMEOUT) &&
+                (status != drivers::DRIVER_ERROR_BUSY) &&
+                (status != drivers::DRIVER_ERROR)) {
+                return status;
+            }
+            if (attempt + 1U >= kI2cTransferAttempts) {
+                break;
+            }
+            if (!RecoverI2cBeforeRetry(bus)) {
+                return status;
+            }
         }
+        FinishI2cTransfer();
         return status;
     }
 
@@ -516,14 +578,31 @@ inline drivers::DriverStatus I2cRequest(Client *client,
     }
 
     if (cmd == kCmdHeartbeat) {
-        const drivers::DriverStatus status =
-            drivers::I2cDiag_ProbeAddress(bus, client->i2c_address);
-        if (status != drivers::DRIVER_OK) {
-            return status;
+        drivers::DriverStatus status = drivers::DRIVER_ERROR;
+        for (uint8_t attempt = 0U; attempt < kI2cTransferAttempts; attempt++) {
+            status = drivers::I2cDiag_ProbeAddress(bus,
+                                                   client->i2c_address);
+            if (status == drivers::DRIVER_OK) {
+                response->length = 1U;
+                response->data[0] = kStatusOk;
+                FinishI2cTransfer();
+                return drivers::DRIVER_OK;
+            }
+            if ((status != drivers::DRIVER_ERROR_NACK) &&
+                (status != drivers::DRIVER_ERROR_TIMEOUT) &&
+                (status != drivers::DRIVER_ERROR_BUSY) &&
+                (status != drivers::DRIVER_ERROR)) {
+                return status;
+            }
+            if (attempt + 1U >= kI2cTransferAttempts) {
+                break;
+            }
+            if (!RecoverI2cBeforeRetry(bus)) {
+                return status;
+            }
         }
-        response->length = 1U;
-        response->data[0] = kStatusOk;
-        return drivers::DRIVER_OK;
+        FinishI2cTransfer();
+        return status;
     }
 
     return drivers::DRIVER_ERROR_INVALID_ARG;
@@ -625,7 +704,7 @@ inline drivers::DriverStatus VerifyRegisters(Client *client,
         }
 
         if (attempt + 1U < attempts) {
-            delay_cycles(kI2cWriteVerifyDelayCycles);
+            services::Time_DelayUs(kI2cWriteVerifyDelayUs);
         }
     }
 

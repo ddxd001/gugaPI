@@ -308,7 +308,7 @@ PC16 的初始输出配置为 `CLEARED`，所以上电初始化后蜂鸣器默�
 - 命令注册：`app/app_shell.cpp`
 - 当前交互：主循环调用 `Shell_Process()`，支持 `help`、`version`、`reset`、`led on/off`、`buzzer on/off`、`adc`、`pwm 50`
 
-调试串口由 `FEATURE_ENABLE_DEBUG_UART` 控制，日志由 `FEATURE_ENABLE_LOG` 控制，Shell 由 `FEATURE_ENABLE_SHELL` 控制。计数打印测试仍保留在 `FEATURE_ENABLE_UART_COUNTER_TEST` 后面，默认关闭，避免干扰 Shell 交互。
+调试串口由 `FEATURE_ENABLE_DEBUG_UART` 控制，日志由 `FEATURE_ENABLE_LOG` 控制，Shell 由 `FEATURE_ENABLE_SHELL` 控制。比赛配置保留 Shell 命令解析，但关闭 banner、提示符和回显。计数打印测试仍保留在 `FEATURE_ENABLE_UART_COUNTER_TEST` 后面，默认关闭，避免干扰 Shell 交互。
 
 ### FM24CL64B-GTR FRAM
 

@@ -6,8 +6,27 @@
 
 #include "app/grayscale_road.h"
 #include "drivers/common/driver_status.h"
+#include "drivers/grayscale/grayscale_processing.h"
 
 namespace app {
+
+/* Steering is calculated at this reference speed, then scaled with the
+ * requested forward speed so the same line error produces approximately the
+ * same chassis curvature. These constants intentionally remain fixed for the
+ * first straight-line commissioning pass; the existing kp/kd/maxcorr Shell
+ * and ConfigStore interfaces remain the runtime tuning surface. */
+enum LFControllerConstant {
+    LF_REFERENCE_RPM = 40,
+    LF_MAX_STEERING_PERMILLE = 400,
+    LF_ERROR_DEADBAND_MPOS = 100,
+    LF_DERIVATIVE_FILTER_TAU_MS = 40,
+    LF_CORRECTION_SLEW_PERMILLE_PER_SECOND = 10000,
+    /* A complete grayscale position frame is about 5 ms. Geometry-only
+     * invalid states therefore receive about 30 ms to recover as the line
+     * crosses a gap between adjacent sensors. Hardware/stale/anomaly faults
+     * still stop immediately in LF_Update(). */
+    LF_INVALID_TRACK_STOP_FRAMES = 6
+};
 
 enum LFMode {
     LF_IDLE = 0,
@@ -31,7 +50,19 @@ struct LFState {
     int32_t last_error_mpos;
     int32_t derivative_mpos_per_s;
     GrayscaleRoadType road_type;
-    /* Tunable parameters are loaded from ConfigStore and remain runtime-settable. */
+    bool position_valid;
+    uint8_t selected_mask;
+    uint16_t position_confidence;
+    drivers::GrayscalePositionSource position_source;
+    drivers::GrayscaleTrackState track_state;
+    uint8_t weak_tracking_frames;
+    uint8_t invalid_frames;
+    /* Tunable parameters are loaded from ConfigStore and remain runtime-settable.
+     * max_correction_rpm is the ceiling at LF_REFERENCE_RPM; the controller
+     * scales it with the requested speed before applying the steering-ratio
+     * safety limit. Lost-line timing is retained for configuration/API
+     * compatibility. Brief geometry gaps are tolerated for six complete
+     * grayscale frames (about 30 ms). */
     int32_t kp;
     int32_t kd;
     int32_t max_correction_rpm;
@@ -42,8 +73,8 @@ struct LFState {
 
 /* 8-channel grayscale line follower. Calibrate (sweep sensor over line +
  * floor for 2 s), then LF_Start drives following the line for a duration.
- * Lost line -> retain last steering for lost_timeout_ms then stop. Safety:
- * fault / grayscale invalid / uncalibrated / lost-timeout -> stop. */
+ * Fault/stale/sensor anomaly stops immediately. Lost, multiple, or wide line
+ * geometry stops after six consecutive complete frames, without search. */
 void LF_Init(void);
 drivers::DriverStatus LF_CalibrateStart(void);
 drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms);
@@ -51,12 +82,14 @@ drivers::DriverStatus LF_Stop(void);
 void LF_Update(void);
 const LFState *LF_GetState(void);
 
-/* True if the grayscale currently sees the line (using the calibration).
- * Callable any time (does not require LF_FOLLOW); used by the action
- * interpreter's LINE_DETECTED / LINE_LOST conditions. */
+/* True if the grayscale currently provides a fresh, explicitly valid,
+ * anomaly-free tracking position. Callable any time (does not
+ * require LF_FOLLOW); used by the action interpreter's LINE_DETECTED /
+ * LINE_LOST conditions so action completion matches the stop policy. */
 bool LF_IsLineDetected(void);
 
-/* Runtime param setters (RAM). */
+/* Runtime parameter setters. ConfigStore keeps the existing public surface;
+ * lost timing setters are compatibility-only while stop-on-invalid is active. */
 void LF_SetKp(int32_t kp);
 void LF_SetKd(int32_t kd);
 void LF_SetMaxCorrection(int32_t max_correction_rpm);

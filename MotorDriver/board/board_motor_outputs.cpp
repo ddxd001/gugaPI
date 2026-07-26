@@ -24,4 +24,11 @@ void BoardMotorOutputs_Run(drivers::MotorId motor,
     drivers::Drv8701_SetRun(motor, direction, duty_percent);
 }
 
+void BoardMotorOutputs_RunFine(drivers::MotorId motor,
+                               drivers::MotorDirection direction,
+                               uint16_t duty_percent_q8)
+{
+    drivers::Drv8701_SetRunFine(motor, direction, duty_percent_q8);
+}
+
 }  // namespace board

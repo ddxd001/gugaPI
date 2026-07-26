@@ -14,7 +14,9 @@
 #define DEBUG_UART_TX_BUFFER_SIZE        (4096U)
 #define DEBUG_SHELL_LINE_BUFFER_SIZE     (96U)
 #define DEBUG_SHELL_MAX_ARGS             (8U)
-#define DEBUG_SHELL_MAX_COMMANDS         (24U)
+/* Development profile currently registers 25 top-level commands. Keep spare
+ * slots so adding a command cannot silently hide the commands registered last. */
+#define DEBUG_SHELL_MAX_COMMANDS         (32U)
 #ifndef FEATURE_ENABLE_SHELL_ECHO
 #define FEATURE_ENABLE_SHELL_ECHO        (1U)
 #endif

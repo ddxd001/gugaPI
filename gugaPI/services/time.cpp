@@ -4,6 +4,37 @@
 
 namespace services {
 
+namespace {
+
+void DelayCpuCycles(uint64_t cycles)
+{
+    /* DL_Common_delayCycles(0) wraps to its maximum delay. Split long delays
+     * and never pass zero. Current callers are far below one 32-bit chunk,
+     * but keeping the conversion bounded makes the public API safe. */
+    while (cycles != 0ULL) {
+        const uint32_t chunk = (cycles > 0xFFFFFFFFULL) ?
+            0xFFFFFFFFU : static_cast<uint32_t>(cycles);
+        DL_Common_delayCycles(chunk);
+        cycles -= chunk;
+    }
+}
+
+uint64_t CyclesForDuration(uint32_t duration,
+                           uint32_t units_per_second)
+{
+    if (duration == 0U) {
+        return 0ULL;
+    }
+
+    /* Round upward so short hardware timing requirements are never shortened
+     * when CPUCLK_FREQ is not an exact multiple of the requested time unit. */
+    const uint64_t numerator =
+        static_cast<uint64_t>(CPUCLK_FREQ) * duration;
+    return (numerator + units_per_second - 1ULL) / units_per_second;
+}
+
+} /* namespace */
+
 static volatile uint32_t g_millis = 0U;
 
 void Time_Init(void)
@@ -46,6 +77,21 @@ uint32_t Time_Micros(void)
 bool Time_HasElapsed(uint32_t start_ms, uint32_t interval_ms)
 {
     return ((uint32_t) (Time_Millis() - start_ms) >= interval_ms);
+}
+
+void Time_DelayNs(uint32_t delay_ns)
+{
+    DelayCpuCycles(CyclesForDuration(delay_ns, 1000000000U));
+}
+
+void Time_DelayUs(uint32_t delay_us)
+{
+    DelayCpuCycles(CyclesForDuration(delay_us, 1000000U));
+}
+
+void Time_DelayMsBusy(uint32_t delay_ms)
+{
+    DelayCpuCycles(CyclesForDuration(delay_ms, 1000U));
 }
 
 void Time_DelayMs(uint32_t delay_ms)

@@ -1,5 +1,7 @@
 #include "drivers/soft_i2c/soft_i2c.h"
 
+#include "services/time.h"
+
 namespace drivers {
 namespace {
 
@@ -15,7 +17,7 @@ bool IsConfigValid(const SoftI2cConfig *config)
     return (config != 0) &&
            (config->scl_port != 0) && (config->scl_pin != 0U) &&
            (config->sda_port != 0) && (config->sda_pin != 0U) &&
-           (config->half_period_cycles > 0U) &&
+           (config->half_period_us > 0U) &&
            (config->timeout_cycles > 0U);
 }
 
@@ -26,7 +28,7 @@ bool IsContextReady(const SoftI2cContext *ctx)
 
 void DelayHalfPeriod(const SoftI2cConfig *config)
 {
-    delay_cycles(config->half_period_cycles);
+    services::Time_DelayUs(config->half_period_us);
 }
 
 bool ReadLine(GPIO_Regs *port, uint32_t pin)

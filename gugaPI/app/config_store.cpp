@@ -11,7 +11,13 @@ namespace {
 
 static const uint16_t kFramAddress = 0x0000U;
 static const uint32_t kMagic = 0x47504643U; /* "CFPG" little-endian */
-static const uint16_t kVersion = 6U;
+static const uint16_t kVersion = 9U;
+static const uint16_t kV8Version = 8U;
+static const uint16_t kV8PayloadLength = 177U;
+static const uint16_t kV7Version = 7U;
+static const uint16_t kV7PayloadLength = 162U;
+static const uint16_t kV6Version = 6U;
+static const uint16_t kV6PayloadLength = 158U;
 static const uint16_t kV5Version = 5U;
 static const uint16_t kV5PayloadLength = 137U;
 static const uint16_t kV4Version = 4U;
@@ -21,7 +27,7 @@ static const uint16_t kV3PayloadLength = 90U;
 static const uint16_t kLegacyVersion = 1U;
 static const uint16_t kLegacyPayloadLength = 66U;
 static const uint16_t kV2PayloadLength = 68U; /* v2 layout length (motor_invert guard) */
-static const uint16_t kPayloadLength = 158U; /* v6: +21-byte grayscale/LF tuning */
+static const uint16_t kPayloadLength = 181U; /* v9: +4-byte motor speed ramp */
 static const uint16_t kHeaderLength = 8U;
 static const uint16_t kCrcLength = 4U;
 static const uint16_t kImageLength =
@@ -65,6 +71,8 @@ static const ParamDescriptor kParamDescriptors[] = {
       PARAM_OFFSET(left_counts_per_rev), 1, 100000000 },
     { "right_counts_per_rev", PARAM_U32,
       PARAM_OFFSET(right_counts_per_rev), 1, 100000000 },
+    { "wheel_radius_um", PARAM_U32,
+      PARAM_OFFSET(wheel_radius_um), 1000, 1000000 },
     { "wheel_radius_mm", PARAM_U32,
       PARAM_OFFSET(wheel_radius_mm), 1, 1000 },
     { "wheel_track_mm", PARAM_U32,
@@ -81,6 +89,10 @@ static const ParamDescriptor kParamDescriptors[] = {
     { "speed_kd", PARAM_U8, PARAM_OFFSET(speed_kd_q4_4), 0, 255 },
     { "speed_max_duty", PARAM_U8, PARAM_OFFSET(speed_max_duty), 0, 100 },
     { "speed_min_duty", PARAM_U8, PARAM_OFFSET(speed_min_duty), 0, 100 },
+    { "speed_accel_rpm_s", PARAM_U16,
+      PARAM_OFFSET(speed_accel_rpm_s), 0, 65535 },
+    { "speed_decel_rpm_s", PARAM_U16,
+      PARAM_OFFSET(speed_decel_rpm_s), 0, 65535 },
 
     { "position_kp", PARAM_U8, PARAM_OFFSET(position_kp_q4_4), 0, 255 },
     { "position_ki", PARAM_U8, PARAM_OFFSET(position_ki_q4_4), 0, 255 },
@@ -121,6 +133,23 @@ static const ParamDescriptor kParamDescriptors[] = {
       PARAM_OFFSET(heading_tolerance_mdeg), 0, 90000 },
     { "heading_settle_ms", PARAM_U16,
       PARAM_OFFSET(heading_settle_ms), 0, 5000 },
+    { "distance_speed_mode", PARAM_U8,
+      PARAM_OFFSET(distance_speed_mode),
+      DISTANCE_SPEED_MODE_LEGACY, DISTANCE_SPEED_MODE_TRAPEZOID },
+    { "distance_accel_rpm_s", PARAM_U16,
+      PARAM_OFFSET(distance_accel_rpm_s), 1, 5000 },
+    { "distance_decel_rpm_s", PARAM_U16,
+      PARAM_OFFSET(distance_decel_rpm_s), 1, 5000 },
+    { "distance_creep_rpm", PARAM_U16,
+      PARAM_OFFSET(distance_creep_rpm), 1, 500 },
+    { "distance_stop_latency_ms", PARAM_U16,
+      PARAM_OFFSET(distance_stop_latency_ms), 0, 2000 },
+    { "distance_brake_margin_mm", PARAM_U16,
+      PARAM_OFFSET(distance_brake_margin_mm), 0, 1000 },
+    { "distance_settle_rpm", PARAM_U16,
+      PARAM_OFFSET(distance_settle_rpm), 0, 100 },
+    { "distance_tolerance_mm", PARAM_U16,
+      PARAM_OFFSET(distance_tolerance_mm), 1, 100 },
 
     { "ina_uv_trip_mv", PARAM_U16,
       PARAM_OFFSET(ina219_undervoltage_trip_mv), 1, 25999 },
@@ -281,19 +310,22 @@ void SetDefaults(ConfigStoreParams *params)
 {
     (void) memset(params, 0, sizeof(*params));
 
-    params->left_counts_per_rev = 364U;
-    params->right_counts_per_rev = 364U;
-    params->wheel_radius_mm = 32U;
+    params->left_counts_per_rev = 1456U;
+    params->right_counts_per_rev = 1456U;
+    params->wheel_radius_um = 33050U;
+    params->wheel_radius_mm = 33U;
     params->wheel_track_mm = 160U;
     params->max_wheel_rpm = 1000U;
-    params->motor_output_invert_flags = 0x01U;
+    params->motor_output_invert_flags = 0x03U;
     params->motor_encoder_invert_flags = 0x01U;
 
-    params->speed_kp_q4_4 = 1U;
-    params->speed_ki_q4_4 = 1U;
+    params->speed_kp_q4_4 = 2U;
+    params->speed_ki_q4_4 = 2U;
     params->speed_kd_q4_4 = 0U;
-    params->speed_max_duty = 40U;
+    params->speed_max_duty = 60U;
     params->speed_min_duty = 4U;
+    params->speed_accel_rpm_s = 1500U;
+    params->speed_decel_rpm_s = 2000U;
 
     params->position_kp_q4_4 = 15U;
     params->position_ki_q4_4 = 0U;
@@ -310,6 +342,18 @@ void SetDefaults(ConfigStoreParams *params)
     params->heading_turn_min_rpm = 20;
     params->heading_tolerance_mdeg = 3000;  /* 3 deg */
     params->heading_settle_ms = 300U;
+
+    /* Conservative defaults for the existing 100 ms MotorDriver speed loop.
+     * The latency term deliberately includes one complete local control cycle
+     * plus gugaPI feedback/heading scheduling delay. */
+    params->distance_speed_mode = DISTANCE_SPEED_MODE_TRAPEZOID;
+    params->distance_accel_rpm_s = 600U;
+    params->distance_decel_rpm_s = 900U;
+    params->distance_creep_rpm = 15U;
+    params->distance_stop_latency_ms = 360U;
+    params->distance_brake_margin_mm = 5U;
+    params->distance_settle_rpm = 3U;
+    params->distance_tolerance_mm = 3U;
 
     /* Placeholder thresholds for a nominal low-voltage robot supply. They
      * are monitored immediately, but automatic motion inhibition remains off
@@ -456,7 +500,18 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     cursor = AppendI32(cursor, params.linefollow_kd);
     cursor = AppendU16(cursor, params.linefollow_max_correction_rpm);
     cursor = AppendU16(cursor, params.linefollow_lost_hold_ms);
-    (void) AppendU16(cursor, params.linefollow_lost_stop_ms);
+    cursor = AppendU16(cursor, params.linefollow_lost_stop_ms);
+    cursor = AppendU32(cursor, params.wheel_radius_um);
+    cursor = AppendU8(cursor, params.distance_speed_mode);
+    cursor = AppendU16(cursor, params.distance_accel_rpm_s);
+    cursor = AppendU16(cursor, params.distance_decel_rpm_s);
+    cursor = AppendU16(cursor, params.distance_creep_rpm);
+    cursor = AppendU16(cursor, params.distance_stop_latency_ms);
+    cursor = AppendU16(cursor, params.distance_brake_margin_mm);
+    cursor = AppendU16(cursor, params.distance_settle_rpm);
+    cursor = AppendU16(cursor, params.distance_tolerance_mm);
+    cursor = AppendU16(cursor, params.speed_accel_rpm_s);
+    (void) AppendU16(cursor, params.speed_decel_rpm_s);
 }
 
 void DecodePayload(const uint8_t *payload,
@@ -534,7 +589,7 @@ void DecodePayload(const uint8_t *payload,
         cursor = ReadU16Field(cursor, &params->grayscale_threshold);
     }
     if ((payload_length >= kV5PayloadLength) &&
-        (payload_length < kPayloadLength)) {
+        (payload_length < kV6PayloadLength)) {
         /* v5 allowed a single threshold over the full 1..1000 range. Keep
          * that image loadable while deriving the widest valid v6 hysteresis
          * around its existing center. */
@@ -551,7 +606,7 @@ void DecodePayload(const uint8_t *payload,
             params->grayscale_hysteresis = available;
         }
     }
-    if (payload_length >= kPayloadLength) {
+    if (payload_length >= kV6PayloadLength) {
         cursor = ReadU16Field(cursor, &params->grayscale_hysteresis);
         cursor = ReadU16Field(cursor, &params->grayscale_position_floor);
         cursor = ReadU16Field(cursor, &params->grayscale_min_line_strength);
@@ -561,7 +616,37 @@ void DecodePayload(const uint8_t *payload,
         cursor = ReadU16Field(cursor,
                               &params->linefollow_max_correction_rpm);
         cursor = ReadU16Field(cursor, &params->linefollow_lost_hold_ms);
-        (void) ReadU16Field(cursor, &params->linefollow_lost_stop_ms);
+        cursor = ReadU16Field(cursor, &params->linefollow_lost_stop_ms);
+    }
+    if (payload_length >= kV7PayloadLength) {
+        cursor = ReadU32Field(cursor, &params->wheel_radius_um);
+    } else {
+        params->wheel_radius_um = params->wheel_radius_mm * 1000U;
+
+        /* V1-V6 shipped with the 13-PPR encoder's x4 hardware-QEI count
+         * omitted. Migrate only the exact old default tuple so that an
+         * explicitly calibrated legacy configuration remains untouched. */
+        if ((params->left_counts_per_rev == 364U) &&
+            (params->right_counts_per_rev == 364U) &&
+            (params->wheel_radius_mm == 32U)) {
+            params->left_counts_per_rev = 1456U;
+            params->right_counts_per_rev = 1456U;
+            params->wheel_radius_um = 33050U;
+        }
+    }
+    if (payload_length >= kV8PayloadLength) {
+        cursor = ReadU8Field(cursor, &params->distance_speed_mode);
+        cursor = ReadU16Field(cursor, &params->distance_accel_rpm_s);
+        cursor = ReadU16Field(cursor, &params->distance_decel_rpm_s);
+        cursor = ReadU16Field(cursor, &params->distance_creep_rpm);
+        cursor = ReadU16Field(cursor, &params->distance_stop_latency_ms);
+        cursor = ReadU16Field(cursor, &params->distance_brake_margin_mm);
+        cursor = ReadU16Field(cursor, &params->distance_settle_rpm);
+        cursor = ReadU16Field(cursor, &params->distance_tolerance_mm);
+    }
+    if (payload_length >= kPayloadLength) {
+        cursor = ReadU16Field(cursor, &params->speed_accel_rpm_s);
+        (void) ReadU16Field(cursor, &params->speed_decel_rpm_s);
     }
     (void) cursor;
 }
@@ -587,6 +672,13 @@ bool ValidateParams(const ConfigStoreParams &params)
 
     g_params = saved;
     if (params.speed_min_duty > params.speed_max_duty) {
+        return false;
+    }
+    if (params.wheel_radius_mm != (params.wheel_radius_um / 1000U)) {
+        return false;
+    }
+    if ((params.distance_creep_rpm > params.max_wheel_rpm) ||
+        (params.distance_settle_rpm > params.distance_creep_rpm)) {
         return false;
     }
     if (params.ina219_undervoltage_release_mv <=
@@ -692,6 +784,12 @@ drivers::DriverStatus ConfigStore_Load(void)
 
     const bool current_layout =
         (version == kVersion) && (length == kPayloadLength);
+    const bool v8_layout =
+        (version == kV8Version) && (length == kV8PayloadLength);
+    const bool v7_layout =
+        (version == kV7Version) && (length == kV7PayloadLength);
+    const bool v6_layout =
+        (version == kV6Version) && (length == kV6PayloadLength);
     const bool v5_layout =
         (version == kV5Version) && (length == kV5PayloadLength);
     const bool v4_layout =
@@ -702,7 +800,8 @@ drivers::DriverStatus ConfigStore_Load(void)
         (version == kLegacyVersion) && (length == kLegacyPayloadLength);
     const bool legacy_v2 = (version == 2U) && (length == kV2PayloadLength);
     const bool legacy_layout =
-        v5_layout || v4_layout || v3_layout || legacy_v1 || legacy_v2;
+        v8_layout || v7_layout || v6_layout || v5_layout || v4_layout ||
+        v3_layout || legacy_v1 || legacy_v2;
 
     if ((magic != kMagic) ||
         ((!current_layout) && (!legacy_layout))) {
@@ -735,7 +834,7 @@ drivers::DriverStatus ConfigStore_Load(void)
     g_params = loaded;
     g_status.loaded_from_fram = true;
     g_status.load_outcome = CONFIG_LOAD_FROM_FRAM;
-    g_status.dirty = false;
+    g_status.dirty = !current_layout;
     g_status.last_load_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 #else
@@ -807,6 +906,11 @@ drivers::DriverStatus ConfigStore_Set(const char *name, int32_t value)
     }
 
     WriteParamValue(*param, value);
+    if (TextEqual(name, "wheel_radius_mm")) {
+        g_params.wheel_radius_um = static_cast<uint32_t>(value) * 1000U;
+    } else if (TextEqual(name, "wheel_radius_um")) {
+        g_params.wheel_radius_mm = static_cast<uint32_t>(value) / 1000U;
+    }
     if (!ValidateParams(g_params)) {
         g_params = saved;
         return drivers::DRIVER_ERROR_INVALID_ARG;
@@ -821,8 +925,29 @@ drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
     const uint16_t black[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
     uint16_t threshold)
 {
+    return ConfigStore_SetGrayscaleCalibration(
+        white,
+        black,
+        threshold,
+        g_params.grayscale_hysteresis,
+        g_params.grayscale_position_floor,
+        g_params.grayscale_min_line_strength,
+        g_params.grayscale_track_mask);
+}
+
+drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
+    const uint16_t white[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
+    const uint16_t black[CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT],
+    uint16_t threshold,
+    uint16_t hysteresis,
+    uint16_t position_floor,
+    uint16_t min_line_strength,
+    uint8_t track_mask)
+{
     if ((white == 0) || (black == 0) || (threshold == 0U) ||
-        (threshold >= 1000U)) {
+        (threshold >= 1000U) || (hysteresis > 998U) ||
+        (position_floor >= 1000U) || (min_line_strength == 0U) ||
+        (min_line_strength > 8000U) || (track_mask == 0U)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
 
@@ -836,6 +961,10 @@ drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
         updated.grayscale_black[i] = black[i];
     }
     updated.grayscale_threshold = threshold;
+    updated.grayscale_hysteresis = hysteresis;
+    updated.grayscale_position_floor = position_floor;
+    updated.grayscale_min_line_strength = min_line_strength;
+    updated.grayscale_track_mask = track_mask;
 
     if (!ValidateParams(updated)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;

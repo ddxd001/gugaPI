@@ -7,6 +7,7 @@
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
 #include "app/app_ina219.h"
+#include "app/battery_monitor.h"
 #include "app/app_lora.h"
 #include "app/action.h"
 #include "app/config_store.h"
@@ -73,6 +74,12 @@ static const uint32_t kIna219OledDefaultPeriodMs = 500U;
 static const uint32_t kIna219OledMinPeriodMs = 100U;
 static const uint32_t kIna219OledMaxPeriodMs = 5000U;
 #endif
+#if FEATURE_ENABLE_INA219
+static const uint32_t kBatteryLogTaskPeriodMs = 50U;
+static const uint32_t kBatteryLogDefaultPeriodMs = 500U;
+static const uint32_t kBatteryLogMinPeriodMs = 100U;
+static const uint32_t kBatteryLogMaxPeriodMs = 5000U;
+#endif
 static const uint32_t kGrayOledTaskPeriodMs = 50U;
 static const uint32_t kGrayOledDefaultPeriodMs = 200U;
 static const uint32_t kGrayOledMinPeriodMs = 50U;
@@ -110,6 +117,13 @@ services::SchedulerTaskId g_imuOledTaskId = 0U;
 uint32_t g_imuOledPeriodMs = kImuOledDefaultPeriodMs;
 uint32_t g_imuOledLastUpdateMs = 0U;
 drivers::DriverStatus g_imuOledLastStatus = drivers::DRIVER_OK;
+#endif
+#if FEATURE_ENABLE_INA219
+bool g_batteryLogEnabled = false;
+bool g_batteryLogTaskRegistered = false;
+services::SchedulerTaskId g_batteryLogTaskId = 0U;
+uint32_t g_batteryLogPeriodMs = kBatteryLogDefaultPeriodMs;
+uint32_t g_batteryLogLastUpdateMs = 0U;
 #endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_OLED
 bool g_grayOledEnabled = false;
@@ -452,6 +466,16 @@ void PrintIna219Usage(void)
     services::Shell_WriteLine("  ina219 protect status|clear");
     services::Shell_WriteLine("  ina219 oled on [period_ms 100..5000]|off|status|once");
 }
+
+void PrintBatteryUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  battery status");
+    services::Shell_WriteLine("  battery full");
+    services::Shell_WriteLine("  battery reset");
+    services::Shell_WriteLine("  battery log on [period_ms 100..5000]");
+    services::Shell_WriteLine("  battery log off|status");
+}
 #endif
 
 void PrintOledUsage(void)
@@ -524,7 +548,8 @@ char *AppendUIntDec(char *cursor, char *end, uint32_t value)
     return cursor;
 }
 
-#if FEATURE_ENABLE_INA219
+#if FEATURE_ENABLE_INA219 || \
+    (FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_OLED)
 char *AppendIntDec(char *cursor, char *end, int32_t value)
 {
     uint32_t magnitude = 0U;
@@ -1152,63 +1177,85 @@ drivers::DriverStatus ImuOledSetEnabled(bool enabled)
 #endif
 
 #if FEATURE_ENABLE_GRAYSCALE
-drivers::DriverStatus GrayOledWriteStatusLine(void)
+drivers::DriverStatus GrayOledWritePositionLine(
+    const AppGrayscaleData *data)
 {
     char line[kOledTextCols + 1U];
     char *cursor = line;
 
-    cursor = AppendString(cursor, &line[kOledTextCols], "GRAY ");
-    cursor = AppendUIntDec(cursor, &line[kOledTextCols], g_grayOledPeriodMs);
-    cursor = AppendString(cursor, &line[kOledTextCols], "ms");
+    cursor = AppendString(cursor, &line[kOledTextCols], "P:");
+    cursor = AppendIntDec(cursor, &line[kOledTextCols], data->line_position);
+    cursor = AppendString(cursor, &line[kOledTextCols], " V:");
+    cursor = AppendUIntDec(cursor,
+                           &line[kOledTextCols],
+                           data->position_valid ? 1U : 0U);
+    cursor = AppendString(cursor, &line[kOledTextCols], " C:");
+    cursor = AppendUIntDec(cursor,
+                           &line[kOledTextCols],
+                           data->position_confidence);
     FinishOledLine(line, cursor);
     return board::Board_OledWriteText(0U, 0U, line);
 }
 
-drivers::DriverStatus GrayOledWriteRawLine(uint8_t row,
-                                           uint8_t first_channel,
-                                           uint8_t count,
-                                           const uint16_t raw[8])
+drivers::DriverStatus GrayOledWriteQualityLine(
+    const AppGrayscaleData *data)
 {
     char line[kOledTextCols + 1U];
     char *cursor = line;
 
-    cursor = AppendUIntDec(cursor, &line[kOledTextCols], first_channel);
-    if (count > 1U) {
-        cursor = AppendChar(cursor, &line[kOledTextCols], '-');
-        cursor = AppendUIntDec(cursor,
-                               &line[kOledTextCols],
-                               (uint32_t) (first_channel + count - 1U));
-    }
-    cursor = AppendChar(cursor, &line[kOledTextCols], ' ');
+    cursor = AppendString(cursor, &line[kOledTextCols], "S:");
+    cursor = AppendUIntDec(cursor,
+                           &line[kOledTextCols],
+                           data->line_strength);
+    cursor = AppendString(cursor, &line[kOledTextCols], " W:");
+    cursor = AppendUIntDec(cursor,
+                           &line[kOledTextCols],
+                           data->weak_tracking_frames);
+    cursor = AppendString(cursor, &line[kOledTextCols], " I:");
+    cursor = AppendUIntDec(cursor,
+                           &line[kOledTextCols],
+                           data->invalid_frames);
+    FinishOledLine(line, cursor);
+    return board::Board_OledWriteText(1U, 0U, line);
+}
 
-    for (uint8_t i = 0U; i < count; i++) {
-        if (i != 0U) {
-            cursor = AppendChar(cursor, &line[kOledTextCols], ' ');
-        }
-        cursor = AppendUIntDec(cursor,
-                               &line[kOledTextCols],
-                               raw[first_channel + i]);
-    }
-
+drivers::DriverStatus GrayOledWriteWheelLine(uint8_t row,
+                                             const char *label,
+                                             int32_t left_rpm,
+                                             int32_t right_rpm)
+{
+    char line[kOledTextCols + 1U];
+    char *cursor = AppendString(line, &line[kOledTextCols], label);
+    cursor = AppendString(cursor, &line[kOledTextCols], " L:");
+    cursor = AppendIntDec(cursor, &line[kOledTextCols], left_rpm);
+    cursor = AppendString(cursor, &line[kOledTextCols], " R:");
+    cursor = AppendIntDec(cursor, &line[kOledTextCols], right_rpm);
     FinishOledLine(line, cursor);
     return board::Board_OledWriteText(row, 0U, line);
 }
 
-drivers::DriverStatus GrayOledShowRaw(const uint16_t raw[8])
+drivers::DriverStatus GrayOledShowTracking(const AppGrayscaleData *data,
+                                           const ChassisState *chassis)
 {
-    drivers::DriverStatus status = GrayOledWriteStatusLine();
+    drivers::DriverStatus status = GrayOledWritePositionLine(data);
     if (status != drivers::DRIVER_OK) {
         return status;
     }
-    status = GrayOledWriteRawLine(1U, 0U, 3U, raw);
+    status = GrayOledWriteQualityLine(data);
     if (status != drivers::DRIVER_OK) {
         return status;
     }
-    status = GrayOledWriteRawLine(2U, 3U, 3U, raw);
+    status = GrayOledWriteWheelLine(2U,
+                                    "T",
+                                    chassis->left.target_rpm,
+                                    chassis->right.target_rpm);
     if (status != drivers::DRIVER_OK) {
         return status;
     }
-    return GrayOledWriteRawLine(3U, 6U, 2U, raw);
+    return GrayOledWriteWheelLine(3U,
+                                  "A",
+                                  chassis->left.actual_rpm,
+                                  chassis->right.actual_rpm);
 }
 
 drivers::DriverStatus GrayOledShowError(drivers::DriverStatus read_status)
@@ -1248,15 +1295,27 @@ drivers::DriverStatus GrayOledUpdateDisplay(void)
         }
     }
 
-    uint16_t raw[8] = { 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U };
-    const drivers::DriverStatus read_status = board::Board_GrayscaleReadAll(raw);
-    if (read_status != drivers::DRIVER_OK) {
-        g_grayOledLastStatus = read_status;
-        (void) GrayOledShowError(read_status);
-        return read_status;
+    const AppGrayscaleData *data = App_GrayscaleGetData();
+    if ((data == 0) || (!data->valid) || (!data->processed_valid)) {
+        const drivers::DriverStatus data_status = (data != 0)
+            ? data->processing_status
+            : drivers::DRIVER_ERROR;
+        g_grayOledLastStatus = data_status;
+        (void) GrayOledShowError(data_status);
+        return data_status;
     }
 
-    const drivers::DriverStatus oled_status = GrayOledShowRaw(raw);
+    const ChassisState *chassis = Chassis_GetState();
+    if (chassis == 0) {
+        g_grayOledLastStatus = drivers::DRIVER_ERROR;
+        return g_grayOledLastStatus;
+    }
+
+    /* Use the existing application snapshots. This page adds no ADC read and
+     * no MotorDriver transaction, so OLED refresh cannot disturb the 5 ms
+     * grayscale pipeline or the 20 ms chassis-feedback cadence. */
+    const drivers::DriverStatus oled_status =
+        GrayOledShowTracking(data, chassis);
     g_grayOledLastStatus = oled_status;
     return oled_status;
 }
@@ -1658,7 +1717,7 @@ void PrintChassisState(const ChassisState &state)
     services::Shell_WriteString("\r\n");
 
     services::Shell_WriteString("chassis cfg radius_mm=");
-    services::Shell_WriteUInt32(state.config.wheel_radius_mm);
+    WriteFixedMilli(static_cast<int32_t>(state.config.wheel_radius_um));
     services::Shell_WriteString(" track_mm=");
     services::Shell_WriteUInt32(state.config.wheel_track_mm);
     services::Shell_WriteString(" left_cpr=");
@@ -3085,7 +3144,7 @@ void Ina219Command(int argc, const char * const argv[])
 
         drivers::DriverStatus status = board::Board_Ina219Reset();
         if (status == drivers::DRIVER_OK) {
-            delay_cycles(32000U);
+            services::Time_DelayUs(800U);
             status = board::Board_Ina219ConfigureDefault();
         }
         WriteStatusLine("ina219 reset: ", status);
@@ -3278,6 +3337,230 @@ void Ina219Command(int argc, const char * const argv[])
     (void) argv;
     services::Shell_WriteLine("ina219: disabled");
 #endif
+}
+#endif
+
+#if FEATURE_ENABLE_INA219
+const char *BatterySocSourceText(BatterySocSource source)
+{
+    switch (source) {
+        case BATTERY_SOC_SOURCE_ESTIMATING:
+            return "estimating";
+        case BATTERY_SOC_SOURCE_VOLTAGE:
+            return "voltage";
+        case BATTERY_SOC_SOURCE_MANUAL_FULL:
+            return "full";
+        default:
+            return "unknown";
+    }
+}
+
+void WriteBatterySampleLine(void)
+{
+    const BatteryMonitorStatus *status = BatteryMonitor_GetStatus();
+    services::Shell_WriteString("battery pack_mV=");
+    services::Shell_WriteUInt32(status->pack_voltage_mv);
+    services::Shell_WriteString(" cell_mV=");
+    services::Shell_WriteUInt32(status->average_cell_voltage_mv);
+    services::Shell_WriteString(" current_mA=");
+    WriteInt32(status->current_ua / 1000);
+    services::Shell_WriteString(" power_mW=");
+    WriteInt32(status->power_mw);
+    services::Shell_WriteString(" soc=");
+    services::Shell_WriteUInt32(status->soc_percent);
+    services::Shell_WriteString(" ready=");
+    services::Shell_WriteUInt32(status->soc_ready ? 1U : 0U);
+    services::Shell_WriteString(" valid=");
+    services::Shell_WriteUInt32(status->sample_valid ? 1U : 0U);
+    services::Shell_WriteString(" charging=");
+    services::Shell_WriteUInt32(status->charging ? 1U : 0U);
+    services::Shell_WriteString(" low=");
+    services::Shell_WriteUInt32(status->low_battery ? 1U : 0U);
+    services::Shell_WriteString(" critical=");
+    services::Shell_WriteUInt32(status->critical_battery ? 1U : 0U);
+    services::Shell_WriteString("\r\n");
+}
+
+void WriteBatteryStatus(void)
+{
+    const BatteryMonitorStatus *status = BatteryMonitor_GetStatus();
+    services::Shell_WriteString("battery initialized=");
+    services::Shell_WriteUInt32(status->initialized ? 1U : 0U);
+    services::Shell_WriteString(" source=");
+    services::Shell_WriteString(BatterySocSourceText(status->soc_source));
+    services::Shell_WriteString(" cells=");
+    services::Shell_WriteUInt32(status->series_cells);
+    services::Shell_WriteString(" capacity_mAh=");
+    services::Shell_WriteUInt32(status->rated_capacity_mah);
+    services::Shell_WriteString(" remaining_uAh=");
+    services::Shell_WriteUInt32(status->remaining_uah);
+    services::Shell_WriteString(" consumed_uAh=");
+    services::Shell_WriteUInt32(status->consumed_uah);
+    services::Shell_WriteString(" peak_mA=");
+    services::Shell_WriteUInt32(status->peak_current_ma);
+    services::Shell_WriteString("\r\n");
+    WriteBatterySampleLine();
+    services::Shell_WriteString("battery samples=");
+    services::Shell_WriteUInt32(status->successful_sample_count);
+    services::Shell_WriteString(" overflow=");
+    services::Shell_WriteUInt32(status->overflow_count);
+    services::Shell_WriteString(" errors=");
+    services::Shell_WriteUInt32(status->read_error_count);
+    services::Shell_WriteString(" last=");
+    services::Shell_WriteString(DriverStatusText(status->last_read_status));
+    services::Shell_WriteString(" last_update_ms=");
+    services::Shell_WriteUInt32(status->last_update_ms);
+    services::Shell_WriteString(" log=");
+    services::Shell_WriteUInt32(g_batteryLogEnabled ? 1U : 0U);
+    services::Shell_WriteString(" log_period_ms=");
+    services::Shell_WriteUInt32(g_batteryLogPeriodMs);
+    services::Shell_WriteString("\r\n");
+}
+
+void BatteryLogTask(void)
+{
+    if (!g_batteryLogEnabled) {
+        return;
+    }
+    if (!services::Time_HasElapsed(g_batteryLogLastUpdateMs,
+                                   g_batteryLogPeriodMs)) {
+        return;
+    }
+
+    g_batteryLogLastUpdateMs = services::Time_Millis();
+    if (services::DebugUart_GetTxPending() > 3000U) {
+        return;
+    }
+    WriteBatterySampleLine();
+}
+
+drivers::DriverStatus BatteryLogEnsureTask(void)
+{
+    if (g_batteryLogTaskRegistered) {
+        return drivers::DRIVER_OK;
+    }
+
+    const services::SchedulerStatus status = services::Scheduler_AddTask(
+        "battery_log",
+        BatteryLogTask,
+        kBatteryLogTaskPeriodMs,
+        0U,
+        &g_batteryLogTaskId);
+    if (status != services::SCHEDULER_OK) {
+        return SchedulerStatusToDriverStatus(status);
+    }
+
+    g_batteryLogTaskRegistered = true;
+    return SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_batteryLogTaskId, false));
+}
+
+drivers::DriverStatus BatteryLogSetEnabled(bool enabled)
+{
+    if (!enabled) {
+        g_batteryLogEnabled = false;
+        if (!g_batteryLogTaskRegistered) {
+            return drivers::DRIVER_OK;
+        }
+        return SchedulerStatusToDriverStatus(
+            services::Scheduler_EnableTask(g_batteryLogTaskId, false));
+    }
+
+    const drivers::DriverStatus status = BatteryLogEnsureTask();
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    g_batteryLogLastUpdateMs = services::Time_Millis();
+    g_batteryLogEnabled = true;
+    const drivers::DriverStatus enable_status = SchedulerStatusToDriverStatus(
+        services::Scheduler_EnableTask(g_batteryLogTaskId, true));
+    if (enable_status != drivers::DRIVER_OK) {
+        g_batteryLogEnabled = false;
+    }
+    return enable_status;
+}
+
+void BatteryCommand(int argc, const char * const argv[])
+{
+    if (argc < 2) {
+        PrintBatteryUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        if (argc != 2) {
+            PrintBatteryUsage();
+            return;
+        }
+        WriteBatteryStatus();
+        return;
+    }
+
+    if (StrEqual(argv[1], "full")) {
+        if (argc != 2) {
+            PrintBatteryUsage();
+            return;
+        }
+        BatteryMonitor_SetFull();
+        services::Shell_WriteLine("battery full: runtime SOC set to 100%");
+        return;
+    }
+
+    if (StrEqual(argv[1], "reset")) {
+        if (argc != 2) {
+            PrintBatteryUsage();
+            return;
+        }
+        BatteryMonitor_ResetEstimate();
+        services::Shell_WriteLine("battery reset: estimating from voltage");
+        return;
+    }
+
+    if (StrEqual(argv[1], "log")) {
+        if ((argc >= 3) && StrEqual(argv[2], "on")) {
+            if (argc == 4) {
+                uint32_t period_ms = 0U;
+                if ((!ParseUint32(argv[3], kBatteryLogMaxPeriodMs,
+                                  &period_ms)) ||
+                    (period_ms < kBatteryLogMinPeriodMs)) {
+                    PrintBatteryUsage();
+                    return;
+                }
+                g_batteryLogPeriodMs = period_ms;
+            } else if (argc != 3) {
+                PrintBatteryUsage();
+                return;
+            }
+
+            const drivers::DriverStatus status = BatteryLogSetEnabled(true);
+            services::Shell_WriteString("battery log: ");
+            services::Shell_WriteString(DriverStatusText(status));
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_batteryLogPeriodMs);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+
+        if ((argc == 3) && StrEqual(argv[2], "off")) {
+            WriteStatusLine("battery log off: ",
+                            BatteryLogSetEnabled(false));
+            return;
+        }
+
+        if ((argc == 3) && StrEqual(argv[2], "status")) {
+            services::Shell_WriteString("battery log enabled=");
+            services::Shell_WriteUInt32(g_batteryLogEnabled ? 1U : 0U);
+            services::Shell_WriteString(" registered=");
+            services::Shell_WriteUInt32(
+                g_batteryLogTaskRegistered ? 1U : 0U);
+            services::Shell_WriteString(" period_ms=");
+            services::Shell_WriteUInt32(g_batteryLogPeriodMs);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+    }
+
+    PrintBatteryUsage();
 }
 #endif
 
@@ -4706,6 +4989,11 @@ void PrintHeadingUsage(void)
     services::Shell_WriteLine("  heading turn <deg -180..180>");
     services::Shell_WriteLine(
         "  heading distance <mm -10000..10000> <max_rpm> [timeout_ms]");
+    services::Shell_WriteLine("  heading profile");
+    services::Shell_WriteLine("  heading profile mode <legacy|trapezoid>");
+    services::Shell_WriteLine(
+        "  heading profile <accel|decel|creep|latency|margin|settle|tolerance> <value>");
+    services::Shell_WriteLine("  heading profile save");
     services::Shell_WriteLine("  heading stop");
 }
 
@@ -4721,6 +5009,49 @@ const char *HeadingModeText(app::HeadingMode mode)
     default:
         return "idle";
     }
+}
+
+const char *DistanceSpeedModeText(uint8_t mode)
+{
+    return (mode == DISTANCE_SPEED_MODE_TRAPEZOID)
+        ? "trapezoid"
+        : "legacy";
+}
+
+const char *DistancePhaseText(app::DistanceProfilePhase phase)
+{
+    switch (phase) {
+    case app::DISTANCE_PHASE_LEGACY: return "legacy";
+    case app::DISTANCE_PHASE_ACCEL: return "accel";
+    case app::DISTANCE_PHASE_CRUISE: return "cruise";
+    case app::DISTANCE_PHASE_BRAKE: return "brake";
+    case app::DISTANCE_PHASE_CREEP: return "creep";
+    case app::DISTANCE_PHASE_SETTLE: return "settle";
+    default: return "idle";
+    }
+}
+
+void PrintDistanceProfile(void)
+{
+    const ConfigStoreParams *params = ConfigStore_Get();
+    services::Shell_WriteString("heading profile mode=");
+    services::Shell_WriteString(DistanceSpeedModeText(
+        params->distance_speed_mode));
+    services::Shell_WriteString(" accel_rpm_s=");
+    services::Shell_WriteUInt32(params->distance_accel_rpm_s);
+    services::Shell_WriteString(" decel_rpm_s=");
+    services::Shell_WriteUInt32(params->distance_decel_rpm_s);
+    services::Shell_WriteString(" creep_rpm=");
+    services::Shell_WriteUInt32(params->distance_creep_rpm);
+    services::Shell_WriteString(" latency_ms=");
+    services::Shell_WriteUInt32(params->distance_stop_latency_ms);
+    services::Shell_WriteString(" margin_mm=");
+    services::Shell_WriteUInt32(params->distance_brake_margin_mm);
+    services::Shell_WriteString(" settle_rpm=");
+    services::Shell_WriteUInt32(params->distance_settle_rpm);
+    services::Shell_WriteString(" tolerance_mm=");
+    services::Shell_WriteUInt32(params->distance_tolerance_mm);
+    services::Shell_WriteString("\r\n");
 }
 
 void HeadingCommand(int argc, const char * const argv[])
@@ -4745,8 +5076,15 @@ void HeadingCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(st->at_target ? 1U : 0U);
         services::Shell_WriteString(" last=");
         services::Shell_WriteString(DriverStatusText(st->last_status));
+        services::Shell_WriteString(" profile=");
+        services::Shell_WriteString(DistancePhaseText(st->distance_phase));
+        services::Shell_WriteString(" profile_rpm=");
+        WriteInt32(st->profile_command_rpm);
+        services::Shell_WriteString(" brake_mm=");
+        WriteInt32(st->brake_distance_mm);
         services::Shell_WriteString("\r\n");
-        if (st->mode == app::HEADING_DISTANCE) {
+        if ((st->mode == app::HEADING_DISTANCE) ||
+            (st->target_distance_mm != 0)) {
             services::Shell_WriteString("distance target_mm=");
             WriteInt32(st->target_distance_mm);
             services::Shell_WriteString(" traveled_mm=");
@@ -4755,10 +5093,96 @@ void HeadingCommand(int argc, const char * const argv[])
             WriteInt32(st->remaining_distance_mm);
             services::Shell_WriteString(" max_rpm=");
             WriteInt32(st->distance_max_rpm);
+            services::Shell_WriteString(" target_counts=");
+            WriteInt32(st->left_target_delta_counts);
+            services::Shell_WriteString("/");
+            WriteInt32(st->right_target_delta_counts);
             services::Shell_WriteString(" timeout_ms=");
             services::Shell_WriteUInt32(st->distance_timeout_ms);
             services::Shell_WriteString("\r\n");
         }
+        return;
+    }
+
+    if (StrEqual(argv[1], "profile")) {
+        if (argc == 2) {
+            PrintDistanceProfile();
+            return;
+        }
+        if (app::Heading_GetState()->mode == app::HEADING_DISTANCE) {
+            WriteStatusLine("heading profile: ", drivers::DRIVER_ERROR_BUSY);
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "save")) {
+            WriteStatusLine("heading profile save: ", ConfigStore_Save());
+            return;
+        }
+        if ((argc == 4) && StrEqual(argv[2], "mode")) {
+            int32_t mode = -1;
+            if (StrEqual(argv[3], "legacy")) {
+                mode = DISTANCE_SPEED_MODE_LEGACY;
+            } else if (StrEqual(argv[3], "trapezoid")) {
+                mode = DISTANCE_SPEED_MODE_TRAPEZOID;
+            }
+            if (mode < 0) {
+                PrintHeadingUsage();
+                return;
+            }
+            const drivers::DriverStatus status =
+                ConfigStore_Set("distance_speed_mode", mode);
+            WriteStatusLine("heading profile mode: ", status);
+            if (status == drivers::DRIVER_OK) {
+                PrintDistanceProfile();
+            }
+            return;
+        }
+        if (argc == 4) {
+            const char *param_name = 0;
+            uint32_t maximum = 0U;
+            uint32_t minimum = 0U;
+            if (StrEqual(argv[2], "accel")) {
+                param_name = "distance_accel_rpm_s";
+                minimum = 1U;
+                maximum = 5000U;
+            } else if (StrEqual(argv[2], "decel")) {
+                param_name = "distance_decel_rpm_s";
+                minimum = 1U;
+                maximum = 5000U;
+            } else if (StrEqual(argv[2], "creep")) {
+                param_name = "distance_creep_rpm";
+                minimum = 1U;
+                maximum = 500U;
+            } else if (StrEqual(argv[2], "latency")) {
+                param_name = "distance_stop_latency_ms";
+                maximum = 2000U;
+            } else if (StrEqual(argv[2], "margin")) {
+                param_name = "distance_brake_margin_mm";
+                maximum = 1000U;
+            } else if (StrEqual(argv[2], "settle")) {
+                param_name = "distance_settle_rpm";
+                maximum = 100U;
+            } else if (StrEqual(argv[2], "tolerance")) {
+                param_name = "distance_tolerance_mm";
+                minimum = 1U;
+                maximum = 100U;
+            }
+
+            uint32_t value = 0U;
+            if ((param_name == 0) ||
+                (!ParseUint32(argv[3], maximum, &value)) ||
+                (value < minimum)) {
+                PrintHeadingUsage();
+                return;
+            }
+            const drivers::DriverStatus status = ConfigStore_Set(
+                param_name, static_cast<int32_t>(value));
+            WriteStatusLine("heading profile set: ", status);
+            if (status == drivers::DRIVER_OK) {
+                PrintDistanceProfile();
+            }
+            return;
+        }
+        PrintHeadingUsage();
         return;
     }
 
@@ -5044,8 +5468,45 @@ void PrintLFUsage(void)
     services::Shell_WriteLine("  lf kp <val>");
     services::Shell_WriteLine("  lf kd <val>");
     services::Shell_WriteLine("  lf maxcorr <val>");
-    services::Shell_WriteLine("  lf losthold <ms>");
-    services::Shell_WriteLine("  lf losttimeout <ms>");
+    services::Shell_WriteLine("  lf losthold <ms> (compatibility only)");
+    services::Shell_WriteLine("  lf losttimeout <ms> (compatibility only)");
+}
+
+const char *GrayscalePositionSourceText(
+    drivers::GrayscalePositionSource source)
+{
+    switch (source) {
+    case drivers::GRAYSCALE_POSITION_CORE:
+        return "core";
+    case drivers::GRAYSCALE_POSITION_LEFT_EDGE:
+        return "left_edge";
+    case drivers::GRAYSCALE_POSITION_RIGHT_EDGE:
+        return "right_edge";
+    case drivers::GRAYSCALE_POSITION_HELD:
+        return "held";
+    case drivers::GRAYSCALE_POSITION_NONE:
+    default:
+        return "none";
+    }
+}
+
+const char *GrayscaleTrackStateText(drivers::GrayscaleTrackState state)
+{
+    switch (state) {
+    case drivers::GRAYSCALE_TRACK_VALID:
+        return "valid";
+    case drivers::GRAYSCALE_TRACK_LOST:
+        return "lost";
+    case drivers::GRAYSCALE_TRACK_MULTIPLE:
+        return "multiple";
+    case drivers::GRAYSCALE_TRACK_WIDE:
+        return "wide";
+    case drivers::GRAYSCALE_TRACK_SENSOR_FAULT:
+        return "sensor_fault";
+    case drivers::GRAYSCALE_TRACK_UNKNOWN:
+    default:
+        return "unknown";
+    }
 }
 
 void LFCommand(int argc, const char * const argv[])
@@ -5083,6 +5544,32 @@ void LFCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(st->last_sequence);
         services::Shell_WriteString(" road=");
         services::Shell_WriteString(app::GrayscaleRoad_TypeText(st->road_type));
+        services::Shell_WriteString(" pos_valid=");
+        services::Shell_WriteUInt32(st->position_valid ? 1U : 0U);
+        services::Shell_WriteString(" selected=");
+        WriteHex8(st->selected_mask);
+        services::Shell_WriteString(" confidence=");
+        services::Shell_WriteUInt32(st->position_confidence);
+        services::Shell_WriteString(" source=");
+        services::Shell_WriteString(
+            GrayscalePositionSourceText(st->position_source));
+        services::Shell_WriteString(" track_state=");
+        services::Shell_WriteString(GrayscaleTrackStateText(st->track_state));
+        services::Shell_WriteString(" weak_frames=");
+        services::Shell_WriteUInt32(st->weak_tracking_frames);
+        services::Shell_WriteString(" invalid_frames=");
+        services::Shell_WriteUInt32(st->invalid_frames);
+        services::Shell_WriteString(" invalid_policy=confirm");
+        services::Shell_WriteUInt32(
+            static_cast<uint32_t>(app::LF_INVALID_TRACK_STOP_FRAMES));
+        services::Shell_WriteString(" ref_rpm=");
+        services::Shell_WriteUInt32(
+            static_cast<uint32_t>(app::LF_REFERENCE_RPM));
+        services::Shell_WriteString(" max_ratio_permille=");
+        services::Shell_WriteUInt32(app::LF_MAX_STEERING_PERMILLE);
+        services::Shell_WriteString(" deadband=");
+        services::Shell_WriteUInt32(
+            static_cast<uint32_t>(app::LF_ERROR_DEADBAND_MPOS));
         services::Shell_WriteString("\r\n");
         return;
     }
@@ -5461,7 +5948,20 @@ void MotorCommand(int argc, const char * const argv[])
         ramp.decel_rpm_per_s = static_cast<uint16_t>(decel_rpm_per_s);
         const drivers::DriverStatus status =
             motor::SetSpeedRamp(&g_motorClient, ramp);
-        WriteStatusLine("motor ramp: ", status);
+        if (status != drivers::DRIVER_OK) {
+            WriteStatusLine("motor ramp: ", status);
+            return;
+        }
+
+        drivers::DriverStatus param_status =
+            ConfigStore_Set("speed_accel_rpm_s",
+                            static_cast<int32_t>(accel_rpm_per_s));
+        if (param_status == drivers::DRIVER_OK) {
+            param_status =
+                ConfigStore_Set("speed_decel_rpm_s",
+                                static_cast<int32_t>(decel_rpm_per_s));
+        }
+        WriteStatusLine("motor ramp: ", param_status);
         return;
     }
 
@@ -5620,6 +6120,22 @@ void MotorCommand(int argc, const char * const argv[])
         if (status != drivers::DRIVER_OK) {
             WriteStatusLine("motor pid: ", status);
             return;
+        }
+
+        static const char *const kPidParamNames[motor::kSpeedPidLength] = {
+            "speed_kp",
+            "speed_ki",
+            "speed_kd",
+            "speed_max_duty",
+            "speed_min_duty",
+        };
+        for (uint8_t i = 0U; i < length; i++) {
+            const drivers::DriverStatus param_status =
+                ConfigStore_Set(kPidParamNames[i], data[i]);
+            if (param_status != drivers::DRIVER_OK) {
+                WriteStatusLine("motor pid param: ", param_status);
+                return;
+            }
         }
 
         services::Shell_WriteLine("motor pid: ok");
@@ -6313,6 +6829,8 @@ void GrayCommand(int argc, const char * const argv[])
         WriteHex8(data->usable_mask);
         services::Shell_WriteString(" track=");
         WriteHex8(data->track_mask);
+        services::Shell_WriteString(" selected=");
+        WriteHex8(data->selected_mask);
         services::Shell_WriteString(" calib_fault=");
         WriteHex8(data->calibration_fault_mask);
         services::Shell_WriteString(" saturation=");
@@ -6321,10 +6839,24 @@ void GrayCommand(int argc, const char * const argv[])
         WriteHex8(data->channel_anomaly_mask);
         services::Shell_WriteString(" line=");
         services::Shell_WriteUInt32(data->line_detected ? 1U : 0U);
+        services::Shell_WriteString(" pos_valid=");
+        services::Shell_WriteUInt32(data->position_valid ? 1U : 0U);
         services::Shell_WriteString(" pos=");
         WriteInt32(data->line_position);
         services::Shell_WriteString(" strength=");
         services::Shell_WriteUInt32(data->line_strength);
+        services::Shell_WriteString(" confidence=");
+        services::Shell_WriteUInt32(data->position_confidence);
+        services::Shell_WriteString(" source=");
+        services::Shell_WriteString(
+            GrayscalePositionSourceText(data->position_source));
+        services::Shell_WriteString(" track_state=");
+        services::Shell_WriteString(
+            GrayscaleTrackStateText(data->track_state));
+        services::Shell_WriteString(" weak_frames=");
+        services::Shell_WriteUInt32(data->weak_tracking_frames);
+        services::Shell_WriteString(" invalid_frames=");
+        services::Shell_WriteUInt32(data->invalid_frames);
         services::Shell_WriteString(" road=");
         services::Shell_WriteString(app::GrayscaleRoad_TypeText(data->road_type));
         services::Shell_WriteString(" on=");
@@ -6855,7 +7387,9 @@ void SeqCommand(int argc, const char * const argv[])
 void TelemSendHeader(void)
 {
     services::DebugUart_WriteString(
-        "#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,err,corr\n");
+        "#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,head_err,"
+        "head_corr,gray_pos,gray_strength,gray_conf,gray_valid,"
+        "gray_state,lf_err,lf_corr,lf_weak,lf_invalid\n");
 }
 
 void TelemSendData(void)
@@ -6865,6 +7399,8 @@ void TelemSendData(void)
     const app::ChassisState *cs = app::Chassis_GetState();
     const app::HeadingState *hs = app::Heading_GetState();
     const app::ActionRunnerState *as = app::ActionRunner_GetState();
+    const app::AppGrayscaleData *gray = app::App_GrayscaleGetData();
+    const app::LFState *lf = app::LF_GetState();
 
     /* t */
     services::Shell_WriteUInt32(now);
@@ -6897,6 +7433,29 @@ void TelemSendData(void)
     /* corr */
     services::Shell_WriteString(",");
     WriteInt32(hs->correction_rpm);
+    /* Grayscale interpolation and line-follow control diagnostics. */
+    services::Shell_WriteString(",");
+    WriteInt32((gray != 0) ? gray->line_position : 0);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((gray != 0) ? gray->line_strength : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        (gray != 0) ? gray->position_confidence : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        ((gray != 0) && gray->position_valid) ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((gray != 0)
+        ? static_cast<uint32_t>(gray->track_state)
+        : 0U);
+    services::Shell_WriteString(",");
+    WriteInt32((lf != 0) ? lf->error_mpos : 0);
+    services::Shell_WriteString(",");
+    WriteInt32((lf != 0) ? lf->correction_rpm : 0);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((lf != 0) ? lf->weak_tracking_frames : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((lf != 0) ? lf->invalid_frames : 0U);
     services::Shell_WriteString("\n");
 }
 
@@ -7076,6 +7635,10 @@ void AppShell_RegisterCommands(void)
         "ina219",
         "INA219: status|scan|addr|recover|config|read|raw|reg|oled",
         Ina219Command);
+    (void) services::Shell_RegisterCommand(
+        "battery",
+        "3S1P runtime battery SOC: status|full|reset|log",
+        BatteryCommand);
 #endif
 #if FEATURE_ENABLE_OLED
     (void) services::Shell_RegisterCommand(
@@ -7120,7 +7683,7 @@ void AppShell_RegisterCommands(void)
 #if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
     (void) services::Shell_RegisterCommand(
         "heading",
-        "Heading: status|hold|turn|distance|stop",
+        "Heading: status|hold|turn|distance|profile|stop",
         HeadingCommand);
     (void) services::Shell_RegisterCommand(
         "run",

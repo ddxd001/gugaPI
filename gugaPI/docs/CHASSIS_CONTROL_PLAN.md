@@ -36,12 +36,15 @@
 | 双轮命令失败保护 | 已完成 | 任一侧命令失败时停止两侧电机并清除活动命令 |
 | Shell 串口迁移 | 已完成 | UART6，PC10/RX，PC11/TX，115200 8N1 |
 | 编码器方向 | 已完成 | M1 输出和编码器反向，M2 保持正常方向 |
-| 编码器 CPR | 已完成 | 左右轮均为 364 counts/rev |
+| 编码器 CPR | 已完成 | 13 PPR × QEI四倍频 × 28:1，左右轮均为 1456 counts/rev |
+| 轮径表示 | 已完成 | 1 m实测标定为 `wheel_radius_um=33050`（33.050 mm有效滚动半径）；保留整数毫米兼容入口 |
 | 地面速度 PID | 已完成 | Q4.4 原始值 Kp=1、Ki=1、Kd=0 |
 | 输出限制 | 已完成 | min duty=6%，max duty=50% |
 | 默认参数同步 | 已完成 | gugaPI 和 MotorDriver 源码默认值已统一 |
 
-### 3.2 已完成地面测试
+### 3.2 历史地面测试（CPR修正后需复测）
+
+以下结果是在旧的364 CPR配置下由固件换算得到，实际RPM被放大约4倍，不能继续作为1456 CPR版本的验收数据。烧录新版本后必须重新进行速度和距离测试。
 
 | 目标转速 | 实测结果 | 结论 |
 | --- | --- | --- |
@@ -212,14 +215,18 @@
 
 ### 5.4 编码器距离闭环
 
-状态：`代码完成，待硬件验收`
+状态：`分段速度曲线代码完成、编译通过；60/90 RPM单次实车通过，重复性和120 RPM待验收`
 
 - `HEADING_DISTANCE` 记录左右轮起始编码器，并锁定启动瞬间Yaw。
-- 正毫米前进、负毫米倒退；剩余距离生成基础RPM，接近目标自动减速。
+- 正毫米前进、负毫米倒退；保留 `legacy` 模式用于回归，新增默认 `trapezoid` 模式。
+- 梯形模式依次经过加速、巡航、预测制动、单方向低速逼近和停稳阶段。
+- 制动点综合实测RPM、配置减速度、系统延迟和附加余量计算；越过终点立即停车，不反向寻找。
+- 内部使用编码器换算的微米距离，避免整数毫米过早量化。
 - 航向P环同时生成左右轮差速修正，构成“距离外环 + 轮速内环 + 航向环”。
-- 左右轮都进入目标 `±3 mm`，停车稳定100 ms后完成。
+- 进入可配置目标容差后停车；左右轮连续3次低于停稳RPM且至少经过100 ms后完成。
 - 编码器反馈超过100 ms未更新、IMU失效、通信失败或自动/指定超时均安全停车。
 - Shell：`heading distance <mm> <max_rpm> [timeout_ms]`。
+- Shell：`heading profile` 查看、切换模式、设置曲线参数并保存。
 - ActionRunner：`drive_mm` + `distance_reached`。
 
 ### 5.5 参数与遥测
@@ -229,6 +236,7 @@
 实现内容：
 
 - 航向控制参数进入 ConfigStore（v3）：`heading_kp`、`heading_max_correction_rpm`、`heading_turn_max_rpm`、`heading_turn_min_rpm`、`heading_tolerance_mdeg`、`heading_settle_ms`。
+- 定距曲线参数进入ConfigStore（v8），V1～V7配置保持可加载并自动使用保守默认值。
 - Shell `heading status` 输出 mode、target、error、correction、at_target、last_status。
 - Shell `param get/set` 可在线修改并 `param save` 持久化到 FRAM。
 
@@ -407,8 +415,8 @@ right_rpm = base_rpm + correction
 实现内容（`linefollow.cpp` `LF_FOLLOW` 模式）：
 
 - 中间 `track_mask` 通道按连续黑度计算位置，外侧通道只参与路口位图，避免支路拉偏巡线质心。
-- `correction = (error * kp + filtered_derivative * kd) / 1e6`，默认 `kd=0`，按灰度完整帧序号更新。
-- 丢线先以一半基础速度保持方向，超过 `lost_hold_ms` 后原地搜索，达到 `lost_stop_ms` 停车。
+- 在 40 RPM 参考速度计算 `reference_correction = (error * kp + filtered_derivative * kd) / 1e6`，随后按基础速度同比缩放，并限制在基础速度的 40%；中心 `±100` 使用死区，微分滤波使用 40 ms 时间常数，按灰度完整帧序号更新。
+- 灰度硬件故障、数据超时或通道异常时立即停车；强线之后的短暂全白间隙与连续相邻弱模拟线段共享最多 8 个位置帧（约 40 ms）的恢复预算。全白帧同时计入连续异常计数，相邻弱线恢复会将其清零；`lost/multiple/wide` 连续 6 个完整位置帧（约 30 ms）仍异常即停车。因此连续全白不会等待完整 40 ms。可信度仅作诊断，不执行无限保持或原地搜索。`lost_hold_ms`/`lost_stop_ms` 仅为旧配置兼容字段。
 - 持续时间到达 `follow_duration_ms` 后自动停车。
 - 安全：灰度数据无效 → `FAULT_SENSOR_LOST` 停车；故障 → 停车。
 
@@ -417,9 +425,9 @@ Shell 在线调参：
 ```text
 lf kp <val>           # 设置 kp（0..1000000）
 lf kd <val>           # 设置 kd（0..1000000）
-lf maxcorr <val>      # 设置最大修正 RPM（0..500）
-lf losthold <ms>      # 设置减速保持时间
-lf losttimeout <ms>   # 设置丢线停车时间
+lf maxcorr <val>      # 设置 40 RPM 参考速度下的最大修正 RPM（0..500）
+lf losthold <ms>      # 兼容旧配置，当前不参与运动
+lf losttimeout <ms>   # 兼容旧配置，当前不延迟停车
 ```
 
 ### 8.3 赛道事件识别
@@ -442,13 +450,13 @@ lf losttimeout <ms>   # 设置丢线停车时间
 
 状态：`代码完成`
 
-实现内容（`config_store.cpp`，FRAM v3 布局）：
+实现内容（`config_store.cpp`，FRAM v7 布局）：
 
 - 速度环、航向闭环、IMU 偏置和底盘几何参数统一进入 ConfigStore，持久化到 FRAM（地址 0x0000，magic "CFPG"，CRC32 校验）。
-- 当前版本 v3，payload 90 字节；兼容加载 v1（66 字节）和 v2（68 字节）历史布局。
+- 当前版本 v9，payload 181 字节；兼容加载 v1-v8 历史布局。v8及更早布局缺少MotorDriver ramp时补入1500/2000 RPM/s。旧版默认组合 `364/364/32` 加载时自动迁移为 `1456/1456/33050 um`，并标记 dirty，等待 `param save` 写回。
 - `param set` 修改后显示 dirty 状态，`param save` 显式持久化，`param load` 从 FRAM 重新加载，`param reset` 恢复源码默认值。
-- 参数列表（32 项）：
-  - 底盘：`left/right_counts_per_rev`、`wheel_radius_mm`、`wheel_track_mm`、`max_wheel_rpm`、`motor_output/encoder_invert_flags`
+- 参数列表：
+  - 底盘：`left/right_counts_per_rev`、`wheel_radius_um`、兼容参数 `wheel_radius_mm`、`wheel_track_mm`、`max_wheel_rpm`、`motor_output/encoder_invert_flags`
   - 速度环：`speed_kp/ki/kd`、`speed_max/min_duty`
   - 位置环：`position_kp/ki/kd`、`position_max_rpm`、`position_tolerance_counts`
   - GY931 零点：`gy931_roll/pitch/yaw_zero_mdeg`
@@ -527,7 +535,7 @@ lf losttimeout <ms>   # 设置丢线停车时间
 | 2026-07-10 | 基线 | 增加 I2C 写后校验和底盘指令续租 | 编译及硬件通信测试通过 |
 | 2026-07-10 | 基线 | 修复续租重复清零 PWM 的问题 | 150、300、500 RPM 闭环恢复正常 |
 | 2026-07-10 | 基线 | 完成架空和地面 PID 调试 | 最终参数 1/1/0，duty 6～50% |
-| 2026-07-10 | 基线 | Shell 迁移到 PB1/RX、PB0/TX | COM5 实测 Shell 收发正常 |
+| 2026-07-10 | 历史方案 | Shell 临时迁移到 PB1/RX、PB0/TX | 已由官方 UART6（PC10/RX、PC11/TX）配置取代 |
 | 2026-07-10 | 基线 | 当前实车参数设为源码默认值 | gugaPI、MotorDriver 编译通过 |
 | 2026-07-10 | 阶段一 | 建立详细开发计划 | 进行中 |
 | 2026-07-10 | 阶段一 | 实现目标转速斜坡和 PID 状态重置策略 | 两个工程编译通过，等待硬件验收 |
