@@ -32,7 +32,7 @@ sched
 
 ### `txstat`
 
-查看调试 UART（UART0）TX/RX 队列状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
+查看调试 UART（UART6）TX/RX 队列状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
 
 ```text
 txstat

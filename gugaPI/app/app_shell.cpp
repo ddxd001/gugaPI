@@ -58,15 +58,21 @@ static const uint32_t kImuSpiSampleMaxBytes = 16U;
 #endif
 static const uint8_t kOledTextRows = 4U;
 static const uint8_t kOledTextCols = 21U;
+#if FEATURE_ENABLE_GY931
 static const uint8_t kGy931MaxReadWords = drivers::GY931_MAX_READ_WORDS;
+#endif
+#if FEATURE_ENABLE_GY931 && FEATURE_ENABLE_OLED
 static const uint32_t kGy931OledTaskPeriodMs = 50U;
 static const uint32_t kGy931OledDefaultPeriodMs = 200U;
 static const uint32_t kGy931OledMinPeriodMs = 50U;
 static const uint32_t kGy931OledMaxPeriodMs = 5000U;
+#endif
+#if FEATURE_ENABLE_INA219 && FEATURE_ENABLE_OLED
 static const uint32_t kIna219OledTaskPeriodMs = 50U;
 static const uint32_t kIna219OledDefaultPeriodMs = 500U;
 static const uint32_t kIna219OledMinPeriodMs = 100U;
 static const uint32_t kIna219OledMaxPeriodMs = 5000U;
+#endif
 static const uint32_t kGrayOledTaskPeriodMs = 50U;
 static const uint32_t kGrayOledDefaultPeriodMs = 200U;
 static const uint32_t kGrayOledMinPeriodMs = 50U;
@@ -75,7 +81,7 @@ static const int32_t kChassisLinearLimitMmS = 5000;
 static const int32_t kChassisAngularLimitMdegS = 720000;
 motor::Client g_motorClient = { motor::TRANSPORT_I2C,
                                 motor::kI2cDefaultAddress };
-#if FEATURE_ENABLE_OLED && (FEATURE_ENABLE_GY931 || FEATURE_ENABLE_INA219)
+#if FEATURE_ENABLE_GY931 && FEATURE_ENABLE_OLED
 bool g_gy931OledEnabled = false;
 bool g_gy931OledTaskRegistered = false;
 services::SchedulerTaskId g_gy931OledTaskId = 0U;
@@ -90,8 +96,9 @@ services::SchedulerTaskId g_ina219OledTaskId = 0U;
 uint32_t g_ina219OledPeriodMs = kIna219OledDefaultPeriodMs;
 uint32_t g_ina219OledLastUpdateMs = 0U;
 drivers::DriverStatus g_ina219OledLastStatus = drivers::DRIVER_OK;
+#endif
 
-#if FEATURE_ENABLE_IMU
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_OLED
 static const uint32_t kImuOledTaskPeriodMs = 50U;
 static const uint32_t kImuOledDefaultPeriodMs = 200U;
 static const uint32_t kImuOledMinPeriodMs = 50U;
@@ -103,7 +110,6 @@ services::SchedulerTaskId g_imuOledTaskId = 0U;
 uint32_t g_imuOledPeriodMs = kImuOledDefaultPeriodMs;
 uint32_t g_imuOledLastUpdateMs = 0U;
 drivers::DriverStatus g_imuOledLastStatus = drivers::DRIVER_OK;
-#endif
 #endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_OLED
 bool g_grayOledEnabled = false;
@@ -353,6 +359,7 @@ void WriteFixedMilli(int32_t value)
     services::Shell_WriteString(text);
 }
 
+#if FEATURE_ENABLE_GY931
 void WriteSignedVector3Milli(const char *label,
                              const int32_t values[3],
                              const char *unit)
@@ -368,6 +375,7 @@ void WriteSignedVector3Milli(const char *label,
         services::Shell_WriteString(unit);
     }
 }
+#endif
 
 const char *DriverStatusText(drivers::DriverStatus status)
 {
@@ -421,6 +429,7 @@ void PrintParamUsage(void)
     services::Shell_WriteLine("  param reset");
 }
 
+#if FEATURE_ENABLE_INA219
 void PrintIna219Usage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -436,6 +445,7 @@ void PrintIna219Usage(void)
     services::Shell_WriteLine("  ina219 protect status|clear");
     services::Shell_WriteLine("  ina219 oled on [period_ms 100..5000]|off|status|once");
 }
+#endif
 
 void PrintOledUsage(void)
 {
@@ -450,6 +460,7 @@ void PrintOledUsage(void)
     services::Shell_WriteLine("  oled on|off");
 }
 
+#if FEATURE_ENABLE_GY931
 void PrintGy931Usage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -464,6 +475,7 @@ void PrintGy931Usage(void)
     services::Shell_WriteLine("  gy931 raw <reg> <words 1..16>");
     services::Shell_WriteLine("  gy931 oled on [period_ms 50..5000]|off|status|once");
 }
+#endif
 
 #if FEATURE_ENABLE_OLED && (FEATURE_ENABLE_GY931 || FEATURE_ENABLE_INA219 || FEATURE_ENABLE_IMU || FEATURE_ENABLE_GRAYSCALE)
 char *AppendChar(char *cursor, char *end, char ch)
@@ -505,6 +517,7 @@ char *AppendUIntDec(char *cursor, char *end, uint32_t value)
     return cursor;
 }
 
+#if FEATURE_ENABLE_INA219
 char *AppendIntDec(char *cursor, char *end, int32_t value)
 {
     uint32_t magnitude = 0U;
@@ -518,13 +531,16 @@ char *AppendIntDec(char *cursor, char *end, int32_t value)
 
     return AppendUIntDec(cursor, end, magnitude);
 }
+#endif
 
+#if FEATURE_ENABLE_GY931 || FEATURE_ENABLE_INA219
 char *AppendHex8Text(char *cursor, char *end, uint8_t value)
 {
     cursor = AppendString(cursor, end, "0x");
     cursor = AppendChar(cursor, end, HexDigit((uint8_t) (value >> 4U)));
     return AppendChar(cursor, end, HexDigit(value));
 }
+#endif
 
 char *AppendFixedMilliText(char *cursor, char *end, int32_t value)
 {
@@ -683,7 +699,7 @@ drivers::DriverStatus Gy931OledUpdateDisplay(void)
 
 void Gy931OledTask(void)
 {
-    if (!g_gy931OledEnabled) {
+    if ((!g_gy931OledEnabled) || services::Fault_HasFault()) {
         return;
     }
 
@@ -875,7 +891,7 @@ drivers::DriverStatus Ina219OledUpdateDisplay(void)
 
 void Ina219OledTask(void)
 {
-    if (!g_ina219OledEnabled) {
+    if ((!g_ina219OledEnabled) || services::Fault_HasFault()) {
         return;
     }
 
@@ -1028,7 +1044,7 @@ drivers::DriverStatus ImuOledUpdateDisplay(void)
 
 void ImuOledTask(void)
 {
-    if (!g_imuOledEnabled) {
+    if ((!g_imuOledEnabled) || services::Fault_HasFault()) {
         return;
     }
 
@@ -1219,7 +1235,7 @@ drivers::DriverStatus GrayOledUpdateDisplay(void)
 
 void GrayOledTask(void)
 {
-    if (!g_grayOledEnabled) {
+    if ((!g_grayOledEnabled) || services::Fault_HasFault()) {
         return;
     }
 
@@ -2483,6 +2499,7 @@ void OledCommand(int argc, const char * const argv[])
 #endif
 }
 
+#if FEATURE_ENABLE_GY931
 void Gy931Command(int argc, const char * const argv[])
 {
 #if FEATURE_ENABLE_GY931
@@ -2842,7 +2859,9 @@ void Gy931Command(int argc, const char * const argv[])
     services::Shell_WriteLine("gy931: disabled");
 #endif
 }
+#endif
 
+#if FEATURE_ENABLE_INA219
 void Ina219Command(int argc, const char * const argv[])
 {
 #if FEATURE_ENABLE_INA219
@@ -3224,6 +3243,7 @@ void Ina219Command(int argc, const char * const argv[])
     services::Shell_WriteLine("ina219: disabled");
 #endif
 }
+#endif
 
 
 #if FEATURE_ENABLE_SHELL_DIAGNOSTICS
@@ -6522,54 +6542,6 @@ void GrayCommand(int argc, const char * const argv[])
 #endif
 
 } /* namespace */
-
-drivers::DriverStatus AppShell_EnableIna219Oled(uint32_t period_ms)
-{
-#if FEATURE_ENABLE_INA219 && FEATURE_ENABLE_OLED
-    if ((period_ms < kIna219OledMinPeriodMs) ||
-        (period_ms > kIna219OledMaxPeriodMs)) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-
-    g_ina219OledPeriodMs = period_ms;
-    return Ina219OledSetEnabled(true);
-#else
-    (void) period_ms;
-    return drivers::DRIVER_ERROR_UNSUPPORTED;
-#endif
-}
-
-drivers::DriverStatus AppShell_EnableGy931Oled(uint32_t period_ms)
-{
-#if FEATURE_ENABLE_GY931 && FEATURE_ENABLE_OLED
-    if ((period_ms < kGy931OledMinPeriodMs) ||
-        (period_ms > kGy931OledMaxPeriodMs)) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-
-    g_gy931OledPeriodMs = period_ms;
-    return Gy931OledSetEnabled(true);
-#else
-    (void) period_ms;
-    return drivers::DRIVER_ERROR_UNSUPPORTED;
-#endif
-}
-
-drivers::DriverStatus AppShell_EnableGrayOled(uint32_t period_ms)
-{
-#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_OLED
-    if ((period_ms < kGrayOledMinPeriodMs) ||
-        (period_ms > kGrayOledMaxPeriodMs)) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-
-    g_grayOledPeriodMs = period_ms;
-    return GrayOledSetEnabled(true);
-#else
-    (void) period_ms;
-    return drivers::DRIVER_ERROR_UNSUPPORTED;
-#endif
-}
 
 void PrintCompUsage(void)
 {

@@ -1,6 +1,6 @@
 'use strict';
 
-// Shared Web Serial terminal for the gugaPI UART0 debug shell.
+// Shared Web Serial terminal for the gugaPI UART6 debug shell.
 var termHistory=[];
 var termHistoryIndex=0;
 var TERM_MAX_CHARS=200000;
