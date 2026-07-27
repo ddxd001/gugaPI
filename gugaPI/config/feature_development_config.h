@@ -22,7 +22,7 @@
 #define FEATURE_ENABLE_INA219              (0U)
 #define FEATURE_ENABLE_LORA                (1U)
 #define FEATURE_ENABLE_MOTOR_DRIVER        (1U)
-#define FEATURE_ENABLE_OLED                (1U)
+#define FEATURE_ENABLE_OLED                (0U)
 #define FEATURE_ENABLE_IMU                 (1U)
 #define FEATURE_ENABLE_MOTOR               (0U)
 #define FEATURE_ENABLE_ENCODER             (0U)

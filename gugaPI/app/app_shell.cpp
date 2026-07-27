@@ -60,8 +60,10 @@ static const uint32_t kImuSpiBurstMaxBytes = 1000000U;
 static const uint32_t kImuSpiSampleDefaultBytes = 8U;
 static const uint32_t kImuSpiSampleMaxBytes = 16U;
 #endif
+#if FEATURE_ENABLE_OLED
 static const uint8_t kOledTextRows = 4U;
 static const uint8_t kOledTextCols = 21U;
+#endif
 #if FEATURE_ENABLE_GY931
 static const uint8_t kGy931MaxReadWords = drivers::GY931_MAX_READ_WORDS;
 #endif
@@ -83,10 +85,12 @@ static const uint32_t kBatteryLogDefaultPeriodMs = 500U;
 static const uint32_t kBatteryLogMinPeriodMs = 100U;
 static const uint32_t kBatteryLogMaxPeriodMs = 5000U;
 #endif
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_OLED
 static const uint32_t kGrayOledTaskPeriodMs = 50U;
 static const uint32_t kGrayOledDefaultPeriodMs = 200U;
 static const uint32_t kGrayOledMinPeriodMs = 50U;
 static const uint32_t kGrayOledMaxPeriodMs = 5000U;
+#endif
 static const int32_t kChassisLinearLimitMmS = 5000;
 static const int32_t kChassisAngularLimitMdegS = 720000;
 motor::Client g_motorClient = { motor::TRANSPORT_I2C,
@@ -163,6 +167,7 @@ bool StrEqual(const char *left, const char *right)
     return (*left == '\0') && (*right == '\0');
 }
 
+#if FEATURE_ENABLE_OLED
 bool CompetitionOwnsOled(void)
 {
     const AppMode mode = App_GetState()->mode;
@@ -180,6 +185,7 @@ uint8_t CountTextCells(const char *text, uint8_t max_cells)
 
     return count;
 }
+#endif
 
 bool ParseUint32(const char *text, uint32_t maxValue, uint32_t *outValue)
 {
@@ -432,6 +438,22 @@ void WriteStatusLine(const char *prefix, drivers::DriverStatus status)
     services::Shell_WriteString("\r\n");
 }
 
+drivers::DriverStatus SchedulerStatusToDriverStatus(
+    services::SchedulerStatus status)
+{
+    switch (status) {
+        case services::SCHEDULER_OK:
+            return drivers::DRIVER_OK;
+        case services::SCHEDULER_ERROR_INVALID_ARG:
+        case services::SCHEDULER_ERROR_INVALID_ID:
+            return drivers::DRIVER_ERROR_INVALID_ARG;
+        case services::SCHEDULER_ERROR_FULL:
+            return drivers::DRIVER_ERROR_BUSY;
+        default:
+            return drivers::DRIVER_ERROR;
+    }
+}
+
 void PrintFramUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -482,6 +504,7 @@ void PrintBatteryUsage(void)
 }
 #endif
 
+#if FEATURE_ENABLE_OLED
 void PrintOledUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -494,6 +517,7 @@ void PrintOledUsage(void)
     services::Shell_WriteLine("  oled invert on|off");
     services::Shell_WriteLine("  oled on|off");
 }
+#endif
 
 #if FEATURE_ENABLE_GY931
 void PrintGy931Usage(void)
@@ -616,22 +640,6 @@ drivers::DriverStatus OledTextWriteLine(uint8_t row, const char *text)
     char *cursor = AppendString(line, &line[kOledTextCols], text);
     FinishOledLine(line, cursor);
     return board::Board_OledWriteText(row, 0U, line);
-}
-
-drivers::DriverStatus SchedulerStatusToDriverStatus(
-    services::SchedulerStatus status)
-{
-    switch (status) {
-        case services::SCHEDULER_OK:
-            return drivers::DRIVER_OK;
-        case services::SCHEDULER_ERROR_INVALID_ARG:
-        case services::SCHEDULER_ERROR_INVALID_ID:
-            return drivers::DRIVER_ERROR_INVALID_ARG;
-        case services::SCHEDULER_ERROR_FULL:
-            return drivers::DRIVER_ERROR_BUSY;
-        default:
-            return drivers::DRIVER_ERROR;
-    }
 }
 
 #if FEATURE_ENABLE_GY931
@@ -2478,9 +2486,9 @@ void FramCommand(int argc, const char * const argv[])
 #endif
 }
 
+#if FEATURE_ENABLE_OLED
 void OledCommand(int argc, const char * const argv[])
 {
-#if FEATURE_ENABLE_OLED
     uint32_t value = 0U;
 
     if (argc < 2) {
@@ -2667,12 +2675,8 @@ void OledCommand(int argc, const char * const argv[])
     }
 
     PrintOledUsage();
-#else
-    (void) argc;
-    (void) argv;
-    services::Shell_WriteLine("oled: disabled");
-#endif
 }
+#endif
 
 #if FEATURE_ENABLE_GY931
 void Gy931Command(int argc, const char * const argv[])
