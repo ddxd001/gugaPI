@@ -73,6 +73,16 @@
 #define BOARD_LORA_RX_BUFFER_SIZE       (256U)
 #define BOARD_LORA_TX_TIMEOUT_ITERATIONS (100000U)
 
+/* TCAN3413 on CANFD1: PC26/TX -> TXD, PC27/RX <- RXD, PC25 -> STB. */
+#define BOARD_CAN_INST                   CAN_BUS_INST
+#define BOARD_CAN_IRQN                   CAN_BUS_INST_INT_IRQN
+#define BOARD_CAN_STB_PORT               GPIO_CAN_CTRL_PORT
+#define BOARD_CAN_STB_PIN                GPIO_CAN_CTRL_CAN_STB_PIN
+#define BOARD_CAN_BITRATE                (500000U)
+#define BOARD_CAN_TX_BUFFER              (0U)
+#define BOARD_CAN_RX_QUEUE_SIZE          (32U)
+#define BOARD_CAN_IRQ_PRIORITY           (2U)
+
 /* MotorDriver 串口连接测试：芯片封装 PA8/UART1_TX 接 MotorDriver RX，PA9/UART1_RX 接 MotorDriver TX。 */
 #define BOARD_MOTOR_DRIVER_UART_INST            MOTOR_UART_INST
 #define BOARD_MOTOR_DRIVER_UART_IRQN            MOTOR_UART_INST_INT_IRQN

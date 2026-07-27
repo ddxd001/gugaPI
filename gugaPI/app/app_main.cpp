@@ -255,6 +255,15 @@ void App_DebugUartCounterTask(void)
 }
 #endif
 
+#if FEATURE_ENABLE_CAN
+const uint32_t CAN_WATCH_PERIOD_MS = 10U;
+
+void App_CanWatchTask(void)
+{
+    app::AppShell_CanWatchUpdate();
+}
+#endif
+
 #if FEATURE_ENABLE_BUTTONS
 const uint32_t BUTTON_SCAN_PERIOD_MS = 5U;
 
@@ -1026,6 +1035,16 @@ void App_Init(void)
     if (services::Scheduler_AddTask("debug_uart_count",
                                     App_DebugUartCounterTask,
                                     DEBUG_UART_COUNTER_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
+
+#if FEATURE_ENABLE_CAN
+    if (services::Scheduler_AddTask("can_watch",
+                                    App_CanWatchTask,
+                                    CAN_WATCH_PERIOD_MS,
                                     0U,
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);

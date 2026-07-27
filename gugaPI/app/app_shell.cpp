@@ -17,6 +17,7 @@
 #include "app/seq_store.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
+#include "board/board_can.h"
 #include "board/board_config.h"
 #include "board/board_fram.h"
 #include "board/board_gy931.h"
@@ -43,6 +44,10 @@ namespace app {
 namespace {
 
 namespace motor = motor_driver_client;
+
+#if FEATURE_ENABLE_CAN
+static bool g_canWatchEnabled = false;
+#endif
 
 static const uint16_t kFramShellMaxReadBytes = 32U;
 #if FEATURE_ENABLE_LORA
@@ -221,6 +226,42 @@ bool ParseUint32(const char *text, uint32_t maxValue, uint32_t *outValue)
     }
 
     *outValue = value;
+    return true;
+}
+
+bool ParseHexUint32(const char *text,
+                    uint32_t max_value,
+                    uint32_t *out_value)
+{
+    uint32_t value = 0U;
+    if ((text == 0) || (out_value == 0) || (*text == '\0')) {
+        return false;
+    }
+    if ((text[0] == '0') && ((text[1] == 'x') || (text[1] == 'X'))) {
+        text += 2;
+        if (*text == '\0') {
+            return false;
+        }
+    }
+    while (*text != '\0') {
+        uint32_t digit = 0U;
+        if ((*text >= '0') && (*text <= '9')) {
+            digit = static_cast<uint32_t>(*text - '0');
+        } else if ((*text >= 'a') && (*text <= 'f')) {
+            digit = 10U + static_cast<uint32_t>(*text - 'a');
+        } else if ((*text >= 'A') && (*text <= 'F')) {
+            digit = 10U + static_cast<uint32_t>(*text - 'A');
+        } else {
+            return false;
+        }
+        if ((digit > max_value) ||
+            (value > ((max_value - digit) / 16U))) {
+            return false;
+        }
+        value = (value * 16U) + digit;
+        text++;
+    }
+    *out_value = value;
     return true;
 }
 
@@ -1799,6 +1840,196 @@ void PrintI2cUsage(void)
     services::Shell_WriteLine("  i2c test <bus> [start end]");
 }
 #endif
+#if FEATURE_ENABLE_CAN
+void WriteCanFrame(const drivers::CanFrame &frame)
+{
+    services::Shell_WriteString("can rx ");
+    services::Shell_WriteString(frame.extended ? "ext id=" : "std id=");
+    WriteHex32(frame.id);
+    services::Shell_WriteString(" dlc=");
+    services::Shell_WriteUInt32(frame.length);
+    services::Shell_WriteString(" data=");
+    for (uint8_t i = 0U; i < frame.length; i++) {
+        if (i != 0U) {
+            services::Shell_WriteString(" ");
+        }
+        WriteHex8(frame.data[i]);
+    }
+    services::Shell_WriteString("\r\n");
+}
+
+void PrintCanUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  can status");
+    services::Shell_WriteLine("  can mode normal|standby");
+    services::Shell_WriteLine("  can send std|ext <hex_id> [hex_byte ...]");
+    services::Shell_WriteLine("  can read [count 1..32]");
+    services::Shell_WriteLine("  can watch on|off");
+    services::Shell_WriteLine("  can clear|cancel|recover");
+}
+
+void WriteCanStatus(void)
+{
+    drivers::CanStatus status = {};
+    const drivers::DriverStatus result =
+        board::Board_CanGetStatus(&status);
+    if (result != drivers::DRIVER_OK) {
+        WriteStatusLine("can status: ", result);
+        return;
+    }
+
+    services::Shell_WriteString("can ready=1 mode=");
+    services::Shell_WriteString(
+        (status.mode == drivers::CAN_TRANSCEIVER_NORMAL) ?
+        "normal" : "standby");
+    services::Shell_WriteString(" bitrate=");
+    services::Shell_WriteUInt32(status.bitrate);
+    services::Shell_WriteString(" watch=");
+    services::Shell_WriteUInt32(g_canWatchEnabled ? 1U : 0U);
+    services::Shell_WriteString(" rx/queued/drop/fifo_lost=");
+    services::Shell_WriteUInt32(status.rx_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.rx_available);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.rx_dropped_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.rx_fifo_lost_count);
+    services::Shell_WriteString(" tx_req/done/cancel=");
+    services::Shell_WriteUInt32(status.tx_request_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.tx_complete_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.tx_cancel_count);
+    services::Shell_WriteString(" pending=");
+    services::Shell_WriteUInt32(status.tx_pending ? 1U : 0U);
+    services::Shell_WriteString(" err_evt=");
+    services::Shell_WriteUInt32(status.error_event_count);
+    services::Shell_WriteString(" TEC/REC=");
+    services::Shell_WriteUInt32(status.tx_error_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.rx_error_count);
+    services::Shell_WriteString(" LEC=");
+    services::Shell_WriteUInt32(status.last_error_code);
+    services::Shell_WriteString(" BO/EP/EW=");
+    services::Shell_WriteUInt32(status.bus_off ? 1U : 0U);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.error_passive ? 1U : 0U);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.warning ? 1U : 0U);
+    services::Shell_WriteString(" irq=");
+    WriteHex32(status.last_interrupt_status);
+    services::Shell_WriteString("\r\n");
+}
+
+void CanCommand(int argc, const char * const argv[])
+{
+    if (argc < 2) {
+        PrintCanUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "status") && (argc == 2)) {
+        WriteCanStatus();
+        return;
+    }
+
+    if (StrEqual(argv[1], "mode") && (argc == 3)) {
+        drivers::CanTransceiverMode mode;
+        if (StrEqual(argv[2], "normal")) {
+            mode = drivers::CAN_TRANSCEIVER_NORMAL;
+        } else if (StrEqual(argv[2], "standby")) {
+            mode = drivers::CAN_TRANSCEIVER_STANDBY;
+        } else {
+            PrintCanUsage();
+            return;
+        }
+        WriteStatusLine("can mode: ", board::Board_CanSetMode(mode));
+        return;
+    }
+
+    if (StrEqual(argv[1], "send") &&
+        (argc >= 4) && (argc <= 12)) {
+        drivers::CanFrame frame = {};
+        if (StrEqual(argv[2], "std")) {
+            frame.extended = false;
+        } else if (StrEqual(argv[2], "ext")) {
+            frame.extended = true;
+        } else {
+            PrintCanUsage();
+            return;
+        }
+        const uint32_t max_id =
+            frame.extended ? 0x1FFFFFFFU : 0x7FFU;
+        if (!ParseHexUint32(argv[3], max_id, &frame.id)) {
+            PrintCanUsage();
+            return;
+        }
+        frame.length = static_cast<uint8_t>(argc - 4);
+        for (uint8_t i = 0U; i < frame.length; i++) {
+            uint32_t value = 0U;
+            if (!ParseHexUint32(argv[4 + i], 0xFFU, &value)) {
+                PrintCanUsage();
+                return;
+            }
+            frame.data[i] = static_cast<uint8_t>(value);
+        }
+        WriteStatusLine("can send: ", board::Board_CanSend(&frame));
+        return;
+    }
+
+    if (StrEqual(argv[1], "read") &&
+        ((argc == 2) || (argc == 3))) {
+        uint32_t count = 1U;
+        if ((argc == 3) &&
+            ((!ParseUint32(argv[2], BOARD_CAN_RX_QUEUE_SIZE, &count)) ||
+             (count == 0U))) {
+            PrintCanUsage();
+            return;
+        }
+        uint32_t read_count = 0U;
+        drivers::CanFrame frame = {};
+        while ((read_count < count) && board::Board_CanRead(&frame)) {
+            WriteCanFrame(frame);
+            read_count++;
+        }
+        if (read_count == 0U) {
+            services::Shell_WriteLine("can rx: none");
+        }
+        return;
+    }
+
+    if (StrEqual(argv[1], "watch") && (argc == 3)) {
+        if (StrEqual(argv[2], "on")) {
+            g_canWatchEnabled = true;
+        } else if (StrEqual(argv[2], "off")) {
+            g_canWatchEnabled = false;
+        } else {
+            PrintCanUsage();
+            return;
+        }
+        services::Shell_WriteString("can watch ");
+        services::Shell_WriteLine(g_canWatchEnabled ? "on" : "off");
+        return;
+    }
+
+    if (StrEqual(argv[1], "clear") && (argc == 2)) {
+        WriteStatusLine("can clear: ", board::Board_CanClear());
+        return;
+    }
+    if (StrEqual(argv[1], "cancel") && (argc == 2)) {
+        WriteStatusLine("can cancel: ", board::Board_CanCancelTx());
+        return;
+    }
+    if (StrEqual(argv[1], "recover") && (argc == 2)) {
+        WriteStatusLine("can recover: ", board::Board_CanRecover());
+        return;
+    }
+
+    PrintCanUsage();
+}
+#endif
+
 void VersionCommand(int argc, const char * const argv[])
 {
     (void) argc;
@@ -7168,6 +7399,25 @@ void GrayCommand(int argc, const char * const argv[])
 
 } /* namespace */
 
+void AppShell_CanWatchUpdate(void)
+{
+#if FEATURE_ENABLE_CAN
+    if (!g_canWatchEnabled) {
+        return;
+    }
+
+    /* Bound each cooperative invocation so sustained bus traffic cannot
+     * monopolize the main loop or overflow the debug UART TX queue. */
+    drivers::CanFrame frame = {};
+    for (uint8_t count = 0U; count < 4U; count++) {
+        if (!board::Board_CanRead(&frame)) {
+            break;
+        }
+        WriteCanFrame(frame);
+    }
+#endif
+}
+
 void AppShell_DisableOledStreams(void)
 {
 #if FEATURE_ENABLE_GY931 && FEATURE_ENABLE_OLED
@@ -7726,6 +7976,12 @@ void AppShell_RegisterCommands(void)
         "lora",
         "LoRa UART and framed protocol diagnostics",
         LoraCommand);
+#endif
+#if FEATURE_ENABLE_CAN
+    (void) services::Shell_RegisterCommand(
+        "can",
+        "CANFD1 classic CAN diagnostics: status|mode|send|read|watch",
+        CanCommand);
 #endif
 #if FEATURE_ENABLE_MOTOR_DRIVER
     (void) services::Shell_RegisterCommand(

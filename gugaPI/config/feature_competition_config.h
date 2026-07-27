@@ -33,6 +33,7 @@
 #define FEATURE_ENABLE_FRAM                (1U)
 #define FEATURE_ENABLE_INA219              (0U)
 #define FEATURE_ENABLE_LORA                (0U)
+#define FEATURE_ENABLE_CAN                 (1U)
 #define FEATURE_ENABLE_MOTOR_DRIVER        (1U)
 #define FEATURE_ENABLE_OLED                (1U)
 #define FEATURE_ENABLE_IMU                 (1U)

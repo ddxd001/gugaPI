@@ -46,6 +46,11 @@ PA9 / UART1_RX  <--------| MOTOR_UART RX        |---- MotorDriver TX
 PA14 / UART3_TX -------->| LORA_UART TX         |---- LoRa RX
 PA13 / UART3_RX <--------| LORA_UART RX         |---- LoRa TX
                          |                      |
+PC26 / CANFD1_TX ------->| CAN TX               |---- TCAN3413 pin 1 TXD
+PC27 / CANFD1_RX <-------| CAN RX               |---- TCAN3413 pin 4 RXD
+PC25 / GPIO ------------>| CAN STB              |---- TCAN3413 pin 8 STB
+                         |                      |---- pin 6 CANL / pin 7 CANH
+                         |                      |
 PA27             --------| LED1                 |---- Active-low LED
 PA26             --------| LED2                 |---- Active-low LED
 PB27             --------| LED3                 |---- Active-low LED
@@ -60,6 +65,41 @@ PA20             <-------| SWCLK                |---- XDS110 / SWD debugger
 
 All external UART/I2C modules must share GND with gugaPI.
 ```
+
+## TCAN3413 CAN Bus Interface
+
+The MCU connection is CANFD1, not a UART. Firmware currently uses it in
+classic CAN mode at 500 kbit/s with an 80% nominal sample point.
+
+| TCAN3413 Pin | Signal | gugaPI Connection | Direction / State | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | TXD | PC26 / CANFD1_CANTX | MCU to transceiver | Recessive when high |
+| 2 | GND | GND | Power | Must share ground with every CAN node |
+| 3 | VCC | 3.3 V | Power | Place local 100 nF decoupling |
+| 4 | RXD | PC27 / CANFD1_CANRX | Transceiver to MCU | Referenced to VIO |
+| 5 | VIO | 3.3 V | Logic supply | Place local 100 nF decoupling |
+| 6 | CANL | CANL connector net | Bidirectional | Route with CANH as a pair |
+| 7 | CANH | CANH connector net | Bidirectional | Route with CANL as a pair |
+| 8 | STB | PC25 / GPIO | Low=Normal, high=Standby | Internal pull-up defaults to Standby |
+
+The board has a fixed 120 ohm resistor between CANH and CANL. It must
+therefore be installed at one end of the bus, not as an unterminated middle
+node. With power removed, this board alone measures about 120 ohm across
+CANH/CANL. Connected to a CAN analyzer with its 120 ohm termination enabled,
+the complete bus measures about 60 ohm.
+
+Firmware behavior:
+
+| Item | Value |
+| --- | --- |
+| MCU peripheral | CANFD1 |
+| Mode | Classic CAN, no FD/BRS |
+| Nominal bit rate | 500 kbit/s |
+| Accepted RX frames | Standard and extended data frames |
+| Rejected RX frames | Remote and CAN FD frames |
+| Startup state | TCAN3413 Normal, no automatic transmission |
+| Hardware RX FIFO | 16 frames |
+| Software RX queue | 32 frames |
 
 ## Power And Ground
 
@@ -482,6 +522,12 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 | LORA_UART | UART3 | PA14 | PA13 | 115200 | LoRa module | Raw transparent serial |
 | MOTOR_UART | UART1 | PA8 | PA9 | 115200 | MotorDriver | Binary motor control protocol |
 
+## CAN Summary
+
+| Interface | MCU Instance | TX | RX | STB | Bit Rate | Transceiver | Termination |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| CAN | CANFD1 | PC26 | PC27 | PC25 | 500 kbit/s classic | TCAN3413DDFR | Fixed 120 ohm |
+
 ## SPI Bus Summary
 
 | Bus Alias | MCU Instance | SCLK | PICO / MOSI | POCI / MISO | Devices | Chip Selects | Notes |
@@ -513,6 +559,9 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 | LoRa UART wiring | Module receives TX and gugaPI receives replies | `lora test`, `lora read` |
 | MotorDriver UART wiring | Heartbeat returns OK in UART mode | `motor bus uart`, `motor ping`, `motor info` |
 | MotorDriver I2C wiring | Address 0x20 responds on dedicated IIC1 motor bus | `i2c scan motor 0x20 0x27`, `motor bus i2c`, `motor info` |
+| CAN termination | About 120 ohm board-only, about 60 ohm with terminated analyzer | Measure CANH-CANL with power removed |
+| CAN TX/RX | Analyzer receives sent frame and firmware receives analyzer frame | `can status`, `can send std 123 01 02`, `can read` |
+| CAN standby | STB changes state and transmission is rejected in Standby | `can mode standby`, `can send std 123`, `can mode normal` |
 
 ## Notes For Future Schematic Updates
 
