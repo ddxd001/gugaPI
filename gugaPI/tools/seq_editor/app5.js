@@ -22,6 +22,7 @@ var PARAM_GROUPS=[
 
 var PARAM_META={};
 var PARAM_ORDER=[];
+var PARAM_EXPORT_BATCH_SIZE=16;
 function addParamMeta(name,label,group,def,min,max,unit,desc,restart,kind,preview){
   PARAM_META[name]={name:name,label:label,group:group,defaultValue:def,min:min,max:max,
     unit:unit||'',description:desc||'',restart:!!restart,kind:kind||'number',
@@ -105,6 +106,7 @@ addParamMeta('lf_kd','循迹 Kd','linefollow',0,0,1000000,'scaled','线位置误
 addParamMeta('lf_maxcorr','循迹最大差速修正','linefollow',30,0,500,'RPM','循迹控制允许施加的最大左右差速。',true);
 addParamMeta('lf_lost_hold_ms','丢线保持时间','linefollow',150,0,10000,'ms','短时丢线时保持最近修正的时间。',true,'number','ms');
 addParamMeta('lf_lost_stop_ms','丢线停车时间','linefollow',500,1,10000,'ms','持续丢线达到该时间后停车；必须不小于保持时间。',true,'number','ms');
+addParamMeta('lf_slew_permille_s','循迹修正变化率','linefollow',25000,1,65535,'permille/s','限制左右差速修正的变化速度；数值越大响应越快。',true);
 
 var paramPageState={
   values:{},ranges:{},selected:null,group:'all',query:'',modifiedOnly:false,
@@ -152,6 +154,10 @@ function paramParseValues(text){
     ranges[m[1]]={min:Number(m[3]),max:Number(m[4])};
   }
   return{values:values,ranges:ranges};
+}
+function paramParseExportHeader(text){
+  var m=text.match(/param export start=(\d+) count=(\d+) total=(\d+)/);
+  return m?{start:Number(m[1]),count:Number(m[2]),total:Number(m[3])}:null;
 }
 function paramParseStatus(text){
   var m=text.match(/param loaded=(\d+) dirty=(\d+) len=(\d+) crc=(0x[0-9A-Fa-f]+) load=([a-z-]+) save=([a-z-]+)/);
@@ -284,6 +290,46 @@ function paramUpdateControls(){
 }
 function paramRenderAll(){paramRenderGroups();paramRenderRows();paramUpdateControls()}
 
+async function paramReadExportPages(){
+  var values={},ranges={},start=0,total=null;
+  while(total===null||start<total){
+    paramPageState.progress='批量读取参数 '+start+(total===null?'':' / '+total);
+    paramUpdateControls();
+    var response=await send('param export '+start+' '+PARAM_EXPORT_BATCH_SIZE,{timeoutMs:2500});
+    var header=paramParseExportHeader(response);
+    if(!header){
+      if(start===0)return null;
+      throw new Error('批量参数响应中断');
+    }
+    if(header.start!==start||header.count>PARAM_EXPORT_BATCH_SIZE||header.total<header.start+header.count||(total!==null&&header.total!==total)||(header.count===0&&header.start<header.total)){
+      throw new Error('批量参数响应无效');
+    }
+    var parsed=paramParseValues(response),names=Object.keys(parsed.values);
+    if(names.length!==header.count)throw new Error('批量参数响应不完整');
+    names.forEach(function(name){values[name]=parsed.values[name];ranges[name]=parsed.ranges[name]});
+    total=header.total;
+    if(header.count===0)break;
+    start+=header.count;
+  }
+  return{values:values,ranges:ranges};
+}
+
+async function paramReadLegacy(){
+  var values={},ranges={};
+  for(var index=0;index<PARAM_ORDER.length;index++){
+    var name=PARAM_ORDER[index];
+    paramPageState.progress='兼容读取参数 '+(index+1)+' / '+PARAM_ORDER.length;
+    paramUpdateControls();
+    var response=await send('param get '+name,{timeoutMs:2500});
+    var parsed=paramParseValues(response);
+    if(Object.prototype.hasOwnProperty.call(parsed.values,name)){
+      values[name]=parsed.values[name];
+      ranges[name]=parsed.ranges[name];
+    }
+  }
+  return{values:values,ranges:ranges};
+}
+
 async function paramRefresh(){
   if(!paramConnected()||paramPageState.busy)return;
   paramPageState.busy=true;paramPageState.progress='读取运行状态';paramUpdateControls();
@@ -293,18 +339,10 @@ async function paramRefresh(){
     paramPageState.progress='读取存储状态';paramUpdateControls();
     var statusText=await send('param status',{timeoutMs:2500});
     var store=paramParseStatus(statusText);
-    var values={},ranges={},missing=[];
-    for(var index=0;index<PARAM_ORDER.length;index++){
-      var name=PARAM_ORDER[index];
-      paramPageState.progress='读取参数 '+(index+1)+' / '+PARAM_ORDER.length;
-      paramUpdateControls();
-      var paramText=await send('param get '+name,{timeoutMs:2500});
-      var parsed=paramParseValues(paramText);
-      if(Object.prototype.hasOwnProperty.call(parsed.values,name)){
-        values[name]=parsed.values[name];
-        ranges[name]=parsed.ranges[name];
-      }else missing.push(name);
-    }
+    var loaded=await paramReadExportPages();
+    if(!loaded)loaded=await paramReadLegacy();
+    var values=loaded.values,ranges=loaded.ranges;
+    var missing=PARAM_ORDER.filter(function(name){return !Object.prototype.hasOwnProperty.call(values,name)});
     if(Object.keys(values).length===0)throw new Error('没有收到参数');
     paramPageState.values=values;
     paramPageState.ranges=ranges;
@@ -503,7 +541,18 @@ function paramSimCommand(cmd){
   paramSimInit();
   if(cmd==='comp status')return'comp mode=dev-running slot=0 valid=1 any_valid=1 count=5 step=0 result=none last=ok\r\n> ';
   if(cmd==='reset'){simParamValues=Object.assign({},simPersistedValues);simParamDirty=false;return'resetting...\r\n> '}
-  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=181 crc=0x5C758F1C load=ok save=ok\r\n> ';
+  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=183 crc=0x5C758F1C load=ok save=ok\r\n> ';
+  if(cmd==='param export'||cmd.startsWith('param export ')){
+    var exportParts=cmd.split(/\s+/),start=exportParts.length>=3?Number(exportParts[2]):0;
+    var requested=exportParts.length>=4?Number(exportParts[3]):PARAM_EXPORT_BATCH_SIZE;
+    if(!Number.isInteger(start)||!Number.isInteger(requested)||start<0||start>PARAM_ORDER.length||requested<1||requested>PARAM_EXPORT_BATCH_SIZE)return'usage: param export [start [count 1..16]]\r\n> ';
+    var count=Math.min(requested,PARAM_ORDER.length-start),batch='param export start='+start+' count='+count+' total='+PARAM_ORDER.length+'\r\n';
+    for(var exportIndex=start;exportIndex<start+count;exportIndex++){
+      var exportName=PARAM_ORDER[exportIndex],exportMeta=PARAM_META[exportName];
+      batch+='param '+exportName+'='+simParamValues[exportName]+' range='+exportMeta.min+'..'+exportMeta.max+'\r\n';
+    }
+    return batch+'> ';
+  }
   if(cmd==='param get'||cmd==='param get '){
     var all='';
     PARAM_ORDER.forEach(function(name){var meta=PARAM_META[name];all+='param '+name+'='+simParamValues[name]+' range='+meta.min+'..'+meta.max+'\r\n'});

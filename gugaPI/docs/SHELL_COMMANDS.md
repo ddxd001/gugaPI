@@ -1760,6 +1760,22 @@ param get heading_kp
 param heading_kp=1000 range=0..100000
 ```
 
+### `param export [start [count]]`
+
+分页批量读取 RAM 中的参数，供上位机快速刷新使用，不访问 FRAM。`start` 是参数表
+索引，允许等于参数总数；`count` 范围为 `1..16`，默认16。每页先输出实际起点、数量
+和总数，随后沿用 `param get` 的参数行格式：
+
+```text
+param export 0 16
+param export start=0 count=16 total=79
+param left_counts_per_rev=1456 range=1..100000000
+...
+```
+
+新版上位机优先分页读取；连接不支持该命令的旧固件时，会自动退回逐项执行
+`param get <name>`。现有 `param get` 接口保持不变。
+
 参数列表：
 
 | 参数名 | 范围 | 默认值 | 说明 |

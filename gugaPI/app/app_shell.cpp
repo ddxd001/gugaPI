@@ -45,6 +45,8 @@ namespace {
 namespace motor = motor_driver_client;
 
 static const uint16_t kFramShellMaxReadBytes = 32U;
+static const uint8_t kParamExportDefaultCount = 16U;
+static const uint8_t kParamExportMaxCount = 16U;
 #if FEATURE_ENABLE_LORA
 static const uint16_t kLoraShellMaxReadBytes = 64U;
 #endif
@@ -444,6 +446,7 @@ void PrintParamUsage(void)
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  param status");
     services::Shell_WriteLine("  param get [name]");
+    services::Shell_WriteLine("  param export [start [count 1..16]]");
     services::Shell_WriteLine("  param set <name> <value>");
     services::Shell_WriteLine("  param save");
     services::Shell_WriteLine("  param load");
@@ -1765,6 +1768,31 @@ void PrintAllParams(void)
     }
 }
 
+void PrintParamExportPage(uint8_t start, uint8_t requested_count)
+{
+    const uint8_t total = ConfigStore_ParamCount();
+    uint8_t count = static_cast<uint8_t>(total - start);
+    if (count > requested_count) {
+        count = requested_count;
+    }
+
+    services::Shell_WriteString("param export start=");
+    services::Shell_WriteUInt32(start);
+    services::Shell_WriteString(" count=");
+    services::Shell_WriteUInt32(count);
+    services::Shell_WriteString(" total=");
+    services::Shell_WriteUInt32(total);
+    services::Shell_WriteString("\r\n");
+
+    for (uint8_t offset = 0U; offset < count; offset++) {
+        const char *name = ConfigStore_ParamName(
+            static_cast<uint8_t>(start + offset));
+        if (name != 0) {
+            PrintParamLine(name);
+        }
+    }
+}
+
 void PrintParamStatus(void)
 {
     const ConfigStoreStatus *status = ConfigStore_GetStatus();
@@ -2209,6 +2237,25 @@ void ParamCommand(int argc, const char * const argv[])
             return;
         }
         PrintParamUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "export")) {
+        uint32_t start = 0U;
+        uint32_t count = kParamExportDefaultCount;
+        const uint32_t total = ConfigStore_ParamCount();
+
+        if ((argc > 4) ||
+            ((argc >= 3) && (!ParseUint32(argv[2], total, &start))) ||
+            ((argc == 4) &&
+             ((!ParseUint32(argv[3], kParamExportMaxCount, &count)) ||
+              (count == 0U)))) {
+            PrintParamUsage();
+            return;
+        }
+
+        PrintParamExportPage(static_cast<uint8_t>(start),
+                             static_cast<uint8_t>(count));
         return;
     }
 

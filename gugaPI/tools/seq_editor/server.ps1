@@ -11,6 +11,11 @@ while ($listener.IsListening) {
     Write-Host "Request: $($ctx.Request.Url.AbsolutePath) -> $filePath"
     if (Test-Path -LiteralPath $filePath -PathType Leaf) {
         $content = [System.IO.File]::ReadAllBytes($filePath)
+        # Development tool assets must reflect the checked-out source after a
+        # refresh; stale JavaScript can otherwise hide firmware/tool changes.
+        $ctx.Response.Headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+        $ctx.Response.Headers['Pragma'] = 'no-cache'
+        $ctx.Response.Headers['Expires'] = '0'
         $ctx.Response.ContentLength64 = $content.Length
         if ($reqPath -match '\.js$') { $ctx.Response.ContentType = 'application/javascript' }
         elseif ($reqPath -match '\.html$') { $ctx.Response.ContentType = 'text/html; charset=utf-8' }
