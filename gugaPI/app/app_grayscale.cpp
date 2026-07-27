@@ -17,7 +17,7 @@ static const uint16_t kDefaultThreshold = 500U;
 static const uint16_t kDefaultHysteresis = 300U;
 static const uint16_t kDefaultPositionFloor = 100U;
 static const uint16_t kDefaultMinimumLineStrength = 600U;
-static const uint8_t kDefaultTrackMask = 0x3CU;
+static const uint8_t kDefaultTrackMask = 0x7EU;
 static const uint32_t kDefaultSweepDurationMs = 2000U;
 static const uint16_t kSaturationFaultFrames = 8U;
 static const uint16_t kStuckFaultFrames = 125U;
@@ -48,15 +48,13 @@ uint16_t g_stagedBlack[drivers::GRAYSCALE_CHANNEL_COUNT] = {};
 uint16_t g_stagedWhiteNoise[drivers::GRAYSCALE_CHANNEL_COUNT] = {};
 uint16_t g_stagedBlackNoise[drivers::GRAYSCALE_CHANNEL_COUNT] = {};
 bool g_calibrationCommissioned = false;
-/* One outer road-classification sample is interleaved before each complete
- * core scan. This produces a new coherent 2..5 position frame every five
- * scheduler calls (normally 5 ms), while all outer channels refresh within
- * 20 ms. The scheduler API and task period are unchanged. */
+/* One outermost road-classification sample is interleaved before each
+ * complete six-channel tracking scan. This produces a coherent 1..6 position
+ * frame every seven scheduler calls (normally 7 ms), while channels 0 and 7
+ * both refresh within 14 ms. The scheduler API and task period are unchanged. */
 static const uint8_t kScanSequence[] = {
-    0U, 2U, 3U, 4U, 5U,
-    1U, 2U, 3U, 4U, 5U,
-    6U, 2U, 3U, 4U, 5U,
-    7U, 2U, 3U, 4U, 5U
+    0U, 1U, 2U, 3U, 4U, 5U, 6U,
+    7U, 1U, 2U, 3U, 4U, 5U, 6U
 };
 static const uint8_t kScanSequenceLength =
     static_cast<uint8_t>(sizeof(kScanSequence) / sizeof(kScanSequence[0]));
@@ -497,7 +495,7 @@ void App_GrayscaleUpdate(void)
             g_scanPhase = 0U;
         }
         frame_complete =
-            (completed_channel == 5U) &&
+            (completed_channel == 6U) &&
             (g_initializedChannelMask == drivers::GRAYSCALE_ALL_CHANNEL_MASK);
     } else if (take_status != drivers::DRIVER_ERROR_BUSY) {
         MarkFailure(take_status);

@@ -5468,6 +5468,7 @@ void PrintLFUsage(void)
     services::Shell_WriteLine("  lf kp <val>");
     services::Shell_WriteLine("  lf kd <val>");
     services::Shell_WriteLine("  lf maxcorr <val>");
+    services::Shell_WriteLine("  lf slew <permille_per_s 1..65535>");
     services::Shell_WriteLine("  lf losthold <ms> (compatibility only)");
     services::Shell_WriteLine("  lf losttimeout <ms> (compatibility only)");
 }
@@ -5536,6 +5537,9 @@ void LFCommand(int argc, const char * const argv[])
         WriteInt32(st->kd);
         services::Shell_WriteString(" maxcorr=");
         WriteInt32(st->max_correction_rpm);
+        services::Shell_WriteString(" slew=");
+        services::Shell_WriteUInt32(
+            st->correction_slew_permille_per_second);
         services::Shell_WriteString(" lost_hold=");
         services::Shell_WriteUInt32(st->lost_hold_ms);
         services::Shell_WriteString(" lost_stop=");
@@ -5638,6 +5642,19 @@ void LFCommand(int argc, const char * const argv[])
         }
         app::LF_SetKd(value);
         services::Shell_WriteLine("lf kd: ok");
+        return;
+    }
+
+    if (StrEqual(argv[1], "slew")) {
+        uint32_t value = 0U;
+        if ((argc != 3) ||
+            (!ParseUint32(argv[2], UINT16_MAX, &value)) ||
+            (value == 0U)) {
+            PrintLFUsage();
+            return;
+        }
+        app::LF_SetCorrectionSlew(value);
+        services::Shell_WriteLine("lf slew: ok");
         return;
     }
 
@@ -6763,6 +6780,17 @@ void TxStatCommand(int argc, const char * const argv[])
     services::Shell_WriteUInt32(services::DebugUart_GetTxDroppedCount());
     services::Shell_WriteString(" capacity=");
     services::Shell_WriteUInt32(DEBUG_UART_TX_BUFFER_SIZE - 1U);
+    services::Shell_WriteString(" dma_active=");
+    services::Shell_WriteUInt32(
+        services::DebugUart_IsTxDmaActive() ? 1U : 0U);
+    services::Shell_WriteString(" dma_blocks=");
+    services::Shell_WriteUInt32(
+        services::DebugUart_GetTxDmaBlockCount());
+    services::Shell_WriteString(" dma_errors=");
+    services::Shell_WriteUInt32(
+        services::DebugUart_GetTxDmaErrorCount());
+    services::Shell_WriteString(" dma_block_size=");
+    services::Shell_WriteUInt32(DEBUG_UART_TX_DMA_BLOCK_SIZE);
     services::Shell_WriteString(" rx_avail=");
     services::Shell_WriteUInt32(services::DebugUart_GetRxAvailable());
     services::Shell_WriteString(" rx_dropped=");
@@ -7693,7 +7721,7 @@ void AppShell_RegisterCommands(void)
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
     (void) services::Shell_RegisterCommand(
         "lf",
-        "LineFollow: status|cal|start|stop|kp|kd|maxcorr|losthold|losttimeout",
+        "LineFollow: status|cal|start|stop|kp|kd|maxcorr|slew|losthold|losttimeout",
         LFCommand);
 #endif
     (void) services::Shell_RegisterCommand(

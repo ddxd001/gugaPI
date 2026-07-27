@@ -11,7 +11,11 @@ namespace {
 
 static const uint16_t kFramAddress = 0x0000U;
 static const uint32_t kMagic = 0x47504643U; /* "CFPG" little-endian */
-static const uint16_t kVersion = 9U;
+static const uint16_t kVersion = 11U;
+static const uint16_t kV10Version = 10U;
+static const uint16_t kV10PayloadLength = 183U;
+static const uint16_t kV9Version = 9U;
+static const uint16_t kV9PayloadLength = 181U;
 static const uint16_t kV8Version = 8U;
 static const uint16_t kV8PayloadLength = 177U;
 static const uint16_t kV7Version = 7U;
@@ -27,12 +31,16 @@ static const uint16_t kV3PayloadLength = 90U;
 static const uint16_t kLegacyVersion = 1U;
 static const uint16_t kLegacyPayloadLength = 66U;
 static const uint16_t kV2PayloadLength = 68U; /* v2 layout length (motor_invert guard) */
-static const uint16_t kPayloadLength = 181U; /* v9: +4-byte motor speed ramp */
+/* v11 keeps the v10 binary layout and migrates the former default four-channel
+ * grayscale tracking mask to the new six-channel default. */
+static const uint16_t kPayloadLength = 183U;
 static const uint16_t kHeaderLength = 8U;
 static const uint16_t kCrcLength = 4U;
 static const uint16_t kImageLength =
     kHeaderLength + kPayloadLength + kCrcLength;
 static const uint32_t kCrc32Init = 0xFFFFFFFFU;
+static const uint8_t kLegacyDefaultGrayscaleTrackMask = 0x3CU;
+static const uint8_t kDefaultGrayscaleTrackMask = 0x7EU;
 
 ConfigStoreParams g_params;
 ConfigStoreStatus g_status = {
@@ -221,7 +229,10 @@ static const ParamDescriptor kParamDescriptors[] = {
     { "lf_lost_hold_ms", PARAM_U16,
       PARAM_OFFSET(linefollow_lost_hold_ms), 0, 10000 },
     { "lf_lost_stop_ms", PARAM_U16,
-      PARAM_OFFSET(linefollow_lost_stop_ms), 1, 10000 }
+      PARAM_OFFSET(linefollow_lost_stop_ms), 1, 10000 },
+    { "lf_slew_permille_s", PARAM_U16,
+      PARAM_OFFSET(linefollow_correction_slew_permille_per_second),
+      1, 65535 }
 };
 
 #undef PARAM_OFFSET
@@ -368,21 +379,36 @@ void SetDefaults(ConfigStoreParams *params)
     params->ina219_latch_faults = 0U;
     params->ina219_motion_inhibit_enable = 0U;
 
+    /* Commissioned on the current gugaPI car. These defaults restore its
+     * parameter values after a ConfigStore reset; the normal commissioned
+     * calibration safety gate still applies. A replacement sensor or changed
+     * mounting height must be calibrated again. */
+    static const uint16_t kCommissionedGrayscaleWhite[
+        CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT] = {
+        3253U, 3217U, 3189U, 3316U, 3151U, 3011U, 2802U, 3188U
+    };
+    static const uint16_t kCommissionedGrayscaleBlack[
+        CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT] = {
+        1010U, 934U, 737U, 2010U, 1548U, 1347U, 753U, 1362U
+    };
     for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
-        params->grayscale_white[i] = 4095U;
-        params->grayscale_black[i] = 0U;
+        params->grayscale_white[i] = kCommissionedGrayscaleWhite[i];
+        params->grayscale_black[i] = kCommissionedGrayscaleBlack[i];
     }
     params->grayscale_threshold = 500U;
     params->grayscale_hysteresis = 300U;
     params->grayscale_position_floor = 100U;
     params->grayscale_min_line_strength = 600U;
-    params->grayscale_track_mask = 0x3CU;
+    params->grayscale_track_mask = kDefaultGrayscaleTrackMask;
 
-    params->linefollow_kp = 10000;
-    params->linefollow_kd = 0;
+    /* Tuned on the commissioned car at a 100 RPM follow speed. Keep the
+     * controller's 40 RPM normalization reference for gain compatibility. */
+    params->linefollow_kp = 3800;
+    params->linefollow_kd = 600;
     params->linefollow_max_correction_rpm = 30U;
     params->linefollow_lost_hold_ms = 150U;
     params->linefollow_lost_stop_ms = 500U;
+    params->linefollow_correction_slew_permille_per_second = 25000U;
 }
 
 uint8_t *AppendU8(uint8_t *cursor, uint8_t value)
@@ -511,7 +537,10 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     cursor = AppendU16(cursor, params.distance_settle_rpm);
     cursor = AppendU16(cursor, params.distance_tolerance_mm);
     cursor = AppendU16(cursor, params.speed_accel_rpm_s);
-    (void) AppendU16(cursor, params.speed_decel_rpm_s);
+    cursor = AppendU16(cursor, params.speed_decel_rpm_s);
+    (void) AppendU16(
+        cursor,
+        params.linefollow_correction_slew_permille_per_second);
 }
 
 void DecodePayload(const uint8_t *payload,
@@ -644,9 +673,14 @@ void DecodePayload(const uint8_t *payload,
         cursor = ReadU16Field(cursor, &params->distance_settle_rpm);
         cursor = ReadU16Field(cursor, &params->distance_tolerance_mm);
     }
-    if (payload_length >= kPayloadLength) {
+    if (payload_length >= kV9PayloadLength) {
         cursor = ReadU16Field(cursor, &params->speed_accel_rpm_s);
-        (void) ReadU16Field(cursor, &params->speed_decel_rpm_s);
+        cursor = ReadU16Field(cursor, &params->speed_decel_rpm_s);
+    }
+    if (payload_length >= kPayloadLength) {
+        (void) ReadU16Field(
+            cursor,
+            &params->linefollow_correction_slew_permille_per_second);
     }
     (void) cursor;
 }
@@ -784,6 +818,10 @@ drivers::DriverStatus ConfigStore_Load(void)
 
     const bool current_layout =
         (version == kVersion) && (length == kPayloadLength);
+    const bool v10_layout =
+        (version == kV10Version) && (length == kV10PayloadLength);
+    const bool v9_layout =
+        (version == kV9Version) && (length == kV9PayloadLength);
     const bool v8_layout =
         (version == kV8Version) && (length == kV8PayloadLength);
     const bool v7_layout =
@@ -800,8 +838,8 @@ drivers::DriverStatus ConfigStore_Load(void)
         (version == kLegacyVersion) && (length == kLegacyPayloadLength);
     const bool legacy_v2 = (version == 2U) && (length == kV2PayloadLength);
     const bool legacy_layout =
-        v8_layout || v7_layout || v6_layout || v5_layout || v4_layout ||
-        v3_layout || legacy_v1 || legacy_v2;
+        v10_layout || v9_layout || v8_layout || v7_layout || v6_layout ||
+        v5_layout || v4_layout || v3_layout || legacy_v1 || legacy_v2;
 
     if ((magic != kMagic) ||
         ((!current_layout) && (!legacy_layout))) {
@@ -824,6 +862,12 @@ drivers::DriverStatus ConfigStore_Load(void)
     }
 
     DecodePayload(&image[kHeaderLength], length, &loaded);
+    /* Preserve deliberate user masks. Only the exact historical default is
+     * upgraded when loading an older image. */
+    if ((!current_layout) &&
+        (loaded.grayscale_track_mask == kLegacyDefaultGrayscaleTrackMask)) {
+        loaded.grayscale_track_mask = kDefaultGrayscaleTrackMask;
+    }
     if (!ValidateParams(loaded)) {
         g_status.loaded_from_fram = false;
         g_status.load_outcome = CONFIG_LOAD_DEFAULTS_INVALID;

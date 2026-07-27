@@ -92,6 +92,8 @@ struct ConfigStoreParams {
     uint16_t linefollow_max_correction_rpm;
     uint16_t linefollow_lost_hold_ms;
     uint16_t linefollow_lost_stop_ms;
+    /* Maximum differential-correction change, relative to base RPM. */
+    uint16_t linefollow_correction_slew_permille_per_second;
 };
 
 enum ConfigStoreLoadOutcome : uint8_t {

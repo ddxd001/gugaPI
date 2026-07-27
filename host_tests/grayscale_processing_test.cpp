@@ -73,6 +73,38 @@ int main()
     assert(result.selected_mask == 0x10U);
     assert(result.line_position == -1000);
 
+    /* The new default tracking core includes channels 1 and 6, while the
+     * outermost pair remains reserved for road/intersection evidence. */
+    drivers::GrayscaleCalibration six_channel = calibration;
+    six_channel.track_mask = drivers::GRAYSCALE_DEFAULT_TRACK_MASK;
+    state = {};
+    Fill(raw, 3900U);
+    raw[1] = 800U;
+    result = Process(raw, six_channel, &state);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
+    assert(result.position_valid);
+    assert(result.selected_mask == 0x02U);
+    assert(result.line_position == 2000);
+
+    Fill(raw, 3900U);
+    raw[6] = 800U;
+    result = Process(raw, six_channel, &state);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
+    assert(result.position_valid);
+    assert(result.selected_mask == 0x40U);
+    assert(result.line_position == -2000);
+
+    Fill(raw, 3900U);
+    raw[0] = 800U;
+    raw[4] = 800U;
+    result = Process(raw, six_channel, &state);
+    assert(result.active_mask == 0x11U);
+    assert(result.selected_mask == 0x10U);
+    assert(result.line_position == -1000);
+
+    /* Continue the established four-channel compatibility regressions. */
+    state = {};
+
     /* The previously troublesome 0xF8 road pattern contains only three core
      * channels. Outer width is road evidence and must not invalidate the
      * continuous tracking position. */

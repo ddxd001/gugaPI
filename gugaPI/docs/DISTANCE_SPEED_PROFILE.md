@@ -91,7 +91,7 @@ param save
 param status
 ```
 
-预期旧V7配置能够正常加载并显示dirty；保存后升级为当前V9布局、长度更新为181且dirty清零。随后执行：
+预期旧V7配置能够正常加载并显示dirty；保存后升级为当前V10布局、长度更新为183且dirty清零。随后执行：
 
 ```text
 motor info

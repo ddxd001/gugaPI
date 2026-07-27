@@ -48,9 +48,11 @@ void LoadConfig(void)
 {
     const ConfigStoreParams *params = ConfigStore_Get();
     if (params == 0) {
-        g_state.kp = 10000;
-        g_state.kd = 0;
+        g_state.kp = 3800;
+        g_state.kd = 600;
         g_state.max_correction_rpm = 30;
+        g_state.correction_slew_permille_per_second =
+            LF_DEFAULT_CORRECTION_SLEW_PERMILLE_PER_SECOND;
         g_state.lost_hold_ms = 150U;
         g_state.lost_timeout_ms = 500U;
         return;
@@ -59,6 +61,8 @@ void LoadConfig(void)
     g_state.kd = params->linefollow_kd;
     g_state.max_correction_rpm =
         static_cast<int32_t>(params->linefollow_max_correction_rpm);
+    g_state.correction_slew_permille_per_second =
+        params->linefollow_correction_slew_permille_per_second;
     g_state.lost_hold_ms = params->linefollow_lost_hold_ms;
     g_state.lost_timeout_ms = params->linefollow_lost_stop_ms;
 }
@@ -113,7 +117,8 @@ int32_t ApplyCorrectionSlew(int32_t requested,
     const int32_t base_magnitude = AbsoluteInt32(base_rpm);
     const int64_t numerator =
         static_cast<int64_t>(base_magnitude) *
-        static_cast<int64_t>(LF_CORRECTION_SLEW_PERMILLE_PER_SECOND) *
+        static_cast<int64_t>(
+            g_state.correction_slew_permille_per_second) *
         static_cast<int64_t>(dt_ms);
     int32_t maximum_delta = static_cast<int32_t>(
         (numerator + 999999LL) / 1000000LL);
@@ -386,6 +391,17 @@ void LF_SetMaxCorrection(int32_t max_correction_rpm)
     if (max_correction_rpm >= 0) {
         g_state.max_correction_rpm = max_correction_rpm;
         (void) ConfigStore_Set("lf_maxcorr", max_correction_rpm);
+    }
+}
+
+void LF_SetCorrectionSlew(uint32_t permille_per_second)
+{
+    if ((permille_per_second > 0U) &&
+        (permille_per_second <= UINT16_MAX)) {
+        g_state.correction_slew_permille_per_second = permille_per_second;
+        (void) ConfigStore_Set(
+            "lf_slew_permille_s",
+            static_cast<int32_t>(permille_per_second));
     }
 }
 

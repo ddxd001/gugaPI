@@ -399,7 +399,7 @@ run start
 - `lf cal` 保留为 2 s 扫动标定；推荐 `gray calib white/black/commit` 多帧平均。
 - 每通道黑白跨度至少 200，归一化到 0..1000（1000 = 黑线）。
 - 双阈值迟滞产生全八路数字位图，默认进入/退出阈值为 650/350。
-- 标定和循迹参数持久化到 FRAM v6，并兼容读取 v1 至 v5。
+- 标定和循迹参数持久化到当前FRAM配置布局，并兼容读取v1至v9。
 
 ### 8.2 基础循迹控制
 
@@ -414,9 +414,11 @@ right_rpm = base_rpm + correction
 
 实现内容（`linefollow.cpp` `LF_FOLLOW` 模式）：
 
-- 中间 `track_mask` 通道按连续黑度计算位置，外侧通道只参与路口位图，避免支路拉偏巡线质心。
-- 在 40 RPM 参考速度计算 `reference_correction = (error * kp + filtered_derivative * kd) / 1e6`，随后按基础速度同比缩放，并限制在基础速度的 40%；中心 `±100` 使用死区，微分滤波使用 40 ms 时间常数，按灰度完整帧序号更新。
-- 灰度硬件故障、数据超时或通道异常时立即停车；强线之后的短暂全白间隙与连续相邻弱模拟线段共享最多 8 个位置帧（约 40 ms）的恢复预算。全白帧同时计入连续异常计数，相邻弱线恢复会将其清零；`lost/multiple/wide` 连续 6 个完整位置帧（约 30 ms）仍异常即停车。因此连续全白不会等待完整 40 ms。可信度仅作诊断，不执行无限保持或原地搜索。`lost_hold_ms`/`lost_stop_ms` 仅为旧配置兼容字段。
+- `track_mask=0x7E` 的中间六路按连续黑度计算位置，最外侧 0、7 通道只参与路口位图，避免支路拉偏巡线质心。
+- 在 40 RPM 参考速度计算 `reference_correction = (error * kp + filtered_derivative * kd) / 1e6`，随后按基础速度同比缩放，并限制在基础速度的 40%；中心 `±50` 使用死区，微分滤波使用 40 ms 时间常数，按灰度完整帧序号更新。
+- 差速修正斜率由 `lf_slew_permille_s` 配置，默认25000；40%转向限幅下理论全幅反向时间由旧默认的约80 ms缩短到约32 ms。
+- 左右目标RPM按M1/M2连续寄存器一次4字节I²C写入并一次读回校验；左轮=M2、右轮=M1的物理映射在打包函数中显式处理。
+- 灰度硬件故障、数据超时或通道异常时立即停车；强线之后的短暂全白间隙与连续相邻弱模拟线段共享最多 8 个位置帧（约 56 ms）的恢复预算。全白帧同时计入连续异常计数，相邻弱线恢复会将其清零；`lost/multiple/wide` 连续 6 个完整位置帧（约 42 ms）仍异常即停车。因此连续全白不会等待完整 56 ms。可信度仅作诊断，不执行无限保持或原地搜索。`lost_hold_ms`/`lost_stop_ms` 仅为旧配置兼容字段。
 - 持续时间到达 `follow_duration_ms` 后自动停车。
 - 安全：灰度数据无效 → `FAULT_SENSOR_LOST` 停车；故障 → 停车。
 
@@ -426,6 +428,7 @@ Shell 在线调参：
 lf kp <val>           # 设置 kp（0..1000000）
 lf kd <val>           # 设置 kd（0..1000000）
 lf maxcorr <val>      # 设置 40 RPM 参考速度下的最大修正 RPM（0..500）
+lf slew <val>         # 设置差速修正斜率（1..65535 permille/s）
 lf losthold <ms>      # 兼容旧配置，当前不参与运动
 lf losttimeout <ms>   # 兼容旧配置，当前不延迟停车
 ```
@@ -450,10 +453,10 @@ lf losttimeout <ms>   # 兼容旧配置，当前不延迟停车
 
 状态：`代码完成`
 
-实现内容（`config_store.cpp`，FRAM v7 布局）：
+实现内容（`config_store.cpp`）：
 
 - 速度环、航向闭环、IMU 偏置和底盘几何参数统一进入 ConfigStore，持久化到 FRAM（地址 0x0000，magic "CFPG"，CRC32 校验）。
-- 当前版本 v9，payload 181 字节；兼容加载 v1-v8 历史布局。v8及更早布局缺少MotorDriver ramp时补入1500/2000 RPM/s。旧版默认组合 `364/364/32` 加载时自动迁移为 `1456/1456/33050 um`，并标记 dirty，等待 `param save` 写回。
+- 当前版本 v11，payload 183 字节；兼容加载 v1-v10 历史布局。v8及更早布局缺少MotorDriver ramp时补入1500/2000 RPM/s，v9及更早布局缺少循迹修正斜率时补入25000 permille/s；旧版默认灰度掩码`0x3C`迁移为`0x7E`，其它自定义掩码保留。旧版默认组合 `364/364/32` 加载时自动迁移为 `1456/1456/33050 um`，并标记 dirty，等待 `param save` 写回。
 - `param set` 修改后显示 dirty 状态，`param save` 显式持久化，`param load` 从 FRAM 重新加载，`param reset` 恢复源码默认值。
 - 参数列表：
   - 底盘：`left/right_counts_per_rev`、`wheel_radius_um`、兼容参数 `wheel_radius_mm`、`wheel_track_mm`、`max_wheel_rpm`、`motor_output/encoder_invert_flags`
@@ -462,6 +465,7 @@ lf losttimeout <ms>   # 兼容旧配置，当前不延迟停车
   - GY931 零点：`gy931_roll/pitch/yaw_zero_mdeg`
   - IMU 偏置：`imu_accel_bias_x/y/z_mg`、`imu_gyro_bias_x/y/z_mdps`
   - 航向闭环：`heading_kp`、`heading_max_correction_rpm`、`heading_turn_max/min_rpm`、`heading_tolerance_mdeg`、`heading_settle_ms`
+  - 循迹：`lf_kp/kd/maxcorr`、`lf_slew_permille_s`、兼容丢线时间参数
 
 ### 9.2 调车遥测
 
@@ -582,7 +586,7 @@ lf losttimeout <ms>   # 兼容旧配置，当前不延迟停车
 硬件测试前需要确认：
 
 - ICM-45686 yaw 正方向与 `kYawSign` 一致（`heading.cpp:17`）。
-- 逐路遮挡确认灰度通道顺序、`track_mask=0x3C` 的中间通道和位置左右符号。
+- 逐路遮挡确认灰度通道顺序、`track_mask=0x7E` 的中间六路和位置左右符号。
 - 小车架空完成首次左右转动方向检查。
 - 地面转弯测试区域有足够安全空间。
 - 急停或断电开关可随时操作。

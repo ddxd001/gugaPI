@@ -39,6 +39,7 @@ static const uint8_t kRegM2Encoder = 0x24U;
 static const uint8_t kRegEncoderControl = 0x31U;
 static const uint8_t kRegM1TargetRpm = 0x32U;
 static const uint8_t kRegM2TargetRpm = 0x34U;
+static const uint8_t kTargetRpmPairLength = 4U;
 static const uint8_t kRegSpeedRpmBlock = 0x32U;
 static const uint8_t kRegSpeedPid = 0x3AU;
 static const uint8_t kRegCountsPerRev = 0x40U;
@@ -1221,6 +1222,36 @@ inline drivers::DriverStatus WriteTargetRpm(Client *client,
     return status;
 }
 
+/* M1/M2 target RPM registers are one contiguous 4-byte range. Updating the
+ * pair in one checked transaction removes the left/right command skew and
+ * reduces a steady-state chassis update from two writes plus two verification
+ * reads to one write plus one verification read. */
+inline drivers::DriverStatus WriteTargetRpmPair(Client *client,
+                                                uint16_t m1_rpm,
+                                                uint16_t m2_rpm,
+                                                bool *ack)
+{
+    static_assert(kRegM2TargetRpm ==
+                      (kRegM1TargetRpm + sizeof(uint16_t)),
+                  "target RPM registers must remain contiguous");
+
+    Frame response = {};
+    uint8_t data[kTargetRpmPairLength] = { 0U, 0U, 0U, 0U };
+    EncodeUint16Le(m1_rpm, &data[0]);
+    EncodeUint16Le(m2_rpm, &data[2]);
+
+    const drivers::DriverStatus status =
+        WriteRegistersChecked(client,
+                              kRegM1TargetRpm,
+                              data,
+                              static_cast<uint8_t>(sizeof(data)),
+                              &response);
+    if (ack != 0) {
+        *ack = (status == drivers::DRIVER_OK);
+    }
+    return status;
+}
+
 inline drivers::DriverStatus RefreshTargetRpmLease(Client *client,
                                                    bool motor1,
                                                    uint16_t rpm)
@@ -1232,6 +1263,28 @@ inline drivers::DriverStatus RefreshTargetRpmLease(Client *client,
     const drivers::DriverStatus status =
         WriteRegisters(client,
                        motor1 ? kRegM1TargetRpm : kRegM2TargetRpm,
+                       data,
+                       static_cast<uint8_t>(sizeof(data)),
+                       &response);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    return StatusOkResponse(response) ? drivers::DRIVER_OK :
+                                       drivers::DRIVER_ERROR;
+}
+
+inline drivers::DriverStatus RefreshTargetRpmLeasePair(Client *client,
+                                                       uint16_t m1_rpm,
+                                                       uint16_t m2_rpm)
+{
+    Frame response = {};
+    uint8_t data[kTargetRpmPairLength] = { 0U, 0U, 0U, 0U };
+    EncodeUint16Le(m1_rpm, &data[0]);
+    EncodeUint16Le(m2_rpm, &data[2]);
+
+    const drivers::DriverStatus status =
+        WriteRegisters(client,
+                       kRegM1TargetRpm,
                        data,
                        static_cast<uint8_t>(sizeof(data)),
                        &response);
@@ -1393,6 +1446,23 @@ inline drivers::DriverStatus SetSpeed(Client *client,
         result->mode_ack = mode_ack;
     }
     return status;
+}
+
+inline drivers::DriverStatus SetSpeedMode(Client *client,
+                                          bool motor1,
+                                          bool reverse,
+                                          bool *ack)
+{
+    const uint8_t mode[3] = {
+        kModeSpeed,
+        0U,
+        static_cast<uint8_t>(reverse ? 1U : 0U)
+    };
+    return WriteMode(client,
+                     motor1,
+                     mode,
+                     static_cast<uint8_t>(sizeof(mode)),
+                     ack);
 }
 
 inline bool DegreesToCounts(int32_t degrees,

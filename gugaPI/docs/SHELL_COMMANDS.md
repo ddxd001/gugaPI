@@ -35,11 +35,13 @@ sched
 
 ### `txstat`
 
-查看调试 UART（UART6）TX/RX 队列状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
+查看调试 UART（UART6）TX/RX 队列和 TX DMA 状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
 
 ```text
 txstat
 ```
+
+输出字段中，`queued`/`dropped`表示待发送字节数和累计丢弃字节数；`dma_active`表示当前是否有TX块正在传输；`dma_blocks`是已完成的256字节以内DMA块数；`dma_errors`应始终为0。发送层采用4096字节环形缓冲和最大256字节的连续DMA块，DMA完成中断自动衔接下一块。
 
 ## LED
 
@@ -746,7 +748,7 @@ Yaw: <ddd.ddd> deg
 
 ## 灰度传感器（8 路 ADC）
 
-8:1 多路复用灰度阵列：3 个选位引脚（PA16=bit2、PC20=bit1、PC21=bit0）选 1 路，PA15（ADC1 ADCIN0）读模拟值（0..4095）。1 ms 周期任务优先连续采集中间 2..5 路，每 5 ms 左右发布一个位置帧；四个外侧道路识别通道在 20 ms 内轮流更新。每路使用 ADC 四次硬件平均。详见 `GRAYSCALE_GUIDE.md`。
+8:1 多路复用灰度阵列：3 个选位引脚（PA16=bit2、PC20=bit1、PC21=bit0）选 1 路，PA15（ADC1 ADCIN0）读模拟值（0..4095）。1 ms 周期任务连续采集中间 1..6 路，每 7 ms 左右发布一个位置帧；最外侧 0、7 路在 14 ms 内轮流更新。每路使用 ADC 四次硬件平均。详见 `GRAYSCALE_GUIDE.md`。
 
 ### `gray status`
 
@@ -1493,9 +1495,9 @@ heading stop
 
 ## 循迹控制
 
-8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间四路位置帧约 5 ms；10 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置只由 `track_mask=0x3C` 的中间四路插值，全八路迟滞位图独立识别道路类型。
+8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间六路位置帧约 7 ms；10 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置由 `track_mask=0x7E` 的中间六路插值，全八路迟滞位图独立识别道路类型，最外侧 0、7 路不拉动循迹质心。
 
-安全机制：灰度数据无效或超过 200 ms、通道诊断异常 → 立即停车。强线之后允许短暂全白间隙，并可在相邻单段弱模拟信号重新出现时继续位置插值；全白与弱跟踪共享最多 8 个完整帧（约 40 ms）的恢复预算。每个全白帧同时计入独立的连续异常计数，相邻弱线恢复会将该计数清零；`lost/multiple/wide` 连续 6 个完整帧（约 30 ms）仍异常即停车。因此连续全白不会等待完整 40 ms，也不进行无限保持或盲目搜线。`confidence` 只作诊断，不再独立决定停车。正常跟踪期间始终使用命令指定的基础速度，不根据位置误差自动降速。
+安全机制：灰度数据无效或超过 200 ms、通道诊断异常 → 立即停车。强线之后允许短暂全白间隙，并可在相邻单段弱模拟信号重新出现时继续位置插值；全白与弱跟踪共享最多 8 个完整帧（约 56 ms）的恢复预算。每个全白帧同时计入独立的连续异常计数，相邻弱线恢复会将该计数清零；`lost/multiple/wide` 连续 6 个完整帧（约 42 ms）仍异常即停车。因此连续全白不会等待完整 56 ms，也不进行无限保持或盲目搜线。`confidence` 只作诊断，不再独立决定停车。正常跟踪期间始终使用命令指定的基础速度，不根据位置误差自动降速。
 
 ### `lf status`
 
@@ -1526,7 +1528,7 @@ lf status
 | `track_state` | `valid` / `lost` / `multiple` / `wide` / `sensor_fault` |
 | `weak_frames` | 有界弱模拟跟踪的连续帧数，0 表示当前使用正常强度证据，最大 8 |
 | `invalid_frames` | 连续几何异常完整帧数 |
-| `invalid_policy` | `confirm6` 表示连续 6 个几何异常完整帧（约 30 ms）后停车；硬件、过期和通道异常仍立即停车 |
+| `invalid_policy` | `confirm6` 表示连续 6 个几何异常完整帧（约 42 ms）后停车；硬件、过期和通道异常仍立即停车 |
 | `ref_rpm` | 转向比例换算的参考速度，当前为 40 RPM |
 | `max_ratio_permille` | 修正量相对基础速度的硬限幅，当前为 400‰ |
 | `deadband` | 中心误差死区，单位为位置刻度 |
@@ -1547,7 +1549,9 @@ lf cal
 lf start 80 10000
 ```
 
-修正先在 40 RPM 参考速度计算：`reference_correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，再按 `abs(base_rpm) / 40` 缩放并限制在基础速度的 40%。中心 `±100` 位置刻度使用死区，微分滤波时间常数为 40 ms，修正量反向变化带轻量斜率限制。`left = base - correction`，`right = base + correction`。
+修正先在 40 RPM 参考速度计算：`reference_correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，再按 `abs(base_rpm) / 40` 缩放并限制在基础速度的 40%。中心 `±50` 位置刻度使用死区，微分滤波时间常数为 40 ms。修正量变化率由 `lf_slew_permille_s` 限制，默认 25000；从最大左修正切换到最大右修正的理论斜率时间约 32 ms。`left = base - correction`，`right = base + correction`。
+
+左右轮目标RPM占用MotorDriver连续寄存器，正常循迹更新使用一次4字节I²C块写入和一次4字节读回校验，避免两轮分开发送产生的时间差并减少总线事务。
 
 ### `lf stop`
 
@@ -1559,18 +1563,19 @@ lf stop
 
 ### `lf kp <val>`
 
-设置循迹比例增益（范围 `0..1000000`），立即生效并将配置标记为 dirty。默认 10000。
+设置循迹比例增益（范围 `0..1000000`），立即生效并将配置标记为 dirty。当前实车在
+100 RPM 调定的默认值为 3800。
 
 ```text
-lf kp 15000
+lf kp 3800
 ```
 
 ### `lf kd <val>`
 
-设置滤波微分增益（`0..1000000`）。默认 0；实车确认比例控制方向后再小步增加。
+设置滤波微分增益（`0..1000000`）。当前实车在 100 RPM 调定的默认值为 600。
 
 ```text
-lf kd 500
+lf kd 600
 ```
 
 ### `lf maxcorr <val>`
@@ -1579,6 +1584,15 @@ lf kd 500
 
 ```text
 lf maxcorr 50
+```
+
+### `lf slew <permille_per_s>`
+
+设置循迹差速修正的最大变化率（范围 `1..65535`，默认 25000）。单位是“基础转速的千分之一每秒”；数值越大响应越快，数值过大则会增加转向冲击和灰度噪声敏感度。命令立即生效并将配置标记为 dirty，断电保存需要执行 `param save`。
+
+```text
+lf slew 25000
+param save
 ```
 
 ### `lf losthold <ms>`
@@ -1710,7 +1724,7 @@ seq 5
 
 ## 参数管理
 
-参数持久化系统。所有底盘几何、速度环、位置环、距离速度规划、IMU 偏置、航向闭环、电源保护和灰度循迹参数统一存储在 FRAM 中（地址 0x0000，magic "CFPG"，CRC32 校验）。当前版本 v9，payload 181 字节，兼容加载 v1-v8 历史布局。
+参数持久化系统。所有底盘几何、速度环、位置环、距离速度规划、IMU 偏置、航向闭环、电源保护和灰度循迹参数统一存储在 FRAM 中（地址 0x0000，magic "CFPG"，CRC32 校验）。当前版本 v11，payload 183 字节，兼容加载 v1-v10 历史布局。V9及更早配置自动使用新的循迹斜率默认值25000；旧版默认灰度掩码 `0x3C` 自动迁移为 `0x7E`，其它自定义掩码保持不变。迁移后配置标记为dirty。
 
 ### `param status`
 
@@ -1785,6 +1799,7 @@ param heading_kp=1000 range=0..100000
 | `heading_turn_min_rpm` | 0..500 | 20 | 转弯最小轮速（RPM） |
 | `heading_tolerance_mdeg` | 0..90000 | 3000 | 转弯容差（mdeg，3000=3°） |
 | `heading_settle_ms` | 0..5000 | 300 | 转弯到位保持时间（ms） |
+| `lf_slew_permille_s` | 1..65535 | 25000 | 循迹差速修正变化率（基础RPM的千分之一/秒） |
 
 ### `param set <name> <value>`
 
