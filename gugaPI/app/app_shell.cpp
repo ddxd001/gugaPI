@@ -7,6 +7,7 @@
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
 #include "app/app_ina219.h"
+#include "app/app_jyme02_can.h"
 #include "app/battery_monitor.h"
 #include "app/app_lora.h"
 #include "app/action.h"
@@ -1895,6 +1896,12 @@ void WriteCanStatus(void)
     services::Shell_WriteUInt32(status.rx_dropped_count);
     services::Shell_WriteString("/");
     services::Shell_WriteUInt32(status.rx_fifo_lost_count);
+#if FEATURE_ENABLE_JYME02_CAN
+    services::Shell_WriteString(" app_queue/drop=");
+    services::Shell_WriteUInt32(AppJyme02Can_GetRawAvailable());
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(AppJyme02Can_GetRawDropped());
+#endif
     services::Shell_WriteString(" tx_req/done/cancel=");
     services::Shell_WriteUInt32(status.tx_request_count);
     services::Shell_WriteString("/");
@@ -1989,7 +1996,7 @@ void CanCommand(int argc, const char * const argv[])
         }
         uint32_t read_count = 0U;
         drivers::CanFrame frame = {};
-        while ((read_count < count) && board::Board_CanRead(&frame)) {
+        while ((read_count < count) && AppJyme02Can_ReadRaw(&frame)) {
             WriteCanFrame(frame);
             read_count++;
         }
@@ -2014,6 +2021,7 @@ void CanCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "clear") && (argc == 2)) {
+        AppJyme02Can_Clear();
         WriteStatusLine("can clear: ", board::Board_CanClear());
         return;
     }
@@ -2028,6 +2036,148 @@ void CanCommand(int argc, const char * const argv[])
 
     PrintCanUsage();
 }
+
+#if FEATURE_ENABLE_JYME02_CAN
+void PrintJyme02Usage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  jyme02 status");
+    services::Shell_WriteLine("  jyme02 readreg <hex_reg>");
+    services::Shell_WriteLine("  jyme02 regs");
+    services::Shell_WriteLine("  jyme02 address <hex_id>       (parser only)");
+    services::Shell_WriteLine("  jyme02 sampletime <100us>     (parser only)");
+    services::Shell_WriteLine("  jyme02 clear");
+}
+
+void WriteJyme02Status(void)
+{
+    const drivers::JYME02CanData *data = AppJyme02Can_GetData();
+    if (data == 0) {
+        services::Shell_WriteLine("jyme02: not initialized");
+        return;
+    }
+
+    const uint32_t now_ms = services::Time_Millis();
+    services::Shell_WriteString("jyme02 id=");
+    WriteHex16(data->address);
+    services::Shell_WriteString(" sample_100us=");
+    services::Shell_WriteUInt32(data->sample_time_100us);
+    services::Shell_WriteString(" fresh(meas/temp)=");
+    services::Shell_WriteUInt32(
+        AppJyme02Can_IsMeasurementFresh(now_ms) ? 1U : 0U);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(
+        AppJyme02Can_IsTemperatureFresh(now_ms) ? 1U : 0U);
+    services::Shell_WriteString(" count(meas/temp/reg/invalid)=");
+    services::Shell_WriteUInt32(data->measurement_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(data->temperature_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(data->register_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(data->invalid_count);
+    services::Shell_WriteString("\r\n");
+
+    if (data->measurement_valid) {
+        services::Shell_WriteString("  angle_raw/mdeg=");
+        services::Shell_WriteUInt32(data->angle_raw);
+        services::Shell_WriteString("/");
+        services::Shell_WriteUInt32(data->angle_mdeg);
+        services::Shell_WriteString(" velocity_raw/mdeg_s=");
+        WriteInt32(data->angular_velocity_raw);
+        services::Shell_WriteString("/");
+        WriteInt32(data->angular_velocity_mdeg_s);
+        services::Shell_WriteString(" revolutions=");
+        WriteInt32(data->revolutions);
+        services::Shell_WriteString(" age_ms=");
+        services::Shell_WriteUInt32(
+            (uint32_t) (now_ms - data->last_measurement_ms));
+        services::Shell_WriteString("\r\n");
+    }
+    if (data->temperature_valid) {
+        services::Shell_WriteString("  temperature_raw/mdeg_c=");
+        WriteInt32(data->temperature_raw);
+        services::Shell_WriteString("/");
+        WriteInt32(data->temperature_mdeg_c);
+        services::Shell_WriteString(" age_ms=");
+        services::Shell_WriteUInt32(
+            (uint32_t) (now_ms - data->last_temperature_ms));
+        services::Shell_WriteString("\r\n");
+    }
+}
+
+void WriteJyme02Registers(void)
+{
+    const drivers::JYME02CanData *data = AppJyme02Can_GetData();
+    if ((data == 0) || (!data->register_valid)) {
+        services::Shell_WriteLine("jyme02 regs: none");
+        return;
+    }
+
+    services::Shell_WriteString("jyme02 regs start=");
+    WriteHex8(data->register_start);
+    services::Shell_WriteString(" values=");
+    for (uint8_t i = 0U; i < 3U; i++) {
+        if (i != 0U) {
+            services::Shell_WriteString(" ");
+        }
+        WriteHex16(data->register_values[i]);
+    }
+    services::Shell_WriteString("\r\n");
+}
+
+void JYME02Command(int argc, const char * const argv[])
+{
+    if ((argc == 2) && StrEqual(argv[1], "status")) {
+        WriteJyme02Status();
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "regs")) {
+        WriteJyme02Registers();
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "clear")) {
+        AppJyme02Can_Clear();
+        services::Shell_WriteLine("jyme02 clear: ok");
+        return;
+    }
+    if ((argc == 3) && StrEqual(argv[1], "readreg")) {
+        uint32_t value = 0U;
+        if (!ParseHexUint32(argv[2], 0xFFU, &value)) {
+            PrintJyme02Usage();
+            return;
+        }
+        WriteStatusLine(
+            "jyme02 readreg: ",
+            AppJyme02Can_ReadRegister(static_cast<uint8_t>(value)));
+        return;
+    }
+    if ((argc == 3) && StrEqual(argv[1], "address")) {
+        uint32_t value = 0U;
+        if (!ParseHexUint32(argv[2], 0x7FFU, &value)) {
+            PrintJyme02Usage();
+            return;
+        }
+        WriteStatusLine(
+            "jyme02 address: ",
+            AppJyme02Can_SetAddress(static_cast<uint16_t>(value)));
+        return;
+    }
+    if ((argc == 3) && StrEqual(argv[1], "sampletime")) {
+        uint32_t value = 0U;
+        if ((!ParseUint32(argv[2], 0xFFFFU, &value)) || (value == 0U)) {
+            PrintJyme02Usage();
+            return;
+        }
+        WriteStatusLine(
+            "jyme02 sampletime: ",
+            AppJyme02Can_SetSampleTime(static_cast<uint16_t>(value)));
+        return;
+    }
+
+    PrintJyme02Usage();
+}
+#endif
 #endif
 
 void VersionCommand(int argc, const char * const argv[])
@@ -7410,7 +7560,7 @@ void AppShell_CanWatchUpdate(void)
      * monopolize the main loop or overflow the debug UART TX queue. */
     drivers::CanFrame frame = {};
     for (uint8_t count = 0U; count < 4U; count++) {
-        if (!board::Board_CanRead(&frame)) {
+        if (!AppJyme02Can_ReadRaw(&frame)) {
             break;
         }
         WriteCanFrame(frame);
@@ -7982,6 +8132,12 @@ void AppShell_RegisterCommands(void)
         "can",
         "CANFD1 classic CAN diagnostics: status|mode|send|read|watch",
         CanCommand);
+#if FEATURE_ENABLE_JYME02_CAN
+    (void) services::Shell_RegisterCommand(
+        "jyme02",
+        "JY-ME02-CAN encoder: status|readreg|regs|address|sampletime",
+        JYME02Command);
+#endif
 #endif
 #if FEATURE_ENABLE_MOTOR_DRIVER
     (void) services::Shell_RegisterCommand(

@@ -78,7 +78,7 @@
 #define BOARD_CAN_IRQN                   CAN_BUS_INST_INT_IRQN
 #define BOARD_CAN_STB_PORT               GPIO_CAN_CTRL_PORT
 #define BOARD_CAN_STB_PIN                GPIO_CAN_CTRL_CAN_STB_PIN
-#define BOARD_CAN_BITRATE                (500000U)
+#define BOARD_CAN_BITRATE                (250000U)
 #define BOARD_CAN_TX_BUFFER              (0U)
 #define BOARD_CAN_RX_QUEUE_SIZE          (32U)
 #define BOARD_CAN_IRQ_PRIORITY           (2U)
