@@ -2,6 +2,7 @@
 
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
+#include "app/app_jyme02_can.h"
 #include "app/app_lora.h"
 #include "app/app_shell.h"
 #include "app/action.h"
@@ -259,6 +260,16 @@ void App_DebugUartCounterTask(void)
 
     services::DebugUart_WriteLineUInt32(g_debugUartCounter);
     g_debugUartCounter++;
+}
+#endif
+
+#if FEATURE_ENABLE_CAN
+const uint32_t CAN_WATCH_PERIOD_MS = 10U;
+
+void App_CanReceiveTask(void)
+{
+    app::AppJyme02Can_Update();
+    app::AppShell_CanWatchUpdate();
 }
 #endif
 
@@ -1036,6 +1047,17 @@ void App_Init(void)
     if (services::Scheduler_AddTask("debug_uart_count",
                                     App_DebugUartCounterTask,
                                     DEBUG_UART_COUNTER_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
+
+#if FEATURE_ENABLE_CAN
+    app::AppJyme02Can_Init();
+    if (services::Scheduler_AddTask("can_rx",
+                                    App_CanReceiveTask,
+                                    CAN_WATCH_PERIOD_MS,
                                     0U,
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);
