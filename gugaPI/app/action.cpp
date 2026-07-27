@@ -3,7 +3,10 @@
 #include "app/chassis.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
+#include "board/board_buzzer.h"
 #include "board/board_button.h"
+#include "board/board_led.h"
+#include "config/feature_config.h"
 #include "drivers/common/driver_status.h"
 #include "services/fault.h"
 #include "services/time.h"
@@ -15,6 +18,16 @@ static const uint8_t kMaxInstrs = 64U;
 static const uint32_t kSequenceTimeoutMs = 60000U;  /* whole-sequence cap */
 
 ActionRunnerState g_state;
+
+struct OutputTimer {
+    bool active;
+    uint32_t start_ms;
+    uint32_t duration_ms;
+};
+
+OutputTimer g_led2Timer;
+OutputTimer g_led3Timer;
+OutputTimer g_buzzerTimer;
 
 enum InstrResult {
     INSTR_RUNNING = 0,
@@ -31,11 +44,151 @@ void StopAll(void)
     (void) Chassis_Stop();
 }
 
+void ClearOutputTimer(OutputTimer *timer)
+{
+    timer->active = false;
+    timer->start_ms = 0U;
+    timer->duration_ms = 0U;
+}
+
+void StartOutputTimer(OutputTimer *timer, int32_t duration_ms)
+{
+    if (duration_ms > 0) {
+        timer->active = true;
+        timer->start_ms = services::Time_Millis();
+        timer->duration_ms = static_cast<uint32_t>(duration_ms);
+    } else {
+        ClearOutputTimer(timer);
+    }
+}
+
+void StopSequenceOutputs(void)
+{
+#if FEATURE_ENABLE_STATUS_LED
+    if (board::Board_LedIsReady(board::BOARD_LED_ID_2)) {
+        (void) board::Board_LedOff(board::BOARD_LED_ID_2);
+    }
+    if (board::Board_LedIsReady(board::BOARD_LED_ID_3)) {
+        (void) board::Board_LedOff(board::BOARD_LED_ID_3);
+    }
+#endif
+#if FEATURE_ENABLE_BUZZER
+    if (board::Board_BuzzerIsReady()) {
+        (void) board::Board_BuzzerOff();
+    }
+#endif
+    ClearOutputTimer(&g_led2Timer);
+    ClearOutputTimer(&g_led3Timer);
+    ClearOutputTimer(&g_buzzerTimer);
+}
+
+void UpdateSequenceOutputs(void)
+{
+#if FEATURE_ENABLE_STATUS_LED
+    if (g_led2Timer.active &&
+        services::Time_HasElapsed(g_led2Timer.start_ms,
+                                  g_led2Timer.duration_ms)) {
+        (void) board::Board_LedOff(board::BOARD_LED_ID_2);
+        ClearOutputTimer(&g_led2Timer);
+    }
+    if (g_led3Timer.active &&
+        services::Time_HasElapsed(g_led3Timer.start_ms,
+                                  g_led3Timer.duration_ms)) {
+        (void) board::Board_LedOff(board::BOARD_LED_ID_3);
+        ClearOutputTimer(&g_led3Timer);
+    }
+#endif
+#if FEATURE_ENABLE_BUZZER
+    if (g_buzzerTimer.active &&
+        services::Time_HasElapsed(g_buzzerTimer.start_ms,
+                                  g_buzzerTimer.duration_ms)) {
+        (void) board::Board_BuzzerOff();
+        ClearOutputTimer(&g_buzzerTimer);
+    }
+#endif
+}
+
+#if FEATURE_ENABLE_STATUS_LED
+bool LedTargetReady(int32_t target)
+{
+    return (((target != 0) && (target != 2)) ||
+            board::Board_LedIsReady(board::BOARD_LED_ID_2)) &&
+           (((target != 0) && (target != 3)) ||
+            board::Board_LedIsReady(board::BOARD_LED_ID_3));
+}
+
+bool ApplyLedOutput(const Instr *instr)
+{
+    if (!LedTargetReady(instr->param1)) {
+        return false;
+    }
+
+    const board::BoardLedId first =
+        (instr->param1 == 3) ? board::BOARD_LED_ID_3 :
+                              board::BOARD_LED_ID_2;
+    const board::BoardLedId last =
+        (instr->param1 == 2) ? board::BOARD_LED_ID_2 :
+                              board::BOARD_LED_ID_3;
+    for (uint8_t raw_id = static_cast<uint8_t>(first);
+         raw_id <= static_cast<uint8_t>(last);
+         raw_id++) {
+        const board::BoardLedId id =
+            static_cast<board::BoardLedId>(raw_id);
+        OutputTimer *timer = (id == board::BOARD_LED_ID_2) ?
+            &g_led2Timer : &g_led3Timer;
+        drivers::DriverStatus status = drivers::DRIVER_OK;
+        if (instr->op == ACT_OP_LED_ON) {
+            status = board::Board_LedOn(id);
+        } else if (instr->op == ACT_OP_LED_OFF) {
+            status = board::Board_LedOff(id);
+        } else {
+            status = board::Board_LedToggle(id);
+        }
+        if (status != drivers::DRIVER_OK) {
+            return false;
+        }
+        if (board::Board_LedIsOn(id)) {
+            StartOutputTimer(timer, instr->param2);
+        } else {
+            ClearOutputTimer(timer);
+        }
+    }
+    return true;
+}
+#endif
+
+#if FEATURE_ENABLE_BUZZER
+bool ApplyBuzzerOutput(const Instr *instr)
+{
+    if (!board::Board_BuzzerIsReady()) {
+        return false;
+    }
+    drivers::DriverStatus status = drivers::DRIVER_OK;
+    if (instr->op == ACT_OP_BUZZER_ON) {
+        status = board::Board_BuzzerOn();
+    } else if (instr->op == ACT_OP_BUZZER_OFF) {
+        status = board::Board_BuzzerOff();
+    } else {
+        status = board::Board_BuzzerToggle();
+    }
+    if (status != drivers::DRIVER_OK) {
+        return false;
+    }
+    if (board::Board_BuzzerIsOn()) {
+        StartOutputTimer(&g_buzzerTimer, instr->param2);
+    } else {
+        ClearOutputTimer(&g_buzzerTimer);
+    }
+    return true;
+}
+#endif
+
 void FinishSequence(void)
 {
     g_state.running = false;
     g_state.last_success = true;
     StopAll();
+    StopSequenceOutputs();
 }
 
 void AbortSequence(void)
@@ -43,6 +196,7 @@ void AbortSequence(void)
     g_state.running = false;
     g_state.last_success = false;
     StopAll();
+    StopSequenceOutputs();
 }
 
 /* Jump after an instruction completes. success path: ACT_NEXT = next instr,
@@ -107,6 +261,22 @@ bool StartOp(const Instr *instr)
     case ACT_OP_STOP:
         StopAll();
         return true;
+    case ACT_OP_LED_ON:
+    case ACT_OP_LED_OFF:
+    case ACT_OP_LED_TOGGLE:
+#if FEATURE_ENABLE_STATUS_LED
+        return ApplyLedOutput(instr);
+#else
+        return false;
+#endif
+    case ACT_OP_BUZZER_ON:
+    case ACT_OP_BUZZER_OFF:
+    case ACT_OP_BUZZER_TOGGLE:
+#if FEATURE_ENABLE_BUZZER
+        return ApplyBuzzerOutput(instr);
+#else
+        return false;
+#endif
     case ACT_OP_BRANCH:
     case ACT_OP_END:
         return true;
@@ -151,6 +321,9 @@ void ActionRunner_Init(void)
     g_state.seq_start_ms = 0U;
     g_state.instr_start_ms = 0U;
     g_state.last_status = drivers::DRIVER_OK;
+    ClearOutputTimer(&g_led2Timer);
+    ClearOutputTimer(&g_led3Timer);
+    ClearOutputTimer(&g_buzzerTimer);
     for (uint8_t i = 0U; i < kMaxInstrs; i++) {
         g_state.instrs[i].op = ACT_OP_NONE;
     }
@@ -164,6 +337,7 @@ drivers::DriverStatus ActionRunner_Clear(void)
     g_state.count = 0U;
     g_state.current = 0U;
     g_state.last_success = false;
+    StopSequenceOutputs();
     return drivers::DRIVER_OK;
 }
 
@@ -180,10 +354,34 @@ drivers::DriverStatus ActionRunner_AddInstr(ActionOp op,
     if (g_state.count >= kMaxInstrs) {
         return drivers::DRIVER_ERROR;
     }
+    if ((op <= ACT_OP_NONE) || (op > ACT_OP_BUZZER_TOGGLE)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
     if ((op == ACT_OP_DRIVE_MM) &&
         ((param1 == 0) || (param1 < -10000) || (param1 > 10000) ||
          (param2 <= 0) || (param2 > 1000) ||
          (until != ACT_COND_DISTANCE_REACHED))) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    const bool led_op = (op >= ACT_OP_LED_ON) &&
+                        (op <= ACT_OP_LED_TOGGLE);
+    const bool buzzer_op = (op >= ACT_OP_BUZZER_ON) &&
+                           (op <= ACT_OP_BUZZER_TOGGLE);
+    const bool output_off = (op == ACT_OP_LED_OFF) ||
+                            (op == ACT_OP_BUZZER_OFF);
+    if (led_op &&
+        (((param1 != 0) && (param1 != 2) && (param1 != 3)) ||
+         (param2 < 0) || (param2 > 30000) ||
+         ((param2 > 0) && (param2 < 50)) ||
+         (output_off && (param2 != 0)) ||
+         (until != ACT_COND_IMMEDIATE))) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    if (buzzer_op &&
+        ((param1 != 0) || (param2 < 0) || (param2 > 30000) ||
+         ((param2 > 0) && (param2 < 50)) ||
+         (output_off && (param2 != 0)) ||
+         (until != ACT_COND_IMMEDIATE))) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
     Instr *instr = &g_state.instrs[g_state.count];
@@ -202,6 +400,7 @@ drivers::DriverStatus ActionRunner_Start(void)
     if (g_state.running) {
         return drivers::DRIVER_ERROR_BUSY;
     }
+    StopSequenceOutputs();
     if (g_state.count == 0U) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
@@ -224,6 +423,7 @@ drivers::DriverStatus ActionRunner_Cancel(void)
 
 void ActionRunner_Update(void)
 {
+    UpdateSequenceOutputs();
     if (!g_state.running) {
         return;
     }
@@ -252,6 +452,7 @@ void ActionRunner_Update(void)
     if (g_state.instr_start_ms == 0U) {
         if (!StartOp(instr)) {
             StopAll();
+            StopSequenceOutputs();
             Goto(instr->on_timeout, false);
             return;
         }
