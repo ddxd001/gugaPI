@@ -1951,6 +1951,10 @@ void LedCommand(int argc, const char * const argv[])
             WriteAllLedStatus();
             return;
         }
+        if (app::ActionRunner_GetState()->running) {
+            services::Shell_WriteLine("led all: busy");
+            return;
+        }
 
         const drivers::DriverStatus status = ApplyAllLedAction(argv[2]);
         if (status == drivers::DRIVER_ERROR_INVALID_ARG) {
@@ -1972,6 +1976,11 @@ void LedCommand(int argc, const char * const argv[])
         WriteLedStatus(id);
         return;
     }
+    if (app::ActionRunner_GetState()->running &&
+        (id != board::BOARD_LED_ID_1)) {
+        services::Shell_WriteLine("led: busy");
+        return;
+    }
 
     const drivers::DriverStatus status = ApplyLedAction(id, argv[2]);
     if (status == drivers::DRIVER_ERROR_INVALID_ARG) {
@@ -1987,12 +1996,24 @@ void LedCommand(int argc, const char * const argv[])
 void BuzzerCommand(int argc, const char * const argv[])
 {
     if (argc != 2) {
-        services::Shell_WriteLine("usage: buzzer on|off");
+        services::Shell_WriteLine("usage: buzzer on|off|toggle|status");
         return;
     }
 
     if (!board::Board_BuzzerIsReady()) {
         services::Shell_WriteLine("buzzer: not ready");
+        return;
+    }
+
+    if (StrEqual(argv[1], "status")) {
+        services::Shell_WriteString("buzzer ready=1 state=");
+        services::Shell_WriteLine(
+            board::Board_BuzzerIsOn() ? "on" : "off");
+        return;
+    }
+
+    if (app::ActionRunner_GetState()->running) {
+        services::Shell_WriteLine("buzzer: busy");
         return;
     }
 
@@ -2008,7 +2029,13 @@ void BuzzerCommand(int argc, const char * const argv[])
         return;
     }
 
-    services::Shell_WriteLine("usage: buzzer on|off");
+    if (StrEqual(argv[1], "toggle")) {
+        (void) board::Board_BuzzerToggle();
+        services::Shell_WriteLine("buzzer toggled");
+        return;
+    }
+
+    services::Shell_WriteLine("usage: buzzer on|off|toggle|status");
 }
 #endif
 
@@ -5621,10 +5648,15 @@ void PrintRunUsage(void)
     services::Shell_WriteLine(
         "    op: drive|drive_mm|turn|follow|wait|stop|branch|end");
     services::Shell_WriteLine(
+        "        led_on|led_off|led_toggle|buzzer_on|buzzer_off|buzzer_toggle");
+    services::Shell_WriteLine(
         "    until: timeout|heading_reached|distance_reached|line_detected|line_lost|button|immediate");
     services::Shell_WriteLine(
         "    drive_mm: p1=signed mm, p2=max rpm, until=distance_reached");
-    services::Shell_WriteLine("    onsuccess/ontimeout: index 0..15, or 'next'/'abort'");
+    services::Shell_WriteLine(
+        "    LED: p1=0(both)|2|3; buzzer: p1=0; p2=0 or auto-off 50..30000");
+    services::Shell_WriteLine("    output actions require until=immediate; off requires p2=0");
+    services::Shell_WriteLine("    onsuccess/ontimeout: index 0..63, or 'next'/'abort'");
     services::Shell_WriteLine("  run clear|start|cancel|status|dump");
 }
 
@@ -5638,6 +5670,12 @@ bool ParseActionOp(const char *t, app::ActionOp *op)
     if (StrEqual(t, "stop")) { *op = app::ACT_OP_STOP; return true; }
     if (StrEqual(t, "branch")) { *op = app::ACT_OP_BRANCH; return true; }
     if (StrEqual(t, "end")) { *op = app::ACT_OP_END; return true; }
+    if (StrEqual(t, "led_on")) { *op = app::ACT_OP_LED_ON; return true; }
+    if (StrEqual(t, "led_off")) { *op = app::ACT_OP_LED_OFF; return true; }
+    if (StrEqual(t, "led_toggle")) { *op = app::ACT_OP_LED_TOGGLE; return true; }
+    if (StrEqual(t, "buzzer_on")) { *op = app::ACT_OP_BUZZER_ON; return true; }
+    if (StrEqual(t, "buzzer_off")) { *op = app::ACT_OP_BUZZER_OFF; return true; }
+    if (StrEqual(t, "buzzer_toggle")) { *op = app::ACT_OP_BUZZER_TOGGLE; return true; }
     return false;
 }
 
@@ -5678,6 +5716,12 @@ const char *OpText(app::ActionOp op)
     case app::ACT_OP_STOP: return "stop";
     case app::ACT_OP_BRANCH: return "branch";
     case app::ACT_OP_END: return "end";
+    case app::ACT_OP_LED_ON: return "led_on";
+    case app::ACT_OP_LED_OFF: return "led_off";
+    case app::ACT_OP_LED_TOGGLE: return "led_toggle";
+    case app::ACT_OP_BUZZER_ON: return "buzzer_on";
+    case app::ACT_OP_BUZZER_OFF: return "buzzer_off";
+    case app::ACT_OP_BUZZER_TOGGLE: return "buzzer_toggle";
     default: return "none";
     }
 }
@@ -5800,11 +5844,24 @@ void RunCommand(int argc, const char * const argv[])
             PrintRunUsage();
             return;
         }
-        const bool params_ok = (op == app::ACT_OP_DRIVE_MM)
-            ? (ParseInt32(argv[3], -10000, 10000, &p1) &&
-               (p1 != 0) && ParseInt32(argv[4], 1, max_rpm, &p2))
-            : (ParseInt32(argv[3], -max_rpm, max_rpm, &p1) &&
-               ParseInt32(argv[4], 0, 30000, &p2));
+        bool params_ok = false;
+        if (op == app::ACT_OP_DRIVE_MM) {
+            params_ok = ParseInt32(argv[3], -10000, 10000, &p1) &&
+                        (p1 != 0) &&
+                        ParseInt32(argv[4], 1, max_rpm, &p2);
+        } else if ((op >= app::ACT_OP_LED_ON) &&
+                   (op <= app::ACT_OP_LED_TOGGLE)) {
+            params_ok = ParseInt32(argv[3], 0, 3, &p1) &&
+                        ((p1 == 0) || (p1 == 2) || (p1 == 3)) &&
+                        ParseInt32(argv[4], 0, 30000, &p2);
+        } else if ((op >= app::ACT_OP_BUZZER_ON) &&
+                   (op <= app::ACT_OP_BUZZER_TOGGLE)) {
+            params_ok = ParseInt32(argv[3], 0, 0, &p1) &&
+                        ParseInt32(argv[4], 0, 30000, &p2);
+        } else {
+            params_ok = ParseInt32(argv[3], -max_rpm, max_rpm, &p1) &&
+                        ParseInt32(argv[4], 0, 30000, &p2);
+        }
         if ((!params_ok) ||
             (!ParseActionCond(argv[5], &until)) ||
             (!ParseTarget(argv[6], &ons)) ||

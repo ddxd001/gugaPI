@@ -669,7 +669,7 @@ void App_CompetitionOledUpdate(uint32_t now, app::AppMode mode)
 /* Competition status task: button selection/start/stop + LED/OLED indication.
  * LED: ARMED = slow blink (1 Hz), RUNNING = solid on, FAULT = fast blink (5 Hz).
  * OLED: competition selection/progress, with latched faults taking priority.
- * Buzzer remains silent in every mode. */
+ * LED2/LED3 and buzzer are owned by ActionRunner while a sequence runs. */
 void App_CompetitionStatusTask(void)
 {
     const uint32_t now = services::Time_Millis();
@@ -736,13 +736,6 @@ void App_CompetitionStatusTask(void)
         }
     } else if (mode == app::APP_MODE_COMPETITION_RUNNING) {
         (void) board::Board_StatusLedOn();
-    }
-#endif
-
-    /* The buzzer is intentionally not used for fault reporting. */
-#if FEATURE_ENABLE_BUZZER
-    if (board::Board_BuzzerIsReady()) {
-        (void) board::Board_BuzzerOff();
     }
 #endif
 
@@ -1087,6 +1080,7 @@ void App_Run(void)
 #if FEATURE_ENABLE_MOTOR_DRIVER
         if (!g_faultStopHandled) {
             g_faultStopHandled = true;
+            (void) ActionRunner_Cancel();
 #if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
             (void) Heading_Stop();
 #endif

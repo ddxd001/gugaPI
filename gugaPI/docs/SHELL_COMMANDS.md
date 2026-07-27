@@ -1758,12 +1758,12 @@ run add <op> <param1> <param2> <until> <onsuccess> <ontimeout>
 
 | 参数 | 含义 |
 | --- | --- |
-| `op` | 操作码：`drive` / `drive_mm` / `turn` / `follow` / `wait` / `stop` / `branch` / `end` |
+| `op` | 操作码：`drive` / `drive_mm` / `turn` / `follow` / `wait` / `stop` / `branch` / `end` / `led_on` / `led_off` / `led_toggle` / `buzzer_on` / `buzzer_off` / `buzzer_toggle` |
 | `param1` | DRIVE/FOLLOW: 基础RPM；TURN: 相对角度；DRIVE_MM: 有符号毫米 |
 | `param2` | 一般为超时/持续时间ms；DRIVE_MM为最大RPM |
 | `until` | 完成条件：`timeout` / `heading_reached` / `distance_reached` / `line_detected` / `line_lost` / `button` / `immediate` |
-| `onsuccess` | 成功跳转目标：`next`（下一条）或索引 `0..15` |
-| `ontimeout` | 超时跳转目标：`abort`（中止序列）或索引 `0..15` |
+| `onsuccess` | 成功跳转目标：`next`（下一条）或索引 `0..63` |
+| `ontimeout` | 超时跳转目标：`abort`（中止序列）或索引 `0..63` |
 
 操作码说明：
 
@@ -1777,6 +1777,13 @@ run add <op> <param1> <param2> <until> <onsuccess> <ontimeout>
 | `stop` | 立即停车 | `immediate` |
 | `branch` | 条件跳转（不产生运动），成功走 onsuccess，失败走 ontimeout | 任意条件 |
 | `end` | 序列完成（成功） | `immediate` |
+| `led_on/off/toggle` | LED2/LED3 输出；p1=0（两灯）、2 或 3；p2=0 或自动关闭 50..30000 ms | `immediate` |
+| `buzzer_on/off/toggle` | 有源蜂鸣器输出；p1=0；p2=0 或自动关闭 50..30000 ms | `immediate` |
+
+LED1 保留给比赛状态指示。输出动作执行后立即进入下一条，自动关闭计时在后台运行；
+如需暂停序列，应显式加入 `wait`。序列正常结束、取消、故障、总超时或动作启动失败时，
+LED2、LED3 和蜂鸣器都会关闭。序列运行期间仍可通过 Shell 查询状态，但直接修改这三个
+输出会返回 `busy`。
 
 ### `run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>`
 
@@ -1789,6 +1796,8 @@ run add turn   90  8000  heading_reached  next abort
 run add follow 80  30000 line_lost        next abort
 run add wait   0   100   timeout          next abort
 run add stop   0   0     immediate        next abort
+run add led_on 2   500   immediate        next abort
+run add buzzer_on 0 200  immediate        next abort
 run add end    0   0     immediate        next abort
 ```
 
