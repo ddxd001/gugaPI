@@ -1,5 +1,7 @@
 #include "services/debug_uart.h"
 
+#include <string.h>
+
 #include "config/debug_config.h"
 #include "config/feature_config.h"
 #include "ti_msp_dl_config.h"
@@ -14,20 +16,34 @@ static volatile uint32_t g_rxDroppedCount = 0U;
 static uint8_t g_rxBuffer[DEBUG_UART_RX_BUFFER_SIZE];
 
 /*
- * TX path: a single-producer/single-consumer ring drained cooperatively
- * from the main loop (DebugUart_TxPump) and opportunistically from
- * DebugUart_WriteChar itself. No TX-complete interrupt is used: an earlier
- * attempt on this hardware produced garbled output, so the proven pattern
- * (mirrors the FOC project) is a main-loop pump that fills the TX FIFO while
- * !isTXFIFOFull. WriteChar therefore never blocks once the UART is ready.
- * Both the producer (WriteChar, main-loop context) and the consumer (TxPump,
- * main-loop context) run outside interrupt context, so no critical section is
- * needed for the TX indices.
+ * TX path: the main-loop producer publishes complete spans into a ring. DMA
+ * consumes one contiguous span at a time; the UART DMA-done interrupt advances
+ * the tail and immediately starts the next span. This preserves the existing
+ * non-blocking Shell API without polling or per-byte TX interrupts.
+ *
+ * Only g_txHead is written by main-loop code and only g_txTail is advanced by
+ * the UART ISR. A producer copies bytes before publishing the new head, so DMA
+ * can never see a partially copied span. Write calls from interrupt context are
+ * intentionally unsupported, matching the service layering rule that ISRs do
+ * not format or log text.
  */
 static volatile uint16_t g_txHead = 0U;
 static volatile uint16_t g_txTail = 0U;
 static volatile uint32_t g_txDroppedCount = 0U;
 static uint8_t g_txBuffer[DEBUG_UART_TX_BUFFER_SIZE];
+static volatile bool g_txDmaActive = false;
+static volatile uint16_t g_txDmaLength = 0U;
+static volatile uint32_t g_txDmaBlockCount = 0U;
+static volatile uint32_t g_txDmaErrorCount = 0U;
+
+static_assert(DEBUG_UART_TX_BUFFER_SIZE > 1U,
+              "Debug UART TX ring must hold at least one byte");
+static_assert(DEBUG_UART_TX_BUFFER_SIZE <= UINT16_MAX,
+              "Debug UART TX ring indices are uint16_t");
+static_assert((DEBUG_UART_TX_DMA_BLOCK_SIZE > 0U) &&
+                  (DEBUG_UART_TX_DMA_BLOCK_SIZE <
+                   DEBUG_UART_TX_BUFFER_SIZE),
+              "Debug UART DMA block must fit inside the TX ring");
 
 uint16_t NextRxIndex(uint16_t index)
 {
@@ -38,13 +54,91 @@ uint16_t NextRxIndex(uint16_t index)
     return index;
 }
 
-uint16_t NextTxIndex(uint16_t index)
+uint16_t AdvanceTxIndex(uint16_t index, uint16_t amount)
 {
-    index++;
-    if (index >= DEBUG_UART_TX_BUFFER_SIZE) {
-        index = 0U;
+    uint32_t advanced = static_cast<uint32_t>(index) + amount;
+    if (advanced >= DEBUG_UART_TX_BUFFER_SIZE) {
+        advanced -= DEBUG_UART_TX_BUFFER_SIZE;
     }
-    return index;
+    return static_cast<uint16_t>(advanced);
+}
+
+uint16_t TxFreeSpace(uint16_t head, uint16_t tail)
+{
+    if (head >= tail) {
+        return static_cast<uint16_t>(
+            DEBUG_UART_TX_BUFFER_SIZE - (head - tail) - 1U);
+    }
+    return static_cast<uint16_t>(tail - head - 1U);
+}
+
+void StartNextTxDma(void)
+{
+#if FEATURE_ENABLE_DEBUG_UART
+    if ((!g_debugUartReady) || g_txDmaActive ||
+        (g_txTail == g_txHead)) {
+        return;
+    }
+
+    uint16_t length = (g_txHead > g_txTail) ?
+        static_cast<uint16_t>(g_txHead - g_txTail) :
+        static_cast<uint16_t>(DEBUG_UART_TX_BUFFER_SIZE - g_txTail);
+    if (length > DEBUG_UART_TX_DMA_BLOCK_SIZE) {
+        length = DEBUG_UART_TX_DMA_BLOCK_SIZE;
+    }
+
+    g_txDmaLength = length;
+    g_txDmaActive = true;
+
+    DL_DMA_disableChannel(DMA, DEBUG_UART_DMA_TX_CHAN_ID);
+    DL_DMA_setSrcAddr(
+        DMA,
+        DEBUG_UART_DMA_TX_CHAN_ID,
+        reinterpret_cast<uint32_t>(&g_txBuffer[g_txTail]));
+    DL_DMA_setDestAddr(
+        DMA,
+        DEBUG_UART_DMA_TX_CHAN_ID,
+        reinterpret_cast<uint32_t>(&DEBUG_UART_INST->TXDATA));
+    DL_DMA_setTransferSize(DMA, DEBUG_UART_DMA_TX_CHAN_ID, length);
+    DL_DMA_enableChannel(DMA, DEBUG_UART_DMA_TX_CHAN_ID);
+#endif
+}
+
+void CompleteTxDma(void)
+{
+#if FEATURE_ENABLE_DEBUG_UART
+    DL_DMA_disableChannel(DMA, DEBUG_UART_DMA_TX_CHAN_ID);
+
+    if ((!g_txDmaActive) || (g_txDmaLength == 0U)) {
+        g_txDmaErrorCount++;
+        return;
+    }
+
+    g_txTail = AdvanceTxIndex(g_txTail, g_txDmaLength);
+    g_txDmaLength = 0U;
+    g_txDmaActive = false;
+    g_txDmaBlockCount++;
+    StartNextTxDma();
+#endif
+}
+
+void RecoverTxDmaError(void)
+{
+#if FEATURE_ENABLE_DEBUG_UART
+    DL_DMA_disableChannel(DMA, DEBUG_UART_DMA_TX_CHAN_ID);
+    g_txDmaErrorCount++;
+
+    /* A DMA address/data fault does not report how many UART bytes made it to
+     * the FIFO. Drop the active span rather than risking duplicated protocol
+     * text, then continue with the next queued span. */
+    if (g_txDmaActive && (g_txDmaLength > 0U)) {
+        g_txTail = AdvanceTxIndex(g_txTail, g_txDmaLength);
+        g_txDroppedCount += g_txDmaLength;
+    }
+    g_txDmaLength = 0U;
+    g_txDmaActive = false;
+    StartNextTxDma();
+#endif
 }
 
 void PushRxByteFromIsr(uint8_t data)
@@ -66,6 +160,7 @@ void DebugUart_Init(void)
 {
 #if FEATURE_ENABLE_DEBUG_UART
     NVIC_DisableIRQ(DEBUG_UART_INST_INT_IRQN);
+    NVIC_DisableIRQ(DMA_INT_IRQn);
 
     g_rxHead = 0U;
     g_rxTail = 0U;
@@ -73,12 +168,27 @@ void DebugUart_Init(void)
     g_txHead = 0U;
     g_txTail = 0U;
     g_txDroppedCount = 0U;
+    g_txDmaActive = false;
+    g_txDmaLength = 0U;
+    g_txDmaBlockCount = 0U;
+    g_txDmaErrorCount = 0U;
+
+    DL_DMA_disableChannel(DMA, DEBUG_UART_DMA_TX_CHAN_ID);
 
     DL_UART_Main_clearInterruptStatus(DEBUG_UART_INST,
-                                      DL_UART_MAIN_INTERRUPT_RX);
+                                      DL_UART_MAIN_INTERRUPT_RX |
+                                      DL_UART_MAIN_INTERRUPT_DMA_DONE_TX);
+    DL_DMA_clearInterruptStatus(DMA,
+                                DL_DMA_INTERRUPT_ADDR_ERROR |
+                                DL_DMA_INTERRUPT_DATA_ERROR);
+    DL_DMA_enableInterrupt(DMA,
+                           DL_DMA_INTERRUPT_ADDR_ERROR |
+                           DL_DMA_INTERRUPT_DATA_ERROR);
     NVIC_ClearPendingIRQ(DEBUG_UART_INST_INT_IRQN);
+    NVIC_ClearPendingIRQ(DMA_INT_IRQn);
 
     g_debugUartReady = true;
+    NVIC_EnableIRQ(DMA_INT_IRQn);
     NVIC_EnableIRQ(DEBUG_UART_INST_INT_IRQN);
 #else
     g_debugUartReady = false;
@@ -92,47 +202,17 @@ bool DebugUart_IsReady(void)
 
 void DebugUart_WriteChar(char ch)
 {
-#if FEATURE_ENABLE_DEBUG_UART
-    if (!g_debugUartReady) {
-        /*
-         * Boot path only: before DebugUart_Init the ring is not in use, so a
-         * blocking write guarantees early output is not lost. Runtime callers
-         * never reach this branch.
-         */
-        DL_UART_Main_transmitDataBlocking(DEBUG_UART_INST, (uint8_t) ch);
-        return;
-    }
-
-    const uint16_t nextHead = NextTxIndex(g_txHead);
-    if (nextHead == g_txTail) {
-        g_txDroppedCount++;
-        return;
-    }
-
-    g_txBuffer[g_txHead] = (uint8_t) ch;
-    g_txHead = nextHead;
-
-    /* Opportunistic drain so single characters and short strings leave the
-     * chip immediately without waiting for the next main-loop pump. */
-    DebugUart_TxPump();
-#else
-    (void) ch;
-#endif
+    const uint8_t data = static_cast<uint8_t>(ch);
+    DebugUart_WriteData(&data, 1U);
 }
 
 void DebugUart_TxPump(void)
 {
 #if FEATURE_ENABLE_DEBUG_UART
-    if (!g_debugUartReady) {
-        return;
-    }
-
-    while ((g_txTail != g_txHead) &&
-           !DL_UART_Main_isTXFIFOFull(DEBUG_UART_INST)) {
-        DL_UART_Main_transmitData(DEBUG_UART_INST,
-                                  g_txBuffer[g_txTail]);
-        g_txTail = NextTxIndex(g_txTail);
-    }
+    /* Compatibility entry point retained for the existing main loop. DMA
+     * completion normally chains blocks from the ISR; this call only kicks an
+     * idle queue after newly published data or an unusual missed kick. */
+    StartNextTxDma();
 #endif
 }
 
@@ -157,15 +237,72 @@ uint32_t DebugUart_GetTxDroppedCount(void)
     return g_txDroppedCount;
 }
 
+bool DebugUart_IsTxDmaActive(void)
+{
+    return g_txDmaActive;
+}
+
+uint32_t DebugUart_GetTxDmaBlockCount(void)
+{
+    return g_txDmaBlockCount;
+}
+
+uint32_t DebugUart_GetTxDmaErrorCount(void)
+{
+    return g_txDmaErrorCount;
+}
+
 void DebugUart_WriteData(const uint8_t *data, uint32_t length)
 {
-    if (data == 0) {
+    if ((data == 0) || (length == 0U)) {
         return;
     }
 
-    for (uint32_t i = 0U; i < length; i++) {
-        DebugUart_WriteChar((char) data[i]);
+#if FEATURE_ENABLE_DEBUG_UART
+    if (!g_debugUartReady) {
+        /* Boot path only: preserve early diagnostics before the DMA queue is
+         * initialized. Runtime writes never enter this blocking branch. */
+        for (uint32_t i = 0U; i < length; i++) {
+            DL_UART_Main_transmitDataBlocking(DEBUG_UART_INST, data[i]);
+        }
+        return;
     }
+
+    const uint16_t head = g_txHead;
+    const uint16_t tail = g_txTail;
+    const uint16_t freeSpace = TxFreeSpace(head, tail);
+    uint32_t accepted = length;
+    if (accepted > freeSpace) {
+        accepted = freeSpace;
+    }
+
+    uint32_t firstLength = DEBUG_UART_TX_BUFFER_SIZE - head;
+    if (firstLength > accepted) {
+        firstLength = accepted;
+    }
+    if (firstLength > 0U) {
+        (void) memcpy(&g_txBuffer[head], data, firstLength);
+    }
+
+    const uint32_t secondLength = accepted - firstLength;
+    if (secondLength > 0U) {
+        (void) memcpy(&g_txBuffer[0], &data[firstLength], secondLength);
+    }
+
+    uint32_t publishedHead = static_cast<uint32_t>(head) + accepted;
+    if (publishedHead >= DEBUG_UART_TX_BUFFER_SIZE) {
+        publishedHead -= DEBUG_UART_TX_BUFFER_SIZE;
+    }
+    g_txHead = static_cast<uint16_t>(publishedHead);
+
+    if (accepted < length) {
+        g_txDroppedCount += length - accepted;
+    }
+
+    StartNextTxDma();
+#else
+    (void) length;
+#endif
 }
 
 void DebugUart_WriteString(const char *text)
@@ -174,10 +311,8 @@ void DebugUart_WriteString(const char *text)
         return;
     }
 
-    while (*text != '\0') {
-        DebugUart_WriteChar(*text);
-        text++;
-    }
+    DebugUart_WriteData(reinterpret_cast<const uint8_t *>(text),
+                        static_cast<uint32_t>(strlen(text)));
 }
 
 void DebugUart_WriteUInt32(uint32_t value)
@@ -196,10 +331,14 @@ void DebugUart_WriteUInt32(uint32_t value)
         index++;
     }
 
-    while (index > 0U) {
-        index--;
-        DebugUart_WriteChar(buffer[index]);
+    for (uint32_t left = 0U, right = index - 1U;
+         left < right;
+         left++, right--) {
+        const char temp = buffer[left];
+        buffer[left] = buffer[right];
+        buffer[right] = temp;
     }
+    DebugUart_WriteData(reinterpret_cast<const uint8_t *>(buffer), index);
 }
 
 void DebugUart_WriteLineUInt32(uint32_t value)
@@ -273,6 +412,30 @@ void DebugUart_IrqHandler(void)
                                           DL_UART_MAIN_INTERRUPT_RX);
         break;
 
+    case DL_UART_MAIN_IIDX_DMA_DONE_TX:
+        CompleteTxDma();
+        break;
+
+    default:
+        break;
+    }
+#endif
+}
+
+void DebugUart_DmaIrqHandler(void)
+{
+#if FEATURE_ENABLE_DEBUG_UART
+    switch (DL_DMA_getPendingInterrupt(DMA)) {
+    case DL_DMA_EVENT_IIDX_ADDR_ERROR:
+        DL_DMA_clearInterruptStatus(DMA, DL_DMA_INTERRUPT_ADDR_ERROR);
+        RecoverTxDmaError();
+        break;
+
+    case DL_DMA_EVENT_IIDX_DATA_ERROR:
+        DL_DMA_clearInterruptStatus(DMA, DL_DMA_INTERRUPT_DATA_ERROR);
+        RecoverTxDmaError();
+        break;
+
     default:
         break;
     }
@@ -284,4 +447,9 @@ void DebugUart_IrqHandler(void)
 extern "C" void DEBUG_UART_INST_IRQHandler(void)
 {
     services::DebugUart_IrqHandler();
+}
+
+extern "C" void DMA_IRQHandler(void)
+{
+    services::DebugUart_DmaIrqHandler();
 }

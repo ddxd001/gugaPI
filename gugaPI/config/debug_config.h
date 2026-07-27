@@ -12,6 +12,10 @@
  * so non-blocking WriteChar does not drop boot/help output. SRAM is plentiful
  * (SRAM_BANK0 uses ~3 KB of 64 KB). */
 #define DEBUG_UART_TX_BUFFER_SIZE        (4096U)
+/* Keep each DMA descriptor short enough for prompt queue accounting while
+ * still reducing UART service to about 45 completion interrupts per second
+ * at a fully occupied 115200-baud link. */
+#define DEBUG_UART_TX_DMA_BLOCK_SIZE     (256U)
 #define DEBUG_SHELL_LINE_BUFFER_SIZE     (96U)
 #define DEBUG_SHELL_MAX_ARGS             (8U)
 /* Development profile currently registers 25 top-level commands. Keep spare

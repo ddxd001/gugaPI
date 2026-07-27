@@ -5,7 +5,7 @@ namespace {
 
 /* Preserve the existing coordinate convention: positive is left. Position
  * control intentionally uses only the configured tracking core (normally
- * channels 2..5). The outer channels remain available in active_mask for
+ * channels 1..6). The outermost channels remain available in active_mask for
  * road/crossing classification, but can no longer pull the steering centroid
  * away from the physical line. */
 static const int16_t kChannelPosition[GRAYSCALE_CHANNEL_COUNT] = {

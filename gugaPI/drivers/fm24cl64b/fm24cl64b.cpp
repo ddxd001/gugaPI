@@ -4,9 +4,18 @@ namespace drivers {
 namespace {
 
 static const uint16_t kAddressBytes = 2U;
-static const uint16_t kMaxWritePayloadBytes =
-    I2C_CONTROLLER_FIFO_BYTES - kAddressBytes;
-static const uint16_t kMaxReadPayloadBytes = 32U;
+/* A 256-byte burst keeps the longest blocking operation bounded while allowing
+ * the complete ConfigStore image to use one I2C transaction. The controller
+ * refills its 8-byte FIFO while a transfer is active, so the FIFO depth is not
+ * a transaction-size limit. */
+static const uint16_t kMaxBurstPayloadBytes = 256U;
+static_assert(kMaxBurstPayloadBytes <= I2C_CONTROLLER_MAX_TRANSFER_BYTES,
+              "FRAM read burst exceeds I2C controller transfer limit");
+static_assert((kAddressBytes + kMaxBurstPayloadBytes) <=
+                  I2C_CONTROLLER_MAX_TRANSFER_BYTES,
+              "FRAM write burst exceeds I2C controller transfer limit");
+static const uint16_t kMaxWritePayloadBytes = kMaxBurstPayloadBytes;
+static const uint16_t kMaxReadPayloadBytes = kMaxBurstPayloadBytes;
 
 bool IsRangeValid(uint16_t address, uint16_t length)
 {

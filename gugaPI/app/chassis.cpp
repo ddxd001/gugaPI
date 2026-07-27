@@ -120,24 +120,15 @@ int32_t AngularToWheelDeltaMmPerSecond(int32_t angular_mdeg_s,
     return DivideRoundInt64(numerator, denominator);
 }
 
-drivers::DriverStatus SetOneWheelRpm(bool motor1, int32_t rpm)
+drivers::DriverStatus SetOneWheelSpeedMode(bool motor1, int32_t rpm)
 {
-    motor::MotionResult motion = {};
-    const uint16_t target_rpm = static_cast<uint16_t>(AbsInt32(rpm));
-    const bool reverse = (rpm < 0);
-
+    bool ack = false;
     const drivers::DriverStatus status =
-        motor::SetSpeed(&g_motorClient, motor1, target_rpm, reverse, &motion);
-    if (motion.target_status != drivers::DRIVER_OK) {
-        return motion.target_status;
+        motor::SetSpeedMode(&g_motorClient, motor1, rpm < 0, &ack);
+    if (status != drivers::DRIVER_OK) {
+        return status;
     }
-    if (!motion.target_ack) {
-        return drivers::DRIVER_ERROR;
-    }
-    if (motion.mode_status != drivers::DRIVER_OK) {
-        return motion.mode_status;
-    }
-    return motion.mode_ack ? status : drivers::DRIVER_ERROR;
+    return ack ? drivers::DRIVER_OK : drivers::DRIVER_ERROR;
 }
 
 drivers::DriverStatus ReadWheelState(bool motor1,
@@ -331,24 +322,30 @@ drivers::DriverStatus Chassis_Stop(void)
     return status;
 }
 
-drivers::DriverStatus SetOneWheelTargetRpm(bool motor1, int32_t rpm)
+drivers::DriverStatus SetWheelTargetRpmPair(int32_t left_rpm,
+                                            int32_t right_rpm)
 {
-    /* Precondition: |rpm| <= max_wheel_rpm (uint16) was enforced by the caller
-     * (Chassis_SetWheelRpm clamps via ClampWheelRpm), so the uint16 cast cannot
-     * truncate a live value. */
     bool ack = false;
-    return motor::WriteTargetRpm(&g_motorClient,
-                                 motor1,
-                                 static_cast<uint16_t>(AbsInt32(rpm)),
-                                 &ack);
+    /* Physical mapping is left=M2 and right=M1. ClampWheelRpm() already
+     * guarantees both magnitudes fit the uint16 protocol fields. */
+    const drivers::DriverStatus status = motor::WriteTargetRpmPair(
+        &g_motorClient,
+        static_cast<uint16_t>(AbsInt32(right_rpm)),
+        static_cast<uint16_t>(AbsInt32(left_rpm)),
+        &ack);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    return ack ? drivers::DRIVER_OK : drivers::DRIVER_ERROR;
 }
 
-drivers::DriverStatus RefreshOneWheelLease(bool motor1, int32_t rpm)
+drivers::DriverStatus RefreshWheelTargetLeasePair(int32_t left_rpm,
+                                                  int32_t right_rpm)
 {
-    return motor::RefreshTargetRpmLease(
+    return motor::RefreshTargetRpmLeasePair(
         &g_motorClient,
-        motor1,
-        static_cast<uint16_t>(AbsInt32(rpm)));
+        static_cast<uint16_t>(AbsInt32(right_rpm)),
+        static_cast<uint16_t>(AbsInt32(left_rpm)));
 }
 
 drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
@@ -387,18 +384,19 @@ drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
         HasSameNonzeroDirection(g_state.left.target_rpm, left_rpm) &&
         HasSameNonzeroDirection(g_state.right.target_rpm, right_rpm);
 
-    status = refresh_only ?
-        SetOneWheelTargetRpm(kLeftWheelMotor1, left_rpm) :
-        SetOneWheelRpm(kLeftWheelMotor1, left_rpm);
+    status = SetWheelTargetRpmPair(left_rpm, right_rpm);
     if (status != drivers::DRIVER_OK) {
         return HandleMotionCommandFailure(status);
     }
 
-    status = refresh_only ?
-        SetOneWheelTargetRpm(kRightWheelMotor1, right_rpm) :
-        SetOneWheelRpm(kRightWheelMotor1, right_rpm);
-    if (status != drivers::DRIVER_OK) {
-        return HandleMotionCommandFailure(status);
+    if (!refresh_only) {
+        status = SetOneWheelSpeedMode(kLeftWheelMotor1, left_rpm);
+        if (status == drivers::DRIVER_OK) {
+            status = SetOneWheelSpeedMode(kRightWheelMotor1, right_rpm);
+        }
+        if (status != drivers::DRIVER_OK) {
+            return HandleMotionCommandFailure(status);
+        }
     }
 
     g_motionLeaseActive = true;
@@ -609,12 +607,9 @@ drivers::DriverStatus Chassis_Service(void)
         return status;
     }
 
-    drivers::DriverStatus status =
-        RefreshOneWheelLease(kLeftWheelMotor1, g_state.left.target_rpm);
-    if (status == drivers::DRIVER_OK) {
-        status = RefreshOneWheelLease(kRightWheelMotor1,
-                                      g_state.right.target_rpm);
-    }
+    const drivers::DriverStatus status = RefreshWheelTargetLeasePair(
+        g_state.left.target_rpm,
+        g_state.right.target_rpm);
     if (status != drivers::DRIVER_OK) {
         (void) StopMotorsForSafety();
         SetLastStatus(status);

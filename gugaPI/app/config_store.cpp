@@ -11,7 +11,15 @@ namespace {
 
 static const uint16_t kFramAddress = 0x0000U;
 static const uint32_t kMagic = 0x47504643U; /* "CFPG" little-endian */
-static const uint16_t kVersion = 9U;
+static const uint16_t kVersion = 13U;
+static const uint16_t kV12Version = 12U;
+static const uint16_t kV12PayloadLength = 191U;
+static const uint16_t kV11Version = 11U;
+static const uint16_t kV11PayloadLength = 183U;
+static const uint16_t kV10Version = 10U;
+static const uint16_t kV10PayloadLength = 183U;
+static const uint16_t kV9Version = 9U;
+static const uint16_t kV9PayloadLength = 181U;
 static const uint16_t kV8Version = 8U;
 static const uint16_t kV8PayloadLength = 177U;
 static const uint16_t kV7Version = 7U;
@@ -27,12 +35,17 @@ static const uint16_t kV3PayloadLength = 90U;
 static const uint16_t kLegacyVersion = 1U;
 static const uint16_t kLegacyPayloadLength = 66U;
 static const uint16_t kV2PayloadLength = 68U; /* v2 layout length (motor_invert guard) */
-static const uint16_t kPayloadLength = 181U; /* v9: +4-byte motor speed ramp */
+/* v11 keeps the v10 binary layout and migrates the former default four-channel
+ * grayscale tracking mask. v12 appends predictive TURN fields and v13 appends
+ * stationary heading-lock fields; every older field keeps its binary offset. */
+static const uint16_t kPayloadLength = 215U;
 static const uint16_t kHeaderLength = 8U;
 static const uint16_t kCrcLength = 4U;
 static const uint16_t kImageLength =
     kHeaderLength + kPayloadLength + kCrcLength;
 static const uint32_t kCrc32Init = 0xFFFFFFFFU;
+static const uint8_t kLegacyDefaultGrayscaleTrackMask = 0x3CU;
+static const uint8_t kDefaultGrayscaleTrackMask = 0x7EU;
 
 ConfigStoreParams g_params;
 ConfigStoreStatus g_status = {
@@ -133,6 +146,34 @@ static const ParamDescriptor kParamDescriptors[] = {
       PARAM_OFFSET(heading_tolerance_mdeg), 0, 90000 },
     { "heading_settle_ms", PARAM_U16,
       PARAM_OFFSET(heading_settle_ms), 0, 5000 },
+    { "heading_turn_brake_ms", PARAM_U16,
+      PARAM_OFFSET(heading_turn_brake_ms), 0, 500 },
+    { "heading_turn_brake_margin_mdeg", PARAM_U16,
+      PARAM_OFFSET(heading_turn_brake_margin_mdeg), 0, 30000 },
+    { "heading_turn_settle_rate_mdps", PARAM_U16,
+      PARAM_OFFSET(heading_turn_settle_rate_mdps), 0, 60000 },
+    { "heading_turn_settle_rpm", PARAM_U16,
+      PARAM_OFFSET(heading_turn_settle_rpm), 0, 100 },
+    { "heading_lock_kp", PARAM_I32,
+      PARAM_OFFSET(heading_lock_kp), 0, 100000 },
+    { "heading_lock_kd", PARAM_I32,
+      PARAM_OFFSET(heading_lock_kd), 0, 100000 },
+    { "heading_lock_wake_mdeg", PARAM_U16,
+      PARAM_OFFSET(heading_lock_wake_mdeg), 100, 30000 },
+    { "heading_lock_settle_mdeg", PARAM_U16,
+      PARAM_OFFSET(heading_lock_settle_mdeg), 50, 29999 },
+    { "heading_lock_min_rpm", PARAM_U16,
+      PARAM_OFFSET(heading_lock_min_rpm), 0, 100 },
+    { "heading_lock_max_rpm", PARAM_U16,
+      PARAM_OFFSET(heading_lock_max_rpm), 1, 200 },
+    { "heading_lock_settle_rate_mdps", PARAM_U16,
+      PARAM_OFFSET(heading_lock_settle_rate_mdps), 0, 60000 },
+    { "heading_lock_settle_rpm", PARAM_U16,
+      PARAM_OFFSET(heading_lock_settle_rpm), 0, 100 },
+    { "heading_lock_settle_ms", PARAM_U16,
+      PARAM_OFFSET(heading_lock_settle_ms), 50, 5000 },
+    { "heading_lock_timeout_ms", PARAM_U16,
+      PARAM_OFFSET(heading_lock_timeout_ms), 500, 10000 },
     { "distance_speed_mode", PARAM_U8,
       PARAM_OFFSET(distance_speed_mode),
       DISTANCE_SPEED_MODE_LEGACY, DISTANCE_SPEED_MODE_TRAPEZOID },
@@ -221,7 +262,10 @@ static const ParamDescriptor kParamDescriptors[] = {
     { "lf_lost_hold_ms", PARAM_U16,
       PARAM_OFFSET(linefollow_lost_hold_ms), 0, 10000 },
     { "lf_lost_stop_ms", PARAM_U16,
-      PARAM_OFFSET(linefollow_lost_stop_ms), 1, 10000 }
+      PARAM_OFFSET(linefollow_lost_stop_ms), 1, 10000 },
+    { "lf_slew_permille_s", PARAM_U16,
+      PARAM_OFFSET(linefollow_correction_slew_permille_per_second),
+      1, 65535 }
 };
 
 #undef PARAM_OFFSET
@@ -342,6 +386,20 @@ void SetDefaults(ConfigStoreParams *params)
     params->heading_turn_min_rpm = 20;
     params->heading_tolerance_mdeg = 3000;  /* 3 deg */
     params->heading_settle_ms = 300U;
+    params->heading_turn_brake_ms = 60U;
+    params->heading_turn_brake_margin_mdeg = 500U;
+    params->heading_turn_settle_rate_mdps = 1500U;
+    params->heading_turn_settle_rpm = 3U;
+    params->heading_lock_kp = 1500;
+    params->heading_lock_kd = 250;
+    params->heading_lock_wake_mdeg = 2000U;
+    params->heading_lock_settle_mdeg = 800U;
+    params->heading_lock_min_rpm = 10U;
+    params->heading_lock_max_rpm = 30U;
+    params->heading_lock_settle_rate_mdps = 1500U;
+    params->heading_lock_settle_rpm = 3U;
+    params->heading_lock_settle_ms = 250U;
+    params->heading_lock_timeout_ms = 3000U;
 
     /* Conservative defaults for the existing 100 ms MotorDriver speed loop.
      * The latency term deliberately includes one complete local control cycle
@@ -368,21 +426,36 @@ void SetDefaults(ConfigStoreParams *params)
     params->ina219_latch_faults = 0U;
     params->ina219_motion_inhibit_enable = 0U;
 
+    /* Commissioned on the current gugaPI car. These defaults restore its
+     * parameter values after a ConfigStore reset; the normal commissioned
+     * calibration safety gate still applies. A replacement sensor or changed
+     * mounting height must be calibrated again. */
+    static const uint16_t kCommissionedGrayscaleWhite[
+        CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT] = {
+        3253U, 3217U, 3189U, 3316U, 3151U, 3011U, 2802U, 3188U
+    };
+    static const uint16_t kCommissionedGrayscaleBlack[
+        CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT] = {
+        1010U, 934U, 737U, 2010U, 1548U, 1347U, 753U, 1362U
+    };
     for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
-        params->grayscale_white[i] = 4095U;
-        params->grayscale_black[i] = 0U;
+        params->grayscale_white[i] = kCommissionedGrayscaleWhite[i];
+        params->grayscale_black[i] = kCommissionedGrayscaleBlack[i];
     }
     params->grayscale_threshold = 500U;
     params->grayscale_hysteresis = 300U;
     params->grayscale_position_floor = 100U;
     params->grayscale_min_line_strength = 600U;
-    params->grayscale_track_mask = 0x3CU;
+    params->grayscale_track_mask = kDefaultGrayscaleTrackMask;
 
-    params->linefollow_kp = 10000;
-    params->linefollow_kd = 0;
+    /* Tuned on the commissioned car at a 100 RPM follow speed. Keep the
+     * controller's 40 RPM normalization reference for gain compatibility. */
+    params->linefollow_kp = 3800;
+    params->linefollow_kd = 600;
     params->linefollow_max_correction_rpm = 30U;
     params->linefollow_lost_hold_ms = 150U;
     params->linefollow_lost_stop_ms = 500U;
+    params->linefollow_correction_slew_permille_per_second = 25000U;
 }
 
 uint8_t *AppendU8(uint8_t *cursor, uint8_t value)
@@ -511,7 +584,24 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     cursor = AppendU16(cursor, params.distance_settle_rpm);
     cursor = AppendU16(cursor, params.distance_tolerance_mm);
     cursor = AppendU16(cursor, params.speed_accel_rpm_s);
-    (void) AppendU16(cursor, params.speed_decel_rpm_s);
+    cursor = AppendU16(cursor, params.speed_decel_rpm_s);
+    cursor = AppendU16(
+        cursor,
+        params.linefollow_correction_slew_permille_per_second);
+    cursor = AppendU16(cursor, params.heading_turn_brake_ms);
+    cursor = AppendU16(cursor, params.heading_turn_brake_margin_mdeg);
+    cursor = AppendU16(cursor, params.heading_turn_settle_rate_mdps);
+    cursor = AppendU16(cursor, params.heading_turn_settle_rpm);
+    cursor = AppendI32(cursor, params.heading_lock_kp);
+    cursor = AppendI32(cursor, params.heading_lock_kd);
+    cursor = AppendU16(cursor, params.heading_lock_wake_mdeg);
+    cursor = AppendU16(cursor, params.heading_lock_settle_mdeg);
+    cursor = AppendU16(cursor, params.heading_lock_min_rpm);
+    cursor = AppendU16(cursor, params.heading_lock_max_rpm);
+    cursor = AppendU16(cursor, params.heading_lock_settle_rate_mdps);
+    cursor = AppendU16(cursor, params.heading_lock_settle_rpm);
+    cursor = AppendU16(cursor, params.heading_lock_settle_ms);
+    (void) AppendU16(cursor, params.heading_lock_timeout_ms);
 }
 
 void DecodePayload(const uint8_t *payload,
@@ -644,9 +734,37 @@ void DecodePayload(const uint8_t *payload,
         cursor = ReadU16Field(cursor, &params->distance_settle_rpm);
         cursor = ReadU16Field(cursor, &params->distance_tolerance_mm);
     }
-    if (payload_length >= kPayloadLength) {
+    if (payload_length >= kV9PayloadLength) {
         cursor = ReadU16Field(cursor, &params->speed_accel_rpm_s);
-        (void) ReadU16Field(cursor, &params->speed_decel_rpm_s);
+        cursor = ReadU16Field(cursor, &params->speed_decel_rpm_s);
+    }
+    if (payload_length >= kV11PayloadLength) {
+        cursor = ReadU16Field(
+            cursor,
+            &params->linefollow_correction_slew_permille_per_second);
+    }
+    if (payload_length >= kV12PayloadLength) {
+        cursor = ReadU16Field(cursor, &params->heading_turn_brake_ms);
+        cursor = ReadU16Field(
+            cursor,
+            &params->heading_turn_brake_margin_mdeg);
+        cursor = ReadU16Field(
+            cursor,
+            &params->heading_turn_settle_rate_mdps);
+        cursor = ReadU16Field(cursor, &params->heading_turn_settle_rpm);
+    }
+    if (payload_length >= kPayloadLength) {
+        cursor = ReadI32Field(cursor, &params->heading_lock_kp);
+        cursor = ReadI32Field(cursor, &params->heading_lock_kd);
+        cursor = ReadU16Field(cursor, &params->heading_lock_wake_mdeg);
+        cursor = ReadU16Field(cursor, &params->heading_lock_settle_mdeg);
+        cursor = ReadU16Field(cursor, &params->heading_lock_min_rpm);
+        cursor = ReadU16Field(cursor, &params->heading_lock_max_rpm);
+        cursor = ReadU16Field(cursor,
+                              &params->heading_lock_settle_rate_mdps);
+        cursor = ReadU16Field(cursor, &params->heading_lock_settle_rpm);
+        cursor = ReadU16Field(cursor, &params->heading_lock_settle_ms);
+        (void) ReadU16Field(cursor, &params->heading_lock_timeout_ms);
     }
     (void) cursor;
 }
@@ -672,6 +790,15 @@ bool ValidateParams(const ConfigStoreParams &params)
 
     g_params = saved;
     if (params.speed_min_duty > params.speed_max_duty) {
+        return false;
+    }
+    if (params.heading_turn_min_rpm > params.heading_turn_max_rpm) {
+        return false;
+    }
+    if ((params.heading_lock_settle_mdeg >=
+         params.heading_lock_wake_mdeg) ||
+        (params.heading_lock_min_rpm > params.heading_lock_max_rpm) ||
+        (params.heading_lock_max_rpm > params.max_wheel_rpm)) {
         return false;
     }
     if (params.wheel_radius_mm != (params.wheel_radius_um / 1000U)) {
@@ -784,6 +911,14 @@ drivers::DriverStatus ConfigStore_Load(void)
 
     const bool current_layout =
         (version == kVersion) && (length == kPayloadLength);
+    const bool v12_layout =
+        (version == kV12Version) && (length == kV12PayloadLength);
+    const bool v11_layout =
+        (version == kV11Version) && (length == kV11PayloadLength);
+    const bool v10_layout =
+        (version == kV10Version) && (length == kV10PayloadLength);
+    const bool v9_layout =
+        (version == kV9Version) && (length == kV9PayloadLength);
     const bool v8_layout =
         (version == kV8Version) && (length == kV8PayloadLength);
     const bool v7_layout =
@@ -800,8 +935,8 @@ drivers::DriverStatus ConfigStore_Load(void)
         (version == kLegacyVersion) && (length == kLegacyPayloadLength);
     const bool legacy_v2 = (version == 2U) && (length == kV2PayloadLength);
     const bool legacy_layout =
-        v8_layout || v7_layout || v6_layout || v5_layout || v4_layout ||
-        v3_layout || legacy_v1 || legacy_v2;
+        v12_layout || v11_layout || v10_layout || v9_layout || v8_layout || v7_layout || v6_layout ||
+        v5_layout || v4_layout || v3_layout || legacy_v1 || legacy_v2;
 
     if ((magic != kMagic) ||
         ((!current_layout) && (!legacy_layout))) {
@@ -824,6 +959,12 @@ drivers::DriverStatus ConfigStore_Load(void)
     }
 
     DecodePayload(&image[kHeaderLength], length, &loaded);
+    /* Preserve deliberate user masks. Only the exact historical default is
+     * upgraded when loading an older image. */
+    if ((version <= kV10Version) &&
+        (loaded.grayscale_track_mask == kLegacyDefaultGrayscaleTrackMask)) {
+        loaded.grayscale_track_mask = kDefaultGrayscaleTrackMask;
+    }
     if (!ValidateParams(loaded)) {
         g_status.loaded_from_fram = false;
         g_status.load_outcome = CONFIG_LOAD_DEFAULTS_INVALID;

@@ -9,6 +9,7 @@
 #include "app/config_store.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
+#include "app/road_event_controller.h"
 #include "app/seq_store.h"
 #include "board/board.h"
 #include "board/board_button.h"
@@ -115,7 +116,10 @@ const uint32_t IMU_PERIOD_MS = 5U;
 #endif
 
 #if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
-const uint32_t HEADING_PERIOD_MS = 50U;
+/* Heading TURN needs lower command latency than the general action
+ * sequencer. Consume the newest 200 Hz IMU sample every 10 ms without
+ * changing the scheduler implementation. */
+const uint32_t HEADING_PERIOD_MS = 10U;
 
 void App_HeadingTask(void)
 {
@@ -138,6 +142,9 @@ const uint32_t LINEFOLLOW_PERIOD_MS = 10U;
 
 void App_LineFollowTask(void)
 {
+#if FEATURE_ENABLE_IMU
+    app::RoadEventController_Update();
+#endif
     app::LF_Update();
 }
 #endif
@@ -953,6 +960,9 @@ void App_Init(void)
 #endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
     app::LF_Init();
+#if FEATURE_ENABLE_IMU
+    app::RoadEventController_Init();
+#endif
     if (services::Scheduler_AddTask("linefollow",
                                     App_LineFollowTask,
                                     LINEFOLLOW_PERIOD_MS,

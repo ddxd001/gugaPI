@@ -288,7 +288,7 @@ Grayscale configuration:
 | Sample time | 125 us | ULPCLK / 8, tunable in SysConfig if source impedance needs more |
 | Hardware averaging | 4 samples / result | ADC accumulates 4 and divides by 4 |
 | Settle time | ~200 us | `BOARD_GRAYSCALE_SETTLE_US`; after switching select before ADC sample |
-| Position frame | ~5 ms | Core channels 2..5 sampled consecutively; outer channels refresh within 20 ms |
+| Position frame | ~7 ms | Tracking channels 1..6 sampled consecutively; outermost channels 0/7 refresh within 14 ms |
 | Select polarity | Active-high | Binary address driven directly on SEL0..SEL2 |
 | SysConfig name | `GRAYSCALE_ADC`, `GPIO_GRAY_C`, `GPIO_GRAY_A` | |
 | Board interface | `board/board_grayscale.h` | |

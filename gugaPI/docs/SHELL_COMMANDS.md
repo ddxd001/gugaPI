@@ -35,11 +35,13 @@ sched
 
 ### `txstat`
 
-查看调试 UART（UART6）TX/RX 队列状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
+查看调试 UART（UART6）TX/RX 队列和 TX DMA 状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
 
 ```text
 txstat
 ```
+
+输出字段中，`queued`/`dropped`表示待发送字节数和累计丢弃字节数；`dma_active`表示当前是否有TX块正在传输；`dma_blocks`是已完成的256字节以内DMA块数；`dma_errors`应始终为0。发送层采用4096字节环形缓冲和最大256字节的连续DMA块，DMA完成中断自动衔接下一块。
 
 ## LED
 
@@ -720,6 +722,28 @@ imu acc=<mg>,<mg>,<mg> mg gyr=<mdps>,<mdps>,<mdps> mdps t=<cC> cC yaw=<deg> deg
 ```
 若未就绪会提示 `imu sample: no data (run 'imu icm init')`。
 
+### `imu bias ...`
+
+在确认底盘静止后，用 2 秒窗口自动估计 ICM45686 Z 轴残余零偏。运行时零偏
+只保存在 RAM；只有显式 `save` 才与固定零偏合并并写入 FRAM。
+
+```text
+imu bias status
+imu bias calibrate
+imu bias auto on
+imu bias auto off
+imu bias save
+imu bias reset
+```
+
+- `status`：显示固定/运行时/总零偏、采集进度、标准差和拒绝原因；
+- `calibrate`：请求一次静止校准，只更新 RAM；
+- `auto on|off`：启停运行中自动静止学习；
+- `save`：静止时合并零偏并保存到 FRAM；
+- `reset`：只清除 RAM 运行时零偏，不擦除固定零偏。
+
+完整启动、保存和排障流程见 `docs/IMU_BIAS_GUIDE.md`。
+
 ### `imu oled on [period_ms]` / `off` / `status` / `once`
 
 把 IMU 角度数据显示到 OLED（沿用 INA219 的 OLED 方案，与其他 OLED 数据源互斥）。周期采样任务（5 ms）算出俯仰/横滚角并积分 Z 轴角速度得到相对 Yaw，OLED 任务按 `period_ms` 刷新。
@@ -746,7 +770,7 @@ Yaw: <ddd.ddd> deg
 
 ## 灰度传感器（8 路 ADC）
 
-8:1 多路复用灰度阵列：3 个选位引脚（PA16=bit2、PC20=bit1、PC21=bit0）选 1 路，PA15（ADC1 ADCIN0）读模拟值（0..4095）。1 ms 周期任务优先连续采集中间 2..5 路，每 5 ms 左右发布一个位置帧；四个外侧道路识别通道在 20 ms 内轮流更新。每路使用 ADC 四次硬件平均。详见 `GRAYSCALE_GUIDE.md`。
+8:1 多路复用灰度阵列：3 个选位引脚（PA16=bit2、PC20=bit1、PC21=bit0）选 1 路，PA15（ADC1 ADCIN0）读模拟值（0..4095）。1 ms 周期任务连续采集中间 1..6 路，每 7 ms 左右发布一个位置帧；最外侧 0、7 路在 14 ms 内轮流更新。每路使用 ADC 四次硬件平均。详见 `GRAYSCALE_GUIDE.md`。
 
 ### `gray status`
 
@@ -1363,7 +1387,7 @@ chassis vel 0 90000
 
 航向闭环使用 ICM-45686 陀螺仪 Z 轴 yaw 积分实现行走中的直行保持、相对角度转弯，以及带航向修正的编码器距离行驶。航向源为 IMU yaw（毫度），不是 GY931。
 
-50 ms 周期任务 `Heading_Update` 消费 IMU 数据并输出左右轮差速命令。距离模式同时消费20 ms底盘编码器反馈。安全机制：IMU无效或数据过期（>200 ms）、编码器反馈超过100 ms未更新、航向误差超过90°、转弯或距离行为超时，均会停车并置故障。
+10 ms 周期任务 `Heading_Update` 消费最新的 200 Hz IMU 数据并输出左右轮差速命令。转弯模式根据陀螺仪 Z 轴角速度预测短时惯性转角并提前制动；只有在航向进入配置容差、角速度及两轮实际转速均低于配置阈值后才开始稳定计时。距离模式同时消费20 ms底盘编码器反馈。安全机制：IMU无效或数据过期（>200 ms）、编码器反馈超过100 ms未更新、航向误差超过90°、转弯或距离行为超时，均会停车并置故障。
 
 ### `heading status`
 
@@ -1411,6 +1435,69 @@ heading turn 45
 ```
 
 转弯速度：`speed = abs_err * heading_kp / 1e6`，限幅到 `[heading_turn_min_rpm, heading_turn_max_rpm]`。
+
+### `heading turncfg [set|save]`
+
+查看、修改和持久化预测制动参数：
+
+```text
+heading turncfg
+heading turncfg set 60 500 1500 3
+heading turncfg save
+```
+
+`set`的四个参数依次为：
+
+| 参数 | 范围 | 含义 |
+| --- | ---: | --- |
+| `brake_ms` | 0..500 | 用当前Z轴角速度预测惯性转角的时间窗口 |
+| `margin_mdeg` | 0..30000 | 在预测惯性角之外附加的固定提前量 |
+| `settle_mdps` | 0..60000 | 允许开始稳定计时的最大Z轴角速度 |
+| `settle_rpm` | 0..100 | 允许开始稳定计时的最大左右轮实测RPM |
+
+`set`立即修改RAM参数；`save`写入FRAM。也可分别使用
+`param get/set heading_turn_*`进行上位机自动调参。
+
+### `heading lock` / `heading lockcfg`
+
+静止锁向会捕获启动瞬间的ICM-45686相对Yaw。角度处于死区内时车轮保持
+零转速；受到外力偏转超过唤醒角度后，使用独立PD参数原地回正，稳定后继续等待
+下一次扰动。该模式只保持航向，不恢复车辆的平面位置。
+
+启动前保持车辆静止至少2秒，并确认动态零偏已经有效：
+
+```text
+imu bias status
+chassis stop
+heading lock
+heading status
+heading stop
+```
+
+`imu bias status`中的`valid`必须为1，底盘目标与实测轮速必须为零附近，否则
+`heading lock`分别返回`not-initialized`或`busy`。
+
+锁向参数可逐项实时修改：
+
+```text
+heading lockcfg
+heading lockcfg set kp 1500
+heading lockcfg set kd 250
+heading lockcfg set wake 2000
+heading lockcfg set settle 800
+heading lockcfg set minrpm 10
+heading lockcfg set maxrpm 30
+heading lockcfg set rate 1500
+heading lockcfg set wheelrpm 3
+heading lockcfg set settlems 250
+heading lockcfg set timeout 3000
+heading lockcfg save
+```
+
+`settle`必须小于`wake`，`minrpm`不得大于`maxrpm`，`maxrpm`不得超过
+`max_wheel_rpm`。一次回正超过`timeout`后电机停止，`heading status`显示
+`lock_phase=failed`和`lock_result=timeout`；物理阻挡不会单独触发全局故障。
+IMU或MotorDriver通信故障仍使用现有全局安全停车路径。
 
 ### `heading distance <mm> <max_rpm> [timeout_ms]`
 
@@ -1493,9 +1580,9 @@ heading stop
 
 ## 循迹控制
 
-8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间四路位置帧约 5 ms；10 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置只由 `track_mask=0x3C` 的中间四路插值，全八路迟滞位图独立识别道路类型。
+8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间六路位置帧约 7 ms；10 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置由 `track_mask=0x7E` 的中间六路插值，全八路迟滞位图独立识别道路类型，最外侧 0、7 路不拉动循迹质心。
 
-安全机制：灰度数据无效或超过 200 ms、通道诊断异常 → 立即停车。强线之后允许短暂全白间隙，并可在相邻单段弱模拟信号重新出现时继续位置插值；全白与弱跟踪共享最多 8 个完整帧（约 40 ms）的恢复预算。每个全白帧同时计入独立的连续异常计数，相邻弱线恢复会将该计数清零；`lost/multiple/wide` 连续 6 个完整帧（约 30 ms）仍异常即停车。因此连续全白不会等待完整 40 ms，也不进行无限保持或盲目搜线。`confidence` 只作诊断，不再独立决定停车。正常跟踪期间始终使用命令指定的基础速度，不根据位置误差自动降速。
+安全机制：灰度数据无效或超过 200 ms、通道诊断异常 → 立即停车。强线之后允许短暂全白间隙，并可在相邻单段弱模拟信号重新出现时继续位置插值；全白与弱跟踪共享最多 8 个完整帧（约 56 ms）的恢复预算。每个全白帧同时计入独立的连续异常计数，相邻弱线恢复会将该计数清零；`lost/multiple/wide` 连续 6 个完整帧（约 42 ms）仍异常即停车。因此连续全白不会等待完整 56 ms，也不进行无限保持或盲目搜线。`confidence` 只作诊断，不再独立决定停车。正常跟踪期间始终使用命令指定的基础速度，不根据位置误差自动降速。
 
 ### `lf status`
 
@@ -1526,7 +1613,7 @@ lf status
 | `track_state` | `valid` / `lost` / `multiple` / `wide` / `sensor_fault` |
 | `weak_frames` | 有界弱模拟跟踪的连续帧数，0 表示当前使用正常强度证据，最大 8 |
 | `invalid_frames` | 连续几何异常完整帧数 |
-| `invalid_policy` | `confirm6` 表示连续 6 个几何异常完整帧（约 30 ms）后停车；硬件、过期和通道异常仍立即停车 |
+| `invalid_policy` | `confirm6` 表示连续 6 个几何异常完整帧（约 42 ms）后停车；硬件、过期和通道异常仍立即停车 |
 | `ref_rpm` | 转向比例换算的参考速度，当前为 40 RPM |
 | `max_ratio_permille` | 修正量相对基础速度的硬限幅，当前为 400‰ |
 | `deadband` | 中心误差死区，单位为位置刻度 |
@@ -1547,7 +1634,9 @@ lf cal
 lf start 80 10000
 ```
 
-修正先在 40 RPM 参考速度计算：`reference_correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，再按 `abs(base_rpm) / 40` 缩放并限制在基础速度的 40%。中心 `±100` 位置刻度使用死区，微分滤波时间常数为 40 ms，修正量反向变化带轻量斜率限制。`left = base - correction`，`right = base + correction`。
+修正先在 40 RPM 参考速度计算：`reference_correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，再按 `abs(base_rpm) / 40` 缩放并限制在基础速度的 40%。中心 `±50` 位置刻度使用死区，微分滤波时间常数为 40 ms。修正量变化率由 `lf_slew_permille_s` 限制，默认 25000；从最大左修正切换到最大右修正的理论斜率时间约 32 ms。`left = base - correction`，`right = base + correction`。
+
+左右轮目标RPM占用MotorDriver连续寄存器，正常循迹更新使用一次4字节I²C块写入和一次4字节读回校验，避免两轮分开发送产生的时间差并减少总线事务。
 
 ### `lf stop`
 
@@ -1559,18 +1648,19 @@ lf stop
 
 ### `lf kp <val>`
 
-设置循迹比例增益（范围 `0..1000000`），立即生效并将配置标记为 dirty。默认 10000。
+设置循迹比例增益（范围 `0..1000000`），立即生效并将配置标记为 dirty。当前实车在
+100 RPM 调定的默认值为 3800。
 
 ```text
-lf kp 15000
+lf kp 3800
 ```
 
 ### `lf kd <val>`
 
-设置滤波微分增益（`0..1000000`）。默认 0；实车确认比例控制方向后再小步增加。
+设置滤波微分增益（`0..1000000`）。当前实车在 100 RPM 调定的默认值为 600。
 
 ```text
-lf kd 500
+lf kd 600
 ```
 
 ### `lf maxcorr <val>`
@@ -1579,6 +1669,15 @@ lf kd 500
 
 ```text
 lf maxcorr 50
+```
+
+### `lf slew <permille_per_s>`
+
+设置循迹差速修正的最大变化率（范围 `1..65535`，默认 25000）。单位是“基础转速的千分之一每秒”；数值越大响应越快，数值过大则会增加转向冲击和灰度噪声敏感度。命令立即生效并将配置标记为 dirty，断电保存需要执行 `param save`。
+
+```text
+lf slew 25000
+param save
 ```
 
 ### `lf losthold <ms>`
@@ -1596,6 +1695,52 @@ lf losthold 150
 ```text
 lf losttimeout 1000
 ```
+
+## 路口事件
+
+路口检测使用全八路灰度掩码和连续帧状态机，类型包括`left_corner`、
+`right_corner`、`left_branch`、`right_branch`、`t`和`cross`。事件只在进入路口时
+生成一次；恢复连续6帧居中直线后才允许生成下一事件。
+
+路口几何与动作策略分离。当前只有左右直角弯具有可选自动动作；左右分支和十字默认
+保持直行，T字无前路默认停车。预留的动作序列策略尚未在本版本启用。
+
+### `road status|event|clear`
+
+```text
+road status
+road event
+road clear
+```
+
+- `status`：显示控制模式、控制阶段、检测器阶段、当前类型、已观察路径和最后策略。
+- `event`：显示最近一次事件的序号、类型、路径位、置信度以及进入/峰值/离开掩码。
+- `clear`：清除Shell可见的最近事件，并将控制器消费位置同步到当前事件。
+
+路径位为：左=`0x01`、前=`0x02`、右=`0x04`。
+
+### `road mode detect|corner`
+
+```text
+road mode detect
+road mode corner
+```
+
+上电默认`detect`，只检测和记录左右直角弯，不自动启动转向。`corner`允许循迹状态下的
+`left_corner`和`right_corner`依次执行停车、可选前进对齐、相对90°航向转动、黑线
+重捕获和恢复循迹。`road auto on|off`分别是`corner`和`detect`的简写；在自动弯道
+正在执行时关闭自动模式会立即停止航向及循迹控制。
+
+### `road turn show|set`
+
+```text
+road turn show
+road turn set 90 -90 0 30 800
+```
+
+`set`依次设置左转角、右转角、转前对齐距离mm、对齐最大RPM和转后黑线重捕获超时ms。
+范围分别为`1..180`、`-180..-1`、`0..300`、`1..300`、`1..5000`。参数立即生效但
+本版本不写FRAM，复位后恢复`90/-90/0/30/800`。
 
 ## 动作序列
 
@@ -1719,7 +1864,7 @@ seq 5
 
 ## 参数管理
 
-参数持久化系统。所有底盘几何、速度环、位置环、距离速度规划、IMU 偏置、航向闭环、电源保护和灰度循迹参数统一存储在 FRAM 中（地址 0x0000，magic "CFPG"，CRC32 校验）。当前版本 v9，payload 181 字节，兼容加载 v1-v8 历史布局。
+参数持久化系统。所有底盘几何、速度环、位置环、距离速度规划、IMU 偏置、航向闭环、电源保护和灰度循迹参数统一存储在 FRAM 中（地址 0x0000，magic "CFPG"，CRC32 校验）。当前版本 v13，payload 215 字节，兼容加载 v1-v12 历史布局。v12配置加载时保留全部旧值，并为新增静止锁向参数填充默认值；迁移后配置标记为dirty，保存后升级为v13。V9及更早配置自动使用新的循迹斜率默认值25000；v10及更早的旧版默认灰度掩码 `0x3C` 自动迁移为 `0x7E`，其它自定义掩码保持不变。
 
 ### `param status`
 
@@ -1754,6 +1899,22 @@ param get heading_kp
 ```text
 param heading_kp=1000 range=0..100000
 ```
+
+### `param export [start [count]]`
+
+分页批量读取 RAM 中的参数，供上位机快速刷新使用，不访问 FRAM。`start` 是参数表
+索引，允许等于参数总数；`count` 范围为 `1..16`，默认16。每页先输出实际起点、数量
+和总数，随后沿用 `param get` 的参数行格式：
+
+```text
+param export 0 16
+param export start=0 count=16 total=79
+param left_counts_per_rev=1456 range=1..100000000
+...
+```
+
+新版上位机优先分页读取；连接不支持该命令的旧固件时，会自动退回逐项执行
+`param get <name>`。现有 `param get` 接口保持不变。
 
 参数列表：
 
@@ -1794,6 +1955,7 @@ param heading_kp=1000 range=0..100000
 | `heading_turn_min_rpm` | 0..500 | 20 | 转弯最小轮速（RPM） |
 | `heading_tolerance_mdeg` | 0..90000 | 3000 | 转弯容差（mdeg，3000=3°） |
 | `heading_settle_ms` | 0..5000 | 300 | 转弯到位保持时间（ms） |
+| `lf_slew_permille_s` | 1..65535 | 25000 | 循迹差速修正变化率（基础RPM的千分之一/秒） |
 
 ### `param set <name> <value>`
 
@@ -1913,6 +2075,19 @@ FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接�
 | `lf_corr` | 循迹左右差速修正量（RPM） |
 | `lf_weak` | 弱线恢复窗口帧数 |
 | `lf_invalid` | 连续无效灰度帧数 |
+| `road_type` | 当前道路类型枚举 |
+| `road_event_seq` | 最近路口事件序号，0表示尚无事件 |
+| `road_event_type` | 最近路口事件类型枚举 |
+| `road_paths` | 事件观察到的左/前/右路径位 |
+| `road_phase` | 路口检测器阶段枚举 |
+| `road_ctrl_phase` | 自动直角弯控制阶段枚举 |
+| `head_turn_phase` | 航向转弯阶段：idle/drive/brake/settle枚举 |
+| `head_turn_rate_mdps` | 当前转弯使用的Z轴角速度 |
+| `head_turn_brake_mdeg` | 当前角速度计算出的动态制动角阈值 |
+| `head_turn_brake_ms` | 配置的预测制动时间窗口 |
+| `head_turn_margin_mdeg` | 配置的固定提前制动角 |
+| `head_turn_settle_mdps` | 配置的稳定角速度阈值 |
+| `head_turn_settle_rpm` | 配置的稳定轮速阈值 |
 
 ### `telem on [period_ms]`
 
@@ -1926,8 +2101,8 @@ telem on 200
 输出示例：
 
 ```text
-#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,head_err,head_corr,gray_pos,gray_strength,gray_conf,gray_valid,gray_state,lf_err,lf_corr,lf_weak,lf_invalid
-8435,1,-1,56,55,64,63,0.000,-6.056,0.000,0,374,1310,1000,1,1,374,4,0,0
+#t,...,road_ctrl_phase,head_turn_phase,head_turn_rate_mdps,head_turn_brake_mdeg,head_turn_brake_ms,head_turn_margin_mdeg,head_turn_settle_mdps,head_turn_settle_rpm
+8435,...,0,1,125000,8000,60,500,1500,3
 ```
 
 仓库中的上位机工具可以同时启用该 OLED 页面、执行一次有时间上限的巡线、保存 CSV
@@ -1936,6 +2111,17 @@ telem on 200
 ```text
 python host_tools/linefollow_capture.py --port COM14 --start-rpm 60 --run-ms 6000 --enable-oled
 ```
+
+预测制动调试可执行一次有界相对转弯并生成33列CSV，以及目标角、实际角、轮速、动态
+制动角、陀螺角速度和控制阶段曲线：
+
+```text
+python host_tools/heading_turn_capture.py --port COM14 --degrees 90
+python host_tools/heading_turn_capture.py --port COM14 --degrees -90
+```
+
+该工具会产生真实底盘运动；运行前必须确认旋转范围安全。退出路径会发送
+`heading stop`和`telem off`。
 
 ### `telem off`
 
