@@ -78,7 +78,7 @@ drivers/oled/
 
 - `time`：1 ms 系统时间戳和延时
 - `scheduler`：无 RTOS 协作式任务调度
-- `debug_uart`：UART6 调试串口底层收发，内部维护 RX 中断环形缓冲区
+- `debug_uart`：UART6 调试串口底层收发，RX使用中断环形缓冲，TX使用环形缓冲和分块DMA
 - `log`：日志等级接口，提供 `LOG_INFO`、`LOG_WARN`、`LOG_ERROR`、`LOG_DEBUG`
 - `shell`：调试命令行，主循环中调用 `Shell_Process()` 解析命令
 - `fault`：统一错误码和严重错误处理
@@ -213,13 +213,14 @@ LOG_DEBUG("control loop entered");
 app/app_shell.cpp       注册板级和业务命令
 services/shell.cpp      命令行输入、分词、命令分发
 services/log.cpp        日志等级格式
-services/debug_uart.cpp UART6 TX/RX、RX 中断环形缓冲
+services/debug_uart.cpp UART6 TX/RX、RX中断缓冲、TX分块DMA
 ```
 
 要求：
-- UART 引脚、时钟、波特率、RX 中断由 `empty_cpp.syscfg` 配置。
+- UART 引脚、时钟、波特率、RX中断和TX DMA通道由 `empty_cpp.syscfg` 配置。
 - 应用层不直接调用 DriverLib，只调用 `services/debug_uart.h`、`services/log.h`、`services/shell.h`。
 - UART RX 必须走中断，中断函数只读取 RX FIFO、写入环形缓冲区、清除中断标志。
+- UART TX运行期必须非阻塞：主循环批量入队，DMA完成中断只推进队尾并启动下一块。
 - 命令解析必须在主循环的 `Shell_Process()` 中完成，不能放进中断。
 - 新增 Shell 命令优先放到 `app/app_shell.cpp` 注册，命令函数里再调用板级接口或业务接口。
 
@@ -302,6 +303,7 @@ PC16 的初始输出配置为 `CLEARED`，所以上电初始化后蜂鸣器默�
 - 波特率：115200
 - SysConfig 实例：`DEBUG_UART`
 - 生成宏：`DEBUG_UART_INST`
+- TX DMA：`DMA_CH0`，最大连续块256字节，源地址递增、UART TXDATA目标地址固定
 - 底层接口：`services/debug_uart.h`
 - 日志接口：`services/log.h`
 - Shell 接口：`services/shell.h`

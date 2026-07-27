@@ -12,17 +12,16 @@ namespace app {
 
 /* Steering is calculated at this reference speed, then scaled with the
  * requested forward speed so the same line error produces approximately the
- * same chassis curvature. These constants intentionally remain fixed for the
- * first straight-line commissioning pass; the existing kp/kd/maxcorr Shell
- * and ConfigStore interfaces remain the runtime tuning surface. */
+ * same chassis curvature. Geometry and filter constants remain fixed; gain,
+ * correction ceiling, and correction slew are runtime tuning parameters. */
 enum LFControllerConstant {
     LF_REFERENCE_RPM = 40,
     LF_MAX_STEERING_PERMILLE = 400,
-    LF_ERROR_DEADBAND_MPOS = 100,
+    LF_ERROR_DEADBAND_MPOS = 50,
     LF_DERIVATIVE_FILTER_TAU_MS = 40,
-    LF_CORRECTION_SLEW_PERMILLE_PER_SECOND = 10000,
-    /* A complete grayscale position frame is about 5 ms. Geometry-only
-     * invalid states therefore receive about 30 ms to recover as the line
+    LF_DEFAULT_CORRECTION_SLEW_PERMILLE_PER_SECOND = 25000,
+    /* A complete grayscale position frame is about 7 ms. Geometry-only
+     * invalid states therefore receive about 42 ms to recover as the line
      * crosses a gap between adjacent sensors. Hardware/stale/anomaly faults
      * still stop immediately in LF_Update(). */
     LF_INVALID_TRACK_STOP_FRAMES = 6
@@ -62,10 +61,11 @@ struct LFState {
      * scales it with the requested speed before applying the steering-ratio
      * safety limit. Lost-line timing is retained for configuration/API
      * compatibility. Brief geometry gaps are tolerated for six complete
-     * grayscale frames (about 30 ms). */
+     * grayscale frames (about 42 ms). */
     int32_t kp;
     int32_t kd;
     int32_t max_correction_rpm;
+    uint32_t correction_slew_permille_per_second;
     uint32_t lost_hold_ms;
     uint32_t lost_timeout_ms;
     drivers::DriverStatus last_status;
@@ -93,6 +93,7 @@ bool LF_IsLineDetected(void);
 void LF_SetKp(int32_t kp);
 void LF_SetKd(int32_t kd);
 void LF_SetMaxCorrection(int32_t max_correction_rpm);
+void LF_SetCorrectionSlew(uint32_t permille_per_second);
 void LF_SetLostHold(uint32_t hold_ms);
 void LF_SetLostTimeout(uint32_t timeout_ms);
 

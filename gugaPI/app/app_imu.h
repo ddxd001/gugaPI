@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "app/imu_bias_estimator.h"
 #include "drivers/common/driver_status.h"
 
 namespace app {
@@ -25,6 +26,11 @@ struct AppImuData {
 void App_ImuInit(void);
 void App_ImuUpdate(void);
 const AppImuData *App_ImuGetData(void);
+const ImuBiasEstimatorStatus *App_ImuGetBiasStatus(void);
+void App_ImuBiasSetAutoEnabled(bool enabled);
+void App_ImuBiasRequestCalibration(void);
+void App_ImuBiasResetRuntime(void);
+drivers::DriverStatus App_ImuBiasSave(void);
 
 } /* namespace app */
 

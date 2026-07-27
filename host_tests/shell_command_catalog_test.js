@@ -1,0 +1,63 @@
+'use strict';
+
+const assert=require('assert');
+const fs=require('fs');
+const path=require('path');
+const vm=require('vm');
+
+const root=path.resolve(__dirname,'..');
+const shellSource=fs.readFileSync(path.join(root,'gugaPI/app/app_shell.cpp'),'utf8');
+const catalogSource=fs.readFileSync(
+  path.join(root,'gugaPI/tools/seq_editor/command_catalog.js'),'utf8');
+const context={};
+vm.createContext(context);
+vm.runInContext(catalogSource,context,{filename:'command_catalog.js'});
+
+const catalog=context.SHELL_COMMAND_LIBRARY;
+const meta=context.SHELL_CATALOG_META;
+assert(Array.isArray(catalog)&&catalog.length>0,'catalog must not be empty');
+
+const registered=new Set(['help']);
+for(const match of shellSource.matchAll(/Shell_RegisterCommand\(\s*"([^"]+)"/g)){
+  registered.add(match[1]);
+}
+const catalogNames=new Set(catalog.map(entry=>entry.name));
+assert.deepStrictEqual(
+  [...catalogNames].sort(),
+  [...registered].sort(),
+  'catalog top-level names must match firmware registrations plus built-in help');
+
+const active=catalog.filter(entry=>entry.profiles.includes(meta.activeProfile));
+assert.strictEqual(active.length,24,'development profile top-level command count changed');
+assert(!catalogNames.has('adc')&&!catalogNames.has('pwm'),
+  'unregistered adc/pwm placeholders must not return to the catalog');
+
+for(const entry of catalog){
+  assert(/[\u3400-\u9fff]/.test(entry.title+entry.summary),
+    entry.name+' needs a Chinese title or summary');
+  assert(Array.isArray(entry.forms)&&entry.forms.length>0,
+    entry.name+' needs at least one usage form');
+  for(const form of entry.forms){
+    assert(form.syntax===entry.name||form.syntax.startsWith(entry.name+' '),
+      entry.name+' has a mismatched usage form: '+form.syntax);
+    assert(/[\u3400-\u9fff]/.test(form.description),
+      form.syntax+' needs a Chinese explanation');
+    assert(['R','W','M'].includes(form.risk),
+      form.syntax+' has an invalid risk marker');
+  }
+}
+
+const sourceUsage=[];
+for(const match of shellSource.matchAll(/Shell_WriteLine\(\s*"  ([^"]+)"\s*\)/g)){
+  const syntax=match[1];
+  const top=syntax.split(/\s+/)[0];
+  if(registered.has(top))sourceUsage.push(syntax);
+}
+const catalogUsage=new Set(catalog.flatMap(entry=>entry.forms.map(form=>form.syntax)));
+const missingUsage=[...new Set(sourceUsage)].filter(syntax=>!catalogUsage.has(syntax));
+assert.deepStrictEqual(missingUsage,[],
+  'catalog is missing firmware usage forms');
+
+const activeForms=active.reduce((total,entry)=>total+entry.forms.length,0);
+console.log('shell catalog ok: '+catalog.length+' groups, '+active.length+
+  ' active, '+activeForms+' active usage forms');

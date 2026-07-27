@@ -16,14 +16,20 @@ namespace app {
 
 enum ActionOp {
     ACT_OP_NONE = 0,
-    ACT_OP_DRIVE,    /* drive straight (heading hold) until cond */
-    ACT_OP_TURN,     /* turn to relative angle, until heading_reached */
-    ACT_OP_FOLLOW,   /* line-follow until cond */
-    ACT_OP_WAIT,      /* wait until cond (usually timeout) */
-    ACT_OP_STOP,     /* stop chassis+heading+linefollow, immediate */
-    ACT_OP_BRANCH,   /* no motion; jump on cond (true->on_success, false->on_timeout) */
-    ACT_OP_END,      /* finish the sequence (success) */
-    ACT_OP_DRIVE_MM  /* encoder distance + heading hold; p1=mm, p2=max rpm */
+    ACT_OP_DRIVE = 1,    /* drive straight (heading hold) until cond */
+    ACT_OP_TURN = 2,     /* turn to relative angle, until heading_reached */
+    ACT_OP_FOLLOW = 3,   /* line-follow until cond */
+    ACT_OP_WAIT = 4,     /* wait until cond (usually timeout) */
+    ACT_OP_STOP = 5,     /* stop chassis+heading+linefollow, immediate */
+    ACT_OP_BRANCH = 6,   /* no motion; branch on condition */
+    ACT_OP_END = 7,      /* finish the sequence (success) */
+    ACT_OP_DRIVE_MM = 8, /* encoder distance + heading hold */
+    ACT_OP_LED_ON = 9,   /* p1: 0=LED2+3, 2=LED2, 3=LED3 */
+    ACT_OP_LED_OFF = 10,
+    ACT_OP_LED_TOGGLE = 11,
+    ACT_OP_BUZZER_ON = 12, /* p1=0; p2=auto-off ms */
+    ACT_OP_BUZZER_OFF = 13,
+    ACT_OP_BUZZER_TOGGLE = 14
 };
 
 enum ActionCond {
@@ -42,8 +48,8 @@ static const uint8_t ACT_NEXT = 0xFFU;
 
 struct Instr {
     ActionOp op;
-    int32_t param1;       /* DRIVE/FOLLOW: rpm; TURN: deg; DRIVE_MM: mm */
-    int32_t param2;       /* timeout/duration; DRIVE_MM: maximum rpm */
+    int32_t param1;       /* motion parameter or LED target */
+    int32_t param2;       /* timeout/duration, max rpm, or auto-off ms */
     ActionCond until;     /* success condition */
     uint8_t on_success;   /* ACT_NEXT or index */
     uint8_t on_timeout;   /* ACT_NEXT(=abort) or index */

@@ -20,7 +20,11 @@ void DebugUart_ClearRxBuffer(void);
 void DebugUart_TxPump(void);
 uint16_t DebugUart_GetTxPending(void);
 uint32_t DebugUart_GetTxDroppedCount(void);
+bool DebugUart_IsTxDmaActive(void);
+uint32_t DebugUart_GetTxDmaBlockCount(void);
+uint32_t DebugUart_GetTxDmaErrorCount(void);
 void DebugUart_IrqHandler(void);
+void DebugUart_DmaIrqHandler(void);
 
 } /* namespace services */
 

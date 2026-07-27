@@ -3,6 +3,7 @@
 #include "app/app_imu.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
+#include "app/heading_lock_math.h"
 #include "drivers/common/driver_status.h"
 #include "services/fault.h"
 #include "services/time.h"
@@ -19,6 +20,8 @@ static const int32_t kYawSign = 1;
 static const int32_t kMaxErrorMdeg = 90000;   /* 90 deg -> stop (something wrong) */
 static const int32_t kStaleUpdateMs = 200;    /* task starved -> IMU likely stale */
 static const int32_t kTurnTimeoutMs = 8000;
+/* TURN runs every 10 ms. Its prediction horizon, fixed brake margin and
+ * completion gates are ConfigStore parameters so they can be tuned on-car. */
 static const int32_t kScale = 1000000;        /* correction_rpm = error_mdeg * kp / kScale */
 static const int32_t kDistanceMaxMm = 10000;
 static const uint32_t kDistanceSettleMs = 100U;
@@ -31,6 +34,16 @@ static const int64_t kPiNumerator = 355LL;
 static const int64_t kPiDenominator = 113LL;
 
 HeadingState g_state = {};
+
+void ResetLockState(void)
+{
+    g_state.lock_phase = HEADING_LOCK_PHASE_IDLE;
+    g_state.lock_rate_mdps = 0;
+    g_state.lock_recover_start_ms = 0U;
+    g_state.lock_settle_start_ms = 0U;
+    g_state.lock_recover_elapsed_ms = 0U;
+    g_state.lock_result = drivers::DRIVER_OK;
+}
 
 int32_t AbsInt32(int32_t v)
 {
@@ -49,6 +62,24 @@ int32_t ClampInt32(int32_t v, int32_t lo, int32_t hi)
         return hi;
     }
     return v;
+}
+
+bool TurnWheelsStopped(const ChassisState *chassis, int32_t settle_rpm)
+{
+    return (chassis != 0) &&
+           (AbsInt32(chassis->left.actual_rpm) <= settle_rpm) &&
+           (AbsInt32(chassis->right.actual_rpm) <= settle_rpm);
+}
+
+drivers::DriverStatus StopTurnWheels(void)
+{
+    const ChassisState *chassis = Chassis_GetState();
+    if ((chassis != 0) &&
+        (chassis->left.target_rpm == 0) &&
+        (chassis->right.target_rpm == 0)) {
+        return drivers::DRIVER_OK;
+    }
+    return Chassis_Stop();
 }
 
 int32_t DivideRoundInt64(int64_t numerator, int64_t denominator)
@@ -312,21 +343,6 @@ bool IsImuFresh(const AppImuData *imu, uint32_t now_ms)
             static_cast<uint32_t>(kStaleUpdateMs));
 }
 
-/* Shortest signed angle from current to target, wrapped to [-180000, 180000]
- * milli-degrees. Handles the -180/180 seam. At exactly ±180000 the sign is
- * preserved so turn(-180) goes right and turn(+180) goes left. */
-int32_t ShortestAngleDiff(int32_t target_mdeg, int32_t current_mdeg)
-{
-    int32_t d = target_mdeg - current_mdeg;
-    while (d > 180000) {
-        d -= 360000;
-    }
-    while (d < -180000) {
-        d += 360000;
-    }
-    return d;
-}
-
 int32_t WrapToSigned180(int32_t angle_mdeg)
 {
     while (angle_mdeg > 180000) {
@@ -349,9 +365,34 @@ int32_t GainToRpm(int32_t error_mdeg, int32_t kp)
 void SafetyStop(services::FaultCode code)
 {
     g_state.mode = HEADING_IDLE;
+    g_state.turn_phase = HEADING_TURN_PHASE_IDLE;
+    g_state.turn_rate_mdps = 0;
+    g_state.turn_brake_angle_mdeg = 0;
+    g_state.lock_phase = HEADING_LOCK_PHASE_IDLE;
+    g_state.lock_rate_mdps = 0;
+    g_state.lock_result = g_state.last_status;
     (void) Chassis_Stop();
     if (code != services::FAULT_NONE) {
         services::Fault_Set(code);
+    }
+}
+
+void LockTimeoutStop(uint32_t elapsed_ms)
+{
+    g_state.mode = HEADING_IDLE;
+    g_state.lock_phase = HEADING_LOCK_PHASE_FAILED;
+    g_state.lock_recover_elapsed_ms = elapsed_ms;
+    g_state.correction_rpm = 0;
+    g_state.at_target = false;
+    g_state.lock_result = drivers::DRIVER_ERROR_TIMEOUT;
+    const drivers::DriverStatus stop_status = Chassis_Stop();
+    g_state.last_status = (stop_status == drivers::DRIVER_OK)
+        ? drivers::DRIVER_ERROR_TIMEOUT
+        : stop_status;
+    if (stop_status != drivers::DRIVER_OK) {
+        /* A physical obstruction is only a local lock timeout, but failure
+         * to deliver the safety stop remains a global driver fault. */
+        services::Fault_Set(services::FAULT_DRIVER_TIMEOUT);
     }
 }
 
@@ -361,6 +402,8 @@ void Heading_Init(void)
 {
     g_state = {};
     g_state.mode = HEADING_IDLE;
+    g_state.turn_phase = HEADING_TURN_PHASE_IDLE;
+    ResetLockState();
     g_state.last_status = drivers::DRIVER_OK;
 }
 
@@ -384,8 +427,67 @@ drivers::DriverStatus Heading_HoldStart(int32_t base_rpm)
     g_state.error_mdeg = 0;
     g_state.at_target = false;
     g_state.at_target_since_ms = 0U;
+    g_state.turn_phase = HEADING_TURN_PHASE_IDLE;
+    g_state.turn_rate_mdps = 0;
+    g_state.turn_brake_angle_mdeg = 0;
+    ResetLockState();
     ResetDistanceState();
     g_state.last_run_ms = services::Time_Millis();
+    g_state.last_status = drivers::DRIVER_OK;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus Heading_LockStart(void)
+{
+    const uint32_t now = services::Time_Millis();
+    if (g_state.mode != HEADING_IDLE) {
+        g_state.last_status = drivers::DRIVER_ERROR_BUSY;
+        return g_state.last_status;
+    }
+    if (services::Fault_HasFault()) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return g_state.last_status;
+    }
+
+    const AppImuData *imu = App_ImuGetData();
+    const ImuBiasEstimatorStatus *bias = App_ImuGetBiasStatus();
+    const ChassisState *chassis = Chassis_GetState();
+    const ConfigStoreParams *params = ConfigStore_Get();
+    if ((!IsImuFresh(imu, now)) || (!IsFeedbackFresh(chassis, now)) ||
+        (bias == 0) || (!bias->estimate_valid) || (params == 0)) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return g_state.last_status;
+    }
+    if ((chassis->left.target_rpm != 0) ||
+        (chassis->right.target_rpm != 0) ||
+        (!TurnWheelsStopped(chassis, params->heading_lock_settle_rpm)) ||
+        (AbsInt32(imu->gyro_mdps[2]) >
+         static_cast<int32_t>(params->heading_lock_settle_rate_mdps))) {
+        g_state.last_status = drivers::DRIVER_ERROR_BUSY;
+        return g_state.last_status;
+    }
+
+    const drivers::DriverStatus stop_status = Chassis_Stop();
+    if (stop_status != drivers::DRIVER_OK) {
+        g_state.last_status = stop_status;
+        return stop_status;
+    }
+
+    g_state.mode = HEADING_LOCK;
+    g_state.target_yaw_mdeg = imu->yaw_mdeg;
+    g_state.base_rpm = 0;
+    g_state.correction_rpm = 0;
+    g_state.error_mdeg = 0;
+    g_state.at_target = true;
+    g_state.at_target_since_ms = now;
+    g_state.turn_phase = HEADING_TURN_PHASE_IDLE;
+    g_state.turn_rate_mdps = 0;
+    g_state.turn_brake_angle_mdeg = 0;
+    ResetDistanceState();
+    ResetLockState();
+    g_state.lock_phase = HEADING_LOCK_PHASE_LOCKED;
+    g_state.lock_rate_mdps = imu->gyro_mdps[2];
+    g_state.last_run_ms = now;
     g_state.last_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 }
@@ -425,6 +527,10 @@ drivers::DriverStatus Heading_TurnStart(int32_t delta_deg)
     g_state.error_mdeg = delta_mdeg;
     g_state.at_target = false;
     g_state.at_target_since_ms = 0U;
+    g_state.turn_phase = HEADING_TURN_PHASE_DRIVE;
+    g_state.turn_rate_mdps = 0;
+    g_state.turn_brake_angle_mdeg = 0;
+    ResetLockState();
     ResetDistanceState();
     g_state.turn_start_ms = services::Time_Millis();
     g_state.last_run_ms = g_state.turn_start_ms;
@@ -481,6 +587,10 @@ drivers::DriverStatus Heading_DistanceStart(int32_t distance_mm,
     g_state.at_target = false;
     g_state.at_target_since_ms = 0U;
     g_state.turn_start_ms = 0U;
+    g_state.turn_phase = HEADING_TURN_PHASE_IDLE;
+    g_state.turn_rate_mdps = 0;
+    g_state.turn_brake_angle_mdeg = 0;
+    ResetLockState();
     g_state.target_distance_mm = distance_mm;
     g_state.traveled_distance_mm = 0;
     g_state.remaining_distance_mm = distance_mm;
@@ -511,6 +621,10 @@ drivers::DriverStatus Heading_DistanceStart(int32_t distance_mm,
 drivers::DriverStatus Heading_Stop(void)
 {
     g_state.mode = HEADING_IDLE;
+    g_state.turn_phase = HEADING_TURN_PHASE_IDLE;
+    g_state.turn_rate_mdps = 0;
+    g_state.turn_brake_angle_mdeg = 0;
+    ResetLockState();
     g_state.distance_phase = DISTANCE_PHASE_IDLE;
     g_state.profile_command_rpm = 0;
     const drivers::DriverStatus s = Chassis_Stop();
@@ -550,7 +664,8 @@ void Heading_Update(void)
     }
 
     const int32_t yaw = imu->yaw_mdeg;
-    const int32_t error = ShortestAngleDiff(g_state.target_yaw_mdeg, yaw);
+    const int32_t error = heading_lock::ShortestAngleDiff(
+        g_state.target_yaw_mdeg, yaw);
     g_state.error_mdeg = error;
 
     const ConfigStoreParams *params = ConfigStore_Get();
@@ -576,6 +691,133 @@ void Heading_Update(void)
         g_state.last_status = s;
         if (s != drivers::DRIVER_OK) {
             SafetyStop(services::FAULT_NONE);
+        }
+        return;
+    }
+
+    if (g_state.mode == HEADING_LOCK) {
+        const ChassisState *chassis = Chassis_GetState();
+        if (!IsFeedbackFresh(chassis, now)) {
+            g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;
+            SafetyStop(services::FAULT_SENSOR_LOST);
+            return;
+        }
+        if (AbsInt32(error) > kMaxErrorMdeg) {
+            g_state.last_status = drivers::DRIVER_ERROR;
+            SafetyStop(services::FAULT_SENSOR_LOST);
+            return;
+        }
+
+        const int32_t gyro_rate = imu->gyro_mdps[2];
+        g_state.lock_rate_mdps = gyro_rate;
+
+        const bool recovery_active =
+            (g_state.lock_phase == HEADING_LOCK_PHASE_RECOVER) ||
+            (g_state.lock_phase == HEADING_LOCK_PHASE_SETTLE);
+        if (recovery_active) {
+            g_state.lock_recover_elapsed_ms =
+                now - g_state.lock_recover_start_ms;
+            if (heading_lock::DurationReached(
+                    now,
+                    g_state.lock_recover_start_ms,
+                    params->heading_lock_timeout_ms)) {
+                LockTimeoutStop(g_state.lock_recover_elapsed_ms);
+                return;
+            }
+        }
+
+        if (g_state.lock_phase == HEADING_LOCK_PHASE_LOCKED) {
+            g_state.correction_rpm = 0;
+            g_state.at_target = true;
+            if (heading_lock::ShouldWake(
+                    error, params->heading_lock_wake_mdeg)) {
+                g_state.lock_phase = HEADING_LOCK_PHASE_RECOVER;
+                g_state.lock_recover_start_ms = now;
+                g_state.lock_recover_elapsed_ms = 0U;
+                g_state.at_target = false;
+            }
+            g_state.last_status = drivers::DRIVER_OK;
+            return;
+        }
+
+        if (g_state.lock_phase == HEADING_LOCK_PHASE_SETTLE) {
+            g_state.correction_rpm = 0;
+            g_state.last_status = StopTurnWheels();
+            if (g_state.last_status != drivers::DRIVER_OK) {
+                SafetyStop(services::FAULT_DRIVER_TIMEOUT);
+                return;
+            }
+            if (heading_lock::ShouldWake(
+                    error, params->heading_lock_wake_mdeg)) {
+                g_state.lock_phase = HEADING_LOCK_PHASE_RECOVER;
+                g_state.lock_recover_start_ms = now;
+                g_state.lock_recover_elapsed_ms = 0U;
+                g_state.at_target = false;
+                return;
+            }
+            const bool stable = heading_lock::ReadyToSettle(
+                    error,
+                    gyro_rate,
+                    params->heading_lock_settle_mdeg,
+                    params->heading_lock_settle_rate_mdps) &&
+                TurnWheelsStopped(chassis,
+                                  params->heading_lock_settle_rpm);
+            if (!stable) {
+                g_state.lock_settle_start_ms = now;
+                return;
+            }
+            if (heading_lock::DurationReached(
+                    now,
+                    g_state.lock_settle_start_ms,
+                    params->heading_lock_settle_ms)) {
+                g_state.lock_phase = HEADING_LOCK_PHASE_LOCKED;
+                g_state.at_target = true;
+                g_state.at_target_since_ms = now;
+                g_state.lock_result = drivers::DRIVER_OK;
+            }
+            return;
+        }
+
+        if (g_state.lock_phase != HEADING_LOCK_PHASE_RECOVER) {
+            g_state.lock_phase = HEADING_LOCK_PHASE_LOCKED;
+            g_state.correction_rpm = 0;
+            g_state.at_target = true;
+            return;
+        }
+
+        if (heading_lock::ReadyToSettle(
+                error,
+                gyro_rate,
+                params->heading_lock_settle_mdeg,
+                params->heading_lock_settle_rate_mdps)) {
+            g_state.correction_rpm = 0;
+            g_state.last_status = StopTurnWheels();
+            if (g_state.last_status != drivers::DRIVER_OK) {
+                SafetyStop(services::FAULT_DRIVER_TIMEOUT);
+                return;
+            }
+            g_state.lock_phase = HEADING_LOCK_PHASE_SETTLE;
+            g_state.lock_settle_start_ms = now;
+            return;
+        }
+
+        int32_t correction = heading_lock::ComputeCorrectionRpm(
+            error,
+            gyro_rate,
+            params->heading_lock_kp,
+            params->heading_lock_kd,
+            params->heading_lock_min_rpm,
+            params->heading_lock_max_rpm);
+        correction *= kYawSign;
+        g_state.correction_rpm = correction;
+        if (correction == 0) {
+            g_state.last_status = StopTurnWheels();
+        } else {
+            g_state.last_status =
+                Chassis_SetWheelRpm(-correction, correction);
+        }
+        if (g_state.last_status != drivers::DRIVER_OK) {
+            SafetyStop(services::FAULT_DRIVER_TIMEOUT);
         }
         return;
     }
@@ -785,40 +1027,76 @@ void Heading_Update(void)
         }
 
         const int32_t abs_err = AbsInt32(error);
-        if (abs_err < params->heading_tolerance_mdeg) {
-            if (!g_state.at_target) {
-                g_state.at_target = true;
-                g_state.at_target_since_ms = now;
-            }
-            if (static_cast<int32_t>(now - g_state.at_target_since_ms) >=
-                static_cast<int32_t>(params->heading_settle_ms)) {
-                (void) Heading_Stop();
+        const int32_t gyro_rate = imu->gyro_mdps[2];
+        const int32_t abs_rate = AbsInt32(gyro_rate);
+        const int32_t direction = (error >= 0) ? 1 : -1;
+        const int32_t rate_toward_target = gyro_rate * direction;
+        int32_t predicted_coast_mdeg = 0;
+        if (rate_toward_target > 0) {
+            predicted_coast_mdeg = static_cast<int32_t>(
+                (static_cast<int64_t>(rate_toward_target) *
+                 params->heading_turn_brake_ms) / 1000LL);
+        }
+        const int32_t brake_angle_mdeg =
+            predicted_coast_mdeg +
+            params->heading_turn_brake_margin_mdeg;
+        const ChassisState *chassis = Chassis_GetState();
+        const bool motion_stopped =
+            (abs_rate <= params->heading_turn_settle_rate_mdps) &&
+            TurnWheelsStopped(chassis,
+                              params->heading_turn_settle_rpm);
+        const bool inside_tolerance =
+            abs_err < params->heading_tolerance_mdeg;
+        const bool predicted_brake =
+            (rate_toward_target > 0) &&
+            (abs_err <= brake_angle_mdeg);
+        const bool finish_existing_brake =
+            (g_state.turn_phase == HEADING_TURN_PHASE_BRAKE) &&
+            (!motion_stopped);
+
+        g_state.turn_rate_mdps = gyro_rate;
+        g_state.turn_brake_angle_mdeg = brake_angle_mdeg;
+
+        if (inside_tolerance || predicted_brake || finish_existing_brake) {
+            g_state.correction_rpm = 0;
+            g_state.last_status = StopTurnWheels();
+            if (g_state.last_status != drivers::DRIVER_OK) {
+                SafetyStop(services::FAULT_NONE);
                 return;
             }
-            /* coast while settling */
-            g_state.last_status = Chassis_Stop();
+
+            if (inside_tolerance && motion_stopped) {
+                g_state.turn_phase = HEADING_TURN_PHASE_SETTLE;
+                if (!g_state.at_target) {
+                    g_state.at_target = true;
+                    g_state.at_target_since_ms = now;
+                }
+                if (static_cast<int32_t>(now - g_state.at_target_since_ms) >=
+                    static_cast<int32_t>(params->heading_settle_ms)) {
+                    (void) Heading_Stop();
+                }
+            } else {
+                g_state.turn_phase = HEADING_TURN_PHASE_BRAKE;
+                g_state.at_target = false;
+                g_state.at_target_since_ms = 0U;
+            }
             return;
         }
 
+        g_state.turn_phase = HEADING_TURN_PHASE_DRIVE;
         g_state.at_target = false;
+        g_state.at_target_since_ms = 0U;
         int32_t speed = GainToRpm(abs_err, params->heading_kp);
-        if (abs_err > 20000) {
-            /* Far from target (> 20°): apply min/max clamp to overcome
-             * static friction and limit top speed. */
-            speed = ClampInt32(speed,
-                               params->heading_turn_min_rpm,
-                               params->heading_turn_max_rpm);
-        } else {
-            /* Near target (≤ 20°): allow natural proportional deceleration.
-             * Only clamp max; let speed drop below min so the car slows
-             * down before entering the tolerance zone, reducing overshoot. */
-            speed = ClampInt32(speed, 0, params->heading_turn_max_rpm);
-        }
+        /* Outside tolerance every correction must exceed static friction.
+         * Predictive braking above prevents this minimum from causing an
+         * uncontrolled target crossing. */
+        speed = ClampInt32(speed,
+                           params->heading_turn_min_rpm,
+                           params->heading_turn_max_rpm);
         speed *= kYawSign;
         g_state.correction_rpm = speed;
-        const int32_t dir = (error >= 0) ? 1 : -1;
-        const int32_t left = -speed * dir;
-        const int32_t right = speed * dir;
+        const int32_t left = -speed * direction;
+        const int32_t right = speed * direction;
         const drivers::DriverStatus s = Chassis_SetWheelRpm(left, right);
         g_state.last_status = s;
         if (s != drivers::DRIVER_OK) {

@@ -22,6 +22,7 @@ var PARAM_GROUPS=[
 
 var PARAM_META={};
 var PARAM_ORDER=[];
+var PARAM_EXPORT_BATCH_SIZE=16;
 function addParamMeta(name,label,group,def,min,max,unit,desc,restart,kind,preview){
   PARAM_META[name]={name:name,label:label,group:group,defaultValue:def,min:min,max:max,
     unit:unit||'',description:desc||'',restart:!!restart,kind:kind||'number',
@@ -77,6 +78,20 @@ addParamMeta('heading_turn_max_rpm','转向最大轮速','heading',60,0,1000,'RP
 addParamMeta('heading_turn_min_rpm','转向最小轮速','heading',20,0,500,'RPM','接近目标角度时用于克服静摩擦的最小轮速。',false);
 addParamMeta('heading_tolerance_mdeg','转向角度容差','heading',3000,0,90000,'mdeg','航向误差小于该值时进入到位判定。',false,'number','mdeg');
 addParamMeta('heading_settle_ms','航向稳定时间','heading',300,0,5000,'ms','航向持续处于容差内达到该时间后判定完成。',false,'number','ms');
+addParamMeta('heading_turn_brake_ms','转向预测制动时间','heading',60,0,500,'ms','根据朝向目标的陀螺仪角速度预测惯性转角；数值越大，转向时越早停止驱动。修改后下一次转向立即生效。',false,'number','ms');
+addParamMeta('heading_turn_brake_margin_mdeg','转向固定制动提前角','heading',500,0,30000,'mdeg','在预测惯性转角之外附加的固定提前制动角；数值越大，越不容易过冲。修改后下一次转向立即生效。',false,'number','mdeg');
+addParamMeta('heading_turn_settle_rate_mdps','转向停稳角速度阈值','heading',1500,0,60000,'mdps','陀螺仪 Z 轴角速度绝对值不超过该阈值时，才允许累计转向稳定时间。',false,'number','mdps');
+addParamMeta('heading_turn_settle_rpm','转向停稳轮速阈值','heading',3,0,100,'RPM','左右轮实际转速绝对值均不超过该阈值时，才允许累计转向稳定时间。',false);
+addParamMeta('heading_lock_kp','静止锁向 Kp','heading',1500,0,100000,'scaled','静止锁向的角度误差比例增益；1500约等于每度误差修正1.5 RPM。',false,'number','heading');
+addParamMeta('heading_lock_kd','静止锁向 Kd','heading',250,0,100000,'scaled','使用ICM Z轴角速度抑制回正过冲和来回摆动。',false);
+addParamMeta('heading_lock_wake_mdeg','锁向唤醒角度','heading',2000,100,30000,'mdeg','偏离目标达到该角度后唤醒车轮执行原地回正。',false,'number','mdeg');
+addParamMeta('heading_lock_settle_mdeg','锁向稳定角度','heading',800,50,29999,'mdeg','回正误差进入该范围后允许停止车轮并开始稳定判定；必须小于唤醒角度。',false,'number','mdeg');
+addParamMeta('heading_lock_min_rpm','锁向最小纠偏轮速','heading',10,0,100,'RPM','纠偏方向与误差一致时，用于克服静摩擦的最小轮速。',false);
+addParamMeta('heading_lock_max_rpm','锁向最大纠偏轮速','heading',30,1,200,'RPM','静止回正允许使用的最大左右轮转速，且不得超过底盘最大轮速。',false);
+addParamMeta('heading_lock_settle_rate_mdps','锁向稳定角速度阈值','heading',1500,0,60000,'mdps','Z轴角速度绝对值低于该值时才允许进入稳定计时。',false,'number','mdps');
+addParamMeta('heading_lock_settle_rpm','锁向稳定轮速阈值','heading',3,0,100,'RPM','两轮实际转速均不超过该值时才视为已经停稳。',false);
+addParamMeta('heading_lock_settle_ms','锁向稳定时间','heading',250,50,5000,'ms','角度、角速度和轮速持续稳定达到该时间后重新进入锁定等待。',false,'number','ms');
+addParamMeta('heading_lock_timeout_ms','锁向回正超时','heading',3000,500,10000,'ms','一次外力扰动回正超过该时间后停止电机并报告局部timeout。',false,'number','ms');
 
 addParamMeta('ina_uv_trip_mv','欠压触发阈值','power',6000,1,25999,'mV','电源电压连续低于该值时触发欠压。',false);
 addParamMeta('ina_uv_release_mv','欠压释放阈值','power',6500,2,26000,'mV','必须高于欠压触发阈值。',false);
@@ -105,6 +120,7 @@ addParamMeta('lf_kd','循迹 Kd','linefollow',0,0,1000000,'scaled','线位置误
 addParamMeta('lf_maxcorr','循迹最大差速修正','linefollow',30,0,500,'RPM','循迹控制允许施加的最大左右差速。',true);
 addParamMeta('lf_lost_hold_ms','丢线保持时间','linefollow',150,0,10000,'ms','短时丢线时保持最近修正的时间。',true,'number','ms');
 addParamMeta('lf_lost_stop_ms','丢线停车时间','linefollow',500,1,10000,'ms','持续丢线达到该时间后停车；必须不小于保持时间。',true,'number','ms');
+addParamMeta('lf_slew_permille_s','循迹修正变化率','linefollow',25000,1,65535,'permille/s','限制左右差速修正的变化速度；数值越大响应越快。',true);
 
 var paramPageState={
   values:{},ranges:{},selected:null,group:'all',query:'',modifiedOnly:false,
@@ -152,6 +168,10 @@ function paramParseValues(text){
     ranges[m[1]]={min:Number(m[3]),max:Number(m[4])};
   }
   return{values:values,ranges:ranges};
+}
+function paramParseExportHeader(text){
+  var m=text.match(/param export start=(\d+) count=(\d+) total=(\d+)/);
+  return m?{start:Number(m[1]),count:Number(m[2]),total:Number(m[3])}:null;
 }
 function paramParseStatus(text){
   var m=text.match(/param loaded=(\d+) dirty=(\d+) len=(\d+) crc=(0x[0-9A-Fa-f]+) load=([a-z-]+) save=([a-z-]+)/);
@@ -284,6 +304,46 @@ function paramUpdateControls(){
 }
 function paramRenderAll(){paramRenderGroups();paramRenderRows();paramUpdateControls()}
 
+async function paramReadExportPages(){
+  var values={},ranges={},start=0,total=null;
+  while(total===null||start<total){
+    paramPageState.progress='批量读取参数 '+start+(total===null?'':' / '+total);
+    paramUpdateControls();
+    var response=await send('param export '+start+' '+PARAM_EXPORT_BATCH_SIZE,{timeoutMs:2500});
+    var header=paramParseExportHeader(response);
+    if(!header){
+      if(start===0)return null;
+      throw new Error('批量参数响应中断');
+    }
+    if(header.start!==start||header.count>PARAM_EXPORT_BATCH_SIZE||header.total<header.start+header.count||(total!==null&&header.total!==total)||(header.count===0&&header.start<header.total)){
+      throw new Error('批量参数响应无效');
+    }
+    var parsed=paramParseValues(response),names=Object.keys(parsed.values);
+    if(names.length!==header.count)throw new Error('批量参数响应不完整');
+    names.forEach(function(name){values[name]=parsed.values[name];ranges[name]=parsed.ranges[name]});
+    total=header.total;
+    if(header.count===0)break;
+    start+=header.count;
+  }
+  return{values:values,ranges:ranges};
+}
+
+async function paramReadLegacy(){
+  var values={},ranges={};
+  for(var index=0;index<PARAM_ORDER.length;index++){
+    var name=PARAM_ORDER[index];
+    paramPageState.progress='兼容读取参数 '+(index+1)+' / '+PARAM_ORDER.length;
+    paramUpdateControls();
+    var response=await send('param get '+name,{timeoutMs:2500});
+    var parsed=paramParseValues(response);
+    if(Object.prototype.hasOwnProperty.call(parsed.values,name)){
+      values[name]=parsed.values[name];
+      ranges[name]=parsed.ranges[name];
+    }
+  }
+  return{values:values,ranges:ranges};
+}
+
 async function paramRefresh(){
   if(!paramConnected()||paramPageState.busy)return;
   paramPageState.busy=true;paramPageState.progress='读取运行状态';paramUpdateControls();
@@ -293,18 +353,10 @@ async function paramRefresh(){
     paramPageState.progress='读取存储状态';paramUpdateControls();
     var statusText=await send('param status',{timeoutMs:2500});
     var store=paramParseStatus(statusText);
-    var values={},ranges={},missing=[];
-    for(var index=0;index<PARAM_ORDER.length;index++){
-      var name=PARAM_ORDER[index];
-      paramPageState.progress='读取参数 '+(index+1)+' / '+PARAM_ORDER.length;
-      paramUpdateControls();
-      var paramText=await send('param get '+name,{timeoutMs:2500});
-      var parsed=paramParseValues(paramText);
-      if(Object.prototype.hasOwnProperty.call(parsed.values,name)){
-        values[name]=parsed.values[name];
-        ranges[name]=parsed.ranges[name];
-      }else missing.push(name);
-    }
+    var loaded=await paramReadExportPages();
+    if(!loaded)loaded=await paramReadLegacy();
+    var values=loaded.values,ranges=loaded.ranges;
+    var missing=PARAM_ORDER.filter(function(name){return !Object.prototype.hasOwnProperty.call(values,name)});
     if(Object.keys(values).length===0)throw new Error('没有收到参数');
     paramPageState.values=values;
     paramPageState.ranges=ranges;
@@ -492,6 +544,9 @@ function paramSimInit(){
 }
 function paramSimValid(candidate){
   if(candidate.speed_min_duty>candidate.speed_max_duty)return false;
+  if(candidate.heading_lock_settle_mdeg>=candidate.heading_lock_wake_mdeg)return false;
+  if(candidate.heading_lock_min_rpm>candidate.heading_lock_max_rpm)return false;
+  if(candidate.heading_lock_max_rpm>candidate.max_wheel_rpm)return false;
   if(candidate.ina_uv_release_mv<=candidate.ina_uv_trip_mv)return false;
   if(candidate.ina_oc_release_ma>=candidate.ina_oc_trip_ma)return false;
   if(candidate.lf_lost_stop_ms<candidate.lf_lost_hold_ms)return false;
@@ -503,7 +558,18 @@ function paramSimCommand(cmd){
   paramSimInit();
   if(cmd==='comp status')return'comp mode=dev-running slot=0 valid=1 any_valid=1 count=5 step=0 result=none last=ok\r\n> ';
   if(cmd==='reset'){simParamValues=Object.assign({},simPersistedValues);simParamDirty=false;return'resetting...\r\n> '}
-  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=181 crc=0x5C758F1C load=ok save=ok\r\n> ';
+  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=215 crc=0x5C758F1C load=ok save=ok\r\n> ';
+  if(cmd==='param export'||cmd.startsWith('param export ')){
+    var exportParts=cmd.split(/\s+/),start=exportParts.length>=3?Number(exportParts[2]):0;
+    var requested=exportParts.length>=4?Number(exportParts[3]):PARAM_EXPORT_BATCH_SIZE;
+    if(!Number.isInteger(start)||!Number.isInteger(requested)||start<0||start>PARAM_ORDER.length||requested<1||requested>PARAM_EXPORT_BATCH_SIZE)return'usage: param export [start [count 1..16]]\r\n> ';
+    var count=Math.min(requested,PARAM_ORDER.length-start),batch='param export start='+start+' count='+count+' total='+PARAM_ORDER.length+'\r\n';
+    for(var exportIndex=start;exportIndex<start+count;exportIndex++){
+      var exportName=PARAM_ORDER[exportIndex],exportMeta=PARAM_META[exportName];
+      batch+='param '+exportName+'='+simParamValues[exportName]+' range='+exportMeta.min+'..'+exportMeta.max+'\r\n';
+    }
+    return batch+'> ';
+  }
   if(cmd==='param get'||cmd==='param get '){
     var all='';
     PARAM_ORDER.forEach(function(name){var meta=PARAM_META[name];all+='param '+name+'='+simParamValues[name]+' range='+meta.min+'..'+meta.max+'\r\n'});

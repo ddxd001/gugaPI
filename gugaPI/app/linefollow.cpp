@@ -48,9 +48,11 @@ void LoadConfig(void)
 {
     const ConfigStoreParams *params = ConfigStore_Get();
     if (params == 0) {
-        g_state.kp = 10000;
-        g_state.kd = 0;
+        g_state.kp = 3800;
+        g_state.kd = 600;
         g_state.max_correction_rpm = 30;
+        g_state.correction_slew_permille_per_second =
+            LF_DEFAULT_CORRECTION_SLEW_PERMILLE_PER_SECOND;
         g_state.lost_hold_ms = 150U;
         g_state.lost_timeout_ms = 500U;
         return;
@@ -59,6 +61,8 @@ void LoadConfig(void)
     g_state.kd = params->linefollow_kd;
     g_state.max_correction_rpm =
         static_cast<int32_t>(params->linefollow_max_correction_rpm);
+    g_state.correction_slew_permille_per_second =
+        params->linefollow_correction_slew_permille_per_second;
     g_state.lost_hold_ms = params->linefollow_lost_hold_ms;
     g_state.lost_timeout_ms = params->linefollow_lost_stop_ms;
 }
@@ -113,7 +117,8 @@ int32_t ApplyCorrectionSlew(int32_t requested,
     const int32_t base_magnitude = AbsoluteInt32(base_rpm);
     const int64_t numerator =
         static_cast<int64_t>(base_magnitude) *
-        static_cast<int64_t>(LF_CORRECTION_SLEW_PERMILLE_PER_SECOND) *
+        static_cast<int64_t>(
+            g_state.correction_slew_permille_per_second) *
         static_cast<int64_t>(dt_ms);
     int32_t maximum_delta = static_cast<int32_t>(
         (numerator + 999999LL) / 1000000LL);
@@ -196,6 +201,17 @@ int32_t CalculateCorrection(const AppGrayscaleData *data, int32_t base_rpm)
     g_state.last_frame_ms = data->last_update_ms;
     g_state.correction_rpm = correction;
     return correction;
+}
+
+bool IsForwardJunctionPassThrough(const AppGrayscaleData *data)
+{
+    if ((data == 0) ||
+        ((data->road_observed_paths & GRAYSCALE_ROAD_PATH_FORWARD) == 0U)) {
+        return false;
+    }
+    return (data->road_type == GRAYSCALE_ROAD_LEFT_BRANCH) ||
+           (data->road_type == GRAYSCALE_ROAD_RIGHT_BRANCH) ||
+           (data->road_type == GRAYSCALE_ROAD_CROSS);
 }
 
 } /* namespace */
@@ -334,6 +350,19 @@ void LF_Update(void)
     }
     if ((!data->line_detected) || (!data->position_valid) ||
         (data->track_state != drivers::GRAYSCALE_TRACK_VALID)) {
+        /* A branch/crossing can temporarily make the analogue geometry wide
+         * or multiple even though a forward path is confirmed. Traverse that
+         * bounded classifier window straight. Corners and T junctions never
+         * enter this path because their current road type has no forward
+         * continuation. */
+        if (IsForwardJunctionPassThrough(data)) {
+            g_state.lost = false;
+            g_state.lost_since_ms = 0U;
+            g_state.error_mpos = 0;
+            g_state.correction_rpm = 0;
+            (void) ApplyWheelCommand(g_state.base_rpm, 0);
+            return;
+        }
         g_state.lost = true;
         g_state.error_mpos = 0;
         g_state.lost_since_ms = now;
@@ -386,6 +415,17 @@ void LF_SetMaxCorrection(int32_t max_correction_rpm)
     if (max_correction_rpm >= 0) {
         g_state.max_correction_rpm = max_correction_rpm;
         (void) ConfigStore_Set("lf_maxcorr", max_correction_rpm);
+    }
+}
+
+void LF_SetCorrectionSlew(uint32_t permille_per_second)
+{
+    if ((permille_per_second > 0U) &&
+        (permille_per_second <= UINT16_MAX)) {
+        g_state.correction_slew_permille_per_second = permille_per_second;
+        (void) ConfigStore_Set(
+            "lf_slew_permille_s",
+            static_cast<int32_t>(permille_per_second));
     }
 }
 

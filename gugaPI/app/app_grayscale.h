@@ -37,6 +37,15 @@ struct AppGrayscaleData {
     uint8_t invalid_frames;
     GrayscaleRoadType road_type;
     uint8_t road_confirm_count;
+    GrayscaleRoadPhase road_phase;
+    uint8_t road_observed_paths;
+    uint32_t road_event_sequence;
+    GrayscaleRoadType road_event_type;
+    uint8_t road_event_paths;
+    uint16_t road_event_confidence;
+    uint8_t road_event_entry_mask;
+    uint8_t road_event_peak_mask;
+    uint8_t road_event_exit_mask;
     uint16_t threshold_on;
     uint16_t threshold_off;
     uint32_t frame_period_ms;
@@ -65,6 +74,7 @@ struct AppGrayscaleCalibrationStatus {
 void App_GrayscaleInit(void);
 void App_GrayscaleUpdate(void);
 const AppGrayscaleData *App_GrayscaleGetData(void);
+void App_GrayscaleClearRoadEvent(void);
 drivers::DriverStatus App_GrayscaleReloadCalibration(void);
 drivers::DriverStatus App_GrayscaleSetCalibration(
     const drivers::GrayscaleCalibration *calibration);

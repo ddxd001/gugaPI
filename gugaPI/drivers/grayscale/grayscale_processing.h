@@ -12,9 +12,9 @@ static const uint8_t GRAYSCALE_CHANNEL_COUNT = 8U;
 static const uint16_t GRAYSCALE_ADC_MAX = 4095U;
 static const uint16_t GRAYSCALE_NORMALIZED_MAX = 1000U;
 static const uint8_t GRAYSCALE_ALL_CHANNEL_MASK = 0xFFU;
-static const uint8_t GRAYSCALE_DEFAULT_TRACK_MASK = 0x3CU;
-/* Core position frames normally arrive about every 5 ms. Weak analogue
- * tracking is therefore bounded to about 40 ms before normal invalid-frame
+static const uint8_t GRAYSCALE_DEFAULT_TRACK_MASK = 0x7EU;
+/* Six-channel position frames normally arrive about every 7 ms. Weak analogue
+ * tracking is therefore bounded to about 56 ms before normal invalid-frame
  * handling takes over. */
 static const uint8_t GRAYSCALE_MAX_WEAK_TRACKING_FRAMES = 8U;
 

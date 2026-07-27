@@ -42,6 +42,19 @@ EXPECTED_FIELDS = [
     "lf_corr",
     "lf_weak",
     "lf_invalid",
+    "road_type",
+    "road_event_seq",
+    "road_event_type",
+    "road_paths",
+    "road_phase",
+    "road_ctrl_phase",
+    "head_turn_phase",
+    "head_turn_rate_mdps",
+    "head_turn_brake_mdeg",
+    "head_turn_brake_ms",
+    "head_turn_margin_mdeg",
+    "head_turn_settle_mdps",
+    "head_turn_settle_rpm",
 ]
 
 

@@ -7,7 +7,7 @@ window.addEventListener('mousemove',function(e){if(!panning)return;var dx=e.clie
 window.addEventListener('mouseup',function(){panning=false});
 cv.addEventListener('wheel',function(e){e.preventDefault();var r=cv.getBoundingClientRect();var mx=(e.clientX-r.left)/r.width,my=(e.clientY-r.top)/r.height;var f=e.deltaY>0?1.15:0.87;vb.x+=(vb.w-vb.w*f)*mx;vb.y+=(vb.h-vb.h*f)*my;vb.w*=f;vb.h*=f;updVB()},{passive:false});
 var NW=120,NH=50,DY=90,GAP=40;
-var BL={0:['timeout','no timeout'],1:['reached','not reached'],2:['line found','no line'],3:['line lost','line exists'],4:['button','no button'],5:['always','never']};
+var BL={0:['timeout','no timeout'],1:['reached','not reached'],2:['line found','no line'],3:['line lost','line exists'],4:['button','no button'],5:['always','never'],6:['distance reached','moving']};
 
 function buildGraph(){
 var nodes=[],edges=[],ns={};
@@ -143,6 +143,9 @@ var c=OPC[ins.op]||'#585b70',l=OPL[ins.op]||'?',sel=i===selIdx,unreach=!reach[i]
 var d='';
 if(ins.op===1)d=ins.p1+'RPM '+ins.p2+'ms';else if(ins.op===2)d=ins.p1+'deg '+ins.p2+'ms';
 else if(ins.op===3)d=ins.p1+'RPM';else if(ins.op===4)d=ins.p2+'ms';else if(ins.op===6)d=COND[ins.until];
+else if(ins.op===8)d=ins.p1+'mm @ '+ins.p2+'RPM';
+else if(ins.op>=9&&ins.op<=11)d=(ins.p1===0?'LED2+3':'LED'+ins.p1)+(ins.p2?' '+ins.p2+'ms':'');
+else if(ins.op>=12&&ins.op<=14)d=ins.p2?ins.p2+'ms':'persistent';
 var sw=sel?2:(unreach?1:0),st=sel?'#fff':(unreach?'#6c7086':'none'),da=unreach?' stroke-dasharray="3,3"':'';
 if(ins.op===6){
 var cx=p.x+NW/2,cy=p.y+NH/2,dw=NW+20,dh=NH+20;
