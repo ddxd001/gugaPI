@@ -722,6 +722,28 @@ imu acc=<mg>,<mg>,<mg> mg gyr=<mdps>,<mdps>,<mdps> mdps t=<cC> cC yaw=<deg> deg
 ```
 若未就绪会提示 `imu sample: no data (run 'imu icm init')`。
 
+### `imu bias ...`
+
+在确认底盘静止后，用 2 秒窗口自动估计 ICM45686 Z 轴残余零偏。运行时零偏
+只保存在 RAM；只有显式 `save` 才与固定零偏合并并写入 FRAM。
+
+```text
+imu bias status
+imu bias calibrate
+imu bias auto on
+imu bias auto off
+imu bias save
+imu bias reset
+```
+
+- `status`：显示固定/运行时/总零偏、采集进度、标准差和拒绝原因；
+- `calibrate`：请求一次静止校准，只更新 RAM；
+- `auto on|off`：启停运行中自动静止学习；
+- `save`：静止时合并零偏并保存到 FRAM；
+- `reset`：只清除 RAM 运行时零偏，不擦除固定零偏。
+
+完整启动、保存和排障流程见 `docs/IMU_BIAS_GUIDE.md`。
+
 ### `imu oled on [period_ms]` / `off` / `status` / `once`
 
 把 IMU 角度数据显示到 OLED（沿用 INA219 的 OLED 方案，与其他 OLED 数据源互斥）。周期采样任务（5 ms）算出俯仰/横滚角并积分 Z 轴角速度得到相对 Yaw，OLED 任务按 `period_ms` 刷新。
@@ -1365,7 +1387,7 @@ chassis vel 0 90000
 
 航向闭环使用 ICM-45686 陀螺仪 Z 轴 yaw 积分实现行走中的直行保持、相对角度转弯，以及带航向修正的编码器距离行驶。航向源为 IMU yaw（毫度），不是 GY931。
 
-50 ms 周期任务 `Heading_Update` 消费 IMU 数据并输出左右轮差速命令。距离模式同时消费20 ms底盘编码器反馈。安全机制：IMU无效或数据过期（>200 ms）、编码器反馈超过100 ms未更新、航向误差超过90°、转弯或距离行为超时，均会停车并置故障。
+10 ms 周期任务 `Heading_Update` 消费最新的 200 Hz IMU 数据并输出左右轮差速命令。转弯模式根据陀螺仪 Z 轴角速度预测短时惯性转角并提前制动；只有在航向进入配置容差、角速度及两轮实际转速均低于配置阈值后才开始稳定计时。距离模式同时消费20 ms底盘编码器反馈。安全机制：IMU无效或数据过期（>200 ms）、编码器反馈超过100 ms未更新、航向误差超过90°、转弯或距离行为超时，均会停车并置故障。
 
 ### `heading status`
 
@@ -1413,6 +1435,69 @@ heading turn 45
 ```
 
 转弯速度：`speed = abs_err * heading_kp / 1e6`，限幅到 `[heading_turn_min_rpm, heading_turn_max_rpm]`。
+
+### `heading turncfg [set|save]`
+
+查看、修改和持久化预测制动参数：
+
+```text
+heading turncfg
+heading turncfg set 60 500 1500 3
+heading turncfg save
+```
+
+`set`的四个参数依次为：
+
+| 参数 | 范围 | 含义 |
+| --- | ---: | --- |
+| `brake_ms` | 0..500 | 用当前Z轴角速度预测惯性转角的时间窗口 |
+| `margin_mdeg` | 0..30000 | 在预测惯性角之外附加的固定提前量 |
+| `settle_mdps` | 0..60000 | 允许开始稳定计时的最大Z轴角速度 |
+| `settle_rpm` | 0..100 | 允许开始稳定计时的最大左右轮实测RPM |
+
+`set`立即修改RAM参数；`save`写入FRAM。也可分别使用
+`param get/set heading_turn_*`进行上位机自动调参。
+
+### `heading lock` / `heading lockcfg`
+
+静止锁向会捕获启动瞬间的ICM-45686相对Yaw。角度处于死区内时车轮保持
+零转速；受到外力偏转超过唤醒角度后，使用独立PD参数原地回正，稳定后继续等待
+下一次扰动。该模式只保持航向，不恢复车辆的平面位置。
+
+启动前保持车辆静止至少2秒，并确认动态零偏已经有效：
+
+```text
+imu bias status
+chassis stop
+heading lock
+heading status
+heading stop
+```
+
+`imu bias status`中的`valid`必须为1，底盘目标与实测轮速必须为零附近，否则
+`heading lock`分别返回`not-initialized`或`busy`。
+
+锁向参数可逐项实时修改：
+
+```text
+heading lockcfg
+heading lockcfg set kp 1500
+heading lockcfg set kd 250
+heading lockcfg set wake 2000
+heading lockcfg set settle 800
+heading lockcfg set minrpm 10
+heading lockcfg set maxrpm 30
+heading lockcfg set rate 1500
+heading lockcfg set wheelrpm 3
+heading lockcfg set settlems 250
+heading lockcfg set timeout 3000
+heading lockcfg save
+```
+
+`settle`必须小于`wake`，`minrpm`不得大于`maxrpm`，`maxrpm`不得超过
+`max_wheel_rpm`。一次回正超过`timeout`后电机停止，`heading status`显示
+`lock_phase=failed`和`lock_result=timeout`；物理阻挡不会单独触发全局故障。
+IMU或MotorDriver通信故障仍使用现有全局安全停车路径。
 
 ### `heading distance <mm> <max_rpm> [timeout_ms]`
 
@@ -1611,6 +1696,52 @@ lf losthold 150
 lf losttimeout 1000
 ```
 
+## 路口事件
+
+路口检测使用全八路灰度掩码和连续帧状态机，类型包括`left_corner`、
+`right_corner`、`left_branch`、`right_branch`、`t`和`cross`。事件只在进入路口时
+生成一次；恢复连续6帧居中直线后才允许生成下一事件。
+
+路口几何与动作策略分离。当前只有左右直角弯具有可选自动动作；左右分支和十字默认
+保持直行，T字无前路默认停车。预留的动作序列策略尚未在本版本启用。
+
+### `road status|event|clear`
+
+```text
+road status
+road event
+road clear
+```
+
+- `status`：显示控制模式、控制阶段、检测器阶段、当前类型、已观察路径和最后策略。
+- `event`：显示最近一次事件的序号、类型、路径位、置信度以及进入/峰值/离开掩码。
+- `clear`：清除Shell可见的最近事件，并将控制器消费位置同步到当前事件。
+
+路径位为：左=`0x01`、前=`0x02`、右=`0x04`。
+
+### `road mode detect|corner`
+
+```text
+road mode detect
+road mode corner
+```
+
+上电默认`detect`，只检测和记录左右直角弯，不自动启动转向。`corner`允许循迹状态下的
+`left_corner`和`right_corner`依次执行停车、可选前进对齐、相对90°航向转动、黑线
+重捕获和恢复循迹。`road auto on|off`分别是`corner`和`detect`的简写；在自动弯道
+正在执行时关闭自动模式会立即停止航向及循迹控制。
+
+### `road turn show|set`
+
+```text
+road turn show
+road turn set 90 -90 0 30 800
+```
+
+`set`依次设置左转角、右转角、转前对齐距离mm、对齐最大RPM和转后黑线重捕获超时ms。
+范围分别为`1..180`、`-180..-1`、`0..300`、`1..300`、`1..5000`。参数立即生效但
+本版本不写FRAM，复位后恢复`90/-90/0/30/800`。
+
 ## 动作序列
 
 条件驱动的指令表解释器，通过 `run add` 逐条构建指令序列，`run start` 启动。50 ms 周期任务 `ActionRunner_Update` 执行当前指令，满足完成条件后跳转到 `on_success` / `on_timeout` 目标。
@@ -1724,7 +1855,7 @@ seq 5
 
 ## 参数管理
 
-参数持久化系统。所有底盘几何、速度环、位置环、距离速度规划、IMU 偏置、航向闭环、电源保护和灰度循迹参数统一存储在 FRAM 中（地址 0x0000，magic "CFPG"，CRC32 校验）。当前版本 v11，payload 183 字节，兼容加载 v1-v10 历史布局。V9及更早配置自动使用新的循迹斜率默认值25000；旧版默认灰度掩码 `0x3C` 自动迁移为 `0x7E`，其它自定义掩码保持不变。迁移后配置标记为dirty。
+参数持久化系统。所有底盘几何、速度环、位置环、距离速度规划、IMU 偏置、航向闭环、电源保护和灰度循迹参数统一存储在 FRAM 中（地址 0x0000，magic "CFPG"，CRC32 校验）。当前版本 v13，payload 215 字节，兼容加载 v1-v12 历史布局。v12配置加载时保留全部旧值，并为新增静止锁向参数填充默认值；迁移后配置标记为dirty，保存后升级为v13。V9及更早配置自动使用新的循迹斜率默认值25000；v10及更早的旧版默认灰度掩码 `0x3C` 自动迁移为 `0x7E`，其它自定义掩码保持不变。
 
 ### `param status`
 
@@ -1935,6 +2066,19 @@ FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接�
 | `lf_corr` | 循迹左右差速修正量（RPM） |
 | `lf_weak` | 弱线恢复窗口帧数 |
 | `lf_invalid` | 连续无效灰度帧数 |
+| `road_type` | 当前道路类型枚举 |
+| `road_event_seq` | 最近路口事件序号，0表示尚无事件 |
+| `road_event_type` | 最近路口事件类型枚举 |
+| `road_paths` | 事件观察到的左/前/右路径位 |
+| `road_phase` | 路口检测器阶段枚举 |
+| `road_ctrl_phase` | 自动直角弯控制阶段枚举 |
+| `head_turn_phase` | 航向转弯阶段：idle/drive/brake/settle枚举 |
+| `head_turn_rate_mdps` | 当前转弯使用的Z轴角速度 |
+| `head_turn_brake_mdeg` | 当前角速度计算出的动态制动角阈值 |
+| `head_turn_brake_ms` | 配置的预测制动时间窗口 |
+| `head_turn_margin_mdeg` | 配置的固定提前制动角 |
+| `head_turn_settle_mdps` | 配置的稳定角速度阈值 |
+| `head_turn_settle_rpm` | 配置的稳定轮速阈值 |
 
 ### `telem on [period_ms]`
 
@@ -1948,8 +2092,8 @@ telem on 200
 输出示例：
 
 ```text
-#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,head_err,head_corr,gray_pos,gray_strength,gray_conf,gray_valid,gray_state,lf_err,lf_corr,lf_weak,lf_invalid
-8435,1,-1,56,55,64,63,0.000,-6.056,0.000,0,374,1310,1000,1,1,374,4,0,0
+#t,...,road_ctrl_phase,head_turn_phase,head_turn_rate_mdps,head_turn_brake_mdeg,head_turn_brake_ms,head_turn_margin_mdeg,head_turn_settle_mdps,head_turn_settle_rpm
+8435,...,0,1,125000,8000,60,500,1500,3
 ```
 
 仓库中的上位机工具可以同时启用该 OLED 页面、执行一次有时间上限的巡线、保存 CSV
@@ -1958,6 +2102,17 @@ telem on 200
 ```text
 python host_tools/linefollow_capture.py --port COM14 --start-rpm 60 --run-ms 6000 --enable-oled
 ```
+
+预测制动调试可执行一次有界相对转弯并生成33列CSV，以及目标角、实际角、轮速、动态
+制动角、陀螺角速度和控制阶段曲线：
+
+```text
+python host_tools/heading_turn_capture.py --port COM14 --degrees 90
+python host_tools/heading_turn_capture.py --port COM14 --degrees -90
+```
+
+该工具会产生真实底盘运动；运行前必须确认旋转范围安全。退出路径会发送
+`heading stop`和`telem off`。
 
 ### `telem off`
 

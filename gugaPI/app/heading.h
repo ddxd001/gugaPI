@@ -12,7 +12,8 @@ enum HeadingMode {
     HEADING_IDLE = 0,
     HEADING_HOLD,
     HEADING_TURN,
-    HEADING_DISTANCE
+    HEADING_DISTANCE,
+    HEADING_LOCK
 };
 
 enum DistanceProfilePhase {
@@ -25,6 +26,21 @@ enum DistanceProfilePhase {
     DISTANCE_PHASE_SETTLE
 };
 
+enum HeadingTurnPhase {
+    HEADING_TURN_PHASE_IDLE = 0,
+    HEADING_TURN_PHASE_DRIVE,
+    HEADING_TURN_PHASE_BRAKE,
+    HEADING_TURN_PHASE_SETTLE
+};
+
+enum HeadingLockPhase {
+    HEADING_LOCK_PHASE_IDLE = 0,
+    HEADING_LOCK_PHASE_LOCKED,
+    HEADING_LOCK_PHASE_RECOVER,
+    HEADING_LOCK_PHASE_SETTLE,
+    HEADING_LOCK_PHASE_FAILED
+};
+
 struct HeadingState {
     HeadingMode mode;
     int32_t target_yaw_mdeg;   /* HOLD: locked yaw; TURN: wrapped target */
@@ -34,6 +50,15 @@ struct HeadingState {
     bool at_target;            /* TURN within tolerance */
     uint32_t at_target_since_ms;
     uint32_t turn_start_ms;
+    HeadingTurnPhase turn_phase;
+    int32_t turn_rate_mdps;        /* latest gyro Z rate used by TURN */
+    int32_t turn_brake_angle_mdeg; /* predicted coast angle + margin */
+    HeadingLockPhase lock_phase;
+    int32_t lock_rate_mdps;
+    uint32_t lock_recover_start_ms;
+    uint32_t lock_settle_start_ms;
+    uint32_t lock_recover_elapsed_ms;
+    drivers::DriverStatus lock_result;
     int32_t target_distance_mm;
     int32_t traveled_distance_mm;
     int32_t remaining_distance_mm;
@@ -64,6 +89,10 @@ struct HeadingState {
  * failures stop the chassis and latch a fault. */
 void Heading_Init(void);
 drivers::DriverStatus Heading_HoldStart(int32_t base_rpm);
+/* Captures the current relative ICM-45686 yaw while stationary. The lock
+ * remains armed until Heading_Stop(), waking the wheels only after an
+ * external disturbance exceeds the configured deadband. */
+drivers::DriverStatus Heading_LockStart(void);
 drivers::DriverStatus Heading_TurnStart(int32_t delta_deg);
 /* distance_mm: positive forward, negative reverse. max_rpm must be positive.
  * timeout_ms=0 derives a bounded timeout from distance and speed. */

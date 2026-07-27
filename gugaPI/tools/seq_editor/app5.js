@@ -78,6 +78,20 @@ addParamMeta('heading_turn_max_rpm','转向最大轮速','heading',60,0,1000,'RP
 addParamMeta('heading_turn_min_rpm','转向最小轮速','heading',20,0,500,'RPM','接近目标角度时用于克服静摩擦的最小轮速。',false);
 addParamMeta('heading_tolerance_mdeg','转向角度容差','heading',3000,0,90000,'mdeg','航向误差小于该值时进入到位判定。',false,'number','mdeg');
 addParamMeta('heading_settle_ms','航向稳定时间','heading',300,0,5000,'ms','航向持续处于容差内达到该时间后判定完成。',false,'number','ms');
+addParamMeta('heading_turn_brake_ms','转向预测制动时间','heading',60,0,500,'ms','根据朝向目标的陀螺仪角速度预测惯性转角；数值越大，转向时越早停止驱动。修改后下一次转向立即生效。',false,'number','ms');
+addParamMeta('heading_turn_brake_margin_mdeg','转向固定制动提前角','heading',500,0,30000,'mdeg','在预测惯性转角之外附加的固定提前制动角；数值越大，越不容易过冲。修改后下一次转向立即生效。',false,'number','mdeg');
+addParamMeta('heading_turn_settle_rate_mdps','转向停稳角速度阈值','heading',1500,0,60000,'mdps','陀螺仪 Z 轴角速度绝对值不超过该阈值时，才允许累计转向稳定时间。',false,'number','mdps');
+addParamMeta('heading_turn_settle_rpm','转向停稳轮速阈值','heading',3,0,100,'RPM','左右轮实际转速绝对值均不超过该阈值时，才允许累计转向稳定时间。',false);
+addParamMeta('heading_lock_kp','静止锁向 Kp','heading',1500,0,100000,'scaled','静止锁向的角度误差比例增益；1500约等于每度误差修正1.5 RPM。',false,'number','heading');
+addParamMeta('heading_lock_kd','静止锁向 Kd','heading',250,0,100000,'scaled','使用ICM Z轴角速度抑制回正过冲和来回摆动。',false);
+addParamMeta('heading_lock_wake_mdeg','锁向唤醒角度','heading',2000,100,30000,'mdeg','偏离目标达到该角度后唤醒车轮执行原地回正。',false,'number','mdeg');
+addParamMeta('heading_lock_settle_mdeg','锁向稳定角度','heading',800,50,29999,'mdeg','回正误差进入该范围后允许停止车轮并开始稳定判定；必须小于唤醒角度。',false,'number','mdeg');
+addParamMeta('heading_lock_min_rpm','锁向最小纠偏轮速','heading',10,0,100,'RPM','纠偏方向与误差一致时，用于克服静摩擦的最小轮速。',false);
+addParamMeta('heading_lock_max_rpm','锁向最大纠偏轮速','heading',30,1,200,'RPM','静止回正允许使用的最大左右轮转速，且不得超过底盘最大轮速。',false);
+addParamMeta('heading_lock_settle_rate_mdps','锁向稳定角速度阈值','heading',1500,0,60000,'mdps','Z轴角速度绝对值低于该值时才允许进入稳定计时。',false,'number','mdps');
+addParamMeta('heading_lock_settle_rpm','锁向稳定轮速阈值','heading',3,0,100,'RPM','两轮实际转速均不超过该值时才视为已经停稳。',false);
+addParamMeta('heading_lock_settle_ms','锁向稳定时间','heading',250,50,5000,'ms','角度、角速度和轮速持续稳定达到该时间后重新进入锁定等待。',false,'number','ms');
+addParamMeta('heading_lock_timeout_ms','锁向回正超时','heading',3000,500,10000,'ms','一次外力扰动回正超过该时间后停止电机并报告局部timeout。',false,'number','ms');
 
 addParamMeta('ina_uv_trip_mv','欠压触发阈值','power',6000,1,25999,'mV','电源电压连续低于该值时触发欠压。',false);
 addParamMeta('ina_uv_release_mv','欠压释放阈值','power',6500,2,26000,'mV','必须高于欠压触发阈值。',false);
@@ -530,6 +544,9 @@ function paramSimInit(){
 }
 function paramSimValid(candidate){
   if(candidate.speed_min_duty>candidate.speed_max_duty)return false;
+  if(candidate.heading_lock_settle_mdeg>=candidate.heading_lock_wake_mdeg)return false;
+  if(candidate.heading_lock_min_rpm>candidate.heading_lock_max_rpm)return false;
+  if(candidate.heading_lock_max_rpm>candidate.max_wheel_rpm)return false;
   if(candidate.ina_uv_release_mv<=candidate.ina_uv_trip_mv)return false;
   if(candidate.ina_oc_release_ma>=candidate.ina_oc_trip_ma)return false;
   if(candidate.lf_lost_stop_ms<candidate.lf_lost_hold_ms)return false;
@@ -541,7 +558,7 @@ function paramSimCommand(cmd){
   paramSimInit();
   if(cmd==='comp status')return'comp mode=dev-running slot=0 valid=1 any_valid=1 count=5 step=0 result=none last=ok\r\n> ';
   if(cmd==='reset'){simParamValues=Object.assign({},simPersistedValues);simParamDirty=false;return'resetting...\r\n> '}
-  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=183 crc=0x5C758F1C load=ok save=ok\r\n> ';
+  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=215 crc=0x5C758F1C load=ok save=ok\r\n> ';
   if(cmd==='param export'||cmd.startsWith('param export ')){
     var exportParts=cmd.split(/\s+/),start=exportParts.length>=3?Number(exportParts[2]):0;
     var requested=exportParts.length>=4?Number(exportParts[3]):PARAM_EXPORT_BATCH_SIZE;

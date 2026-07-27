@@ -14,6 +14,7 @@
 #include "app/heading.h"
 #include "app/linefollow.h"
 #include "app/motor_driver_client.h"
+#include "app/road_event_controller.h"
 #include "app/seq_store.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
@@ -1423,6 +1424,11 @@ void PrintImuUsage(void)
     services::Shell_WriteLine("  imu spi burst [bytes] [byte]");
     services::Shell_WriteLine("  imu spi rx [count 1..16] [tx]");
     services::Shell_WriteLine("  imu oled on [period_ms]|off|status|once");
+    services::Shell_WriteLine("  imu bias status");
+    services::Shell_WriteLine("  imu bias calibrate");
+    services::Shell_WriteLine("  imu bias auto on|off");
+    services::Shell_WriteLine("  imu bias save");
+    services::Shell_WriteLine("  imu bias reset");
     services::Shell_WriteLine("  imu lis whoami");
     services::Shell_WriteLine("  imu lis reg <addr>");
     services::Shell_WriteLine("  imu lis status|init|sample");
@@ -3679,6 +3685,63 @@ bool ParseI2cRange(int argc,
 #endif
 
 #if FEATURE_ENABLE_IMU
+void PrintImuBiasStatus(void)
+{
+    const ImuBiasEstimatorStatus *bias = App_ImuGetBiasStatus();
+    const ConfigStoreParams *params = ConfigStore_Get();
+    const AppImuData *imu = App_ImuGetData();
+    if ((bias == 0) || (params == 0)) {
+        services::Shell_WriteLine("imu bias: not initialized");
+        return;
+    }
+
+    const int32_t fixed = params->imu_gyro_bias_z_mdps;
+    services::Shell_WriteString("imu bias state=");
+    services::Shell_WriteString(ImuBiasEstimator_StateText(bias->state));
+    services::Shell_WriteString(" reject=");
+    services::Shell_WriteString(
+        ImuBiasEstimator_RejectReasonText(bias->reject_reason));
+    services::Shell_WriteString(" auto=");
+    services::Shell_WriteUInt32(bias->auto_enabled ? 1U : 0U);
+    services::Shell_WriteString(" manual=");
+    services::Shell_WriteUInt32(bias->manual_requested ? 1U : 0U);
+    services::Shell_WriteString(" valid=");
+    services::Shell_WriteUInt32(bias->estimate_valid ? 1U : 0U);
+    services::Shell_WriteString(" freeze=");
+    services::Shell_WriteUInt32(bias->freeze_yaw ? 1U : 0U);
+    services::Shell_WriteString("\r\n");
+
+    services::Shell_WriteString("imu bias fixed_z_mdps=");
+    WriteInt32(fixed);
+    services::Shell_WriteString(" runtime_z_mdps=");
+    WriteInt32(bias->runtime_bias_z_mdps);
+    services::Shell_WriteString(" total_z_mdps=");
+    WriteInt32(fixed + bias->runtime_bias_z_mdps);
+    services::Shell_WriteString(" corrected_z_mdps=");
+    WriteInt32((imu != 0) ? imu->gyro_mdps[2] : 0);
+    services::Shell_WriteString(" temp_centi_c=");
+    WriteInt32((imu != 0) ? imu->temp_centi_c : 0);
+    services::Shell_WriteString("\r\n");
+
+    services::Shell_WriteString("imu bias samples=");
+    services::Shell_WriteUInt32(bias->sample_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(IMU_BIAS_REQUIRED_SAMPLES);
+    services::Shell_WriteString(" elapsed_ms=");
+    services::Shell_WriteUInt32(bias->collection_elapsed_ms);
+    services::Shell_WriteString(" mean_mdps=");
+    WriteInt32(bias->last_mean_z_mdps);
+    services::Shell_WriteString(" stddev_mdps=");
+    services::Shell_WriteUInt32(bias->last_stddev_z_mdps);
+    services::Shell_WriteString(" adjust_mdps=");
+    WriteInt32(bias->last_adjustment_z_mdps);
+    services::Shell_WriteString(" accepted=");
+    services::Shell_WriteUInt32(bias->accepted_windows);
+    services::Shell_WriteString(" rejected=");
+    services::Shell_WriteUInt32(bias->rejected_windows);
+    services::Shell_WriteString("\r\n");
+}
+
 void ImuCommand(int argc, const char * const argv[])
 {
     uint32_t reg = 0U;
@@ -3721,6 +3784,45 @@ void ImuCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" lis_drdy=");
         services::Shell_WriteString(lines.lis_drdy_high ? "H" : "L");
         services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "bias")) {
+        if ((argc == 3) && StrEqual(argv[2], "status")) {
+            PrintImuBiasStatus();
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "calibrate")) {
+            App_ImuBiasRequestCalibration();
+            services::Shell_WriteLine(
+                "imu bias calibrate: waiting for 2 s stationary window");
+            return;
+        }
+        if ((argc == 4) && StrEqual(argv[2], "auto")) {
+            if (StrEqual(argv[3], "on")) {
+                App_ImuBiasSetAutoEnabled(true);
+            } else if (StrEqual(argv[3], "off")) {
+                App_ImuBiasSetAutoEnabled(false);
+            } else {
+                PrintImuUsage();
+                return;
+            }
+            services::Shell_WriteString("imu bias auto=");
+            services::Shell_WriteUInt32(
+                App_ImuGetBiasStatus()->auto_enabled ? 1U : 0U);
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "save")) {
+            WriteStatusLine("imu bias save: ", App_ImuBiasSave());
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "reset")) {
+            App_ImuBiasResetRuntime();
+            services::Shell_WriteLine("imu bias reset: runtime only");
+            return;
+        }
+        PrintImuUsage();
         return;
     }
 
@@ -5033,7 +5135,16 @@ void PrintHeadingUsage(void)
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  heading status");
     services::Shell_WriteLine("  heading hold <base_rpm>");
+    services::Shell_WriteLine("  heading lock");
+    services::Shell_WriteLine("  heading lockcfg");
+    services::Shell_WriteLine(
+        "  heading lockcfg set <key> <value>");
+    services::Shell_WriteLine("  heading lockcfg save");
     services::Shell_WriteLine("  heading turn <deg -180..180>");
+    services::Shell_WriteLine("  heading turncfg");
+    services::Shell_WriteLine(
+        "  heading turncfg set <brake_ms> <margin_mdeg> <settle_mdps> <settle_rpm>");
+    services::Shell_WriteLine("  heading turncfg save");
     services::Shell_WriteLine(
         "  heading distance <mm -10000..10000> <max_rpm> [timeout_ms]");
     services::Shell_WriteLine("  heading profile");
@@ -5053,6 +5164,8 @@ const char *HeadingModeText(app::HeadingMode mode)
         return "turn";
     case app::HEADING_DISTANCE:
         return "distance";
+    case app::HEADING_LOCK:
+        return "lock";
     default:
         return "idle";
     }
@@ -5076,6 +5189,67 @@ const char *DistancePhaseText(app::DistanceProfilePhase phase)
     case app::DISTANCE_PHASE_SETTLE: return "settle";
     default: return "idle";
     }
+}
+
+const char *HeadingTurnPhaseText(app::HeadingTurnPhase phase)
+{
+    switch (phase) {
+    case app::HEADING_TURN_PHASE_DRIVE: return "drive";
+    case app::HEADING_TURN_PHASE_BRAKE: return "brake";
+    case app::HEADING_TURN_PHASE_SETTLE: return "settle";
+    default: return "idle";
+    }
+}
+
+const char *HeadingLockPhaseText(app::HeadingLockPhase phase)
+{
+    switch (phase) {
+    case app::HEADING_LOCK_PHASE_LOCKED: return "locked";
+    case app::HEADING_LOCK_PHASE_RECOVER: return "recover";
+    case app::HEADING_LOCK_PHASE_SETTLE: return "settle";
+    case app::HEADING_LOCK_PHASE_FAILED: return "failed";
+    default: return "idle";
+    }
+}
+
+void PrintHeadingTurnConfig(void)
+{
+    const ConfigStoreParams *params = ConfigStore_Get();
+    services::Shell_WriteString("heading turncfg brake_ms=");
+    services::Shell_WriteUInt32(params->heading_turn_brake_ms);
+    services::Shell_WriteString(" margin_mdeg=");
+    services::Shell_WriteUInt32(params->heading_turn_brake_margin_mdeg);
+    services::Shell_WriteString(" settle_mdps=");
+    services::Shell_WriteUInt32(params->heading_turn_settle_rate_mdps);
+    services::Shell_WriteString(" settle_rpm=");
+    services::Shell_WriteUInt32(params->heading_turn_settle_rpm);
+    services::Shell_WriteString("\r\n");
+}
+
+void PrintHeadingLockConfig(void)
+{
+    const ConfigStoreParams *params = ConfigStore_Get();
+    services::Shell_WriteString("heading lockcfg kp=");
+    WriteInt32(params->heading_lock_kp);
+    services::Shell_WriteString(" kd=");
+    WriteInt32(params->heading_lock_kd);
+    services::Shell_WriteString(" wake_mdeg=");
+    services::Shell_WriteUInt32(params->heading_lock_wake_mdeg);
+    services::Shell_WriteString(" settle_mdeg=");
+    services::Shell_WriteUInt32(params->heading_lock_settle_mdeg);
+    services::Shell_WriteString(" min_rpm=");
+    services::Shell_WriteUInt32(params->heading_lock_min_rpm);
+    services::Shell_WriteString(" max_rpm=");
+    services::Shell_WriteUInt32(params->heading_lock_max_rpm);
+    services::Shell_WriteString(" rate_mdps=");
+    services::Shell_WriteUInt32(params->heading_lock_settle_rate_mdps);
+    services::Shell_WriteString(" wheel_rpm=");
+    services::Shell_WriteUInt32(params->heading_lock_settle_rpm);
+    services::Shell_WriteString(" settle_ms=");
+    services::Shell_WriteUInt32(params->heading_lock_settle_ms);
+    services::Shell_WriteString(" timeout_ms=");
+    services::Shell_WriteUInt32(params->heading_lock_timeout_ms);
+    services::Shell_WriteString("\r\n");
 }
 
 void PrintDistanceProfile(void)
@@ -5129,6 +5303,23 @@ void HeadingCommand(int argc, const char * const argv[])
         WriteInt32(st->profile_command_rpm);
         services::Shell_WriteString(" brake_mm=");
         WriteInt32(st->brake_distance_mm);
+        services::Shell_WriteString(" turn_phase=");
+        services::Shell_WriteString(HeadingTurnPhaseText(st->turn_phase));
+        services::Shell_WriteString(" turn_rate_mdps=");
+        WriteInt32(st->turn_rate_mdps);
+        services::Shell_WriteString(" turn_brake_mdeg=");
+        WriteInt32(st->turn_brake_angle_mdeg);
+        services::Shell_WriteString(" lock_phase=");
+        services::Shell_WriteString(HeadingLockPhaseText(st->lock_phase));
+        services::Shell_WriteString(" lock_rate_mdps=");
+        WriteInt32(st->lock_rate_mdps);
+        services::Shell_WriteString(" lock_elapsed_ms=");
+        services::Shell_WriteUInt32(st->lock_recover_elapsed_ms);
+        services::Shell_WriteString(" lock_result=");
+        services::Shell_WriteString(DriverStatusText(st->lock_result));
+        services::Shell_WriteString(" bias_valid=");
+        services::Shell_WriteUInt32(
+            App_ImuGetBiasStatus()->estimate_valid ? 1U : 0U);
         services::Shell_WriteString("\r\n");
         if ((st->mode == app::HEADING_DISTANCE) ||
             (st->target_distance_mm != 0)) {
@@ -5148,6 +5339,116 @@ void HeadingCommand(int argc, const char * const argv[])
             services::Shell_WriteUInt32(st->distance_timeout_ms);
             services::Shell_WriteString("\r\n");
         }
+        return;
+    }
+
+    if (StrEqual(argv[1], "lockcfg")) {
+        if (argc == 2) {
+            PrintHeadingLockConfig();
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "save")) {
+            WriteStatusLine("heading lockcfg save: ", ConfigStore_Save());
+            return;
+        }
+        if ((argc == 5) && StrEqual(argv[2], "set")) {
+            const char *param_name = 0;
+            uint32_t maximum = 0U;
+            if (StrEqual(argv[3], "kp")) {
+                param_name = "heading_lock_kp";
+                maximum = 100000U;
+            } else if (StrEqual(argv[3], "kd")) {
+                param_name = "heading_lock_kd";
+                maximum = 100000U;
+            } else if (StrEqual(argv[3], "wake")) {
+                param_name = "heading_lock_wake_mdeg";
+                maximum = 30000U;
+            } else if (StrEqual(argv[3], "settle")) {
+                param_name = "heading_lock_settle_mdeg";
+                maximum = 29999U;
+            } else if (StrEqual(argv[3], "minrpm")) {
+                param_name = "heading_lock_min_rpm";
+                maximum = 100U;
+            } else if (StrEqual(argv[3], "maxrpm")) {
+                param_name = "heading_lock_max_rpm";
+                maximum = 200U;
+            } else if (StrEqual(argv[3], "rate")) {
+                param_name = "heading_lock_settle_rate_mdps";
+                maximum = 60000U;
+            } else if (StrEqual(argv[3], "wheelrpm")) {
+                param_name = "heading_lock_settle_rpm";
+                maximum = 100U;
+            } else if (StrEqual(argv[3], "settlems")) {
+                param_name = "heading_lock_settle_ms";
+                maximum = 5000U;
+            } else if (StrEqual(argv[3], "timeout")) {
+                param_name = "heading_lock_timeout_ms";
+                maximum = 10000U;
+            }
+
+            uint32_t value = 0U;
+            if ((param_name == 0) ||
+                (!ParseUint32(argv[4], maximum, &value))) {
+                PrintHeadingUsage();
+                return;
+            }
+            const drivers::DriverStatus status = ConfigStore_Set(
+                param_name, static_cast<int32_t>(value));
+            WriteStatusLine("heading lockcfg set: ", status);
+            if (status == drivers::DRIVER_OK) {
+                PrintHeadingLockConfig();
+            }
+            return;
+        }
+        PrintHeadingUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "turncfg")) {
+        if (argc == 2) {
+            PrintHeadingTurnConfig();
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "save")) {
+            WriteStatusLine("heading turncfg save: ", ConfigStore_Save());
+            return;
+        }
+        if ((argc == 7) && StrEqual(argv[2], "set")) {
+            uint32_t brake_ms = 0U;
+            uint32_t margin_mdeg = 0U;
+            uint32_t settle_mdps = 0U;
+            uint32_t settle_rpm = 0U;
+            if ((!ParseUint32(argv[3], 500U, &brake_ms)) ||
+                (!ParseUint32(argv[4], 30000U, &margin_mdeg)) ||
+                (!ParseUint32(argv[5], 60000U, &settle_mdps)) ||
+                (!ParseUint32(argv[6], 100U, &settle_rpm))) {
+                PrintHeadingUsage();
+                return;
+            }
+            drivers::DriverStatus status = ConfigStore_Set(
+                "heading_turn_brake_ms", static_cast<int32_t>(brake_ms));
+            if (status == drivers::DRIVER_OK) {
+                status = ConfigStore_Set(
+                    "heading_turn_brake_margin_mdeg",
+                    static_cast<int32_t>(margin_mdeg));
+            }
+            if (status == drivers::DRIVER_OK) {
+                status = ConfigStore_Set(
+                    "heading_turn_settle_rate_mdps",
+                    static_cast<int32_t>(settle_mdps));
+            }
+            if (status == drivers::DRIVER_OK) {
+                status = ConfigStore_Set(
+                    "heading_turn_settle_rpm",
+                    static_cast<int32_t>(settle_rpm));
+            }
+            WriteStatusLine("heading turncfg set: ", status);
+            if (status == drivers::DRIVER_OK) {
+                PrintHeadingTurnConfig();
+            }
+            return;
+        }
+        PrintHeadingUsage();
         return;
     }
 
@@ -5235,6 +5536,25 @@ void HeadingCommand(int argc, const char * const argv[])
 
     if (StrEqual(argv[1], "stop")) {
         WriteStatusLine("heading stop: ", app::Heading_Stop());
+        return;
+    }
+
+    if (StrEqual(argv[1], "lock")) {
+        if (argc != 2) {
+            PrintHeadingUsage();
+            return;
+        }
+        if (app::ActionRunner_GetState()->running) {
+            WriteStatusLine("heading lock: ", drivers::DRIVER_ERROR_BUSY);
+            return;
+        }
+#if FEATURE_ENABLE_GRAYSCALE
+        if (app::LF_GetState()->mode != app::LF_IDLE) {
+            WriteStatusLine("heading lock: ", drivers::DRIVER_ERROR_BUSY);
+            return;
+        }
+#endif
+        WriteStatusLine("heading lock: ", app::Heading_LockStart());
         return;
     }
 
@@ -5639,6 +5959,17 @@ void LFCommand(int argc, const char * const argv[])
             PrintLFUsage();
             return;
         }
+#if FEATURE_ENABLE_IMU
+        const app::RoadControlPhase road_phase =
+            app::RoadEventController_GetState()->phase;
+        if ((road_phase == app::ROAD_CONTROL_PHASE_ALIGNING) ||
+            (road_phase == app::ROAD_CONTROL_PHASE_TURNING) ||
+            (road_phase == app::ROAD_CONTROL_PHASE_REACQUIRE)) {
+            WriteStatusLine("lf stop: ",
+                            app::RoadEventController_Cancel());
+            return;
+        }
+#endif
         WriteStatusLine("lf stop: ", app::LF_Stop());
         return;
     }
@@ -5740,6 +6071,165 @@ void LFCommand(int argc, const char * const argv[])
     (void) argc;
     (void) argv;
     services::Shell_WriteLine("lf: disabled");
+#endif
+}
+
+void PrintRoadUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  road status|event|clear");
+    services::Shell_WriteLine("  road mode detect|corner");
+    services::Shell_WriteLine("  road auto on|off");
+    services::Shell_WriteLine("  road turn show");
+    services::Shell_WriteLine(
+        "  road turn set <left_deg> <right_deg> <align_mm> <rpm> <reacquire_ms>");
+}
+
+void PrintRoadEvent(void)
+{
+    const app::AppGrayscaleData *data = app::App_GrayscaleGetData();
+    services::Shell_WriteString("road event seq=");
+    services::Shell_WriteUInt32(data->road_event_sequence);
+    services::Shell_WriteString(" type=");
+    services::Shell_WriteString(
+        app::GrayscaleRoad_TypeText(data->road_event_type));
+    services::Shell_WriteString(" paths=");
+    WriteHex8(data->road_event_paths);
+    services::Shell_WriteString(" confidence=");
+    services::Shell_WriteUInt32(data->road_event_confidence);
+    services::Shell_WriteString(" entry=");
+    WriteHex8(data->road_event_entry_mask);
+    services::Shell_WriteString(" peak=");
+    WriteHex8(data->road_event_peak_mask);
+    services::Shell_WriteString(" exit=");
+    WriteHex8(data->road_event_exit_mask);
+    services::Shell_WriteString("\r\n");
+}
+
+void RoadCommand(int argc, const char * const argv[])
+{
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER && \
+    FEATURE_ENABLE_IMU
+    if (argc < 2) {
+        PrintRoadUsage();
+        return;
+    }
+
+    if ((argc == 2) && StrEqual(argv[1], "status")) {
+        const app::AppGrayscaleData *data = app::App_GrayscaleGetData();
+        const app::RoadControlState *state =
+            app::RoadEventController_GetState();
+        services::Shell_WriteString("road mode=");
+        services::Shell_WriteString(
+            app::RoadEventController_ModeText(state->mode));
+        services::Shell_WriteString(" phase=");
+        services::Shell_WriteString(
+            app::RoadEventController_PhaseText(state->phase));
+        services::Shell_WriteString(" detector=");
+        services::Shell_WriteString(
+            app::GrayscaleRoad_PhaseText(data->road_phase));
+        services::Shell_WriteString(" current=");
+        services::Shell_WriteString(
+            app::GrayscaleRoad_TypeText(data->road_type));
+        services::Shell_WriteString(" observed=");
+        WriteHex8(data->road_observed_paths);
+        services::Shell_WriteString(" handled=");
+        services::Shell_WriteUInt32(state->handled_event_sequence);
+        services::Shell_WriteString(" policy=");
+        services::Shell_WriteString(
+            app::RoadEventController_PolicyText(state->last_policy));
+        services::Shell_WriteString(" last=");
+        services::Shell_WriteString(DriverStatusText(state->last_status));
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if ((argc == 2) && StrEqual(argv[1], "event")) {
+        PrintRoadEvent();
+        return;
+    }
+
+    if ((argc == 2) && StrEqual(argv[1], "clear")) {
+        app::RoadEventController_ClearEvent();
+        services::Shell_WriteLine("road clear: ok");
+        return;
+    }
+
+    if ((argc == 3) && StrEqual(argv[1], "mode")) {
+        app::RoadControlMode mode = app::ROAD_CONTROL_DETECT_ONLY;
+        if (StrEqual(argv[2], "corner")) {
+            mode = app::ROAD_CONTROL_AUTO_CORNERS;
+        } else if (!StrEqual(argv[2], "detect")) {
+            PrintRoadUsage();
+            return;
+        }
+        WriteStatusLine("road mode: ",
+                        app::RoadEventController_SetMode(mode));
+        return;
+    }
+
+    if ((argc == 3) && StrEqual(argv[1], "auto")) {
+        app::RoadControlMode mode = app::ROAD_CONTROL_DETECT_ONLY;
+        if (StrEqual(argv[2], "on")) {
+            mode = app::ROAD_CONTROL_AUTO_CORNERS;
+        } else if (!StrEqual(argv[2], "off")) {
+            PrintRoadUsage();
+            return;
+        }
+        WriteStatusLine("road auto: ",
+                        app::RoadEventController_SetMode(mode));
+        return;
+    }
+
+    if ((argc == 3) && StrEqual(argv[1], "turn") &&
+        StrEqual(argv[2], "show")) {
+        const app::RoadControlConfig &config =
+            app::RoadEventController_GetState()->config;
+        services::Shell_WriteString("road turn left_deg=");
+        WriteInt32(config.left_turn_deg);
+        services::Shell_WriteString(" right_deg=");
+        WriteInt32(config.right_turn_deg);
+        services::Shell_WriteString(" align_mm=");
+        WriteInt32(config.align_distance_mm);
+        services::Shell_WriteString(" align_rpm=");
+        services::Shell_WriteUInt32(config.align_rpm);
+        services::Shell_WriteString(" reacquire_ms=");
+        services::Shell_WriteUInt32(config.reacquire_timeout_ms);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if ((argc == 8) && StrEqual(argv[1], "turn") &&
+        StrEqual(argv[2], "set")) {
+        int32_t left_deg = 0;
+        int32_t right_deg = 0;
+        int32_t align_mm = 0;
+        uint32_t align_rpm = 0U;
+        uint32_t reacquire_ms = 0U;
+        if ((!ParseInt32(argv[3], 1, 180, &left_deg)) ||
+            (!ParseInt32(argv[4], -180, -1, &right_deg)) ||
+            (!ParseInt32(argv[5], 0, 300, &align_mm)) ||
+            (!ParseUint32(argv[6], 300U, &align_rpm)) ||
+            (!ParseUint32(argv[7], 5000U, &reacquire_ms)) ||
+            (align_rpm == 0U) || (reacquire_ms == 0U)) {
+            PrintRoadUsage();
+            return;
+        }
+        WriteStatusLine(
+            "road turn: ",
+            app::RoadEventController_SetTurnConfig(left_deg,
+                                                    right_deg,
+                                                    align_mm,
+                                                    align_rpm,
+                                                    reacquire_ms));
+        return;
+    }
+
+    PrintRoadUsage();
+#else
+    (void) argc;
+    (void) argv;
+    services::Shell_WriteLine("road: disabled");
 #endif
 }
 
@@ -6887,6 +7377,14 @@ void GrayCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(data->frame_period_ms);
         services::Shell_WriteString(" road=");
         services::Shell_WriteString(app::GrayscaleRoad_TypeText(data->road_type));
+        services::Shell_WriteString(" road_phase=");
+        services::Shell_WriteString(
+            app::GrayscaleRoad_PhaseText(data->road_phase));
+        services::Shell_WriteString(" event_seq=");
+        services::Shell_WriteUInt32(data->road_event_sequence);
+        services::Shell_WriteString(" event=");
+        services::Shell_WriteString(
+            app::GrayscaleRoad_TypeText(data->road_event_type));
         services::Shell_WriteString("\r\n");
         return;
     }
@@ -6934,6 +7432,16 @@ void GrayCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(data->invalid_frames);
         services::Shell_WriteString(" road=");
         services::Shell_WriteString(app::GrayscaleRoad_TypeText(data->road_type));
+        services::Shell_WriteString(" road_phase=");
+        services::Shell_WriteString(
+            app::GrayscaleRoad_PhaseText(data->road_phase));
+        services::Shell_WriteString(" road_paths=");
+        WriteHex8(data->road_observed_paths);
+        services::Shell_WriteString(" event_seq=");
+        services::Shell_WriteUInt32(data->road_event_sequence);
+        services::Shell_WriteString(" event=");
+        services::Shell_WriteString(
+            app::GrayscaleRoad_TypeText(data->road_event_type));
         services::Shell_WriteString(" on=");
         services::Shell_WriteUInt32(data->threshold_on);
         services::Shell_WriteString(" off=");
@@ -7464,7 +7972,12 @@ void TelemSendHeader(void)
     services::DebugUart_WriteString(
         "#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,head_err,"
         "head_corr,gray_pos,gray_strength,gray_conf,gray_valid,"
-        "gray_state,lf_err,lf_corr,lf_weak,lf_invalid\n");
+        "gray_state,lf_err,lf_corr,lf_weak,lf_invalid,"
+        "road_type,road_event_seq,road_event_type,road_paths,road_phase,"
+        "road_ctrl_phase,head_turn_phase,head_turn_rate_mdps,"
+        "head_turn_brake_mdeg,head_turn_brake_ms,"
+        "head_turn_margin_mdeg,head_turn_settle_mdps,"
+        "head_turn_settle_rpm\n");
 }
 
 void TelemSendData(void)
@@ -7476,6 +7989,7 @@ void TelemSendData(void)
     const app::ActionRunnerState *as = app::ActionRunner_GetState();
     const app::AppGrayscaleData *gray = app::App_GrayscaleGetData();
     const app::LFState *lf = app::LF_GetState();
+    const app::ConfigStoreParams *params = app::ConfigStore_Get();
 
     /* t */
     services::Shell_WriteUInt32(now);
@@ -7531,6 +8045,43 @@ void TelemSendData(void)
     services::Shell_WriteUInt32((lf != 0) ? lf->weak_tracking_frames : 0U);
     services::Shell_WriteString(",");
     services::Shell_WriteUInt32((lf != 0) ? lf->invalid_frames : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((gray != 0)
+        ? static_cast<uint32_t>(gray->road_type)
+        : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((gray != 0)
+        ? gray->road_event_sequence
+        : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((gray != 0)
+        ? static_cast<uint32_t>(gray->road_event_type)
+        : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((gray != 0)
+        ? gray->road_event_paths
+        : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((gray != 0)
+        ? static_cast<uint32_t>(gray->road_phase)
+        : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(static_cast<uint32_t>(
+        app::RoadEventController_GetState()->phase));
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(static_cast<uint32_t>(hs->turn_phase));
+    services::Shell_WriteString(",");
+    WriteInt32(hs->turn_rate_mdps);
+    services::Shell_WriteString(",");
+    WriteInt32(hs->turn_brake_angle_mdeg);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(params->heading_turn_brake_ms);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(params->heading_turn_brake_margin_mdeg);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(params->heading_turn_settle_rate_mdps);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(params->heading_turn_settle_rpm);
     services::Shell_WriteString("\n");
 }
 
@@ -7770,6 +8321,13 @@ void AppShell_RegisterCommands(void)
         "lf",
         "LineFollow: status|cal|start|stop|kp|kd|maxcorr|slew|losthold|losttimeout",
         LFCommand);
+#endif
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER && \
+    FEATURE_ENABLE_IMU
+    (void) services::Shell_RegisterCommand(
+        "road",
+        "Road events: status|event|clear|mode|auto|turn",
+        RoadCommand);
 #endif
     (void) services::Shell_RegisterCommand(
         "comp",

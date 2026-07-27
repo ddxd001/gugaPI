@@ -107,7 +107,57 @@ lf stop
 首次动态验证使用 40 RPM、5 秒直线，再逐步提高速度。每次测试同时记录
 `gray process`、`lf status` 和 `sched`；不要在故障未清除时直接发送运动命令。
 
-## 5. 相关代码
+## 5. 路口事件与自动直角弯
+
+道路检测使用全八路迟滞位图，但不使用单帧结果直接触发动作。分类器依次经过
+`normal -> observing -> latched`，收集连续侧向证据并在离开路口后重新允许触发。
+单帧边缘噪声不会生成事件；同一个物理路口在重新获得连续6帧居中直线前只生成一次
+事件。
+
+事件类型：
+
+| 类型 | 路径含义 | 当前默认行为 |
+| --- | --- | --- |
+| `left_corner` | 左路，无前路 | `corner`模式自动左转 |
+| `right_corner` | 右路，无前路 | `corner`模式自动右转 |
+| `left_branch` | 左路+前路 | 保持直行 |
+| `right_branch` | 前路+右路 | 保持直行 |
+| `t` | 左路+右路，无前路 | 安全停车 |
+| `cross` | 左路+前路+右路 | 保持直行 |
+
+路口几何与动作策略分离。事件包含独立序号、路径位、置信度和进入/峰值/离开掩码；
+后续可以把任意类型映射到动作序列，而不用修改灰度分类器。本版本尚未绑定自定义
+动作序列。
+
+上电默认是只检测模式，不会因左右弯事件自动转向：
+
+```text
+road status
+road event
+road mode detect
+```
+
+手推车辆经过不同路口，先用`road event`确认类型。需要实车自动处理左右直角弯时，
+车轮方向、IMU航向和急停均已验证后执行：
+
+```text
+road turn show
+road mode corner
+lf start 40 10000
+```
+
+默认左转`+90°`、右转`-90°`、对齐距离0 mm、对齐速度30 RPM、转后静止等待黑线
+800 ms。运行期可修改：
+
+```text
+road turn set 90 -90 0 30 800
+```
+
+这组参数尚未写入ConfigStore，复位后恢复默认值。`align_mm`应在测量灰度阵列到轮轴的
+实际安装距离并完成低速验证后再设置。任何自动弯道阶段可执行`road auto off`；若正在
+转弯，该命令会停止航向和循迹控制。
+
+## 6. 相关代码
 
 | 层级 | 文件 |
 | --- | --- |
@@ -116,5 +166,6 @@ lf stop
 | 标定与帧发布 | `app/app_grayscale.cpp/.h` |
 | 归一化和插值 | `drivers/grayscale/grayscale_processing.cpp/.h` |
 | 道路分类 | `app/grayscale_road.cpp/.h` |
+| 路口行为控制 | `app/road_event_controller.cpp/.h` |
 | 循迹控制 | `app/linefollow.cpp/.h` |
 | 硬件配置 | `empty_cpp.syscfg` |

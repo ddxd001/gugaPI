@@ -203,6 +203,17 @@ int32_t CalculateCorrection(const AppGrayscaleData *data, int32_t base_rpm)
     return correction;
 }
 
+bool IsForwardJunctionPassThrough(const AppGrayscaleData *data)
+{
+    if ((data == 0) ||
+        ((data->road_observed_paths & GRAYSCALE_ROAD_PATH_FORWARD) == 0U)) {
+        return false;
+    }
+    return (data->road_type == GRAYSCALE_ROAD_LEFT_BRANCH) ||
+           (data->road_type == GRAYSCALE_ROAD_RIGHT_BRANCH) ||
+           (data->road_type == GRAYSCALE_ROAD_CROSS);
+}
+
 } /* namespace */
 
 void LF_Init(void)
@@ -339,6 +350,19 @@ void LF_Update(void)
     }
     if ((!data->line_detected) || (!data->position_valid) ||
         (data->track_state != drivers::GRAYSCALE_TRACK_VALID)) {
+        /* A branch/crossing can temporarily make the analogue geometry wide
+         * or multiple even though a forward path is confirmed. Traverse that
+         * bounded classifier window straight. Corners and T junctions never
+         * enter this path because their current road type has no forward
+         * continuation. */
+        if (IsForwardJunctionPassThrough(data)) {
+            g_state.lost = false;
+            g_state.lost_since_ms = 0U;
+            g_state.error_mpos = 0;
+            g_state.correction_rpm = 0;
+            (void) ApplyWheelCommand(g_state.base_rpm, 0);
+            return;
+        }
         g_state.lost = true;
         g_state.error_mpos = 0;
         g_state.lost_since_ms = now;

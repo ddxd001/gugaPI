@@ -58,6 +58,12 @@ struct ConfigStoreParams {
     int32_t heading_tolerance_mdeg;      /* TURN target tolerance */
     uint16_t heading_settle_ms;          /* TURN settle time at target */
 
+    /* Predictive TURN braking and completion gates (v12). */
+    uint16_t heading_turn_brake_ms;          /* gyro-rate prediction horizon */
+    uint16_t heading_turn_brake_margin_mdeg; /* fixed early-stop margin */
+    uint16_t heading_turn_settle_rate_mdps;  /* maximum stopped yaw rate */
+    uint16_t heading_turn_settle_rpm;        /* maximum stopped wheel RPM */
+
     /* Distance speed-profile tuning (v8). The MotorDriver speed-loop period
      * is unchanged; these values shape the RPM requests sent by gugaPI. */
     uint8_t distance_speed_mode;
@@ -94,6 +100,19 @@ struct ConfigStoreParams {
     uint16_t linefollow_lost_stop_ms;
     /* Maximum differential-correction change, relative to base RPM. */
     uint16_t linefollow_correction_slew_permille_per_second;
+
+    /* Stationary disturbance-recovery heading lock (v13). Appended to the
+     * persisted payload so every v1-v12 field keeps its original offset. */
+    int32_t heading_lock_kp;
+    int32_t heading_lock_kd;
+    uint16_t heading_lock_wake_mdeg;
+    uint16_t heading_lock_settle_mdeg;
+    uint16_t heading_lock_min_rpm;
+    uint16_t heading_lock_max_rpm;
+    uint16_t heading_lock_settle_rate_mdps;
+    uint16_t heading_lock_settle_rpm;
+    uint16_t heading_lock_settle_ms;
+    uint16_t heading_lock_timeout_ms;
 };
 
 enum ConfigStoreLoadOutcome : uint8_t {

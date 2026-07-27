@@ -31,10 +31,13 @@ drivers::GrayscaleCalibration g_calibration = {};
 drivers::GrayscaleProcessingState g_processingState = {};
 GrayscaleRoadClassifierState g_roadState = {};
 static const GrayscaleRoadClassifierConfig kRoadConfig = {
-    0x03U,
-    0x3CU,
-    0xC0U,
-    2U
+    0x03U, /* left-side road evidence: channels 0..1 */
+    0x3CU, /* forward road evidence: channels 2..5 */
+    0xC0U, /* right-side road evidence: channels 6..7 */
+    2U,    /* no-forward confirmation frames */
+    3U,    /* side-exit confirmation frames */
+    6U,    /* centered frames required before rearming */
+    24U    /* bounded observation window */
 };
 AppGrayscaleCalibrationStatus g_calibrationStatus = {};
 uint32_t g_calibrationStartMs = 0U;
@@ -127,6 +130,15 @@ void ResetProcessingState(void)
     GrayscaleRoad_Init(&g_roadState);
     g_data.road_type = GRAYSCALE_ROAD_UNKNOWN;
     g_data.road_confirm_count = 0U;
+    g_data.road_phase = GRAYSCALE_ROAD_PHASE_NORMAL;
+    g_data.road_observed_paths = 0U;
+    g_data.road_event_sequence = 0U;
+    g_data.road_event_type = GRAYSCALE_ROAD_UNKNOWN;
+    g_data.road_event_paths = 0U;
+    g_data.road_event_confidence = 0U;
+    g_data.road_event_entry_mask = 0U;
+    g_data.road_event_peak_mask = 0U;
+    g_data.road_event_exit_mask = 0U;
 }
 
 void PublishProcessed(const drivers::GrayscaleProcessedData &processed)
@@ -243,6 +255,19 @@ void ProcessPublishedFrame(uint8_t fresh_mask)
                                             road_mask,
                                             g_data.sequence);
     g_data.road_confirm_count = g_roadState.candidate_count;
+    g_data.road_phase = g_roadState.phase;
+    g_data.road_observed_paths = g_roadState.observed_paths;
+    const GrayscaleRoadEvent *event =
+        GrayscaleRoad_GetLastEvent(&g_roadState);
+    if ((event != 0) && event->valid) {
+        g_data.road_event_sequence = event->sequence;
+        g_data.road_event_type = event->type;
+        g_data.road_event_paths = event->observed_paths;
+        g_data.road_event_confidence = event->confidence;
+        g_data.road_event_entry_mask = event->entry_mask;
+        g_data.road_event_peak_mask = event->peak_mask;
+        g_data.road_event_exit_mask = event->exit_mask;
+    }
     g_data.processed_valid = true;
     g_data.processing_status = drivers::DRIVER_OK;
 }
@@ -542,6 +567,18 @@ void App_GrayscaleUpdate(void)
 const AppGrayscaleData *App_GrayscaleGetData(void)
 {
     return &g_data;
+}
+
+void App_GrayscaleClearRoadEvent(void)
+{
+    GrayscaleRoad_ClearLastEvent(&g_roadState);
+    g_data.road_event_sequence = 0U;
+    g_data.road_event_type = GRAYSCALE_ROAD_UNKNOWN;
+    g_data.road_event_paths = 0U;
+    g_data.road_event_confidence = 0U;
+    g_data.road_event_entry_mask = 0U;
+    g_data.road_event_peak_mask = 0U;
+    g_data.road_event_exit_mask = 0U;
 }
 
 drivers::DriverStatus App_GrayscaleReloadCalibration(void)

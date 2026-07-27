@@ -115,7 +115,49 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 #paramToast.error{background:#472b30;border-color:#7a3f47}
 #paramToast.ok{background:#203b33;border-color:#356554}
 #paramFileInput{display:none}
-@media(max-width:1100px){#paramLayout{grid-template-columns:190px minmax(330px,1fr) 310px}}
+#commandView{background:#11131a;color:#e4e8f0}
+#commandShell{display:grid;grid-template-rows:auto 1fr;flex:1;min-width:0;overflow:hidden}
+#commandToolbar{display:flex;align-items:center;gap:9px;padding:10px 12px;background:#20242d;border-bottom:1px solid #343a46;flex-wrap:wrap}
+#commandToolbar .command-title{font-size:15px;font-weight:700}
+#commandToolbar .command-stats{color:#8d99aa;font-size:11px}
+#commandToolbar .command-spacer{flex:1}
+#commandSearch{width:min(420px,36vw);background:#151820;border:1px solid #3b4350;border-radius:5px;color:#edf1f7;padding:7px 10px}
+#commandSearch:focus{outline:none;border-color:#4da3d9}
+#commandCategory{background:#151820;border:1px solid #3b4350;border-radius:5px;color:#edf1f7;padding:7px 9px}
+#commandToolbar label{display:flex;align-items:center;gap:5px;color:#aeb7c5;font-size:12px}
+#commandLayout{display:grid;grid-template-columns:minmax(330px,38%) minmax(420px,1fr);min-height:0;overflow:hidden}
+.command-pane{min-width:0;min-height:0;overflow:auto;border-right:1px solid #303642;background:#171a22}
+.command-pane:last-child{border-right:none;background:#1c2029}
+#commandRows{padding-bottom:24px}
+.command-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;width:100%;border:0;border-bottom:1px solid #252a33;border-radius:0;background:#171a22;color:#dce2eb;padding:11px 14px;text-align:left}
+.command-row:hover{background:#202630}
+.command-row.active{background:#26333e;box-shadow:inset 3px 0 #45a8d8}
+.command-row-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:650}
+.command-row-name{font-family:Consolas,monospace;color:#67c4ef}
+.command-row-summary{display:block;margin-top:4px;color:#8e99a9;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.command-badges{display:flex;gap:5px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end}
+.command-badge{display:inline-flex;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:700}
+.command-badge.read{background:#203d35;color:#7ed9b4}
+.command-badge.write{background:#59451d;color:#ffd37a}
+.command-badge.motion{background:#542f38;color:#ff9db0}
+.command-badge.disabled{background:#343944;color:#929cac}
+.command-badge.dev{background:#263c4b;color:#73c7f1}
+#commandEmpty{padding:50px 20px;text-align:center;color:#758094}
+#commandDetails{padding:22px;max-width:980px}
+.command-detail-head{display:flex;align-items:flex-start;gap:12px}
+.command-detail-head-main{flex:1;min-width:0}
+.command-detail-name{font-family:Consolas,monospace;color:#67c4ef;font-size:25px}
+.command-detail-title{font-size:15px;color:#f0f3f8;margin-top:4px}
+.command-detail-summary{color:#aeb7c5;line-height:1.65;margin:16px 0}
+.command-note{padding:10px 12px;background:#151820;border:1px solid #343c49;border-radius:5px;color:#99a5b5;line-height:1.55;font-size:12px}
+.command-note.warn{background:#3d3020;border-color:#765a2b;color:#f3d59c}
+.command-form-title{font-size:12px;color:#8793a4;margin:20px 0 8px}
+.command-form{display:grid;grid-template-columns:minmax(260px,1fr) minmax(180px,.75fr) auto;gap:12px;align-items:center;padding:10px 0;border-bottom:1px solid #2a303a}
+.command-form code{font-family:Consolas,monospace;color:#d9edf8;background:#12151c;border:1px solid #303844;border-radius:4px;padding:7px 9px;overflow-wrap:anywhere}
+.command-form-desc{color:#9aa5b4;font-size:11px;line-height:1.45}
+.command-form-actions{display:flex;gap:5px}
+.command-form-actions button{padding:4px 7px;font-size:10px}
+@media(max-width:1100px){#paramLayout{grid-template-columns:190px minmax(330px,1fr) 310px}#commandLayout{grid-template-columns:330px minmax(400px,1fr)}}
 </style>
 </head>
 <body>
@@ -130,6 +172,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <button class="tab active" id="tabEditor" type="button">序列编辑器</button>
 <button class="tab" id="tabTerminal" type="button">串口终端</button>
 <button class="tab" id="tabParameters" type="button">参数</button>
+<button class="tab" id="tabCommands" type="button">命令库</button>
 </div>
 <div id="editorView" class="main">
 <div class="sidebar"><div style="font-size:12px;opacity:0.5;margin-bottom:6px">SLOTS</div><div id="slotList"></div></div>
@@ -182,12 +225,33 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 </div>
 </div>
 </div>
+<div id="commandView" class="main" hidden>
+<div id="commandShell">
+<div id="commandToolbar">
+<span class="command-title">Shell 命令库</span>
+<span id="commandStats" class="command-stats"></span>
+<span class="command-spacer"></span>
+<input id="commandSearch" type="search" autocomplete="off" placeholder="搜索命令、中文说明或参数格式">
+<select id="commandCategory" aria-label="命令分类"></select>
+<label><input id="commandShowDisabled" type="checkbox"> 显示未启用命令</label>
+</div>
+<div id="commandLayout">
+<section class="command-pane">
+<div id="commandRows"></div>
+<div id="commandEmpty" hidden>没有匹配的命令</div>
+</section>
+<aside class="command-pane"><div id="commandDetails"></div></aside>
+</div>
+</div>
+</div>
 <div class="log" id="log"></div>
 <div id="paramToast" role="status" aria-live="polite"></div>
 <script src="app1.js"></script>
 <script src="app2.js"></script>
 <script src="app3.js"></script>
 <script src="app4.js"></script>
-<script src="app5.js?v=20260728-param-batch"></script>
+<script src="app5.js?v=20260728-heading-lock"></script>
+<script src="command_catalog.js?v=20260728-shell-library"></script>
+<script src="app6.js?v=20260728-shell-library"></script>
 </body>
 </html>

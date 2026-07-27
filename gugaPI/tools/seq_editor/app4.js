@@ -6,8 +6,8 @@ var termHistoryIndex=0;
 var TERM_MAX_CHARS=200000;
 var TERM_COMMANDS=[
   'help','version','reset','sched','txstat','led','buzzer','button','fram',
-  'param','ina219','oled','gy931','imu','gray','lora','motor','chassis',
-  'heading','run','lf','comp','telem','seq','i2c','adc','pwm'
+  'param','oled','imu','gray','lora','motor','chassis','heading','run','lf',
+  'road','comp','telem','seq','i2c'
 ];
 
 function terminalAppend(data,type){
@@ -45,16 +45,20 @@ function switchTab(name){
   var editor=name==='editor';
   var terminal=name==='terminal';
   var parameters=name==='parameters';
+  var commands=name==='commands';
   $('editorView').hidden=!editor;
   $('termView').hidden=!terminal;
   $('paramView').hidden=!parameters;
+  $('commandView').hidden=!commands;
   $('log').hidden=!editor;
   $('tabEditor').classList.toggle('active',editor);
   $('tabTerminal').classList.toggle('active',terminal);
   $('tabParameters').classList.toggle('active',parameters);
+  $('tabCommands').classList.toggle('active',commands);
   if(terminal&&!$('termInput').disabled)$('termInput').focus();
   if(parameters&&typeof ParamPage_OnShow==='function')ParamPage_OnShow();
   if(!parameters&&typeof ParamPage_OnHide==='function')ParamPage_OnHide();
+  if(commands&&typeof CommandLibrary_OnShow==='function')CommandLibrary_OnShow();
 }
 
 async function terminalSend(){
@@ -92,6 +96,7 @@ function terminalComplete(){
 $('tabEditor').addEventListener('click',function(){switchTab('editor')});
 $('tabTerminal').addEventListener('click',function(){switchTab('terminal')});
 $('tabParameters').addEventListener('click',function(){switchTab('parameters')});
+$('tabCommands').addEventListener('click',function(){switchTab('commands')});
 $('btnTermClear').addEventListener('click',function(){$('termDisplay').textContent=''});
 $('btnTermSend').addEventListener('click',terminalSend);
 $('btnTermHelp').addEventListener('click',function(){

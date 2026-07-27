@@ -187,7 +187,7 @@
 - 5 ms 周期任务（`app_imu`）读取 200 Hz ICM-45686 加速度/陀螺仪，积分 Z 轴角速度得到相对 Yaw（毫度，`-180000~180000 mdeg`）。
 - 减去 `ConfigStore` 里的 `imu_gyro_bias_z_mdps` 偏置。
 - 提供最短角度差 `ShortestAngleDiff()`，正确处理 `-180°/180°` 回绕。
-- 50 ms 周期 `Heading_Update()` 消费 IMU 数据，内建调度看门狗（任务间隔 > 200 ms 判定数据过期→停车+故障）。
+- 10 ms 周期 `Heading_Update()` 消费最新 IMU 数据；转弯时根据 Z 轴角速度和FRAM中的预测窗口、固定提前量参数计算制动角。角速度与轮速稳定门限同样可配置。内建调度看门狗（任务间隔 > 200 ms 判定数据过期→停车+故障）。
 - 记录 `last_run_ms`、`last_status` 和 IMU `valid` 标志。
 
 ### 5.2 直行航向保持
