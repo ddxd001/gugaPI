@@ -1,9 +1,14 @@
 # 定距分段速度曲线使用与验收手册
 
+> **当前阻塞**：右侧 MR 单电机配置设置
+> `FEATURE_ENABLE_DIFFERENTIAL_CHASSIS=0`，不能执行编码器定距。
+> 本文仅作为恢复双轮硬件后的设计与验收记录，当前台架不得执行其中的
+> `heading distance` 或 `drive_mm` 运动步骤。
+
 ## 1. 范围
 
 本功能用于 `heading distance` 和动作序列中的 `drive_mm`。它在gugaPI上整形目标RPM，
-不修改MotorDriver的100 ms速度环，不修改调度器实现，也不改变原有函数调用接口。
+不修改主控本地电机控制器的10 ms速度环，不修改调度器实现，也不改变原有函数调用接口。
 
 ## 2. 工作流程
 
@@ -91,13 +96,13 @@ param save
 param status
 ```
 
-预期旧V7配置能够正常加载并显示dirty；保存后升级为当前V10布局、长度更新为183且dirty清零。随后执行：
+预期旧V7配置能够正常加载并显示dirty；保存后升级为当前V13布局、长度更新为215且dirty清零。随后执行：
 
 ```text
-motor info
-motor status
+chassis status
 sched
 heading status
 ```
 
-确认MotorDriver在线、故障位为0、所有任务timeout为0，再进行运动测试。
+恢复双轮硬件后，确认左右编码器状态有效、底盘状态正常、所有任务timeout为0，
+再进行本节运动测试。当前右侧 MR 单电机台架只验收右编码器，不得执行双轮定距动作。

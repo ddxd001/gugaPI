@@ -3,6 +3,7 @@
 #include "app/app_grayscale.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
+#include "config/feature_config.h"
 #include "services/fault.h"
 #include "services/time.h"
 
@@ -224,6 +225,10 @@ void RoadEventController_Update(void)
 
 drivers::DriverStatus RoadEventController_SetMode(RoadControlMode mode)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        (void) RoadEventController_Cancel();
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+    }
     if ((mode != ROAD_CONTROL_DETECT_ONLY) &&
         (mode != ROAD_CONTROL_AUTO_CORNERS)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
@@ -244,6 +249,10 @@ drivers::DriverStatus RoadEventController_SetTurnConfig(
     uint32_t align_rpm,
     uint32_t reacquire_timeout_ms)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        (void) RoadEventController_Cancel();
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+    }
     if ((left_turn_deg <= 0) || (left_turn_deg > kMaximumTurnDeg) ||
         (right_turn_deg >= 0) || (right_turn_deg < -kMaximumTurnDeg) ||
         (align_distance_mm < 0) ||

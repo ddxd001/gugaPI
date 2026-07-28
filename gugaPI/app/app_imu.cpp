@@ -42,7 +42,7 @@ ImuBiasRejectReason BiasLearningBlockReason(uint32_t now_ms)
         return IMU_BIAS_REJECT_CONTROL_ACTIVE;
     }
 
-#if FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_CHASSIS
     const ChassisState *chassis = Chassis_GetState();
     if ((chassis == 0) || (!chassis->initialized)) {
         return IMU_BIAS_REJECT_CHASSIS_UNAVAILABLE;
@@ -53,18 +53,19 @@ ImuBiasRejectReason BiasLearningBlockReason(uint32_t now_ms)
         return IMU_BIAS_REJECT_FEEDBACK_STALE;
     }
 
-#if FEATURE_ENABLE_IMU
+#if FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
     const HeadingState *heading = Heading_GetState();
     if ((heading != 0) && (heading->mode != HEADING_IDLE)) {
         return IMU_BIAS_REJECT_CONTROL_ACTIVE;
     }
 #endif
-#if FEATURE_ENABLE_GRAYSCALE
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
     const LFState *line_follow = LF_GetState();
     if ((line_follow != 0) && (line_follow->mode != LF_IDLE)) {
         return IMU_BIAS_REJECT_CONTROL_ACTIVE;
     }
 #endif
+#if FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
     const ActionRunnerState *runner = ActionRunner_GetState();
     if ((runner != 0) && runner->running) {
         return IMU_BIAS_REJECT_CONTROL_ACTIVE;
@@ -75,6 +76,7 @@ ImuBiasRejectReason BiasLearningBlockReason(uint32_t now_ms)
          (app_state->mode == APP_MODE_COMPETITION_RUNNING))) {
         return IMU_BIAS_REJECT_CONTROL_ACTIVE;
     }
+#endif
 
     if ((chassis->left.target_rpm != 0) ||
         (chassis->right.target_rpm != 0)) {

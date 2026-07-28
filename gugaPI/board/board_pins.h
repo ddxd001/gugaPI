@@ -1,6 +1,7 @@
 #ifndef BOARD_BOARD_PINS_H_
 #define BOARD_BOARD_PINS_H_
 
+#include "config/feature_config.h"
 #include "ti_msp_dl_config.h"
 
 /*
@@ -62,7 +63,9 @@
 #define BOARD_BUTTON_DEBOUNCE_MS        (20U)
 #define BOARD_BUTTON_LONG_PRESS_MS      (800U)
 
-/* LoRa 串口透传：PA14/UART3_TX 接 LoRa RX，PA13/UART3_RX 接 LoRa TX。 */
+/* PA14/UART3_TX and PA13/UART3_RX are reserved for DEBUG_UART. LoRa must
+ * remain disabled until it is assigned to a different peripheral and pins. */
+#if FEATURE_ENABLE_LORA
 #define BOARD_LORA_UART_INST            LORA_UART_INST
 #define BOARD_LORA_UART_IRQN            LORA_UART_INST_INT_IRQN
 #define BOARD_LORA_TX_PORT              GPIO_LORA_UART_TX_PORT
@@ -72,8 +75,10 @@
 #define BOARD_LORA_BAUDRATE             (115200U)
 #define BOARD_LORA_RX_BUFFER_SIZE       (256U)
 #define BOARD_LORA_TX_TIMEOUT_ITERATIONS (100000U)
+#endif
 
 /* MotorDriver 串口连接测试：芯片封装 PA8/UART1_TX 接 MotorDriver RX，PA9/UART1_RX 接 MotorDriver TX。 */
+#if FEATURE_ENABLE_MOTOR_DRIVER
 #define BOARD_MOTOR_DRIVER_UART_INST            MOTOR_UART_INST
 #define BOARD_MOTOR_DRIVER_UART_IRQN            MOTOR_UART_INST_INT_IRQN
 #define BOARD_MOTOR_DRIVER_TX_PORT              GPIO_MOTOR_UART_TX_PORT
@@ -96,6 +101,40 @@
 #define BOARD_MOTOR_DRIVER_I2C_SDA_IOMUX_FUNC   GPIO_MOTOR_I2C_IOMUX_SDA_FUNC
 #define BOARD_MOTOR_DRIVER_I2C_ADDRESS          (0x20U)
 #define BOARD_MOTOR_DRIVER_I2C_TIMEOUT_ITERATIONS (100000U)
+#else
+/* Source compatibility for the disabled legacy protocol client. */
+#define BOARD_MOTOR_DRIVER_I2C_ADDRESS          (0x20U)
+#endif
+
+#if FEATURE_ENABLE_LOCAL_MOTOR && FEATURE_LOCAL_MOTOR_RIGHT_ONLY
+/* Fixed U9 wiring, right motor only:
+ * 7=PA10/nSLEEP2, 9=PC0/GMR_RB, 10=PC1/GMR_RA,
+ * 11=PB7/GPIO2(PH), 13=PB13/PWM2.
+ * The left bridge is held asleep; PB15/PB16 are input-only encoder signals. */
+#define BOARD_MOTOR_PWM_INST                     MOTOR_PWM_INST
+#define BOARD_MOTOR_PWM_PERIOD_COUNTS            (2000U)
+#define BOARD_MOTOR_PWM_FREQUENCY_HZ             (20000U)
+
+#define BOARD_RIGHT_MOTOR_PWM_INDEX               GPIO_MOTOR_PWM_C0_IDX
+#define BOARD_RIGHT_MOTOR_PH_PORT                 GPIO_MOTOR_DIRECTION_PORT
+#define BOARD_RIGHT_MOTOR_PH_PIN                  GPIO_MOTOR_DIRECTION_MOTOR_RIGHT_PH_PIN
+#define BOARD_RIGHT_MOTOR_NSLEEP_PORT             GPIO_MOTOR_SLEEP_PORT
+#define BOARD_RIGHT_MOTOR_NSLEEP_PIN              GPIO_MOTOR_SLEEP_MOTOR_RIGHT_NSLEEP_PIN
+#define BOARD_RIGHT_MOTOR_QEI_INST                RIGHT_MOTOR_QEI_INST
+#define BOARD_RIGHT_MOTOR_QEI_PHA_PORT            GPIO_RIGHT_MOTOR_QEI_PHA_PORT
+#define BOARD_RIGHT_MOTOR_QEI_PHA_PIN             GPIO_RIGHT_MOTOR_QEI_PHA_PIN
+#define BOARD_RIGHT_MOTOR_QEI_PHB_PORT            GPIO_RIGHT_MOTOR_QEI_PHB_PORT
+#define BOARD_RIGHT_MOTOR_QEI_PHB_PIN             GPIO_RIGHT_MOTOR_QEI_PHB_PIN
+
+/* Safe-state controls retained for the unsupported left bridge. */
+#define BOARD_LEFT_MOTOR_PH_PORT                  GPIO_MOTOR_DIRECTION_PORT
+#define BOARD_LEFT_MOTOR_PH_PIN                   GPIO_MOTOR_DIRECTION_MOTOR_LEFT_PH_PIN
+#define BOARD_LEFT_MOTOR_NSLEEP_PORT              GPIO_MOTOR_SLEEP_PORT
+#define BOARD_LEFT_MOTOR_NSLEEP_PIN               GPIO_MOTOR_SLEEP_MOTOR_LEFT_NSLEEP_PIN
+
+#define BOARD_MOTOR_WAKE_DELAY_MS                 (1U)
+#define BOARD_ENCODER_SAMPLE_PERIOD_MS            (10U)
+#endif
 
 #define BOARD_FRAM_I2C_INST             SENSOR_I2C_INST
 #define BOARD_FRAM_I2C_SCL_PORT         GPIO_SENSOR_I2C_SCL_PORT

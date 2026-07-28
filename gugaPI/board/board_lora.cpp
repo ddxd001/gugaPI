@@ -4,6 +4,7 @@
 #include "drivers/lora/lora.h"
 
 namespace board {
+#if FEATURE_ENABLE_LORA
 namespace {
 
 void ConfigureLoraRxPullUp(void)
@@ -109,9 +110,78 @@ void Board_LoraIrqHandler(void)
     drivers::LoraUart_IrqHandler(&g_loraContext);
 }
 
+#else
+
+drivers::DriverStatus Board_LoraInit(void)
+{
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+}
+
+drivers::DriverStatus Board_LoraWriteByte(uint8_t)
+{
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+}
+
+drivers::DriverStatus Board_LoraWrite(const uint8_t *, uint16_t)
+{
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+}
+
+bool Board_LoraReadByte(uint8_t *)
+{
+    return false;
+}
+
+uint16_t Board_LoraGetRxAvailable(void)
+{
+    return 0U;
+}
+
+uint32_t Board_LoraGetRxDroppedCount(void)
+{
+    return 0U;
+}
+
+uint32_t Board_LoraGetBaudrate(void)
+{
+    return 0U;
+}
+
+drivers::DriverStatus Board_LoraGetControllerStatus(uint32_t *)
+{
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+}
+
+drivers::DriverStatus Board_LoraClearRxBuffer(void)
+{
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+}
+
+drivers::DriverStatus Board_LoraGetLineStatus(bool *tx_high, bool *rx_high)
+{
+    if ((tx_high == 0) || (rx_high == 0)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    *tx_high = false;
+    *rx_high = false;
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+}
+
+bool Board_LoraIsReady(void)
+{
+    return false;
+}
+
+void Board_LoraIrqHandler(void)
+{
+}
+
+#endif /* FEATURE_ENABLE_LORA */
 } /* namespace board */
 
+#if FEATURE_ENABLE_LORA
 extern "C" void LORA_UART_INST_IRQHandler(void)
 {
     board::Board_LoraIrqHandler();
 }
+#endif /* FEATURE_ENABLE_LORA */

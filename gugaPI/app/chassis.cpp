@@ -1,33 +1,21 @@
 #include "app/chassis.h"
 
+#include <limits.h>
+
 #include "app/app_ina219.h"
 #include "app/config_store.h"
-#include "app/motor_driver_client.h"
+#include "app/local_motor_controller.h"
 #include "config/feature_config.h"
-#include "services/time.h"
 #include "services/fault.h"
+#include "services/time.h"
+
+#if FEATURE_ENABLE_LOCAL_MOTOR
 
 namespace app {
 namespace {
 
-namespace motor = motor_driver_client;
-
-/* 355/113 keeps sub-millimeter fixed-point math inside int64_t. */
 static const int64_t kPiNumerator = 355LL;
 static const int64_t kPiDenominator = 113LL;
-static const bool kLeftWheelMotor1 = false;
-static const bool kRightWheelMotor1 = true;
-static const uint8_t kM1PositionLease = 0x01U;
-static const uint8_t kM2PositionLease = 0x02U;
-static const uint32_t kPositionCompletionGuardMs = 200U;
-static const uint8_t kPositionStableServiceCycles = 5U;
-static const uint8_t kPositionMinDuty = 6U;
-static const uint8_t kPositionMaxDuty = 10U;
-static const uint16_t kPositionExitToleranceCounts = 5U;
-static const uint16_t kPositionSettleMs = 0U;
-
-motor::Client g_motorClient = { motor::TRANSPORT_I2C,
-                                motor::kI2cDefaultAddress };
 
 ChassisState g_state = {
     false,
@@ -35,47 +23,40 @@ ChassisState g_state = {
     0,
     { 0, 0, 0, 0, 0U },
     { 0, 0, 0, 0, 0U },
-    {
-        33050U,
-        160U,
-        1456U,
-        1456U,
-        static_cast<uint16_t>(motor::kSpeedMaxRpm)
-    },
+    { 33050U, 160U, 1456U, 1456U, 1000U },
     drivers::DRIVER_ERROR_NOT_INITIALIZED,
     drivers::DRIVER_ERROR_NOT_INITIALIZED,
     0U,
     0U
 };
 
-bool g_motionLeaseActive = false;
-uint8_t g_positionLeaseMask = 0U;
-int32_t g_m1PositionTarget = 0;
-int32_t g_m2PositionTarget = 0;
-uint32_t g_m1PositionStartMs = 0U;
-uint32_t g_m2PositionStartMs = 0U;
-uint8_t g_m1PositionStableCycles = 0U;
-uint8_t g_m2PositionStableCycles = 0U;
-
 int32_t AbsInt32(int32_t value)
 {
-    /* -INT32_MIN overflows int32_t (UB); saturate to INT32_MAX instead. */
-    if (value < 0) {
-        return (value == INT32_MIN) ? INT32_MAX : -value;
+    if (value == INT32_MIN) {
+        return INT32_MAX;
     }
-    return value;
+    return (value < 0) ? -value : value;
 }
 
-bool HasSameNonzeroDirection(int32_t current_rpm, int32_t next_rpm)
+int32_t SaturateInt32(int64_t value)
 {
-    return ((current_rpm > 0) && (next_rpm > 0)) ||
-           ((current_rpm < 0) && (next_rpm < 0));
+    if (value > INT32_MAX) {
+        return INT32_MAX;
+    }
+    if (value < INT32_MIN) {
+        return INT32_MIN;
+    }
+    return static_cast<int32_t>(value);
 }
 
-drivers::DriverStatus ClampWheelRpm(int32_t rpm, uint16_t max_rpm)
+bool ChassisConfigsEqual(const ChassisConfig &left,
+                         const ChassisConfig &right)
 {
-    return (AbsInt32(rpm) <= static_cast<int32_t>(max_rpm)) ?
-           drivers::DRIVER_OK : drivers::DRIVER_ERROR_INVALID_ARG;
+    return (left.wheel_radius_um == right.wheel_radius_um) &&
+           (left.wheel_track_mm == right.wheel_track_mm) &&
+           (left.left_counts_per_rev == right.left_counts_per_rev) &&
+           (left.right_counts_per_rev == right.right_counts_per_rev) &&
+           (left.max_wheel_rpm == right.max_wheel_rpm);
 }
 
 int32_t DivideRoundInt64(int64_t numerator, int64_t denominator)
@@ -88,7 +69,14 @@ int32_t DivideRoundInt64(int64_t numerator, int64_t denominator)
     } else {
         numerator -= denominator / 2;
     }
-    return static_cast<int32_t>(numerator / denominator);
+    const int64_t result = numerator / denominator;
+    if (result > INT32_MAX) {
+        return INT32_MAX;
+    }
+    if (result < INT32_MIN) {
+        return INT32_MIN;
+    }
+    return static_cast<int32_t>(result);
 }
 
 int32_t WheelMmPerSecondToRpm(int32_t wheel_mm_s,
@@ -97,13 +85,10 @@ int32_t WheelMmPerSecondToRpm(int32_t wheel_mm_s,
     if (wheel_radius_um == 0U) {
         return 0;
     }
-
     const int64_t numerator =
-        static_cast<int64_t>(wheel_mm_s) *
-        60LL * 1000LL * kPiDenominator;
+        static_cast<int64_t>(wheel_mm_s) * 60LL * 1000LL * kPiDenominator;
     const int64_t denominator =
         2LL * kPiNumerator * static_cast<int64_t>(wheel_radius_um);
-
     return DivideRoundInt64(numerator, denominator);
 }
 
@@ -112,92 +97,19 @@ int32_t AngularToWheelDeltaMmPerSecond(int32_t angular_mdeg_s,
 {
     const int64_t numerator =
         static_cast<int64_t>(angular_mdeg_s) *
-        static_cast<int64_t>(wheel_track_mm) *
-        kPiNumerator;
-    const int64_t denominator =
-        360000LL * kPiDenominator;
-
+        static_cast<int64_t>(wheel_track_mm) * kPiNumerator;
+    const int64_t denominator = 360000LL * kPiDenominator;
     return DivideRoundInt64(numerator, denominator);
 }
 
-drivers::DriverStatus SetOneWheelSpeedMode(bool motor1, int32_t rpm)
+drivers::DriverStatus BuildConfig(LocalMotorConfig *local_config)
 {
-    bool ack = false;
-    const drivers::DriverStatus status =
-        motor::SetSpeedMode(&g_motorClient, motor1, rpm < 0, &ack);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-    return ack ? drivers::DRIVER_OK : drivers::DRIVER_ERROR;
-}
-
-drivers::DriverStatus ReadWheelState(bool motor1,
-                                     ChassisWheelState *wheel_state,
-                                     int32_t actual_rpm)
-{
-    motor::EncoderData encoder = {};
-
-    if (wheel_state == 0) {
+    if (local_config == 0) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
-
-    wheel_state->actual_rpm = actual_rpm;
-    const drivers::DriverStatus status =
-        motor::ReadEncoder(&g_motorClient, motor1, &encoder);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-
-    wheel_state->encoder_count = encoder.count;
-    wheel_state->encoder_counts_per_second = encoder.counts_per_second;
-    wheel_state->encoder_state = encoder.state;
-    return drivers::DRIVER_OK;
-}
-
-void SetLastStatus(drivers::DriverStatus status)
-{
-    g_state.last_status = status;
-}
-
-void ClearSpeedCommandState(void)
-{
-    g_motionLeaseActive = false;
-    g_state.target_linear_mm_s = 0;
-    g_state.target_angular_mdeg_s = 0;
-    g_state.left.target_rpm = 0;
-    g_state.right.target_rpm = 0;
-}
-
-void ClearMotionCommandState(void)
-{
-    ClearSpeedCommandState();
-    g_positionLeaseMask = 0U;
-    g_m1PositionStableCycles = 0U;
-    g_m2PositionStableCycles = 0U;
-}
-
-drivers::DriverStatus StopMotorsForSafety(void)
-{
-    motor::StopResult stop_result = {};
-
-    ClearMotionCommandState();
-    return motor::Stop(&g_motorClient, &stop_result);
-}
-
-drivers::DriverStatus HandleMotionCommandFailure(
-    drivers::DriverStatus status)
-{
-    (void) StopMotorsForSafety();
-    SetLastStatus(status);
-    services::Fault_Set(services::FAULT_DRIVER_TIMEOUT);
-    return status;
-}
-
-void RefreshConfig(void)
-{
     const ConfigStoreParams *params = ConfigStore_Get();
     if (params == 0) {
-        return;
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
 
     g_state.config.wheel_radius_um = params->wheel_radius_um;
@@ -205,110 +117,84 @@ void RefreshConfig(void)
     g_state.config.left_counts_per_rev = params->left_counts_per_rev;
     g_state.config.right_counts_per_rev = params->right_counts_per_rev;
     g_state.config.max_wheel_rpm = params->max_wheel_rpm;
+
+    local_config->left_counts_per_rev = params->left_counts_per_rev;
+    local_config->right_counts_per_rev = params->right_counts_per_rev;
+    local_config->max_wheel_rpm = params->max_wheel_rpm;
+    local_config->accel_rpm_per_s = params->speed_accel_rpm_s;
+    local_config->decel_rpm_per_s = params->speed_decel_rpm_s;
+    local_config->kp_q4_4 = params->speed_kp_q4_4;
+    local_config->ki_q4_4 = params->speed_ki_q4_4;
+    local_config->kd_q4_4 = params->speed_kd_q4_4;
+    local_config->max_duty_percent = params->speed_max_duty;
+    local_config->min_duty_percent = params->speed_min_duty;
+    local_config->output_invert_flags =
+        static_cast<uint8_t>(params->motor_output_invert_flags & 0x03U);
+    local_config->encoder_invert_flags =
+        static_cast<uint8_t>(params->motor_encoder_invert_flags & 0x03U);
+    return drivers::DRIVER_OK;
 }
 
-drivers::DriverStatus ApplyPersistentMotorConfig(void)
+drivers::DriverStatus RefreshConfig(void)
 {
-    const ConfigStoreParams *params = ConfigStore_Get();
-    if (params == 0) {
-        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    const ChassisConfig previous_config = g_state.config;
+    LocalMotorConfig local_config = {};
+    drivers::DriverStatus status = BuildConfig(&local_config);
+    const LocalMotorState *local = LocalMotorController_GetState();
+    if ((status == drivers::DRIVER_OK) && (local != 0) && local->active &&
+        !ChassisConfigsEqual(previous_config, g_state.config)) {
+        /* Geometry/CPR changes invalidate a live velocity command. The caller
+         * will stop and requires a fresh command using the new parameters. */
+        status = drivers::DRIVER_ERROR_BUSY;
     }
-
-    drivers::DriverStatus status =
-        motor::SetCountsPerRev(&g_motorClient,
-                               params->right_counts_per_rev,
-                               params->left_counts_per_rev);
-    if (status != drivers::DRIVER_OK) {
-        return status;
+    if (status == drivers::DRIVER_OK) {
+        status = LocalMotorController_Configure(&local_config);
     }
+    return status;
+}
 
-    const uint8_t speed_pid[motor::kSpeedPidLength] = {
-        params->speed_kp_q4_4,
-        params->speed_ki_q4_4,
-        params->speed_kd_q4_4,
-        params->speed_max_duty,
-        params->speed_min_duty
-    };
-    status = motor::SetPid(&g_motorClient,
-                           speed_pid,
-                           motor::kSpeedPidLength);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
+void ClearCommandState(void)
+{
+    g_state.target_linear_mm_s = 0;
+    g_state.target_angular_mdeg_s = 0;
+    g_state.left.target_rpm = 0;
+    g_state.right.target_rpm = 0;
+}
 
-    const motor::SpeedRamp speed_ramp = {
-        params->speed_accel_rpm_s,
-        params->speed_decel_rpm_s
-    };
-    status = motor::SetSpeedRamp(&g_motorClient, speed_ramp);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
+void CopyFeedback(const LocalMotorState &local)
+{
+    g_state.left.target_rpm = local.left.target_rpm;
+    g_state.left.actual_rpm = local.left.actual_rpm;
+    g_state.left.encoder_count = local.left.encoder_count;
+    g_state.left.encoder_counts_per_second =
+        local.left.encoder_counts_per_second;
+    g_state.left.encoder_state = local.left.encoder_state;
 
-    uint8_t position_pid[motor::kPositionPidLength] = {
-        params->position_kp_q4_4,
-        params->position_ki_q4_4,
-        params->position_kd_q4_4,
-        0U,
-        0U,
-        0U,
-        0U
-    };
-    motor::EncodeUint16Le(params->position_max_rpm, &position_pid[3]);
-    motor::EncodeUint16Le(params->position_tolerance_counts, &position_pid[5]);
-    status = motor::SetPositionPid(&g_motorClient,
-                                   position_pid,
-                                   motor::kPositionPidLength);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-
-    const uint8_t position_control[motor::kPositionControlLength] = {
-        kPositionMinDuty,
-        kPositionMaxDuty,
-        static_cast<uint8_t>(kPositionExitToleranceCounts & 0xFFU),
-        static_cast<uint8_t>(kPositionExitToleranceCounts >> 8U),
-        static_cast<uint8_t>((kPositionSettleMs + 9U) / 10U)
-    };
-    status = motor::SetPositionControl(&g_motorClient,
-                                       position_control,
-                                       motor::kPositionControlLength);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-
-    const motor::InvertConfig invert = {
-        static_cast<uint8_t>(params->motor_output_invert_flags &
-                             motor::kInvertValidMask),
-        static_cast<uint8_t>(params->motor_encoder_invert_flags &
-                             motor::kInvertValidMask),
-    };
-    return motor::SetInvertConfig(&g_motorClient, invert);
+    g_state.right.target_rpm = local.right.target_rpm;
+    g_state.right.actual_rpm = local.right.actual_rpm;
+    g_state.right.encoder_count = local.right.encoder_count;
+    g_state.right.encoder_counts_per_second =
+        local.right.encoder_counts_per_second;
+    g_state.right.encoder_state = local.right.encoder_state;
 }
 
 } /* namespace */
 
 drivers::DriverStatus Chassis_Init(void)
 {
-#if FEATURE_ENABLE_MOTOR_DRIVER
-    motor::Init(&g_motorClient);
-    RefreshConfig();
-    ClearMotionCommandState();
+    LocalMotorConfig config = {};
+    drivers::DriverStatus status = BuildConfig(&config);
+    if (status == drivers::DRIVER_OK) {
+        status = LocalMotorController_Init(&config, services::Time_Millis());
+    }
+
+    ClearCommandState();
+    g_state.initialized = (status == drivers::DRIVER_OK);
+    g_state.last_status = status;
     g_state.last_feedback_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
     g_state.feedback_sequence = 0U;
     g_state.last_feedback_ms = 0U;
-    g_state.initialized = true;
-    g_state.last_status = ApplyPersistentMotorConfig();
-    if (g_state.last_status != drivers::DRIVER_OK) {
-        g_state.initialized = false;
-    }
-    return g_state.last_status;
-#else
-    g_state.initialized = false;
-    ClearMotionCommandState();
-    g_state.last_status = drivers::DRIVER_ERROR_UNSUPPORTED;
-    return drivers::DRIVER_ERROR_UNSUPPORTED;
-#endif
+    return status;
 }
 
 drivers::DriverStatus Chassis_Stop(void)
@@ -316,97 +202,64 @@ drivers::DriverStatus Chassis_Stop(void)
     if (!g_state.initialized) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
-
-    const drivers::DriverStatus status = StopMotorsForSafety();
-    SetLastStatus(status);
+    ClearCommandState();
+    const drivers::DriverStatus status = LocalMotorController_Stop();
+    g_state.last_status = status;
     return status;
 }
 
-drivers::DriverStatus SetWheelTargetRpmPair(int32_t left_rpm,
-                                            int32_t right_rpm)
-{
-    bool ack = false;
-    /* Physical mapping is left=M2 and right=M1. ClampWheelRpm() already
-     * guarantees both magnitudes fit the uint16 protocol fields. */
-    const drivers::DriverStatus status = motor::WriteTargetRpmPair(
-        &g_motorClient,
-        static_cast<uint16_t>(AbsInt32(right_rpm)),
-        static_cast<uint16_t>(AbsInt32(left_rpm)),
-        &ack);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-    return ack ? drivers::DRIVER_OK : drivers::DRIVER_ERROR;
-}
-
-drivers::DriverStatus RefreshWheelTargetLeasePair(int32_t left_rpm,
-                                                  int32_t right_rpm)
-{
-    return motor::RefreshTargetRpmLeasePair(
-        &g_motorClient,
-        static_cast<uint16_t>(AbsInt32(right_rpm)),
-        static_cast<uint16_t>(AbsInt32(left_rpm)));
-}
-
 drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
-                                           int32_t right_rpm)
+                                          int32_t right_rpm)
 {
     if (!g_state.initialized) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
     if (services::Fault_HasFault()) {
-        SetLastStatus(drivers::DRIVER_ERROR_NOT_INITIALIZED);
-        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return g_state.last_status;
     }
+#if FEATURE_LOCAL_MOTOR_RIGHT_ONLY
+    if (left_rpm != 0) {
+        /* A two-wheel command must never be partially executed. Stop any
+         * previous MR command, then report the capability mismatch. */
+        const drivers::DriverStatus stop_status =
+            LocalMotorController_Stop();
+        ClearCommandState();
+        g_state.last_status = (stop_status == drivers::DRIVER_OK) ?
+            drivers::DRIVER_ERROR_UNSUPPORTED : stop_status;
+        return g_state.last_status;
+    }
+#endif
 #if FEATURE_ENABLE_INA219
     if (((left_rpm != 0) || (right_rpm != 0)) &&
         App_Ina219MotionInhibitRequested()) {
-        SetLastStatus(drivers::DRIVER_ERROR_BUSY);
-        return drivers::DRIVER_ERROR_BUSY;
+        g_state.last_status = drivers::DRIVER_ERROR_BUSY;
+        return g_state.last_status;
     }
 #endif
-    RefreshConfig();
 
-    drivers::DriverStatus status =
-        ClampWheelRpm(left_rpm, g_state.config.max_wheel_rpm);
-    if (status != drivers::DRIVER_OK) {
-        SetLastStatus(status);
-        return status;
+    drivers::DriverStatus status = RefreshConfig();
+    if ((status == drivers::DRIVER_OK) &&
+        ((AbsInt32(left_rpm) > g_state.config.max_wheel_rpm) ||
+         (AbsInt32(right_rpm) > g_state.config.max_wheel_rpm))) {
+        status = drivers::DRIVER_ERROR_INVALID_ARG;
     }
-    status = ClampWheelRpm(right_rpm, g_state.config.max_wheel_rpm);
-    if (status != drivers::DRIVER_OK) {
-        SetLastStatus(status);
-        return status;
+    if (status == drivers::DRIVER_OK) {
+        status = LocalMotorController_SetTargets(left_rpm,
+                                                 right_rpm,
+                                                 services::Time_Millis());
     }
-
-    const bool refresh_only =
-        g_motionLeaseActive &&
-        HasSameNonzeroDirection(g_state.left.target_rpm, left_rpm) &&
-        HasSameNonzeroDirection(g_state.right.target_rpm, right_rpm);
-
-    status = SetWheelTargetRpmPair(left_rpm, right_rpm);
-    if (status != drivers::DRIVER_OK) {
-        return HandleMotionCommandFailure(status);
+    if (status == drivers::DRIVER_OK) {
+        g_state.target_linear_mm_s = 0;
+        g_state.target_angular_mdeg_s = 0;
+        g_state.left.target_rpm = left_rpm;
+        g_state.right.target_rpm = right_rpm;
+    } else {
+        (void) LocalMotorController_Stop();
+        ClearCommandState();
     }
-
-    if (!refresh_only) {
-        status = SetOneWheelSpeedMode(kLeftWheelMotor1, left_rpm);
-        if (status == drivers::DRIVER_OK) {
-            status = SetOneWheelSpeedMode(kRightWheelMotor1, right_rpm);
-        }
-        if (status != drivers::DRIVER_OK) {
-            return HandleMotionCommandFailure(status);
-        }
-    }
-
-    g_motionLeaseActive = true;
-    g_positionLeaseMask = 0U;
-    g_state.target_linear_mm_s = 0;
-    g_state.target_angular_mdeg_s = 0;
-    g_state.left.target_rpm = left_rpm;
-    g_state.right.target_rpm = right_rpm;
-    SetLastStatus(drivers::DRIVER_OK);
-    return drivers::DRIVER_OK;
+    g_state.last_status = status;
+    return status;
 }
 
 drivers::DriverStatus Chassis_SetVelocity(int32_t linear_mm_s,
@@ -415,90 +268,70 @@ drivers::DriverStatus Chassis_SetVelocity(int32_t linear_mm_s,
     if (!g_state.initialized) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
-    RefreshConfig();
+#if FEATURE_LOCAL_MOTOR_RIGHT_ONLY
+    /* Linear/angular chassis kinematics require two driven wheels. Always
+     * stop first so an unsupported request cannot leave an older MR command
+     * active under its lease. */
+    const drivers::DriverStatus stop_status = LocalMotorController_Stop();
+    ClearCommandState();
+    g_state.last_status = (stop_status == drivers::DRIVER_OK) ?
+        drivers::DRIVER_ERROR_UNSUPPORTED : stop_status;
+    return g_state.last_status;
+#endif
+    const drivers::DriverStatus config_status = RefreshConfig();
+    if (config_status != drivers::DRIVER_OK) {
+        (void) LocalMotorController_Stop();
+        ClearCommandState();
+        g_state.last_status = config_status;
+        return config_status;
+    }
 
     const int32_t delta_mm_s =
         AngularToWheelDeltaMmPerSecond(angular_mdeg_s,
                                        g_state.config.wheel_track_mm);
-    const int32_t left_mm_s = linear_mm_s - delta_mm_s;
-    const int32_t right_mm_s = linear_mm_s + delta_mm_s;
-    const int32_t left_rpm =
-        WheelMmPerSecondToRpm(left_mm_s,
-                              g_state.config.wheel_radius_um);
-    const int32_t right_rpm =
-        WheelMmPerSecondToRpm(right_mm_s,
-                              g_state.config.wheel_radius_um);
-
+    const int32_t left_wheel_mm_s = SaturateInt32(
+        static_cast<int64_t>(linear_mm_s) - delta_mm_s);
+    const int32_t right_wheel_mm_s = SaturateInt32(
+        static_cast<int64_t>(linear_mm_s) + delta_mm_s);
+    const int32_t left_rpm = WheelMmPerSecondToRpm(
+        left_wheel_mm_s, g_state.config.wheel_radius_um);
+    const int32_t right_rpm = WheelMmPerSecondToRpm(
+        right_wheel_mm_s, g_state.config.wheel_radius_um);
     const drivers::DriverStatus status =
         Chassis_SetWheelRpm(left_rpm, right_rpm);
     if (status == drivers::DRIVER_OK) {
         g_state.target_linear_mm_s = linear_mm_s;
         g_state.target_angular_mdeg_s = angular_mdeg_s;
     }
-    SetLastStatus(status);
+    g_state.last_status = status;
     return status;
 }
 
-drivers::DriverStatus Chassis_TrackMotorPosition(bool motor1)
+drivers::DriverStatus Chassis_TrackMotorPosition(bool)
 {
-    if (!g_state.initialized) {
-        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
-    }
-
-    motor::PositionData position = {};
-    const drivers::DriverStatus status =
-        motor::ReadPosition(&g_motorClient, &position);
-    if (status != drivers::DRIVER_OK) {
-        return status;
-    }
-
-    ClearSpeedCommandState();
-    if (motor1) {
-        g_m1PositionTarget = position.m1_target_count;
-        g_m1PositionStartMs = services::Time_Millis();
-        g_m1PositionStableCycles = 0U;
-        g_positionLeaseMask =
-            static_cast<uint8_t>(g_positionLeaseMask | kM1PositionLease);
-    } else {
-        g_m2PositionTarget = position.m2_target_count;
-        g_m2PositionStartMs = services::Time_Millis();
-        g_m2PositionStableCycles = 0U;
-        g_positionLeaseMask =
-            static_cast<uint8_t>(g_positionLeaseMask | kM2PositionLease);
-    }
-    return drivers::DRIVER_OK;
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
 }
 
-void Chassis_ReleaseMotorCommand(bool motor1)
+void Chassis_ReleaseMotorCommand(bool)
 {
-    ClearSpeedCommandState();
-    const uint8_t lease = motor1 ? kM1PositionLease : kM2PositionLease;
-    g_positionLeaseMask =
-        static_cast<uint8_t>(g_positionLeaseMask &
-                             static_cast<uint8_t>(~lease));
-    if (motor1) {
-        g_m1PositionStableCycles = 0U;
-    } else {
-        g_m2PositionStableCycles = 0U;
-    }
 }
 
 void Chassis_ReleaseAllMotorCommands(void)
 {
-    ClearMotionCommandState();
+    if (g_state.initialized) {
+        (void) Chassis_Stop();
+    }
 }
 
-static drivers::DriverStatus RefreshOnePositionLease(bool motor1,
-                                                     int32_t target_count)
+drivers::DriverStatus Chassis_ControlUpdate(void)
 {
-    return motor::RefreshTargetPositionLease(&g_motorClient,
-                                             motor1,
-                                             target_count);
-}
-
-static uint32_t AbsPositionError(int32_t error)
-{
-    return static_cast<uint32_t>(AbsInt32(error));
+    if (!g_state.initialized) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    const drivers::DriverStatus status =
+        LocalMotorController_Update(services::Time_Millis());
+    g_state.last_status = status;
+    return status;
 }
 
 drivers::DriverStatus Chassis_Service(void)
@@ -506,118 +339,16 @@ drivers::DriverStatus Chassis_Service(void)
     if (!g_state.initialized) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
-
-    if ((!g_motionLeaseActive) && (g_positionLeaseMask == 0U)) {
-        return drivers::DRIVER_OK;
+    drivers::DriverStatus status = RefreshConfig();
+    if (status == drivers::DRIVER_OK) {
+        status = LocalMotorController_RefreshLease(services::Time_Millis());
     }
-
-#if FEATURE_ENABLE_INA219
-    if (App_Ina219MotionInhibitRequested()) {
-        const drivers::DriverStatus stop_status = StopMotorsForSafety();
-        const drivers::DriverStatus status =
-            (stop_status == drivers::DRIVER_OK) ?
-            drivers::DRIVER_ERROR_BUSY : stop_status;
-        SetLastStatus(status);
-        return status;
-    }
-#endif
-
-    if (g_positionLeaseMask != 0U) {
-        drivers::DriverStatus status = drivers::DRIVER_OK;
-        if ((g_positionLeaseMask & kM1PositionLease) != 0U) {
-            status = RefreshOnePositionLease(true, g_m1PositionTarget);
-        }
-        if ((status == drivers::DRIVER_OK) &&
-            ((g_positionLeaseMask & kM2PositionLease) != 0U)) {
-            status = RefreshOnePositionLease(false, g_m2PositionTarget);
-        }
-
-        motor::PositionData position = {};
-        if (status == drivers::DRIVER_OK) {
-            status = motor::ReadPosition(&g_motorClient, &position);
-        }
-        if (status != drivers::DRIVER_OK) {
-            (void) StopMotorsForSafety();
-            SetLastStatus(status);
-            return status;
-        }
-
-        const uint32_t now_ms = services::Time_Millis();
-        const uint32_t completion_tolerance =
-            (position.control.exit_tolerance_counts >
-             position.pid.tolerance_counts) ?
-            position.control.exit_tolerance_counts :
-            position.pid.tolerance_counts;
-
-        const bool m1_stable =
-            ((g_positionLeaseMask & kM1PositionLease) != 0U) &&
-            ((now_ms - g_m1PositionStartMs) >=
-             kPositionCompletionGuardMs) &&
-            ((position.status & motor::kPositionStatusM1AtTarget) != 0U) &&
-            (AbsPositionError(position.m1_error_count) <=
-             completion_tolerance);
-        if (m1_stable &&
-            (g_m1PositionStableCycles < kPositionStableServiceCycles)) {
-            g_m1PositionStableCycles++;
-        } else if (!m1_stable) {
-            g_m1PositionStableCycles = 0U;
-        }
-        if (g_m1PositionStableCycles >= kPositionStableServiceCycles) {
-            motor::MotionResult motion = {};
-            status = motor::SetCoast(&g_motorClient, true, &motion);
-            if ((status == drivers::DRIVER_OK) && motion.mode_ack) {
-                g_positionLeaseMask = static_cast<uint8_t>(
-                    g_positionLeaseMask &
-                    static_cast<uint8_t>(~kM1PositionLease));
-                g_m1PositionStableCycles = 0U;
-            } else if (status == drivers::DRIVER_OK) {
-                status = drivers::DRIVER_ERROR;
-            }
-        }
-        const bool m2_stable =
-            ((g_positionLeaseMask & kM2PositionLease) != 0U) &&
-            ((now_ms - g_m2PositionStartMs) >=
-             kPositionCompletionGuardMs) &&
-            ((position.status & motor::kPositionStatusM2AtTarget) != 0U) &&
-            (AbsPositionError(position.m2_error_count) <=
-             completion_tolerance);
-        if (m2_stable &&
-            (g_m2PositionStableCycles < kPositionStableServiceCycles)) {
-            g_m2PositionStableCycles++;
-        } else if (!m2_stable) {
-            g_m2PositionStableCycles = 0U;
-        }
-        if ((status == drivers::DRIVER_OK) &&
-            (g_m2PositionStableCycles >= kPositionStableServiceCycles)) {
-            motor::MotionResult motion = {};
-            status = motor::SetCoast(&g_motorClient, false, &motion);
-            if ((status == drivers::DRIVER_OK) && motion.mode_ack) {
-                g_positionLeaseMask = static_cast<uint8_t>(
-                    g_positionLeaseMask &
-                    static_cast<uint8_t>(~kM2PositionLease));
-                g_m2PositionStableCycles = 0U;
-            } else if (status == drivers::DRIVER_OK) {
-                status = drivers::DRIVER_ERROR;
-            }
-        }
-        if (status != drivers::DRIVER_OK) {
-            (void) StopMotorsForSafety();
-        }
-        SetLastStatus(status);
-        return status;
-    }
-
-    const drivers::DriverStatus status = RefreshWheelTargetLeasePair(
-        g_state.left.target_rpm,
-        g_state.right.target_rpm);
     if (status != drivers::DRIVER_OK) {
-        (void) StopMotorsForSafety();
-        SetLastStatus(status);
-        return status;
+        (void) LocalMotorController_Stop();
+        ClearCommandState();
     }
-
-    SetLastStatus(drivers::DRIVER_OK);
-    return drivers::DRIVER_OK;
+    g_state.last_status = status;
+    return status;
 }
 
 drivers::DriverStatus Chassis_Update(void)
@@ -625,37 +356,22 @@ drivers::DriverStatus Chassis_Update(void)
     if (!g_state.initialized) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
-    RefreshConfig();
-
-    motor::RpmData rpm = {};
-    drivers::DriverStatus status = motor::ReadRpm(&g_motorClient, &rpm);
-    if (status != drivers::DRIVER_OK) {
-        g_state.last_feedback_status = status;
-        SetLastStatus(status);
-        return status;
+    const LocalMotorState *local = LocalMotorController_GetState();
+    if ((local == 0) || (!local->initialized)) {
+        g_state.last_feedback_status =
+            drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return g_state.last_feedback_status;
     }
 
-    status = ReadWheelState(kLeftWheelMotor1,
-                            &g_state.left,
-                            rpm.actual_m2);
-    if (status != drivers::DRIVER_OK) {
-        g_state.last_feedback_status = status;
-        SetLastStatus(status);
-        return status;
-    }
-
-    status = ReadWheelState(kRightWheelMotor1,
-                            &g_state.right,
-                            rpm.actual_m1);
-    g_state.last_feedback_status = status;
-    if (status == drivers::DRIVER_OK) {
+    CopyFeedback(*local);
+    g_state.last_feedback_status = local->last_status;
+    if (local->last_status == drivers::DRIVER_OK) {
         g_state.last_feedback_ms = services::Time_Millis();
         if (g_state.feedback_sequence != UINT32_MAX) {
             g_state.feedback_sequence++;
         }
     }
-    SetLastStatus(status);
-    return status;
+    return g_state.last_feedback_status;
 }
 
 const ChassisState *Chassis_GetState(void)
@@ -664,3 +380,26 @@ const ChassisState *Chassis_GetState(void)
 }
 
 } /* namespace app */
+
+#elif !FEATURE_ENABLE_MOTOR_DRIVER
+
+namespace app {
+namespace {
+ChassisState g_state = {};
+}
+
+drivers::DriverStatus Chassis_Init(void) { return drivers::DRIVER_ERROR_UNSUPPORTED; }
+drivers::DriverStatus Chassis_Stop(void) { return drivers::DRIVER_ERROR_UNSUPPORTED; }
+drivers::DriverStatus Chassis_SetWheelRpm(int32_t, int32_t) { return drivers::DRIVER_ERROR_UNSUPPORTED; }
+drivers::DriverStatus Chassis_SetVelocity(int32_t, int32_t) { return drivers::DRIVER_ERROR_UNSUPPORTED; }
+drivers::DriverStatus Chassis_TrackMotorPosition(bool) { return drivers::DRIVER_ERROR_UNSUPPORTED; }
+void Chassis_ReleaseMotorCommand(bool) {}
+void Chassis_ReleaseAllMotorCommands(void) {}
+drivers::DriverStatus Chassis_ControlUpdate(void) { return drivers::DRIVER_ERROR_UNSUPPORTED; }
+drivers::DriverStatus Chassis_Service(void) { return drivers::DRIVER_ERROR_UNSUPPORTED; }
+drivers::DriverStatus Chassis_Update(void) { return drivers::DRIVER_ERROR_UNSUPPORTED; }
+const ChassisState *Chassis_GetState(void) { return &g_state; }
+
+} /* namespace app */
+
+#endif

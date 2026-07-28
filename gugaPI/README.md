@@ -11,6 +11,7 @@
 - 调试器：XDS110
 - SysConfig 文件：`empty_cpp.syscfg`
 - 程序入口：`empty_cpp.cpp`
+- 当前电机配置：右侧 MR 单电机台架；双轮差速和上层运动功能禁用
 
 ## 文档
 
@@ -18,6 +19,7 @@
 
 ```text
 docs/PROJECT_GUIDE.md
+docs/LOCAL_MOTOR_MIGRATION.md
 ```
 
 ## 重要约定

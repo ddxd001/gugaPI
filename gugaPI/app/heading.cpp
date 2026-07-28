@@ -4,6 +4,7 @@
 #include "app/chassis.h"
 #include "app/config_store.h"
 #include "app/heading_lock_math.h"
+#include "config/feature_config.h"
 #include "drivers/common/driver_status.h"
 #include "services/fault.h"
 #include "services/time.h"
@@ -409,6 +410,11 @@ void Heading_Init(void)
 
 drivers::DriverStatus Heading_HoldStart(int32_t base_rpm)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        (void) Chassis_Stop();
+        g_state.last_status = drivers::DRIVER_ERROR_UNSUPPORTED;
+        return g_state.last_status;
+    }
     if (services::Fault_HasFault()) {
         g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
@@ -439,6 +445,11 @@ drivers::DriverStatus Heading_HoldStart(int32_t base_rpm)
 
 drivers::DriverStatus Heading_LockStart(void)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        (void) Chassis_Stop();
+        g_state.last_status = drivers::DRIVER_ERROR_UNSUPPORTED;
+        return g_state.last_status;
+    }
     const uint32_t now = services::Time_Millis();
     if (g_state.mode != HEADING_IDLE) {
         g_state.last_status = drivers::DRIVER_ERROR_BUSY;
@@ -494,6 +505,11 @@ drivers::DriverStatus Heading_LockStart(void)
 
 drivers::DriverStatus Heading_TurnStart(int32_t delta_deg)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        (void) Chassis_Stop();
+        g_state.last_status = drivers::DRIVER_ERROR_UNSUPPORTED;
+        return g_state.last_status;
+    }
     if ((delta_deg < -180) || (delta_deg > 180)) {
         g_state.last_status = drivers::DRIVER_ERROR_INVALID_ARG;
         return drivers::DRIVER_ERROR_INVALID_ARG;
@@ -542,6 +558,11 @@ drivers::DriverStatus Heading_DistanceStart(int32_t distance_mm,
                                             int32_t max_rpm,
                                             uint32_t timeout_ms)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        (void) Chassis_Stop();
+        g_state.last_status = drivers::DRIVER_ERROR_UNSUPPORTED;
+        return g_state.last_status;
+    }
     const uint32_t now = services::Time_Millis();
     if ((distance_mm == 0) ||
         (AbsInt32(distance_mm) > kDistanceMaxMm) ||

@@ -20,12 +20,16 @@
 
 #define FEATURE_ENABLE_FRAM                (1U)
 #define FEATURE_ENABLE_INA219              (0U)
-#define FEATURE_ENABLE_LORA                (1U)
-#define FEATURE_ENABLE_MOTOR_DRIVER        (1U)
-#define FEATURE_ENABLE_OLED                (1U)
+#define FEATURE_ENABLE_LORA                (0U)
+#define FEATURE_ENABLE_MOTOR_DRIVER        (0U)
+#define FEATURE_ENABLE_OLED                (0U)
 #define FEATURE_ENABLE_IMU                 (1U)
-#define FEATURE_ENABLE_MOTOR               (0U)
-#define FEATURE_ENABLE_ENCODER             (0U)
+#define FEATURE_ENABLE_MOTOR               (1U)
+#define FEATURE_ENABLE_ENCODER             (1U)
+/* Select the MR bridge plus its PC0/PC1 hardware-QEI encoder on the
+ * unmodified U9 routing. This is a single-motor bench profile, not a
+ * differential-drive chassis. */
+#define FEATURE_LOCAL_MOTOR_RIGHT_ONLY      (1U)
 #define FEATURE_ENABLE_GY931               (0U)
 #define FEATURE_ENABLE_BUTTON_CHASSIS_TEST (0U)
 #define FEATURE_ENABLE_GRAYSCALE           (1U)

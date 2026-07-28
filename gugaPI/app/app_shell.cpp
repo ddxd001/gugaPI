@@ -43,7 +43,9 @@
 namespace app {
 namespace {
 
+#if FEATURE_ENABLE_MOTOR_DRIVER
 namespace motor = motor_driver_client;
+#endif
 
 static const uint16_t kFramShellMaxReadBytes = 32U;
 static const uint8_t kParamExportDefaultCount = 16U;
@@ -51,7 +53,9 @@ static const uint8_t kParamExportMaxCount = 16U;
 #if FEATURE_ENABLE_LORA
 static const uint16_t kLoraShellMaxReadBytes = 64U;
 #endif
+#if FEATURE_ENABLE_MOTOR_DRIVER
 static const uint16_t kMotorShellMaxReadBytes = 64U;
+#endif
 #if FEATURE_ENABLE_IMU
 static const uint32_t kImuPinWiggleDefaultLoops = 20000U;
 static const uint32_t kImuPinWiggleMaxLoops = 1000000U;
@@ -60,8 +64,10 @@ static const uint32_t kImuSpiBurstMaxBytes = 1000000U;
 static const uint32_t kImuSpiSampleDefaultBytes = 8U;
 static const uint32_t kImuSpiSampleMaxBytes = 16U;
 #endif
+#if FEATURE_ENABLE_OLED
 static const uint8_t kOledTextRows = 4U;
 static const uint8_t kOledTextCols = 21U;
+#endif
 #if FEATURE_ENABLE_GY931
 static const uint8_t kGy931MaxReadWords = drivers::GY931_MAX_READ_WORDS;
 #endif
@@ -83,14 +89,18 @@ static const uint32_t kBatteryLogDefaultPeriodMs = 500U;
 static const uint32_t kBatteryLogMinPeriodMs = 100U;
 static const uint32_t kBatteryLogMaxPeriodMs = 5000U;
 #endif
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_OLED
 static const uint32_t kGrayOledTaskPeriodMs = 50U;
 static const uint32_t kGrayOledDefaultPeriodMs = 200U;
 static const uint32_t kGrayOledMinPeriodMs = 50U;
 static const uint32_t kGrayOledMaxPeriodMs = 5000U;
+#endif
 static const int32_t kChassisLinearLimitMmS = 5000;
 static const int32_t kChassisAngularLimitMdegS = 720000;
+#if FEATURE_ENABLE_MOTOR_DRIVER
 motor::Client g_motorClient = { motor::TRANSPORT_I2C,
                                 motor::kI2cDefaultAddress };
+#endif
 #if FEATURE_ENABLE_GY931 && FEATURE_ENABLE_OLED
 bool g_gy931OledEnabled = false;
 bool g_gy931OledTaskRegistered = false;
@@ -163,6 +173,7 @@ bool StrEqual(const char *left, const char *right)
     return (*left == '\0') && (*right == '\0');
 }
 
+#if FEATURE_ENABLE_OLED
 bool CompetitionOwnsOled(void)
 {
     const AppMode mode = App_GetState()->mode;
@@ -180,6 +191,7 @@ uint8_t CountTextCells(const char *text, uint8_t max_cells)
 
     return count;
 }
+#endif
 
 bool ParseUint32(const char *text, uint32_t maxValue, uint32_t *outValue)
 {
@@ -273,6 +285,7 @@ bool ParseInt32(const char *text,
     return true;
 }
 
+#if FEATURE_ENABLE_MOTOR_DRIVER
 bool ParseOnOff(const char *text, bool *outValue)
 {
     if ((text == 0) || (outValue == 0)) {
@@ -300,6 +313,7 @@ void SetFlagValue(uint8_t *flags, uint8_t mask, bool enabled)
         *flags = static_cast<uint8_t>(*flags & static_cast<uint8_t>(~mask));
     }
 }
+#endif
 
 char HexDigit(uint8_t value)
 {
@@ -308,10 +322,12 @@ char HexDigit(uint8_t value)
                            (char) ('A' + (value - 10U));
 }
 
+#if FEATURE_ENABLE_LORA || FEATURE_ENABLE_MOTOR_DRIVER
 bool IsPrintableAscii(uint8_t value)
 {
     return (value >= 0x20U) && (value <= 0x7EU);
 }
+#endif
 
 void WriteHex8(uint8_t value)
 {
@@ -432,6 +448,22 @@ void WriteStatusLine(const char *prefix, drivers::DriverStatus status)
     services::Shell_WriteString("\r\n");
 }
 
+drivers::DriverStatus SchedulerStatusToDriverStatus(
+    services::SchedulerStatus status)
+{
+    switch (status) {
+        case services::SCHEDULER_OK:
+            return drivers::DRIVER_OK;
+        case services::SCHEDULER_ERROR_INVALID_ARG:
+        case services::SCHEDULER_ERROR_INVALID_ID:
+            return drivers::DRIVER_ERROR_INVALID_ARG;
+        case services::SCHEDULER_ERROR_FULL:
+            return drivers::DRIVER_ERROR_BUSY;
+        default:
+            return drivers::DRIVER_ERROR;
+    }
+}
+
 void PrintFramUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -482,6 +514,7 @@ void PrintBatteryUsage(void)
 }
 #endif
 
+#if FEATURE_ENABLE_OLED
 void PrintOledUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -494,6 +527,7 @@ void PrintOledUsage(void)
     services::Shell_WriteLine("  oled invert on|off");
     services::Shell_WriteLine("  oled on|off");
 }
+#endif
 
 #if FEATURE_ENABLE_GY931
 void PrintGy931Usage(void)
@@ -616,22 +650,6 @@ drivers::DriverStatus OledTextWriteLine(uint8_t row, const char *text)
     char *cursor = AppendString(line, &line[kOledTextCols], text);
     FinishOledLine(line, cursor);
     return board::Board_OledWriteText(row, 0U, line);
-}
-
-drivers::DriverStatus SchedulerStatusToDriverStatus(
-    services::SchedulerStatus status)
-{
-    switch (status) {
-        case services::SCHEDULER_OK:
-            return drivers::DRIVER_OK;
-        case services::SCHEDULER_ERROR_INVALID_ARG:
-        case services::SCHEDULER_ERROR_INVALID_ID:
-            return drivers::DRIVER_ERROR_INVALID_ARG;
-        case services::SCHEDULER_ERROR_FULL:
-            return drivers::DRIVER_ERROR_BUSY;
-        default:
-            return drivers::DRIVER_ERROR;
-    }
 }
 
 #if FEATURE_ENABLE_GY931
@@ -1458,6 +1476,7 @@ void PrintLoraUsage(void)
 }
 #endif
 
+#if FEATURE_ENABLE_MOTOR_DRIVER
 void PrintMotorUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -1498,6 +1517,7 @@ void PrintMotorUsage(void)
     services::Shell_WriteLine("  motor clear");
     services::Shell_WriteLine("  motor test");
 }
+#endif
 
 void PrintChassisUsage(void)
 {
@@ -1505,11 +1525,17 @@ void PrintChassisUsage(void)
     services::Shell_WriteLine("  chassis status");
     services::Shell_WriteLine("  chassis stat");
     services::Shell_WriteLine("  chassis stop");
+#if FEATURE_LOCAL_MOTOR_RIGHT_ONLY
+    services::Shell_WriteLine("  chassis wheel <left_rpm> <right_rpm>");
+    services::Shell_WriteLine("    MR-only: left_rpm must be 0");
+#else
     services::Shell_WriteLine("  chassis wheel <left_rpm> <right_rpm>");
     services::Shell_WriteLine(
         "  chassis vel <linear_mm_s> <angular_mdeg_s>");
+#endif
 }
 
+#if FEATURE_ENABLE_MOTOR_DRIVER
 void PrintMotorFrameData(const char *prefix, const motor::Frame &frame)
 {
     services::Shell_WriteString(prefix);
@@ -1689,6 +1715,7 @@ void PrintMotorPositionControlBlock(const motor::PositionControl &control)
     PrintMotorPositionControlFields(control);
     services::Shell_WriteString("\r\n");
 }
+#endif
 
 void PrintChassisWheelState(const char *prefix,
                             const ChassisWheelState &wheel)
@@ -2478,9 +2505,9 @@ void FramCommand(int argc, const char * const argv[])
 #endif
 }
 
+#if FEATURE_ENABLE_OLED
 void OledCommand(int argc, const char * const argv[])
 {
-#if FEATURE_ENABLE_OLED
     uint32_t value = 0U;
 
     if (argc < 2) {
@@ -2667,12 +2694,8 @@ void OledCommand(int argc, const char * const argv[])
     }
 
     PrintOledUsage();
-#else
-    (void) argc;
-    (void) argv;
-    services::Shell_WriteLine("oled: disabled");
-#endif
 }
+#endif
 
 #if FEATURE_ENABLE_GY931
 void Gy931Command(int argc, const char * const argv[])
@@ -4993,6 +5016,7 @@ void LoraCommand(int argc, const char * const argv[])
 }
 #endif
 
+#if FEATURE_ENABLE_MOTOR_DRIVER
 drivers::DriverStatus MotorWriteArgs(int argc,
                                      const char * const argv[],
                                      bool append_newline,
@@ -5042,10 +5066,11 @@ drivers::DriverStatus MotorWriteArgs(int argc,
     *bytes_written = count;
     return drivers::DRIVER_OK;
 }
+#endif
 
 void ChassisCommand(int argc, const char * const argv[])
 {
-#if FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_CHASSIS
     if (argc < 2) {
         PrintChassisUsage();
         return;
@@ -5304,7 +5329,13 @@ void PrintDistanceProfile(void)
 
 void HeadingCommand(int argc, const char * const argv[])
 {
-#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_CHASSIS
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        (void) argc;
+        (void) argv;
+        services::Shell_WriteLine("heading: disabled in MR-only bench mode");
+        return;
+    }
     if (argc < 2) {
         PrintHeadingUsage();
         return;
@@ -5742,7 +5773,13 @@ const char *CondText(app::ActionCond c)
 
 void RunCommand(int argc, const char * const argv[])
 {
-#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_CHASSIS
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        (void) argc;
+        (void) argv;
+        services::Shell_WriteLine("run: disabled in MR-only bench mode");
+        return;
+    }
     if (argc < 2) {
         PrintRunUsage();
         return;
@@ -5936,7 +5973,13 @@ const char *GrayscaleTrackStateText(drivers::GrayscaleTrackState state)
 
 void LFCommand(int argc, const char * const argv[])
 {
-#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_CHASSIS
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        (void) argc;
+        (void) argv;
+        services::Shell_WriteLine("lf: disabled in MR-only bench mode");
+        return;
+    }
     if (argc < 2) {
         PrintLFUsage();
         return;
@@ -6165,8 +6208,14 @@ void PrintRoadEvent(void)
 
 void RoadCommand(int argc, const char * const argv[])
 {
-#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER && \
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_CHASSIS && \
     FEATURE_ENABLE_IMU
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        (void) argc;
+        (void) argv;
+        services::Shell_WriteLine("road: disabled in MR-only bench mode");
+        return;
+    }
     if (argc < 2) {
         PrintRoadUsage();
         return;
@@ -6290,9 +6339,9 @@ void RoadCommand(int argc, const char * const argv[])
 #endif
 }
 
+#if FEATURE_ENABLE_MOTOR_DRIVER
 void MotorCommand(int argc, const char * const argv[])
 {
-#if FEATURE_ENABLE_MOTOR_DRIVER
     uint32_t value = 0U;
 
     if ((argc < 2) || (!motor::IsReady())) {
@@ -7297,12 +7346,8 @@ void MotorCommand(int argc, const char * const argv[])
     }
 
     PrintMotorUsage();
-#else
-    (void) argc;
-    (void) argv;
-    services::Shell_WriteLine("motor: disabled");
-#endif
 }
+#endif
 
 #if FEATURE_ENABLE_SCHEDULER_STATS
 void PrintSchedulerUsage(void)
@@ -8009,6 +8054,7 @@ void SeqCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "run")) {
+#if FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
         const drivers::DriverStatus load_status =
             app::SeqStore_Load(static_cast<uint8_t>(slot));
         if (load_status != drivers::DRIVER_OK) {
@@ -8016,6 +8062,11 @@ void SeqCommand(int argc, const char * const argv[])
             return;
         }
         WriteStatusLine("seq run: ", app::ActionRunner_Start());
+#else
+        (void) slot;
+        (void) app::Chassis_Stop();
+        WriteStatusLine("seq run: ", drivers::DRIVER_ERROR_UNSUPPORTED);
+#endif
         return;
     }
 
@@ -8358,32 +8409,49 @@ void AppShell_RegisterCommands(void)
         "motor",
         "MotorDriver: status|bus|ping|info|reg|set|run",
         MotorCommand);
+#endif
+#if FEATURE_ENABLE_CHASSIS
+#if FEATURE_LOCAL_MOTOR_RIGHT_ONLY
+    (void) services::Shell_RegisterCommand(
+        "chassis",
+        "MR bench: status|stat|stop|wheel 0 <right_rpm>",
+        ChassisCommand);
+#else
     (void) services::Shell_RegisterCommand(
         "chassis",
         "Chassis: status|stat|stop|wheel <l_rpm> <r_rpm>|vel <mm_s> <mdeg_s>",
         ChassisCommand);
 #endif
-#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+#endif
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_CHASSIS
     (void) services::Shell_RegisterCommand(
         "heading",
-        "Heading: status|hold|turn|distance|profile|stop",
+        FEATURE_ENABLE_DIFFERENTIAL_CHASSIS ?
+            "Heading: status|hold|turn|distance|profile|stop" :
+            "Heading: disabled in MR-only bench mode",
         HeadingCommand);
     (void) services::Shell_RegisterCommand(
         "run",
-        "ActionRunner: add <op> <p1> <p2> <until> <ons> <ont>|clear|start|cancel|status|dump",
+        FEATURE_ENABLE_DIFFERENTIAL_CHASSIS ?
+            "ActionRunner: add|clear|start|cancel|status|dump" :
+            "ActionRunner: disabled in MR-only bench mode",
         RunCommand);
 #endif
-#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_CHASSIS
     (void) services::Shell_RegisterCommand(
         "lf",
-        "LineFollow: status|cal|start|stop|kp|kd|maxcorr|slew|losthold|losttimeout",
+        FEATURE_ENABLE_DIFFERENTIAL_CHASSIS ?
+            "LineFollow: status|cal|start|stop|kp|kd|maxcorr" :
+            "LineFollow: disabled in MR-only bench mode",
         LFCommand);
 #endif
-#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER && \
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_CHASSIS && \
     FEATURE_ENABLE_IMU
     (void) services::Shell_RegisterCommand(
         "road",
-        "Road events: status|event|clear|mode|auto|turn",
+        FEATURE_ENABLE_DIFFERENTIAL_CHASSIS ?
+            "Road events: status|event|clear|mode|auto|turn" :
+            "Road actions: disabled in MR-only bench mode",
         RoadCommand);
 #endif
     (void) services::Shell_RegisterCommand(

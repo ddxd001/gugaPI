@@ -3,6 +3,7 @@
 #include "app/app_grayscale.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
+#include "config/feature_config.h"
 #include "drivers/common/driver_status.h"
 #include "services/fault.h"
 #include "services/time.h"
@@ -244,6 +245,11 @@ drivers::DriverStatus LF_CalibrateStart(void)
 
 drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        (void) Chassis_Stop();
+        g_state.last_status = drivers::DRIVER_ERROR_UNSUPPORTED;
+        return g_state.last_status;
+    }
     if (g_state.mode != LF_IDLE) {
         return drivers::DRIVER_ERROR_BUSY;
     }

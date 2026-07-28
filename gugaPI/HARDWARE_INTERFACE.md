@@ -25,8 +25,14 @@ firmware pin definitions.
 PC2 / I2C2_SCL  -------->| SENSOR_I2C / IIC3 SCL|---- FM24CL64B SCL, INA219 SCL, OLED SCL
 PC3 / I2C2_SDA  <------->| SENSOR_I2C / IIC3 SDA|---- FM24CL64B SDA, INA219 SDA, OLED SDA
                          |                      |
-PA11 / I2C1_SCL -------->| MOTOR_I2C / IIC1 SCL |---- MotorDriver I2C SCL
-PA10 / I2C1_SDA <------->| MOTOR_I2C / IIC1 SDA |---- MotorDriver I2C SDA
+PA10 / GPIO     -------->| MR nSLEEP2            |---- Right DRV8876, active channel
+PB13 / TIMG12   -------->| MR PWM2               |---- Right DRV8876 EN/IN1
+PB7 / GPIO      -------->| MR GPIO2 / PH         |---- Right DRV8876 PH/IN2
+PC0/PC1 TIMG8   <--------| MR QEI B/A            |---- Right encoder B/A
+PA11 / GPIO     -------->| ML nSLEEP1 = LOW      |---- Left DRV8876 held asleep
+PB14             -------->| ML PWM1 unused        |---- No PWM in current profile
+PB9 / GPIO      -------->| ML GPIO1 / PH = LOW   |---- Left direction held low
+PB15/PB16       <--------| ML encoder A/B unused |---- Never configure as outputs
                          |                      |
 PA29 / GPIO      -------->| GY931_SOFT_I2C SCL   |---- GY931 SCL
 PA30 / GPIO      <------->| GY931_SOFT_I2C SDA   |---- GY931 SDA
@@ -37,14 +43,14 @@ PB19 / SPIx_POCI <-------| IMU_SPI POCI/MISO    |---- ICM-45686 SDO, LIS3MDLTR S
 PC7              --------| ICM45686_CS          |---- ICM-45686 CS
 PC8              --------| LIS3MDLTR_CS         |---- LIS3MDLTR CS
                          |                      |
-PC11 / UART6_TX -------->| DEBUG_UART TX        |---- USB-UART RX / PC RX
-PC10 / UART6_RX <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
+PA14 / UART3_TX -------->| DEBUG_UART TX        |---- USB-UART RX / PC RX
+PA13 / UART3_RX <--------| DEBUG_UART RX        |---- USB-UART TX / PC TX
                          |                      |
-PA8 / UART1_TX  -------->| MOTOR_UART TX        |---- MotorDriver RX
-PA9 / UART1_RX  <--------| MOTOR_UART RX        |---- MotorDriver TX
+PA8 / UART1_TX  -------->| LEGACY MOTOR_UART TX |---- Disabled external-MCU backend
+PA9 / UART1_RX  <--------| LEGACY MOTOR_UART RX |---- Disabled external-MCU backend
                          |                      |
-PA14 / UART3_TX -------->| LORA_UART TX         |---- LoRa RX
-PA13 / UART3_RX <--------| LORA_UART RX         |---- LoRa TX
+PC11             --------| Released UART pin     |---- Not configured
+PC10             --------| Released UART pin     |---- Not configured
                          |                      |
 PA27             --------| LED1                 |---- Active-low LED
 PA26             --------| LED2                 |---- Active-low LED
@@ -67,7 +73,51 @@ All external UART/I2C modules must share GND with gugaPI.
 | --- | --- | --- |
 | 3.3V | MCU logic, pull-ups, low-voltage peripherals | Verify current budget from schematic |
 | GND | All external modules | UART and I2C links require common ground |
+| U9 5V | MCU-less DRV8876 board logic supply | Does not power the motor |
+| CN1 12V/GND | DRV8876 motor power | Current-limit first tests; CN1 GND, U9 GND and MCU GND must be common |
 | External module power | LoRa, MotorDriver, INA219 sense side, FRAM, OLED, GY931 | Voltage and current depend on selected module |
+
+## Local DRV8876 Right-Motor Interface (Current)
+
+The motor board retains its original U9 net assignment. The current bench
+profile uses only channel 2 / right `MR`; it does not require swapping U9 pins.
+The authoritative wiring table, safety behavior, and first bench procedure are
+in `docs/LOCAL_MOTOR_MIGRATION.md`.
+
+| U9 | MCU | Original motor-board net | Current role |
+| ---: | --- | --- | --- |
+| 1 | 5V | 5V | Motor-board logic supply |
+| 2 | GND | GND | Common ground |
+| 3–6 | - | Unused | NC |
+| 7 | PA10 | `NSLEEP2` | Right MR bridge enable, low at reset/stop |
+| 8 | PA11 | `NSLEEP1` | Left ML bridge held asleep |
+| 9 | PC0 / TIMG8 CCP0 | `GMR_RB` | Right encoder B |
+| 10 | PC1 / TIMG8 CCP1 | `GMR_RA` | Right encoder A |
+| 11 | PB7 / GPIO | `GPIO2` | Right MR PH/direction |
+| 12 | PB9 / GPIO | `GPIO1` | Left ML PH held low |
+| 13 | PB13 / TIMG12 CCP0 | `PWM2` | Right MR 20 kHz PWM |
+| 14 | PB14 / optional TIMG12 CCP1 | `PWM1` | Current MR profile: not configured; ML-only alternative: PWM |
+| 15 | PB15 / optional TIMG8 CCP0 | `GMR_LA` | Current MR profile: unused input; ML-only alternative: encoder A |
+| 16 | PB16 / optional TIMG8 CCP1 | `GMR_LB` | Current MR profile: unused input; ML-only alternative: encoder B |
+
+`FEATURE_LOCAL_MOTOR_RIGHT_ONLY=1` selects this profile and derives
+`FEATURE_ENABLE_DIFFERENTIAL_CHASSIS=0`. Only right-MR single-motor bench
+commands are valid. Two-wheel velocity conversion, heading, distance, line
+following, road control, and motion actions are unavailable.
+
+Use connector `CN6 RIGHT / MR` (located on the left side of the supplied PCB
+front-view rendering): pin 1 `MR_OUTP`, pin 2 encoder GND, pin 3 `GMR_RB`, pin
+4 `GMR_RA`, pin 5 encoder 3V3, and pin 6 `MR_OUTN`.
+
+The motor board does not route either DRV8876 nFAULT output to the MCU. PB15
+and PB16 are physically connected to left encoder outputs and must never be
+configured as PH/direction outputs.
+
+PB15/PB16 can alternatively map to TIMG8 CCP0/1, so an ML-only hardware-QEI
+profile is possible using PB14/PWM1, PB9/GPIO1, PA11/NSLEEP1, and
+PB15/PB16/QEI. That alternative and the current MR QEI on PC0/PC1 both consume
+TIMG8 and therefore cannot operate simultaneously. The current implementation
+chooses MR because it requires the smallest change to the existing QEI setup.
 
 ## Debug UART
 
@@ -75,8 +125,8 @@ Shell and log output use the dedicated DEBUG UART configured by SysConfig.
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| DEBUG_UART_TX | PC11 | UART6_TX | USB-UART RX / PC RX | MCU output | N/A | 115200 8N1 |
-| DEBUG_UART_RX | PC10 | UART6_RX | USB-UART TX / PC TX | MCU input | Not configured in board code | 115200 8N1 |
+| DEBUG_UART_TX | PA14 | UART3_TX | USB-UART RX / PC RX | MCU output | N/A | 115200 8N1 |
+| DEBUG_UART_RX | PA13 | UART3_RX | USB-UART TX / PC TX | MCU input | Not configured in board code | 115200 8N1 |
 
 UART configuration:
 
@@ -91,28 +141,34 @@ UART configuration:
 | Stop bits | 1 | Standard 8N1 |
 | Flow control | None | TX/RX only |
 
-## LoRa UART Interface
+## LoRa UART Interface (Disabled)
+
+PA14/PA13 were previously assigned to the LoRa UART. They are now owned by
+`DEBUG_UART`, so the current SysConfig contains no `LORA_UART` instance and
+both firmware profiles set `FEATURE_ENABLE_LORA=0`. Do not connect an active
+LoRa module and a USB-UART adapter to these signals at the same time. LoRa must
+be remapped to another valid UART/pin pair before it can be re-enabled.
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| LORA_UART_TX | PA14 | UART3_TX | LoRa module RX | MCU output | N/A | Dedicated LoRa link |
-| LORA_UART_RX | PA13 | UART3_RX | LoRa module TX | MCU input | Internal pull-up enabled in `Board_LoraInit()` | Dedicated LoRa link |
+| LORA_UART_TX | Unassigned | Unassigned | LoRa module RX | MCU output | N/A | PA14/UART3_TX is now DEBUG_UART_TX |
+| LORA_UART_RX | Unassigned | Unassigned | LoRa module TX | MCU input | N/A | PA13/UART3_RX is now DEBUG_UART_RX |
 | LORA_GND | GND | N/A | LoRa module GND | N/A | N/A | Common ground required |
 
 LoRa UART configuration:
 
 | Field | Value | Notes |
 | --- | --- | --- |
-| Enabled | Yes | `FEATURE_ENABLE_LORA` |
+| Enabled | No | `FEATURE_ENABLE_LORA = 0`; no SysConfig UART instance |
 | Use case | Transparent UART pass-through | Firmware does not parse module protocol |
 | Electrical interface | 3.3V TTL UART | Verify LoRa module IO voltage |
-| Baud rate | 115200 | `BOARD_LORA_BAUDRATE` |
+| Baud rate | 115200 | Historical setting; inactive until remapped |
 | Data bits | 8 | Standard 8N1 |
 | Parity | None | Standard 8N1 |
 | Stop bits | 1 | Standard 8N1 |
 | Flow control | None | TX/RX only |
 
-## MotorDriver UART Interface
+## Legacy MotorDriver UART Interface (Disabled)
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up / Pull-down | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -124,7 +180,7 @@ MotorDriver UART configuration:
 
 | Field | Value | Notes |
 | --- | --- | --- |
-| Enabled | Yes | `FEATURE_ENABLE_MOTOR_DRIVER` |
+| Enabled | No | `FEATURE_ENABLE_MOTOR_DRIVER = 0`; retained only as a source-level fallback |
 | Use case | Raw UART test and optional manual control | High-level shell control defaults to I2C; UART mode uses the binary MotorDriver frame |
 | Electrical interface | 3.3V TTL UART | Direct MCU-to-MotorDriver UART |
 | Baud rate | 115200 | `BOARD_MOTOR_DRIVER_BAUDRATE` |
@@ -145,10 +201,10 @@ MotorDriver frame format:
 | DATA | 0 - 32 bytes | Payload | Present for write requests and data responses |
 | CRC8 | 1 byte | CRC-8 poly 0x07, init 0x00 | Covers SOF through DATA |
 
-## MotorDriver I2C Interface
+## Legacy MotorDriver I2C Interface (Disabled)
 
-This board uses a dedicated MotorDriver I2C bus. The board-level schematic name
-is IIC1, and the MCU peripheral is I2C1.
+The previous external-MCU board used a dedicated MotorDriver I2C bus named
+IIC1 on MCU I2C1. The current local backend does not instantiate this bus.
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -160,8 +216,8 @@ MotorDriver I2C configuration:
 
 | Field | Value | Notes |
 | --- | --- | --- |
-| Enabled | Yes | `FEATURE_ENABLE_MOTOR_DRIVER` |
-| Use case | Default MotorDriver high-level control | Shell `motor` commands default to this bus |
+| Enabled | No | PA10/PA11 are now right/left nSLEEP GPIOs |
+| Use case | Historical external-MCU backend only | Current profiles do not register the `motor` command |
 | Board bus name | IIC1 | Dedicated to MotorDriver |
 | MCU I2C instance | I2C1 | `MOTOR_I2C_INST` |
 | Bus speed | 400 kHz | Validated with external pull-up resistors; 50 ns analog glitch filter enabled |
@@ -170,10 +226,10 @@ MotorDriver I2C configuration:
 
 ## GY931 Angle Sensor I2C Interface
 
-The WIT GY931 angle sensor is connected on PA29/PA30. These two pins can be
-muxed to MSPM0 hardware I2C1/I2C2 functions, but both hardware controllers are
-already assigned to MotorDriver and the shared SENSOR_I2C bus. Firmware
-therefore uses GPIO bit-banged open-drain I2C for this module.
+The WIT GY931 angle sensor is connected on PA29/PA30. Firmware keeps this module
+on GPIO bit-banged open-drain I2C so it does not disturb the shared SENSOR_I2C
+bus or the current motor pin mapping. I2C1 is no longer instantiated for the
+disabled external-MCU MotorDriver backend.
 
 | Signal | MCU Pin | MCU Peripheral | External Connection | Direction | Pull-up | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -186,7 +242,7 @@ GY931 configuration:
 
 | Field | Value | Notes |
 | --- | --- | --- |
-| Enabled | Yes | `FEATURE_ENABLE_GY931` |
+| Enabled | No | `FEATURE_ENABLE_GY931 = 0` in both current profiles |
 | Board bus name | GY931 software I2C | Not registered in generic hardware I2C diagnostic table |
 | MCU pins | PA29/SCL, PA30/SDA | `GPIO_GY931_I2C` SysConfig group |
 | Bus speed | Conservative software I2C | `BOARD_GY931_I2C_HALF_PERIOD_US` controls timing |
@@ -233,7 +289,7 @@ OLED configuration:
 
 | Field | Value | Notes |
 | --- | --- | --- |
-| Enabled | Yes | `FEATURE_ENABLE_OLED` |
+| Enabled | No | `FEATURE_ENABLE_OLED = 0` temporarily in both current profiles |
 | Device | HS91L02W2C01 | SSD1306-style I2C command set |
 | Board bus name | IIC3 | Shared with FRAM and INA219 |
 | MCU I2C instance | I2C2 | `SENSOR_I2C_INST`; OLED board alias uses this instance |
@@ -256,7 +312,7 @@ INA219 configuration:
 
 | Field | Value | Notes |
 | --- | --- | --- |
-| Enabled | Yes | `FEATURE_ENABLE_INA219` |
+| Enabled | No | `FEATURE_ENABLE_INA219 = 0` temporarily in both current profiles |
 | Board bus name | IIC3 | Shared with FRAM and OLED |
 | MCU I2C instance | I2C2 | `SENSOR_I2C_INST`; INA219 board alias uses this instance |
 | Bus speed | 400 kHz | Shared bus speed |
@@ -338,7 +394,7 @@ SPI bus configuration:
 
 | Field | Value | Notes |
 | --- | --- | --- |
-| Enabled | Planned | Enable `FEATURE_ENABLE_IMU` when firmware is added |
+| Enabled | Yes | `FEATURE_ENABLE_IMU = 1` in both current profiles |
 | MCU SPI instance | SPI0 | `IMU_SPI_INST` from SysConfig |
 | Electrical interface | 3.3V CMOS | VDD and VDDIO are both 3.3V |
 | SPI mode | Mode 3 target, CPOL = 1, CPHA = 1 | LIS3MDL requires clock idle high and captures on rising edge; verify ICM-45686 supports same mode |
@@ -463,12 +519,12 @@ LIS3MDLTR configuration:
 
 ## I2C Bus Summary
 
-`IIC1` and `IIC3` are board-level bus names. On MSPM0G3519, the current
-pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
+`IIC1` and `IIC3` are board-level bus names. The historical external-MCU
+backend mapped IIC1 to MCU `I2C1`; current SysConfig does not instantiate
+I2C1 because PA10/PA11 are motor nSLEEP GPIOs. Current IIC3 maps to MCU `I2C2`.
 
 | Bus Alias | MCU Instance | SCL | SDA | Speed | Devices | Address Range Used |
 | --- | --- | --- | --- | --- | --- | --- |
-| `motor` | I2C1 | PA11 | PA10 | 400 kHz | MotorDriver I2C target on dedicated IIC1 | Default 0x20, planned 0x20 - 0x27 |
 | `gy931` | GPIO bit-bang | PA29 | PA30 | Software I2C | WIT GY931 angle sensor | Default 0x50 |
 | `fram` | I2C2 | PC2 | PC3 | 400 kHz | FM24CL64B on shared IIC3 | Default 0x50 |
 | `oled` | I2C2 | PC2 | PC3 | 400 kHz | HS91L02W2C01 OLED on shared IIC3 | Default 0x3C |
@@ -478,9 +534,9 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 
 | Interface | MCU Instance | TX | RX | Baud | External Peer | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
-| DEBUG_UART | UART6 | PC11 | PC10 | 115200 | USB-UART / PC | Shell and logs |
-| LORA_UART | UART3 | PA14 | PA13 | 115200 | LoRa module | Raw transparent serial |
-| MOTOR_UART | UART1 | PA8 | PA9 | 115200 | MotorDriver | Binary motor control protocol |
+| DEBUG_UART | UART3 | PA14 | PA13 | 115200 | USB-UART / PC | Shell and logs |
+| LORA_UART | Unassigned | - | - | 115200 | LoRa module | Disabled because its former PA14/PA13 pins are used by DEBUG_UART |
+| MOTOR_UART (legacy) | UART1 | PA8 | PA9 | 115200 | Old external-MCU MotorDriver | Disabled in the current SysConfig |
 
 ## SPI Bus Summary
 
@@ -492,11 +548,11 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 
 | Interface | Current State | Notes |
 | --- | --- | --- |
-| IMU / magnetometer | Planned | ICM-45686 and LIS3MDLTR shared SPI; `FEATURE_ENABLE_IMU = 0` until firmware is added |
-| Local motor control | Disabled | `FEATURE_ENABLE_MOTOR = 0`; current motor control goes through external MotorDriver UART/I2C |
-| Encoder | Disabled | `FEATURE_ENABLE_ENCODER = 0` |
+| IMU / magnetometer | Enabled | ICM-45686 and LIS3MDLTR share SPI0; current profiles set `FEATURE_ENABLE_IMU = 1` |
+| Legacy MotorDriver UART/I2C | Disabled | Local `FEATURE_ENABLE_MOTOR` and `FEATURE_ENABLE_ENCODER` replace the external-MCU backend |
+| U9 pins 3-6 | Unused | Leave unconnected; no SysConfig ownership |
 | ADC placeholder | No ADC driver registered | Shell command reports placeholder |
-| PWM placeholder | No PWM driver registered | Shell command only echoes duty request |
+| Generic PWM shell placeholder | Not registered | TIMG12 is actively used by the right-side MR motor backend |
 
 ## Bring-up Checklist
 
@@ -506,13 +562,14 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 | LEDs | LED1/LED2/LED3 can turn on/off/toggle | `led all status`, `led 1 on`, `led 2 on`, `led 3 on`, `led all off` |
 | Buzzer | Buzzer can turn on/off | `buzzer on`, `buzzer off` |
 | Buttons | Pressed buttons read as pressed | `button` |
-| Shared IIC3 bus idle | PC2/PC3 high, FRAM read/write, INA219 probe, and OLED probe pass | `fram status`, `fram test`, `ina219 status`, `ina219 scan`, `oled status` |
-| OLED display | Address 0x3C responds and test pattern is visible | `i2c scan oled 0x3C 0x3C`, `oled init`, `oled test` |
-| GY931 software I2C | PA29/PA30 idle high, address 0x50 responds, angle values update when the module rotates | `gy931 status`, `gy931 scan 0x50 0x50`, `gy931 angle` |
-| ICM-45686 + LIS3MDLTR SPI | Both WHO_AM_I reads return expected IDs | TBD after SPI driver and shell command are added |
-| LoRa UART wiring | Module receives TX and gugaPI receives replies | `lora test`, `lora read` |
-| MotorDriver UART wiring | Heartbeat returns OK in UART mode | `motor bus uart`, `motor ping`, `motor info` |
-| MotorDriver I2C wiring | Address 0x20 responds on dedicated IIC1 motor bus | `i2c scan motor 0x20 0x27`, `motor bus i2c`, `motor info` |
+| Shared IIC3 bus idle | PC2/PC3 high and FRAM read/write pass; INA219/OLED are temporarily disabled | `fram status`, `fram test` |
+| OLED display | Temporarily disabled in both current profiles | No `oled` command in the current build |
+| GY931 software I2C | Temporarily disabled in both current profiles | No `gy931` command in the current build |
+| ICM-45686 + LIS3MDLTR SPI | Both devices initialize and IMU samples update | `imu status`, `imu icm whoami`, `imu lis status` |
+| Local right MR motor | The PC0/PC1 QEI count changes, PB13 PWM is 20 kHz, and the right wheel follows a low-RPM target | `chassis status`, `chassis wheel 0 30`, `chassis stop` |
+| LoRa UART | Disabled while PA14/PA13 host DEBUG_UART | Remap it before restoring `lora` commands |
+| Local encoder wiring | Hand rotation changes only the right MR wheel count; record the sign before closed-loop tuning | `chassis status` |
+| Local motor low-speed test | The right MR wheel runs with output capped for first power-up; the unsupported left bridge remains asleep | `param set speed_max_duty 10`, `chassis wheel 0 30`, `chassis stop` |
 
 ## Notes For Future Schematic Updates
 
