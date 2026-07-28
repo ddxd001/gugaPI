@@ -42,6 +42,76 @@ txstat
 ```
 
 输出字段中，`queued`/`dropped`表示待发送字节数和累计丢弃字节数；`dma_active`表示当前是否有TX块正在传输；`dma_blocks`是已完成的256字节以内DMA块数；`dma_errors`应始终为0。发送层采用4096字节环形缓冲和最大256字节的连续DMA块，DMA完成中断自动衔接下一块。
+## CAN 总线
+
+CAN1 使用 `PC26/CANTX`、`PC27/CANRX`，并通过 `PC25` 控制
+TCAN3413 的 `STB`。总线固定为经典 CAN、250 kbit/s；支持 11 位和
+29 位数据帧，单帧最多 8 字节，不支持远程帧和 CAN FD。固件不会自动
+发送测试帧。
+
+### `can status`
+
+显示收发器模式、接收队列、收发计数器以及 CAN 控制器错误状态。
+
+```text
+can status
+```
+
+### `can mode normal|standby`
+
+控制 TCAN3413 工作模式。`normal` 将 STB 拉低并启用 CAN 控制器；
+`standby` 将 STB 拉高并停止总线收发。
+
+```text
+can mode normal
+can mode standby
+```
+
+### `can send std|ext <hex_id> [hex_byte ...]`
+
+异步发送一帧经典 CAN 数据帧。此命令中的 ID 和数据字节均按十六进制
+解析：标准帧 ID 范围为 `000`–`7FF`，扩展帧 ID 范围为
+`00000000`–`1FFFFFFF`，数据长度为 0–8 字节。
+
+```text
+can send std 123 01 02 A5
+can send ext 1ABCDE 00 FF
+```
+
+若上一帧仍在等待发送，命令会返回 `busy`，不会阻塞主循环。
+
+### `can read [count]`
+
+从软件接收队列读取并打印最多 `count` 帧；默认读取 1 帧，范围为
+1–32。
+
+```text
+can read
+can read 8
+```
+
+### `can watch on|off`
+
+开启或关闭接收监视。开启后，调度器每 10 ms 最多打印 4 帧，避免大量
+报文长期占用主循环。监视会消费接收队列中的报文。
+
+```text
+can watch on
+can watch off
+```
+
+### `can clear|cancel|recover`
+
+- `clear`：清空软件接收队列和统计计数。
+- `cancel`：请求取消当前发送缓冲区中的待发送帧。
+- `recover`：在 Normal 模式下重新进入 CAN 正常工作状态，用于手动
+  尝试从 bus-off 等错误状态恢复。
+
+```text
+can clear
+can cancel
+can recover
+```
 
 ## LED
 

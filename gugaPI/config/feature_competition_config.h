@@ -7,7 +7,7 @@
  * Keep only peripherals used by the current robot:
  * - Buttons for competition task selection and start/stop.
  * - FRAM for persisted chassis/config parameters.
- * - Grayscale sensor and OLED. INA219 and GY931 are temporarily disabled.
+ * - Grayscale sensor. INA219, OLED and GY931 are temporarily disabled.
  * - MotorDriver link for chassis control.
  * - ICM-45686 IMU for heading closed-loop (HOLD/TURN).
  * - Status LED for competition state; buzzer is initialized but kept silent.
@@ -33,8 +33,10 @@
 #define FEATURE_ENABLE_FRAM                (1U)
 #define FEATURE_ENABLE_INA219              (0U)
 #define FEATURE_ENABLE_LORA                (0U)
+#define FEATURE_ENABLE_CAN                 (1U)
+#define FEATURE_ENABLE_JYME02_CAN          (1U)
 #define FEATURE_ENABLE_MOTOR_DRIVER        (1U)
-#define FEATURE_ENABLE_OLED                (1U)
+#define FEATURE_ENABLE_OLED                (0U)
 #define FEATURE_ENABLE_IMU                 (1U)
 #define FEATURE_ENABLE_MOTOR               (0U)
 #define FEATURE_ENABLE_ENCODER             (0U)

@@ -79,6 +79,9 @@ void CompetitionSyscfgInitPower(void)
 #if FEATURE_ENABLE_GRAYSCALE
     DL_ADC12_reset(GRAYSCALE_ADC_INST);
 #endif
+#if FEATURE_ENABLE_CAN
+    DL_MCAN_reset(CAN_BUS_INST);
+#endif
 
     DL_GPIO_enablePower(GPIOA);
     DL_GPIO_enablePower(GPIOB);
@@ -101,6 +104,9 @@ void CompetitionSyscfgInitPower(void)
 #endif
 #if FEATURE_ENABLE_GRAYSCALE
     DL_ADC12_enablePower(GRAYSCALE_ADC_INST);
+#endif
+#if FEATURE_ENABLE_CAN
+    DL_MCAN_enablePower(CAN_BUS_INST);
 #endif
     /* Preserve the generated 16-cycle startup guard used at the original
      * 40 MHz CPU clock (400 ns). */
@@ -261,6 +267,16 @@ void CompetitionSyscfgInitGpio(void)
                          GPIO_GRAY_C_GRAY_SEL0_PIN |
                              GPIO_GRAY_C_GRAY_SEL1_PIN);
 #endif
+
+#if FEATURE_ENABLE_CAN
+    DL_GPIO_initPeripheralOutputFunction(GPIO_CAN_BUS_IOMUX_CAN_TX,
+                                         GPIO_CAN_BUS_IOMUX_CAN_TX_FUNC);
+    DL_GPIO_initPeripheralInputFunction(GPIO_CAN_BUS_IOMUX_CAN_RX,
+                                        GPIO_CAN_BUS_IOMUX_CAN_RX_FUNC);
+    DL_GPIO_initDigitalOutput(GPIO_CAN_CTRL_CAN_STB_IOMUX);
+    DL_GPIO_clearPins(GPIO_CAN_CTRL_PORT, GPIO_CAN_CTRL_CAN_STB_PIN);
+    DL_GPIO_enableOutput(GPIO_CAN_CTRL_PORT, GPIO_CAN_CTRL_CAN_STB_PIN);
+#endif
 }
 
 } /* namespace */
@@ -290,6 +306,9 @@ extern "C" void SYSCFG_DL_init(void)
 #endif
 #if FEATURE_ENABLE_GRAYSCALE
     SYSCFG_DL_GRAYSCALE_ADC_init();
+#endif
+#if FEATURE_ENABLE_CAN
+    SYSCFG_DL_CAN_BUS_init();
 #endif
     SYSCFG_DL_SYSCTL_CLK_init();
 }
