@@ -36,6 +36,10 @@ drivers::DriverStatus App_CompetitionRefreshSelection(void);
 drivers::DriverStatus App_CompetitionArm(void);
 drivers::DriverStatus App_CompetitionStart(void);
 drivers::DriverStatus App_CompetitionStop(void);
+/* Software-wide motion stop used by the debug shell/dashboard. This cancels
+ * every application controller before issuing the final chassis stop. It does
+ * not clear a latched fault and is not a substitute for removing motor power. */
+drivers::DriverStatus App_EmergencyStop(void);
 
 } /* namespace app */
 
