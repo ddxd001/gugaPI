@@ -69,7 +69,7 @@ All external UART/I2C modules must share GND with gugaPI.
 ## TCAN3413 CAN Bus Interface
 
 The MCU connection is CANFD1, not a UART. Firmware currently uses it in
-classic CAN mode at 500 kbit/s with an 80% nominal sample point.
+classic CAN mode at 250 kbit/s with an 80% nominal sample point.
 
 | TCAN3413 Pin | Signal | gugaPI Connection | Direction / State | Notes |
 | --- | --- | --- | --- | --- |
@@ -94,7 +94,7 @@ Firmware behavior:
 | --- | --- |
 | MCU peripheral | CANFD1 |
 | Mode | Classic CAN, no FD/BRS |
-| Nominal bit rate | 500 kbit/s |
+| Nominal bit rate | 250 kbit/s |
 | Accepted RX frames | Standard and extended data frames |
 | Rejected RX frames | Remote and CAN FD frames |
 | Startup state | TCAN3413 Normal, no automatic transmission |
@@ -526,7 +526,7 @@ pinmux maps IIC1 to MCU `I2C1` and IIC3 to MCU `I2C2`.
 
 | Interface | MCU Instance | TX | RX | STB | Bit Rate | Transceiver | Termination |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| CAN | CANFD1 | PC26 | PC27 | PC25 | 500 kbit/s classic | TCAN3413DDFR | Fixed 120 ohm |
+| CAN | CANFD1 | PC26 | PC27 | PC25 | 250 kbit/s classic | TCAN3413DDFR | Fixed 120 ohm |
 
 ## SPI Bus Summary
 
