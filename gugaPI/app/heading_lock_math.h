@@ -33,6 +33,15 @@ inline bool ShouldWake(int32_t error_mdeg, int32_t wake_mdeg)
     return Abs(error_mdeg) >= wake_mdeg;
 }
 
+/* Enter the zero-wheel settle phase as soon as the angular error reaches the
+ * inner band. Gyro rate is deliberately not part of this gate: continuing to
+ * command the minimum recovery RPM near the target can sustain oscillation.
+ * Gyro rate is still required by ReadyToSettle() before the lock is re-armed. */
+inline bool ShouldStopForSettle(int32_t error_mdeg, int32_t settle_mdeg)
+{
+    return Abs(error_mdeg) <= settle_mdeg;
+}
+
 inline bool ReadyToSettle(int32_t error_mdeg,
                           int32_t gyro_rate_mdps,
                           int32_t settle_mdeg,

@@ -113,6 +113,17 @@ struct ConfigStoreParams {
     uint16_t heading_lock_settle_rpm;
     uint16_t heading_lock_settle_ms;
     uint16_t heading_lock_timeout_ms;
+
+    /* Encoder-distance corner alignment before the relative heading turn
+     * (v14). RPM is the closed-loop alignment speed ceiling. */
+    uint16_t road_align_distance_mm;
+    uint16_t road_align_rpm;
+
+    /* Automatic road-corner asymmetric wheel endpoints (v15). The outer
+     * wheel retains the existing base+correction law while the inner wheel
+     * may reverse independently. */
+    uint16_t road_turn_outer_max_rpm;
+    uint16_t road_turn_inner_reverse_max_rpm;
 };
 
 enum ConfigStoreLoadOutcome : uint8_t {

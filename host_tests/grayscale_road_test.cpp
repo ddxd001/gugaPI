@@ -125,6 +125,36 @@ void TestTJunctionAndRearm()
     assert(Event(fixture).sequence == 2U);
 }
 
+void TestCornerCanBeResolvedAfterFullExit()
+{
+    Fixture fixture;
+    /* Replay the field event: entry=0x1B, peak=0x1F, exit=0x00,
+     * paths=left+forward, confidence=930 after nine observed frames. */
+    for (uint8_t i = 0U; i < 3U; i++) {
+        (void) fixture.Push(0x1BU);
+        (void) fixture.Push(0x1FU);
+    }
+    assert(fixture.state.phase == app::GRAYSCALE_ROAD_PHASE_OBSERVING);
+    assert(!fixture.state.last_event.valid);
+
+    (void) fixture.Push(0x06U); /* side disappears, forward briefly remains */
+    assert(fixture.state.phase == app::GRAYSCALE_ROAD_PHASE_OBSERVING);
+    (void) fixture.Push(0x00U); /* instantaneous type is already LOST */
+    assert(fixture.state.phase == app::GRAYSCALE_ROAD_PHASE_OBSERVING);
+    assert(fixture.state.road == app::GRAYSCALE_ROAD_LOST);
+    assert(!fixture.state.last_event.valid);
+
+    (void) fixture.Push(0x00U); /* third exit frame resolves saved evidence */
+    assert(Event(fixture).type == app::GRAYSCALE_ROAD_LEFT_CORNER);
+    assert(Event(fixture).observed_paths ==
+           (app::GRAYSCALE_ROAD_PATH_LEFT |
+            app::GRAYSCALE_ROAD_PATH_FORWARD));
+    assert(Event(fixture).confidence == 930U);
+    assert(Event(fixture).entry_mask == 0x1BU);
+    assert(Event(fixture).peak_mask == 0x1FU);
+    assert(Event(fixture).exit_mask == 0x00U);
+}
+
 } /* namespace */
 
 int main()
@@ -133,5 +163,6 @@ int main()
     TestBranchesAndCrossing();
     TestCornersAreNotPrematureBranches();
     TestTJunctionAndRearm();
+    TestCornerCanBeResolvedAfterFullExit();
     return 0;
 }

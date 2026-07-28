@@ -1,6 +1,7 @@
 #include "app/road_event_controller.h"
 
 #include "app/app_grayscale.h"
+#include "app/config_store.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
 #include "services/fault.h"
@@ -14,6 +15,10 @@ static const int16_t kDefaultRightTurnDeg = -90;
 static const int16_t kDefaultAlignDistanceMm = 0;
 static const uint16_t kDefaultAlignRpm = 30U;
 static const uint16_t kDefaultReacquireTimeoutMs = 800U;
+/* Start validating the outgoing branch before the IMU reaches the final
+ * heading. Two consecutive fresh frames collected inside this final window
+ * let control return to LF_FOLLOW in the same update that reaches target. */
+static const int32_t kPreReacquireErrorMdeg = 20000;
 static const int32_t kMaximumTurnDeg = 180;
 static const int32_t kMaximumAlignDistanceMm = 300;
 static const uint32_t kMaximumAlignRpm = 300U;
@@ -26,9 +31,8 @@ int32_t AbsoluteInt32(int32_t value)
     return (value < 0) ? -value : value;
 }
 
-bool IsTrackingPositionReady(void)
+bool IsTrackingPositionReady(const AppGrayscaleData *data)
 {
-    const AppGrayscaleData *data = App_GrayscaleGetData();
     const uint32_t now = services::Time_Millis();
     return (data != 0) && data->valid && data->processed_valid &&
            ((now - data->last_update_ms) <= 50U) &&
@@ -43,7 +47,62 @@ void FinishStopped(drivers::DriverStatus status)
     (void) LF_Stop();
     g_state.phase = ROAD_CONTROL_PHASE_STOPPED;
     g_state.phase_start_ms = services::Time_Millis();
+    g_state.road_base_rpm = 0;
+    g_state.reacquire_last_sequence = 0U;
+    g_state.reacquire_valid_frames = 0U;
     g_state.last_status = status;
+}
+
+void ObserveReacquireFrame(const AppGrayscaleData *data, bool enabled)
+{
+    if (!enabled) {
+        g_state.reacquire_valid_frames = 0U;
+        g_state.reacquire_last_sequence =
+            (data == 0) ? 0U : data->sequence;
+        return;
+    }
+    if ((data == 0) ||
+        (data->sequence == g_state.reacquire_last_sequence)) {
+        return;
+    }
+
+    g_state.reacquire_last_sequence = data->sequence;
+    if (IsTrackingPositionReady(data)) {
+        if (g_state.reacquire_valid_frames < UINT8_MAX) {
+            g_state.reacquire_valid_frames++;
+        }
+    } else {
+        g_state.reacquire_valid_frames = 0U;
+    }
+}
+
+bool TryFinishLineHandoff(const AppGrayscaleData *data)
+{
+    if ((data == 0) || (g_state.reacquire_valid_frames < 2U)) {
+        return false;
+    }
+
+    drivers::DriverStatus status = LF_Start(
+        g_state.saved_base_rpm,
+        g_state.saved_duration_ms);
+    if (status == drivers::DRIVER_OK) {
+        status = Heading_ReleaseForMotionHandoff();
+        if (status == drivers::DRIVER_OK) {
+            g_state.handled_event_sequence = data->road_event_sequence;
+            g_state.phase = ROAD_CONTROL_PHASE_IDLE;
+            g_state.road_base_rpm = 0;
+            g_state.reacquire_valid_frames = 0U;
+            g_state.last_status = drivers::DRIVER_OK;
+            return true;
+        }
+        FinishStopped(status);
+        return true;
+    }
+    if (status != drivers::DRIVER_ERROR_NOT_INITIALIZED) {
+        FinishStopped(status);
+        return true;
+    }
+    return false;
 }
 
 drivers::DriverStatus StartTurn(GrayscaleRoadType type)
@@ -51,7 +110,9 @@ drivers::DriverStatus StartTurn(GrayscaleRoadType type)
     const int32_t angle = (type == GRAYSCALE_ROAD_LEFT_CORNER)
         ? g_state.config.left_turn_deg
         : g_state.config.right_turn_deg;
-    const drivers::DriverStatus status = Heading_TurnStart(angle);
+    const drivers::DriverStatus status = Heading_ArcTurnStart(
+        angle,
+        g_state.road_base_rpm);
     if (status == drivers::DRIVER_OK) {
         g_state.phase = ROAD_CONTROL_PHASE_TURNING;
         g_state.phase_start_ms = services::Time_Millis();
@@ -62,14 +123,29 @@ drivers::DriverStatus StartTurn(GrayscaleRoadType type)
     return status;
 }
 
+void SyncPersistentConfig(void)
+{
+    const ConfigStoreParams *params = ConfigStore_Get();
+    if (params != 0) {
+        g_state.config.align_distance_mm =
+            static_cast<int16_t>(params->road_align_distance_mm);
+        g_state.config.align_rpm = params->road_align_rpm;
+    }
+}
+
 drivers::DriverStatus StartCorner(GrayscaleRoadType type)
 {
     const LFState *lf = LF_GetState();
     if ((lf == 0) || (lf->mode != LF_FOLLOW)) {
-        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        const drivers::DriverStatus status =
+            drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        FinishStopped(status);
+        return status;
     }
 
     const uint32_t now = services::Time_Millis();
+    g_state.reacquire_last_sequence = 0U;
+    g_state.reacquire_valid_frames = 0U;
     g_state.saved_base_rpm = lf->base_rpm;
     if (lf->follow_duration_ms == 0U) {
         g_state.saved_duration_ms = 0U;
@@ -80,7 +156,19 @@ drivers::DriverStatus StartCorner(GrayscaleRoadType type)
             : 1U;
     }
 
-    drivers::DriverStatus status = LF_Stop();
+    int32_t align_rpm = static_cast<int32_t>(g_state.config.align_rpm);
+    const int32_t base_magnitude = AbsoluteInt32(g_state.saved_base_rpm);
+    if (align_rpm > base_magnitude) {
+        align_rpm = base_magnitude;
+    }
+    if (align_rpm == 0) {
+        align_rpm = 1;
+    }
+    const int32_t travel_direction =
+        (g_state.saved_base_rpm < 0) ? -1 : 1;
+    g_state.road_base_rpm = align_rpm * travel_direction;
+
+    drivers::DriverStatus status = LF_ReleaseForMotionHandoff();
     if (status != drivers::DRIVER_OK) {
         FinishStopped(status);
         return status;
@@ -90,17 +178,11 @@ drivers::DriverStatus StartCorner(GrayscaleRoadType type)
         return StartTurn(type);
     }
 
-    int32_t align_rpm = static_cast<int32_t>(g_state.config.align_rpm);
-    const int32_t base_magnitude = AbsoluteInt32(g_state.saved_base_rpm);
-    if ((base_magnitude > 0) && (align_rpm > base_magnitude)) {
-        align_rpm = base_magnitude;
-    }
-    if (align_rpm == 0) {
-        align_rpm = 1;
-    }
-    status = Heading_DistanceStart(g_state.config.align_distance_mm,
-                                   align_rpm,
-                                   0U);
+    status = Heading_DistanceStartForRollingHandoff(
+        g_state.config.align_distance_mm * travel_direction,
+        align_rpm,
+        0U,
+        align_rpm);
     if (status == drivers::DRIVER_OK) {
         g_state.phase = ROAD_CONTROL_PHASE_ALIGNING;
         g_state.phase_start_ms = now;
@@ -148,6 +230,7 @@ void RoadEventController_Init(void)
     g_state.config.align_distance_mm = kDefaultAlignDistanceMm;
     g_state.config.align_rpm = kDefaultAlignRpm;
     g_state.config.reacquire_timeout_ms = kDefaultReacquireTimeoutMs;
+    SyncPersistentConfig();
     g_state.handled_event_type = GRAYSCALE_ROAD_UNKNOWN;
     g_state.last_policy = ROAD_POLICY_DEFAULT;
     g_state.last_status = drivers::DRIVER_OK;
@@ -156,6 +239,7 @@ void RoadEventController_Init(void)
 void RoadEventController_Update(void)
 {
     const uint32_t now = services::Time_Millis();
+    SyncPersistentConfig();
     if (services::Fault_HasFault()) {
         if ((g_state.phase != ROAD_CONTROL_PHASE_IDLE) &&
             (g_state.phase != ROAD_CONTROL_PHASE_STOPPED)) {
@@ -172,36 +256,53 @@ void RoadEventController_Update(void)
             } else {
                 (void) StartTurn(g_state.handled_event_type);
             }
+        } else if (heading->mode != HEADING_DISTANCE) {
+            FinishStopped(drivers::DRIVER_ERROR_NOT_INITIALIZED);
         }
         return;
     }
 
     if (g_state.phase == ROAD_CONTROL_PHASE_TURNING) {
         const HeadingState *heading = Heading_GetState();
-        if (heading->mode == HEADING_IDLE) {
-            if (heading->last_status != drivers::DRIVER_OK) {
-                FinishStopped(heading->last_status);
-            } else {
-                g_state.phase = ROAD_CONTROL_PHASE_REACQUIRE;
-                g_state.phase_start_ms = now;
+        if (heading->mode == HEADING_ARC_TURN) {
+            const AppGrayscaleData *data = App_GrayscaleGetData();
+            ObserveReacquireFrame(
+                data,
+                AbsoluteInt32(heading->error_mdeg) <=
+                    kPreReacquireErrorMdeg);
+            if (!heading->at_target) {
+                return;
             }
+            if (TryFinishLineHandoff(data)) {
+                return;
+            }
+            g_state.phase = ROAD_CONTROL_PHASE_REACQUIRE;
+            g_state.phase_start_ms = now;
+        } else if (heading->mode != HEADING_ARC_TURN) {
+            const drivers::DriverStatus status =
+                (heading->last_status == drivers::DRIVER_OK)
+                    ? drivers::DRIVER_ERROR_NOT_INITIALIZED
+                    : heading->last_status;
+            FinishStopped(status);
         }
         return;
     }
 
     if (g_state.phase == ROAD_CONTROL_PHASE_REACQUIRE) {
-        if (IsTrackingPositionReady()) {
+        const HeadingState *heading = Heading_GetState();
+        if (heading->mode != HEADING_ARC_TURN) {
             const drivers::DriverStatus status =
-                LF_Start(g_state.saved_base_rpm, g_state.saved_duration_ms);
-            if (status == drivers::DRIVER_OK) {
-                g_state.phase = ROAD_CONTROL_PHASE_IDLE;
-                g_state.last_status = status;
-                return;
-            }
-            if (status != drivers::DRIVER_ERROR_NOT_INITIALIZED) {
-                FinishStopped(status);
-                return;
-            }
+                (heading->last_status == drivers::DRIVER_OK)
+                    ? drivers::DRIVER_ERROR_NOT_INITIALIZED
+                    : heading->last_status;
+            FinishStopped(status);
+            return;
+        }
+
+        const AppGrayscaleData *data = App_GrayscaleGetData();
+        ObserveReacquireFrame(data, heading->at_target);
+        if (TryFinishLineHandoff(data)) {
+            return;
         }
         if ((now - g_state.phase_start_ms) >=
             g_state.config.reacquire_timeout_ms) {
@@ -253,13 +354,43 @@ drivers::DriverStatus RoadEventController_SetTurnConfig(
         (reacquire_timeout_ms > kMaximumReacquireTimeoutMs)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
+    const drivers::DriverStatus align_status =
+        RoadEventController_SetAlignConfig(align_distance_mm, align_rpm);
+    if (align_status != drivers::DRIVER_OK) {
+        return align_status;
+    }
     g_state.config.left_turn_deg = static_cast<int16_t>(left_turn_deg);
     g_state.config.right_turn_deg = static_cast<int16_t>(right_turn_deg);
+    g_state.config.reacquire_timeout_ms =
+        static_cast<uint16_t>(reacquire_timeout_ms);
+    g_state.last_status = drivers::DRIVER_OK;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus RoadEventController_SetAlignConfig(
+    int32_t align_distance_mm,
+    uint32_t align_rpm)
+{
+    if ((align_distance_mm < 0) ||
+        (align_distance_mm > kMaximumAlignDistanceMm) ||
+        (align_rpm == 0U) || (align_rpm > kMaximumAlignRpm)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    drivers::DriverStatus status = ConfigStore_Set(
+        "road_align_distance_mm",
+        align_distance_mm);
+    if (status == drivers::DRIVER_OK) {
+        status = ConfigStore_Set("road_align_rpm",
+                                 static_cast<int32_t>(align_rpm));
+    }
+    if (status != drivers::DRIVER_OK) {
+        g_state.last_status = status;
+        return status;
+    }
     g_state.config.align_distance_mm =
         static_cast<int16_t>(align_distance_mm);
     g_state.config.align_rpm = static_cast<uint16_t>(align_rpm);
-    g_state.config.reacquire_timeout_ms =
-        static_cast<uint16_t>(reacquire_timeout_ms);
     g_state.last_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 }
@@ -269,6 +400,9 @@ drivers::DriverStatus RoadEventController_Cancel(void)
     (void) Heading_Stop();
     (void) LF_Stop();
     g_state.phase = ROAD_CONTROL_PHASE_IDLE;
+    g_state.road_base_rpm = 0;
+    g_state.reacquire_last_sequence = 0U;
+    g_state.reacquire_valid_frames = 0U;
     g_state.last_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 }

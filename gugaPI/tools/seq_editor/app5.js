@@ -74,7 +74,7 @@ addParamMeta('distance_tolerance_mm','距离到位容差','distance',3,1,100,'mm
 
 addParamMeta('heading_kp','航向修正增益','heading',1000,0,100000,'scaled','直行保持和转向使用的航向增益；1000 约等于每度误差修正 1 RPM。',false,'number','heading');
 addParamMeta('heading_max_correction_rpm','最大航向修正','heading',30,0,500,'RPM','直行航向保持允许施加的最大左右差速。',false);
-addParamMeta('heading_turn_max_rpm','转向最大轮速','heading',60,0,1000,'RPM','闭环转向的最大轮速。',false);
+addParamMeta('heading_turn_max_rpm','转向最大差速修正','heading',60,0,1000,'RPM','原地转向的最大轮速；连续圆弧中也是转向强度达到100%的差速基准。外轮仍按基础速度加修正并受独立上限约束，内轮按强度插值到独立反转上限。',false);
 addParamMeta('heading_turn_min_rpm','转向最小轮速','heading',20,0,500,'RPM','接近目标角度时用于克服静摩擦的最小轮速。',false);
 addParamMeta('heading_tolerance_mdeg','转向角度容差','heading',3000,0,90000,'mdeg','航向误差小于该值时进入到位判定。',false,'number','mdeg');
 addParamMeta('heading_settle_ms','航向稳定时间','heading',300,0,5000,'ms','航向持续处于容差内达到该时间后判定完成。',false,'number','ms');
@@ -121,6 +121,10 @@ addParamMeta('lf_maxcorr','循迹最大差速修正','linefollow',30,0,500,'RPM'
 addParamMeta('lf_lost_hold_ms','丢线保持时间','linefollow',150,0,10000,'ms','短时丢线时保持最近修正的时间。',true,'number','ms');
 addParamMeta('lf_lost_stop_ms','丢线停车时间','linefollow',500,1,10000,'ms','持续丢线达到该时间后停车；必须不小于保持时间。',true,'number','ms');
 addParamMeta('lf_slew_permille_s','循迹修正变化率','linefollow',25000,1,65535,'permille/s','限制左右差速修正的变化速度；数值越大响应越快。',true);
+addParamMeta('road_align_distance_mm','路口对齐距离','linefollow',0,0,300,'mm','识别直角弯后继续按编码器前进的距离；该值直接改变实际转弯位置，0表示直接进入滚动圆弧转弯。',false);
+addParamMeta('road_align_rpm','路口转弯基础速度','linefollow',30,1,300,'RPM','对齐、圆弧转弯和未确认线路时移动捕线的基础速度上限；实际不超过进入路口时的循迹基础速度。转弯末段会提前确认新线路，到达目标航向后尽快交还循迹并恢复原循迹速度。',false);
+addParamMeta('road_turn_outer_max_rpm','路口外轮正转上限','linefollow',220,1,1000,'RPM','自动路口圆弧中外轮沿用基础速度加差速修正，并由该值封顶；增大内轮反转速度不会继续抬高外轮。',false);
+addParamMeta('road_turn_inner_reverse_max_rpm','路口内轮最大反转','linefollow',120,0,1000,'RPM','自动路口圆弧满转向时内轮允许达到的反转速度；数值越大转弯半径越小，0表示内轮最多降到停止。',false);
 
 var paramPageState={
   values:{},ranges:{},selected:null,group:'all',query:'',modifiedOnly:false,
@@ -558,7 +562,7 @@ function paramSimCommand(cmd){
   paramSimInit();
   if(cmd==='comp status')return'comp mode=dev-running slot=0 valid=1 any_valid=1 count=5 step=0 result=none last=ok\r\n> ';
   if(cmd==='reset'){simParamValues=Object.assign({},simPersistedValues);simParamDirty=false;return'resetting...\r\n> '}
-  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=215 crc=0x5C758F1C load=ok save=ok\r\n> ';
+  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=223 crc=0x5C758F1C load=ok save=ok\r\n> ';
   if(cmd==='param export'||cmd.startsWith('param export ')){
     var exportParts=cmd.split(/\s+/),start=exportParts.length>=3?Number(exportParts[2]):0;
     var requested=exportParts.length>=4?Number(exportParts[3]):PARAM_EXPORT_BATCH_SIZE;

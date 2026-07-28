@@ -48,8 +48,11 @@ struct RoadControlState {
     GrayscaleRoadType handled_event_type;
     RoadEventPolicy last_policy;
     int32_t saved_base_rpm;
+    int32_t road_base_rpm;
     uint32_t saved_duration_ms;
     uint32_t phase_start_ms;
+    uint32_t reacquire_last_sequence;
+    uint8_t reacquire_valid_frames;
     drivers::DriverStatus last_status;
 };
 
@@ -62,6 +65,9 @@ drivers::DriverStatus RoadEventController_SetTurnConfig(
     int32_t align_distance_mm,
     uint32_t align_rpm,
     uint32_t reacquire_timeout_ms);
+drivers::DriverStatus RoadEventController_SetAlignConfig(
+    int32_t align_distance_mm,
+    uint32_t align_rpm);
 drivers::DriverStatus RoadEventController_Cancel(void);
 void RoadEventController_ClearEvent(void);
 const RoadControlState *RoadEventController_GetState(void);
