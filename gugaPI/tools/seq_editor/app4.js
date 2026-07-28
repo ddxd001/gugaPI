@@ -7,8 +7,12 @@ var TERM_MAX_CHARS=200000;
 var TERM_COMMANDS=[
   'help','version','reset','sched','txstat','led','buzzer','button','fram',
   'param','oled','imu','gray','lora','motor','chassis','heading','run','lf',
-  'road','comp','telem','seq','i2c','can','jyme02'
+  'road','comp','estop','telem','seq','i2c','can','jyme02'
 ];
+
+function Terminal_ShouldShowTelemetry(){
+  return $('termShowTelemetry').checked;
+}
 
 function terminalAppend(data,type){
   var display=$('termDisplay');
@@ -43,19 +47,24 @@ var currentView='editor';
 function switchTab(name){
   currentView=name;
   var editor=name==='editor';
+  var dashboard=name==='dashboard';
   var terminal=name==='terminal';
   var parameters=name==='parameters';
   var commands=name==='commands';
   $('editorView').hidden=!editor;
+  $('dashboardView').hidden=!dashboard;
   $('termView').hidden=!terminal;
   $('paramView').hidden=!parameters;
   $('commandView').hidden=!commands;
   $('log').hidden=!editor;
   $('tabEditor').classList.toggle('active',editor);
+  $('tabDashboard').classList.toggle('active',dashboard);
   $('tabTerminal').classList.toggle('active',terminal);
   $('tabParameters').classList.toggle('active',parameters);
   $('tabCommands').classList.toggle('active',commands);
   if(terminal&&!$('termInput').disabled)$('termInput').focus();
+  if(dashboard&&typeof Dashboard_OnShow==='function')Dashboard_OnShow();
+  if(!dashboard&&typeof Dashboard_OnHide==='function')Dashboard_OnHide();
   if(parameters&&typeof ParamPage_OnShow==='function')ParamPage_OnShow();
   if(!parameters&&typeof ParamPage_OnHide==='function')ParamPage_OnHide();
   if(commands&&typeof CommandLibrary_OnShow==='function')CommandLibrary_OnShow();
@@ -94,6 +103,7 @@ function terminalComplete(){
 }
 
 $('tabEditor').addEventListener('click',function(){switchTab('editor')});
+$('tabDashboard').addEventListener('click',function(){switchTab('dashboard')});
 $('tabTerminal').addEventListener('click',function(){switchTab('terminal')});
 $('tabParameters').addEventListener('click',function(){switchTab('parameters')});
 $('tabCommands').addEventListener('click',function(){switchTab('commands')});

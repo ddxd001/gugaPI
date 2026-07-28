@@ -1868,13 +1868,13 @@ run add <op> <param1> <param2> <until> <onsuccess> <ontimeout>
 
 | 操作码 | 动作 | 典型条件 |
 | --- | --- | --- |
-| `drive` | 航向保持直行（`heading hold`） | `timeout` / `line_detected` / `line_lost` |
+| `drive` | 航向保持直行（`heading hold`），p1 为 `-max_wheel_rpm..max_wheel_rpm`，p2 为 `1..30000 ms` | `timeout` / `line_detected` / `line_lost` / `button` |
 | `drive_mm` | 编码器距离闭环并保持启动航向 | `distance_reached` |
-| `turn` | 相对角度转弯（`heading turn`） | `heading_reached` |
-| `follow` | 循迹（`lf start`） | `timeout` / `line_lost` |
-| `wait` | 等待（不产生运动） | `timeout` / `button` |
+| `turn` | 相对角度 `-180..180°` 转弯；p2 为 `1..30000 ms` 安全超时 | `heading_reached` |
+| `follow` | 有符号 RPM 循迹；p2 为 `1..30000 ms` 安全时间 | `timeout` / `line_lost` / `line_detected` / `button` |
+| `wait` | 等待（p1 固定为 0，p2 为 `0..30000 ms`） | `timeout` / `line_detected` / `line_lost` / `button` |
 | `stop` | 立即停车 | `immediate` |
-| `branch` | 条件跳转（不产生运动），成功走 onsuccess，失败走 ontimeout | 任意条件 |
+| `branch` | p1/p2 固定为 0，成功走 onsuccess，失败走 ontimeout | `line_detected` / `line_lost` / `button` / `immediate` / `timeout` |
 | `end` | 序列完成（成功） | `immediate` |
 | `led_on/off/toggle` | LED2/LED3 输出；p1=0（两灯）、2 或 3；p2=0 或自动关闭 50..30000 ms | `immediate` |
 | `buzzer_on/off/toggle` | 有源蜂鸣器输出；p1=0；p2=0 或自动关闭 50..30000 ms | `immediate` |
@@ -1886,7 +1886,7 @@ LED2、LED3 和蜂鸣器都会关闭。序列运行期间仍可通过 Shell 查�
 
 ### `run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>`
 
-追加一条指令到序列末尾。最多 16 条。
+追加一条指令到序列末尾。最多 64 条。参数会立即执行与 `run validate` 相同的类型规则；允许先引用尚未追加的后续索引，整表跳转在启动或保存前检查。
 
 ```text
 run add drive  80  5000  timeout          next abort
@@ -1910,10 +1910,19 @@ run clear
 
 ### `run start`
 
-启动序列（从第 0 条指令开始）。有故障时拒绝启动。
+启动序列（从第 0 条指令开始）。启动前强制执行整表校验；有故障或无效跳转时拒绝启动。
 
 ```text
 run start
+```
+
+### `run validate`
+
+使用与 `run add`、`run start`、`seq save` 相同的校验器检查完整 RAM 指令表。成功时返回指令数；失败时返回首个错误指令、字段和原因。
+
+```text
+run validate ok count=5
+run validate error index=2 field=on_timeout reason=bad_target
 ```
 
 ### `run cancel`
@@ -1935,10 +1944,10 @@ run status
 输出示例：
 
 ```text
-run 2/5 running=1 last=1 cur=turn
+run 2/5 running=1 last=1 cur=turn result=running status=ok reason=none fail_index=255 drive=-60/60
 ```
 
-字段：`当前步/总步数`、`running`、`last`（上一步是否成功）、`cur`（当前操作码）。
+原有字段 `当前步/总步数`、`running`、`last` 和 `cur` 保持不变。追加字段为 `result`（整次执行结果）、`status`（驱动状态）、`reason`（失败原因）、`fail_index`（失败步骤，255 表示无）和 `drive`（左右轮目标 RPM）。
 
 ### `run dump`
 
@@ -2148,6 +2157,18 @@ comp mode=armed slot=3 valid=1 any_valid=1 count=6 step=0 result=none last=ok
 
 模式值：`armed`（安全静止）、`running`（序列执行中）、`fault`（故障锁定）、`dev-running`（开发模式）。结果值包括 `none`、`done`、`failed`、`stopped` 和 `load-error`。
 
+## 软件全停
+
+### `estop`
+
+取消道路控制、动作序列、航向控制和循迹控制，释放运动命令租约并最终直接停止两个车轮。比赛运行中返回 ARMED 并记录 `stopped`；普通运行返回 IDLE；FAULT 保持锁存且不会被清除。
+
+```text
+estop
+```
+
+正常返回 `estop: ok`。即使某个上层控制器停止失败，固件仍会继续执行后续停止路径，并返回遇到的第一个错误。该命令是调试用软件全停，不能替代硬件急停或切断电机电源。
+
 ## 遥测（FireWater / VOFA+）
 
 FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接收实时画图。非阻塞，TX 缓冲接近满时自动丢帧。
@@ -2190,14 +2211,59 @@ FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接�
 | `head_turn_settle_mdps` | 配置的稳定角速度阈值 |
 | `head_turn_settle_rpm` | 配置的稳定轮速阈值 |
 
-### `telem on [period_ms]`
+实时仪表盘扩展字段追加在上述兼容字段之后：
+
+| 字段组 | 通道 |
+| --- | --- |
+| 故障与任务 | `fault_code`, `fault_count`, `comp_slot`, `comp_slot_valid`, `comp_count` |
+| 底盘健康 | `chassis_init`, `chassis_status`, `feedback_status`, `feedback_valid`, `feedback_age_ms` |
+| 调试串口 | `tx_pending`, `tx_dropped` |
+| IMU 健康 | `imu_valid`, `imu_age_ms`, `imu_error_count` |
+| IMU 原始与姿态 | `acc_x_mg..acc_z_mg`, `gyro_x_mdps..gyro_z_mdps`, `pitch`, `roll`, `imu_temp_cc` |
+| 灰度健康与原始值 | `gray_sample_valid`, `gray_age_ms`, `gray_error_count`, `gray0..gray7` |
+
+扩展只读取各应用模块已经缓存的状态，不在遥测任务中发起额外 I²C/SPI/UART 事务。上位机按表头名称解析；连接旧固件时，缺失字段显示为不可用。
+
+### `telem on [profile] [period_ms]`
 
 开启遥测输出。默认周期 100ms（10Hz），范围 `50..5000`ms。开启时先发送通道名行（`#` 开头），然后周期输出数据行。
+
+不指定 profile 时保持旧版全字段模式，兼容 VOFA+ 和现有 Python
+采集脚本。仪表盘使用按组模式，只发送当前折线图需要的字段：
+
+| profile | 输出字段 |
+| --- | --- |
+| `runtime` | `t,mode,step` |
+| `competition` | `t,comp_slot,comp_slot_valid,comp_count` |
+| `motor` | `t,L_tgt,L_act,R_tgt,R_act` |
+| `heading` | `t,yaw_tgt,yaw,head_err` |
+| `heading_output` | `t,head_corr` |
+| `chassis` / `feedback_state` / `feedback_age` | 底盘状态、电机反馈状态或反馈年龄 |
+| `line_position` / `line_output` | 线路位置误差或循迹修正量 |
+| `line_quality` / `line_state` / `line_faults` | 线路质量、状态或异常帧计数 |
+| `road_event` / `road_sequence` / `road_phase` | 道路事件、事件序号或处理阶段 |
+| `turn_phase` / `turn_rate` / `turn_angle` | 转向阶段、角速度或刹车角参数 |
+| `turn_timing` / `turn_speed` | 转向刹车时间或稳定轮速 |
+| `accel` | `t,acc_x_mg,acc_y_mg,acc_z_mg` |
+| `gyro` | `t,gyro_x_mdps,gyro_y_mdps,gyro_z_mdps` |
+| `attitude` / `imu_temperature` | 俯仰与横滚角，或 IMU 温度裸值 |
+| `imu_state` / `imu_age` | IMU 有效性与错误计数，或数据年龄 |
+| `gray_raw` / `gray_health` / `gray_age` | 八路原始值、健康状态或数据年龄 |
+| `fault` / `uart` | 系统故障，或调试串口队列与丢弃计数 |
+
+旧 `line` profile 继续输出 `t,gray_pos,lf_err,lf_corr`，用于兼容已经使用
+该组合格式的工具。实时仪表盘改用按量纲拆开的 `line_position` 与
+`line_output`。
 
 ```text
 telem on
 telem on 200
+telem on motor
+telem on heading 100
 ```
+
+`telem status` 同时返回 `enabled`、`profile` 和 `period_ms`。复位后遥测
+保持关闭；上位机未选择图表时不会自动开启数据流。
 
 输出示例：
 
@@ -2213,7 +2279,7 @@ telem on 200
 python host_tools/linefollow_capture.py --port COM14 --start-rpm 60 --run-ms 6000 --enable-oled
 ```
 
-预测制动调试可执行一次有界相对转弯并生成33列CSV，以及目标角、实际角、轮速、动态
+预测制动调试可执行一次有界相对转弯并生成兼容原有33列且带扩展字段的CSV，以及目标角、实际角、轮速、动态
 制动角、陀螺角速度和控制阶段曲线：
 
 ```text
@@ -2238,6 +2304,7 @@ telem off
 
 ```text
 telem status
+telem enabled=1 profile=motor period_ms=100
 ```
 
 ## ADC 和 PWM 资源入口

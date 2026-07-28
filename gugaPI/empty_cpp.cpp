@@ -301,6 +301,9 @@ extern "C" void SYSCFG_DL_init(void)
 #if FEATURE_ENABLE_DEBUG_UART
     SYSCFG_DL_DEBUG_UART_init();
 #endif
+#if FEATURE_ENABLE_DEBUG_UART || FEATURE_ENABLE_OLED
+    SYSCFG_DL_DMA_init();
+#endif
 #if FEATURE_ENABLE_MOTOR_DRIVER
     SYSCFG_DL_MOTOR_UART_init();
 #endif
@@ -311,6 +314,13 @@ extern "C" void SYSCFG_DL_init(void)
     SYSCFG_DL_CAN_BUS_init();
 #endif
     SYSCFG_DL_SYSCTL_CLK_init();
+}
+#endif
+
+#if FEATURE_ENABLE_OLED
+extern "C" void SENSOR_I2C_INST_IRQHandler(void)
+{
+    board::Board_OledHandleI2cInterrupt();
 }
 #endif
 
@@ -343,6 +353,9 @@ static void PanicHandler(services::FaultCode code)
     (void) code;
 #endif
     for (;;) {
+#if FEATURE_ENABLE_OLED
+        (void) board::Board_OledService();
+#endif
 #if FEATURE_ENABLE_STATUS_LED
         (void) board::Board_StatusLedOn();
 #endif

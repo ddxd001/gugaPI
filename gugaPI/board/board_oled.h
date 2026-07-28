@@ -18,6 +18,9 @@ drivers::DriverStatus Board_OledWriteText(uint8_t row,
                                           const char *text);
 drivers::DriverStatus Board_OledSetDisplayOn(bool on);
 drivers::DriverStatus Board_OledSetInvert(bool invert);
+drivers::DriverStatus Board_OledService(void);
+void Board_OledHandleI2cInterrupt(void);
+bool Board_OledHasPendingFlush(void);
 drivers::DriverStatus Board_OledGetBusStatus(uint32_t *controller_status,
                                              bool *scl_high,
                                              bool *sda_high);

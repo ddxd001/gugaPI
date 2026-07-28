@@ -263,9 +263,9 @@ var SHELL_COMMAND_LIBRARY=[
     ]),
 
   ShellCommand('run','RAM动作序列','流程',
-    '在RAM中构建、检查和执行最多16步的动作状态机。','M',BOTH,[
-      ShellForm('run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>','追加动作；op支持drive、drive_mm、turn、follow、wait、stop、branch、end。','W'),
-      ShellForm('run clear|start|cancel|status|dump','清空、启动、取消、查看状态或导出RAM动作序列。','M')
+    '在 RAM 中构建、检查和执行最多 64 步的动作状态机。','M',BOTH,[
+      ShellForm('run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>','追加动作；支持运动、等待、分支、结束及 LED/蜂鸣器共 14 种操作码。','W'),
+      ShellForm('run clear|validate|start|cancel|status|dump','清空、校验、启动、取消、查看状态或导出 RAM 动作序列；validate 返回首个错误字段。','M')
     ],'start可能产生运动；建议先run dump核对每一步和跳转目标。'),
 
   ShellCommand('lf','灰度循迹控制','运动',
@@ -302,32 +302,18 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('comp status','查看模式、槽位、步骤和结果。')
     ]),
 
+  ShellCommand('estop','软件全停','运动',
+    '取消所有应用层运动控制器并强制停止底盘；不会清除锁存故障，也不能替代硬件断电。','M',BOTH,[
+      ShellForm('estop','立即取消序列、航向、循迹和道路控制，并停止两个车轮。','M')
+    ],'该命令用于调试软件紧急停止。涉及人身或设备安全时仍应切断电机电源。'),
+
   ShellCommand('telem','周期遥测输出','通信',
-    '按指定周期输出FireWater/VOFA+兼容的CSV遥测行。','W',BOTH,[
-      ShellForm('telem on [period_ms 50..5000]','启动周期遥测，可指定周期。','W'),
+    '按指定周期输出FireWater/VOFA+兼容的CSV遥测行，支持全量兼容模式和仪表盘按组模式。','W',BOTH,[
+      ShellForm('telem on [period_ms 50..5000]','启动旧版全字段遥测，可指定周期。','W'),
+      ShellForm('telem on <profile> [period_ms 50..5000]','只输出实时仪表盘当前图表需要的字段；使用 telem 命令帮助查看完整 profile。','W'),
       ShellForm('telem off','停止周期遥测。','W'),
-      ShellForm('telem status','查看遥测开关和周期。')
+      ShellForm('telem status','查看遥测开关、数据组和周期。')
     ]),
-
-  ShellCommand('can','经典CAN总线诊断','通信',
-    '查看TCAN3413和MCAN状态，收发标准或扩展数据帧，并执行总线恢复诊断。','W',BOTH,[
-      ShellForm('can status','查看250K经典CAN收发计数、错误计数和总线状态。'),
-      ShellForm('can mode normal|standby','切换TCAN3413正常或待机模式。','W'),
-      ShellForm('can send std|ext <hex_id> [hex_byte ...]','发送一帧标准或扩展CAN数据。','W'),
-      ShellForm('can read [count 1..32]','读取诊断队列中的CAN帧。'),
-      ShellForm('can watch on|off','开启或关闭CAN帧实时输出。','W'),
-      ShellForm('can clear|cancel|recover','清除统计、取消发送或恢复总线。','W')
-    ],'实时监视可能产生大量串口输出；台架长时间运行时建议保持watch关闭。'),
-
-  ShellCommand('jyme02','JY-ME02-CAN编码器','传感器',
-    '查看角度、角速度、圈数和温度，并读取JY-ME02-CAN寄存器。','W',BOTH,[
-      ShellForm('jyme02 status','查看编码器数据、数据新鲜度和接收统计。'),
-      ShellForm('jyme02 readreg <hex_reg>','发送只读寄存器请求。','W'),
-      ShellForm('jyme02 regs','查看最近一次寄存器响应。'),
-      ShellForm('jyme02 address <hex_id>       (parser only)','只修改固件解析器使用的标准帧ID，不写传感器。','W'),
-      ShellForm('jyme02 sampletime <100us>     (parser only)','只修改角速度换算使用的采样时间，不写传感器。','W'),
-      ShellForm('jyme02 clear','清除JY-ME02接收数据和诊断统计。','W')
-    ],'address和sampletime只改变RAM解析参数；不会永久修改传感器。'),
 
   ShellCommand('seq','FRAM动作序列槽','流程',
     '列出、读写、删除或直接运行0到7号FRAM持久化动作序列。','M',BOTH,[
@@ -349,5 +335,25 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('i2c read <bus> <addr> <reg8> <len 1..32>','从8位寄存器地址连续读取。'),
       ShellForm('i2c write <bus> <addr> <reg8> <byte...>','向目标寄存器写入原始字节。','W'),
       ShellForm('i2c test <bus> [start end]','对地址范围执行诊断测试。','W')
-    ],'fram、oled、ina219逻辑名共享SENSOR_I2C；原始写入前必须确认器件和寄存器含义。')
+    ],'fram、oled、ina219逻辑名共享SENSOR_I2C；原始写入前必须确认器件和寄存器含义。'),
+
+  ShellCommand('can','经典CAN总线诊断','通信',
+    '诊断TCAN3413收发器与CAN1控制器，读取总线状态、收发经典CAN帧并处理错误恢复。','W',BOTH,[
+      ShellForm('can status','查看250 kbit/s总线模式、收发队列、错误计数和bus-off状态。'),
+      ShellForm('can mode normal|standby','切换TCAN3413正常或待机模式。','W'),
+      ShellForm('can send std|ext <hex_id> [hex_byte ...]','异步发送标准帧或扩展帧；ID和数据字节均使用十六进制。','W'),
+      ShellForm('can read [count 1..32]','从上位机诊断队列读取最多32帧。'),
+      ShellForm('can watch on|off','打开或关闭周期接收监视；监视会消费诊断队列中的帧。','W'),
+      ShellForm('can clear|cancel|recover','清空统计、取消待发送帧或尝试恢复CAN控制器。','W')
+    ],'recover只表示控制器重新进入正常模式；仍需确认终端电阻、CANH/CANL和TEC/REC。'),
+
+  ShellCommand('jyme02','JY-ME02 CAN编码器','传感器',
+    '查看JY-ME02角度、角速度、圈数、温度和新鲜度，或读取寄存器并调整固件解析参数。','W',BOTH,[
+      ShellForm('jyme02 status','查看解析器地址、采样时间、数据新鲜度、计数和最新测量。'),
+      ShellForm('jyme02 readreg <hex_reg>','通过CAN请求读取指定8位寄存器。','W'),
+      ShellForm('jyme02 regs','查看最近一次寄存器响应中的三个16位值。'),
+      ShellForm('jyme02 address <hex_id>       (parser only)','只修改固件解析器接受的11位CAN标识，不写传感器。','W'),
+      ShellForm('jyme02 sampletime <100us>     (parser only)','只修改固件解析器换算角速度所用的采样时间，范围1..65535，单位100 us。','W'),
+      ShellForm('jyme02 clear','清空解析数据、原始诊断队列和统计。','W')
+    ],'address和sampletime都不会写入JY-ME02；修改传感器配置需按其协议另行执行并重新验证总线。')
 ];

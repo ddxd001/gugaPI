@@ -38,6 +38,19 @@ struct I2cControllerBusStatus {
     bool sda_high;
 };
 
+/*
+ * One DMA channel is owned by one I2C controller while an asynchronous write
+ * is active.  The channel must be configured by SysConfig as byte-to-fixed,
+ * source increment enabled, destination increment disabled, and triggered by
+ * the controller TX FIFO event. The caller must keep the data buffer unchanged
+ * until I2cController_AsyncWritePoll returns a result other than BUSY.
+ */
+struct I2cControllerDmaTxConfig {
+    DMA_Regs *dma;
+    uint8_t channel_id;
+    uint32_t timeout_ms;
+};
+
 bool I2cController_IsConfigValid(const I2cControllerConfig *config);
 bool I2cController_IsAddressValid(uint8_t target_address);
 DriverStatus I2cController_GetBusStatus(
@@ -62,6 +75,18 @@ DriverStatus I2cController_WriteRead(const I2cControllerConfig *config,
                                      uint16_t write_length,
                                      uint8_t *read_data,
                                      uint16_t read_length);
+DriverStatus I2cController_AsyncWriteStart(
+    const I2cControllerConfig *config,
+    const I2cControllerDmaTxConfig *dma_config,
+    uint8_t target_address,
+    const uint8_t *data,
+    uint16_t length);
+DriverStatus I2cController_AsyncWritePoll(
+    const I2cControllerConfig *config,
+    const I2cControllerDmaTxConfig *dma_config);
+void I2cController_AsyncWriteHandleInterrupt(
+    const I2cControllerConfig *config);
+bool I2cController_IsBusBusy(const I2cControllerConfig *config);
 
 } /* namespace drivers */
 

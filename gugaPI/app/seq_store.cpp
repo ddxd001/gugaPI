@@ -165,7 +165,8 @@ drivers::DriverStatus SeqStore_Save(uint8_t slot)
     }
 
     const ActionRunnerState *state = ActionRunner_GetState();
-    if ((state->count == 0U) || (state->count > 64U)) {
+    ActionValidationResult validation;
+    if (ActionRunner_Validate(&validation) != drivers::DRIVER_OK) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
 

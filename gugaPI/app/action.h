@@ -55,6 +55,57 @@ struct Instr {
     uint8_t on_timeout;   /* ACT_NEXT(=abort) or index */
 };
 
+enum ActionRunResult {
+    ACT_RUN_IDLE = 0,
+    ACT_RUN_RUNNING,
+    ACT_RUN_SUCCESS,
+    ACT_RUN_ABORTED,
+    ACT_RUN_CANCELLED,
+    ACT_RUN_FAULT,
+    ACT_RUN_TIMEOUT,
+    ACT_RUN_INVALID
+};
+
+enum ActionFailureReason {
+    ACT_FAIL_NONE = 0,
+    ACT_FAIL_START,
+    ACT_FAIL_INSTR_TIMEOUT,
+    ACT_FAIL_SEQUENCE_TIMEOUT,
+    ACT_FAIL_FAULT,
+    ACT_FAIL_CANCELLED,
+    ACT_FAIL_INVALID
+};
+
+enum ActionValidationField {
+    ACT_VALID_FIELD_NONE = 0,
+    ACT_VALID_FIELD_TABLE,
+    ACT_VALID_FIELD_OP,
+    ACT_VALID_FIELD_PARAM1,
+    ACT_VALID_FIELD_PARAM2,
+    ACT_VALID_FIELD_CONDITION,
+    ACT_VALID_FIELD_ON_SUCCESS,
+    ACT_VALID_FIELD_ON_TIMEOUT
+};
+
+enum ActionValidationReason {
+    ACT_VALID_OK = 0,
+    ACT_VALID_EMPTY,
+    ACT_VALID_TOO_MANY,
+    ACT_VALID_UNKNOWN_OP,
+    ACT_VALID_OUT_OF_RANGE,
+    ACT_VALID_MUST_BE_ZERO,
+    ACT_VALID_MUST_BE_NONZERO,
+    ACT_VALID_WRONG_CONDITION,
+    ACT_VALID_BAD_TARGET
+};
+
+struct ActionValidationResult {
+    bool valid;
+    uint8_t index;
+    ActionValidationField field;
+    ActionValidationReason reason;
+};
+
 struct ActionRunnerState {
     Instr instrs[64];
     uint8_t count;
@@ -63,7 +114,11 @@ struct ActionRunnerState {
     bool last_success;    /* last instr result (for status) */
     uint32_t seq_start_ms;
     uint32_t instr_start_ms;
+    bool instr_started;
     drivers::DriverStatus last_status;
+    ActionRunResult result;
+    ActionFailureReason failure_reason;
+    uint8_t failure_index;
 };
 
 void ActionRunner_Init(void);
@@ -78,6 +133,7 @@ drivers::DriverStatus ActionRunner_AddInstr(ActionOp op,
                                             ActionCond until,
                                             uint8_t on_success,
                                             uint8_t on_timeout);
+drivers::DriverStatus ActionRunner_Validate(ActionValidationResult *result);
 drivers::DriverStatus ActionRunner_Start(void);
 drivers::DriverStatus ActionRunner_Cancel(void);
 void ActionRunner_Update(void);

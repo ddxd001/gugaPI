@@ -187,6 +187,10 @@ void FinishSequence(void)
 {
     g_state.running = false;
     g_state.last_success = true;
+    g_state.last_status = drivers::DRIVER_OK;
+    g_state.result = ACT_RUN_SUCCESS;
+    g_state.failure_reason = ACT_FAIL_NONE;
+    g_state.failure_index = ACT_NEXT;
     StopAll();
     StopSequenceOutputs();
 }
@@ -195,6 +199,9 @@ void AbortSequence(void)
 {
     g_state.running = false;
     g_state.last_success = false;
+    if (g_state.result == ACT_RUN_RUNNING) {
+        g_state.result = ACT_RUN_ABORTED;
+    }
     StopAll();
     StopSequenceOutputs();
 }
@@ -204,6 +211,7 @@ void AbortSequence(void)
 void Goto(uint8_t target, bool success)
 {
     g_state.instr_start_ms = 0U;
+    g_state.instr_started = false;
     if (success) {
         if ((target == ACT_NEXT) || (target >= g_state.count)) {
             g_state.current++;
@@ -310,6 +318,210 @@ InstrResult EvalInstr(const Instr *instr, uint32_t now)
     return EvalCond(instr->until) ? INSTR_SUCCESS : INSTR_RUNNING;
 }
 
+void SetValidationError(ActionValidationResult *result,
+                        uint8_t index,
+                        ActionValidationField field,
+                        ActionValidationReason reason)
+{
+    if (result != 0) {
+        result->valid = false;
+        result->index = index;
+        result->field = field;
+        result->reason = reason;
+    }
+}
+
+bool IsOneOf(ActionCond cond,
+             ActionCond a,
+             ActionCond b,
+             ActionCond c,
+             ActionCond d)
+{
+    return (cond == a) || (cond == b) || (cond == c) || (cond == d);
+}
+
+bool ValidateInstr(const Instr *instr,
+                   uint8_t index,
+                   ActionValidationResult *result)
+{
+    const int32_t max_rpm = static_cast<int32_t>(
+        Chassis_GetState()->config.max_wheel_rpm);
+    if ((instr->op <= ACT_OP_NONE) ||
+        (instr->op > ACT_OP_BUZZER_TOGGLE)) {
+        SetValidationError(result, index, ACT_VALID_FIELD_OP,
+                           ACT_VALID_UNKNOWN_OP);
+        return false;
+    }
+    if ((instr->until < ACT_COND_TIMEOUT) ||
+        (instr->until > ACT_COND_DISTANCE_REACHED)) {
+        SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                           ACT_VALID_WRONG_CONDITION);
+        return false;
+    }
+
+    const bool led_op = (instr->op >= ACT_OP_LED_ON) &&
+                        (instr->op <= ACT_OP_LED_TOGGLE);
+    const bool buzzer_op = (instr->op >= ACT_OP_BUZZER_ON) &&
+                           (instr->op <= ACT_OP_BUZZER_TOGGLE);
+    const bool output_off = (instr->op == ACT_OP_LED_OFF) ||
+                            (instr->op == ACT_OP_BUZZER_OFF);
+    if (instr->op == ACT_OP_DRIVE) {
+        if ((instr->param1 < -max_rpm) || (instr->param1 > max_rpm)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if (!IsOneOf(instr->until, ACT_COND_TIMEOUT,
+                     ACT_COND_LINE_DETECTED, ACT_COND_LINE_LOST,
+                     ACT_COND_BUTTON)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+        if ((instr->param2 <= 0) || (instr->param2 > 30000)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+    } else if (instr->op == ACT_OP_DRIVE_MM) {
+        if ((instr->param1 < -10000) || (instr->param1 > 10000)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if (instr->param1 == 0) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_MUST_BE_NONZERO);
+            return false;
+        }
+        if ((instr->param2 <= 0) || (instr->param2 > max_rpm)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if (instr->until != ACT_COND_DISTANCE_REACHED) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+    } else if (instr->op == ACT_OP_TURN) {
+        if ((instr->param1 < -180) || (instr->param1 > 180)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if ((instr->param2 <= 0) || (instr->param2 > 30000)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if (instr->until != ACT_COND_HEADING_REACHED) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+    } else if (instr->op == ACT_OP_FOLLOW) {
+        if ((instr->param1 < -max_rpm) || (instr->param1 > max_rpm)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if ((instr->param2 <= 0) || (instr->param2 > 30000)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if (!IsOneOf(instr->until, ACT_COND_TIMEOUT, ACT_COND_LINE_LOST,
+                     ACT_COND_BUTTON, ACT_COND_LINE_DETECTED)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+    } else if (instr->op == ACT_OP_WAIT) {
+        if (instr->param1 != 0) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_MUST_BE_ZERO);
+            return false;
+        }
+        if ((instr->param2 < 0) || (instr->param2 > 30000)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if (!IsOneOf(instr->until, ACT_COND_TIMEOUT,
+                     ACT_COND_LINE_DETECTED, ACT_COND_LINE_LOST,
+                     ACT_COND_BUTTON)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+    } else if ((instr->op == ACT_OP_STOP) || (instr->op == ACT_OP_END)) {
+        if (instr->param1 != 0) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_MUST_BE_ZERO);
+            return false;
+        }
+        if (instr->param2 != 0) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_MUST_BE_ZERO);
+            return false;
+        }
+        if (instr->until != ACT_COND_IMMEDIATE) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+    } else if (instr->op == ACT_OP_BRANCH) {
+        if (instr->param1 != 0) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_MUST_BE_ZERO);
+            return false;
+        }
+        if (instr->param2 != 0) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_MUST_BE_ZERO);
+            return false;
+        }
+        if (!IsOneOf(instr->until, ACT_COND_LINE_DETECTED,
+                     ACT_COND_LINE_LOST, ACT_COND_BUTTON,
+                     ACT_COND_IMMEDIATE) &&
+            (instr->until != ACT_COND_TIMEOUT)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+    } else if (led_op || buzzer_op) {
+        if (led_op && (instr->param1 != 0) &&
+            (instr->param1 != 2) && (instr->param1 != 3)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if (buzzer_op && (instr->param1 != 0)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_MUST_BE_ZERO);
+            return false;
+        }
+        if ((instr->param2 < 0) || (instr->param2 > 30000) ||
+            ((instr->param2 > 0) && (instr->param2 < 50))) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if (output_off && (instr->param2 != 0)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_MUST_BE_ZERO);
+            return false;
+        }
+        if (instr->until != ACT_COND_IMMEDIATE) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+    }
+    return true;
+}
+
 } /* namespace */
 
 void ActionRunner_Init(void)
@@ -320,7 +532,11 @@ void ActionRunner_Init(void)
     g_state.last_success = false;
     g_state.seq_start_ms = 0U;
     g_state.instr_start_ms = 0U;
+    g_state.instr_started = false;
     g_state.last_status = drivers::DRIVER_OK;
+    g_state.result = ACT_RUN_IDLE;
+    g_state.failure_reason = ACT_FAIL_NONE;
+    g_state.failure_index = ACT_NEXT;
     ClearOutputTimer(&g_led2Timer);
     ClearOutputTimer(&g_led3Timer);
     ClearOutputTimer(&g_buzzerTimer);
@@ -337,6 +553,11 @@ drivers::DriverStatus ActionRunner_Clear(void)
     g_state.count = 0U;
     g_state.current = 0U;
     g_state.last_success = false;
+    g_state.instr_started = false;
+    g_state.last_status = drivers::DRIVER_OK;
+    g_state.result = ACT_RUN_IDLE;
+    g_state.failure_reason = ACT_FAIL_NONE;
+    g_state.failure_index = ACT_NEXT;
     StopSequenceOutputs();
     return drivers::DRIVER_OK;
 }
@@ -354,34 +575,10 @@ drivers::DriverStatus ActionRunner_AddInstr(ActionOp op,
     if (g_state.count >= kMaxInstrs) {
         return drivers::DRIVER_ERROR;
     }
-    if ((op <= ACT_OP_NONE) || (op > ACT_OP_BUZZER_TOGGLE)) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-    if ((op == ACT_OP_DRIVE_MM) &&
-        ((param1 == 0) || (param1 < -10000) || (param1 > 10000) ||
-         (param2 <= 0) || (param2 > 1000) ||
-         (until != ACT_COND_DISTANCE_REACHED))) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-    const bool led_op = (op >= ACT_OP_LED_ON) &&
-                        (op <= ACT_OP_LED_TOGGLE);
-    const bool buzzer_op = (op >= ACT_OP_BUZZER_ON) &&
-                           (op <= ACT_OP_BUZZER_TOGGLE);
-    const bool output_off = (op == ACT_OP_LED_OFF) ||
-                            (op == ACT_OP_BUZZER_OFF);
-    if (led_op &&
-        (((param1 != 0) && (param1 != 2) && (param1 != 3)) ||
-         (param2 < 0) || (param2 > 30000) ||
-         ((param2 > 0) && (param2 < 50)) ||
-         (output_off && (param2 != 0)) ||
-         (until != ACT_COND_IMMEDIATE))) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-    if (buzzer_op &&
-        ((param1 != 0) || (param2 < 0) || (param2 > 30000) ||
-         ((param2 > 0) && (param2 < 50)) ||
-         (output_off && (param2 != 0)) ||
-         (until != ACT_COND_IMMEDIATE))) {
+    Instr candidate = { op, param1, param2, until, on_success, on_timeout };
+    ActionValidationResult validation = { true, 0U, ACT_VALID_FIELD_NONE,
+                                          ACT_VALID_OK };
+    if (!ValidateInstr(&candidate, g_state.count, &validation)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
     Instr *instr = &g_state.instrs[g_state.count];
@@ -395,28 +592,85 @@ drivers::DriverStatus ActionRunner_AddInstr(ActionOp op,
     return drivers::DRIVER_OK;
 }
 
+drivers::DriverStatus ActionRunner_Validate(ActionValidationResult *result)
+{
+    if (result != 0) {
+        result->valid = true;
+        result->index = ACT_NEXT;
+        result->field = ACT_VALID_FIELD_NONE;
+        result->reason = ACT_VALID_OK;
+    }
+    if (g_state.count == 0U) {
+        SetValidationError(result, ACT_NEXT, ACT_VALID_FIELD_TABLE,
+                           ACT_VALID_EMPTY);
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    if (g_state.count > kMaxInstrs) {
+        SetValidationError(result, ACT_NEXT, ACT_VALID_FIELD_TABLE,
+                           ACT_VALID_TOO_MANY);
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    for (uint8_t i = 0U; i < g_state.count; i++) {
+        const Instr *instr = &g_state.instrs[i];
+        if (!ValidateInstr(instr, i, result)) {
+            return drivers::DRIVER_ERROR_INVALID_ARG;
+        }
+        if ((instr->on_success != ACT_NEXT) &&
+            (instr->on_success >= g_state.count)) {
+            SetValidationError(result, i, ACT_VALID_FIELD_ON_SUCCESS,
+                               ACT_VALID_BAD_TARGET);
+            return drivers::DRIVER_ERROR_INVALID_ARG;
+        }
+        if ((instr->on_timeout != ACT_NEXT) &&
+            (instr->on_timeout >= g_state.count)) {
+            SetValidationError(result, i, ACT_VALID_FIELD_ON_TIMEOUT,
+                               ACT_VALID_BAD_TARGET);
+            return drivers::DRIVER_ERROR_INVALID_ARG;
+        }
+    }
+    return drivers::DRIVER_OK;
+}
+
 drivers::DriverStatus ActionRunner_Start(void)
 {
     if (g_state.running) {
         return drivers::DRIVER_ERROR_BUSY;
     }
     StopSequenceOutputs();
-    if (g_state.count == 0U) {
+    ActionValidationResult validation;
+    if (ActionRunner_Validate(&validation) != drivers::DRIVER_OK) {
+        g_state.last_status = drivers::DRIVER_ERROR_INVALID_ARG;
+        g_state.result = ACT_RUN_INVALID;
+        g_state.failure_reason = ACT_FAIL_INVALID;
+        g_state.failure_index = validation.index;
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
     if (services::Fault_HasFault()) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        g_state.result = ACT_RUN_FAULT;
+        g_state.failure_reason = ACT_FAIL_FAULT;
+        g_state.failure_index = ACT_NEXT;
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
     g_state.current = 0U;
     g_state.running = true;
     g_state.last_success = false;
+    g_state.last_status = drivers::DRIVER_OK;
+    g_state.result = ACT_RUN_RUNNING;
+    g_state.failure_reason = ACT_FAIL_NONE;
+    g_state.failure_index = ACT_NEXT;
     g_state.seq_start_ms = services::Time_Millis();
     g_state.instr_start_ms = 0U;
+    g_state.instr_started = false;
     return drivers::DRIVER_OK;
 }
 
 drivers::DriverStatus ActionRunner_Cancel(void)
 {
+    g_state.result = ACT_RUN_CANCELLED;
+    g_state.failure_reason = ACT_FAIL_CANCELLED;
+    g_state.failure_index = g_state.running ? g_state.current : ACT_NEXT;
+    g_state.last_status = drivers::DRIVER_OK;
     AbortSequence();
     return drivers::DRIVER_OK;
 }
@@ -431,10 +685,18 @@ void ActionRunner_Update(void)
     const uint32_t now = services::Time_Millis();
 
     if (services::Fault_HasFault()) {
+        g_state.result = ACT_RUN_FAULT;
+        g_state.failure_reason = ACT_FAIL_FAULT;
+        g_state.failure_index = g_state.current;
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
         AbortSequence();
         return;
     }
     if ((now - g_state.seq_start_ms) > kSequenceTimeoutMs) {
+        g_state.result = ACT_RUN_TIMEOUT;
+        g_state.failure_reason = ACT_FAIL_SEQUENCE_TIMEOUT;
+        g_state.failure_index = g_state.current;
+        g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;
         AbortSequence();
         return;
     }
@@ -449,14 +711,19 @@ void ActionRunner_Update(void)
         return;
     }
 
-    if (g_state.instr_start_ms == 0U) {
+    if (!g_state.instr_started) {
         if (!StartOp(instr)) {
+            g_state.last_success = false;
+            g_state.failure_reason = ACT_FAIL_START;
+            g_state.failure_index = g_state.current;
+            g_state.last_status = drivers::DRIVER_ERROR;
             StopAll();
             StopSequenceOutputs();
             Goto(instr->on_timeout, false);
             return;
         }
         g_state.instr_start_ms = now;
+        g_state.instr_started = true;
     }
 
     const InstrResult r = EvalInstr(instr, now);
@@ -469,6 +736,9 @@ void ActionRunner_Update(void)
         Goto(instr->on_success, true);
     } else {
         g_state.last_success = false;
+        g_state.failure_reason = ACT_FAIL_INSTR_TIMEOUT;
+        g_state.failure_index = g_state.current;
+        g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;
         Goto(instr->on_timeout, false);
     }
 }

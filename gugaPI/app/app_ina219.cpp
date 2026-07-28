@@ -89,6 +89,12 @@ void App_Ina219Run(void)
     drivers::Ina219Measurement measurement = {};
     const drivers::DriverStatus status =
         board::Board_Ina219ReadMeasurement(&measurement);
+    if (status == drivers::DRIVER_ERROR_BUSY) {
+        /* OLED DMA currently owns the shared SENSOR_I2C bus. Retry without
+         * counting normal arbitration as a sensor communication failure. */
+        g_firstRun = true;
+        return;
+    }
     if (status != drivers::DRIVER_OK) {
         (void) Ina219Protection_RecordReadError(&g_data.protection, status);
         BatteryMonitor_RecordReadError(status);

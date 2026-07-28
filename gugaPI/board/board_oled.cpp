@@ -10,15 +10,19 @@ namespace {
 
 static drivers::OledSsd1306Config g_oledConfig = {
     0,
+    0,
     BOARD_OLED_I2C_ADDRESS,
     BOARD_OLED_WIDTH,
     BOARD_OLED_HEIGHT
 };
 
-static drivers::OledSsd1306Context g_oledContext = {
-    0,
-    false
+static const drivers::I2cControllerDmaTxConfig g_oledDmaConfig = {
+    DMA,
+    SENSOR_I2C_DMA_TX_CHAN_ID,
+    BOARD_OLED_DMA_TIMEOUT_MS
 };
+
+static drivers::OledSsd1306Context g_oledContext = {};
 
 const drivers::I2cDiagBusConfig *OledBus(void)
 {
@@ -29,8 +33,20 @@ const drivers::I2cDiagBusConfig *OledBus(void)
 
 drivers::DriverStatus Board_OledInit(void)
 {
+    if (drivers::OledSsd1306_HasPendingFlush(&g_oledContext)) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
     g_oledConfig.bus = OledBus();
-    return drivers::OledSsd1306_Init(&g_oledContext, &g_oledConfig);
+    g_oledConfig.dma_tx = &g_oledDmaConfig;
+    const drivers::DriverStatus status =
+        drivers::OledSsd1306_Init(&g_oledContext, &g_oledConfig);
+    if (status == drivers::DRIVER_OK) {
+        NVIC_SetPriority(SENSOR_I2C_INST_INT_IRQN,
+                         BOARD_OLED_I2C_IRQ_PRIORITY);
+        NVIC_ClearPendingIRQ(SENSOR_I2C_INST_INT_IRQN);
+        NVIC_EnableIRQ(SENSOR_I2C_INST_INT_IRQN);
+    }
+    return status;
 }
 
 drivers::DriverStatus Board_OledProbe(void)
@@ -77,6 +93,21 @@ drivers::DriverStatus Board_OledSetDisplayOn(bool on)
 drivers::DriverStatus Board_OledSetInvert(bool invert)
 {
     return drivers::OledSsd1306_SetInvert(&g_oledContext, invert);
+}
+
+drivers::DriverStatus Board_OledService(void)
+{
+    return drivers::OledSsd1306_Service(&g_oledContext);
+}
+
+void Board_OledHandleI2cInterrupt(void)
+{
+    drivers::OledSsd1306_HandleI2cInterrupt(&g_oledContext);
+}
+
+bool Board_OledHasPendingFlush(void)
+{
+    return drivers::OledSsd1306_HasPendingFlush(&g_oledContext);
 }
 
 drivers::DriverStatus Board_OledGetBusStatus(uint32_t *controller_status,

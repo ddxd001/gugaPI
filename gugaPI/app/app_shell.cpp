@@ -37,6 +37,7 @@
 #include "drivers/common/driver_status.h"
 #include "drivers/i2c_diag/i2c_diag.h"
 #include "services/debug_uart.h"
+#include "services/fault.h"
 #include "services/scheduler.h"
 #include "services/shell.h"
 #include "services/time.h"
@@ -155,6 +156,44 @@ services::SchedulerTaskId g_telemTaskId = 0U;
 uint32_t g_telemPeriodMs = 100U;
 uint32_t g_telemLastUpdateMs = 0U;
 bool g_telemHeaderSent = false;
+enum TelemProfile {
+    TELEM_PROFILE_FULL = 0,
+    TELEM_PROFILE_RUNTIME,
+    TELEM_PROFILE_COMPETITION,
+    TELEM_PROFILE_MOTOR,
+    TELEM_PROFILE_HEADING,
+    TELEM_PROFILE_HEADING_OUTPUT,
+    TELEM_PROFILE_CHASSIS,
+    TELEM_PROFILE_FEEDBACK_STATE,
+    TELEM_PROFILE_FEEDBACK_AGE,
+    /* Legacy combined line profile remains available for compatibility. */
+    TELEM_PROFILE_LINE,
+    TELEM_PROFILE_LINE_POSITION,
+    TELEM_PROFILE_LINE_OUTPUT,
+    TELEM_PROFILE_LINE_QUALITY,
+    TELEM_PROFILE_LINE_STATE,
+    TELEM_PROFILE_LINE_FAULTS,
+    TELEM_PROFILE_ROAD_EVENT,
+    TELEM_PROFILE_ROAD_SEQUENCE,
+    TELEM_PROFILE_ROAD_PHASE,
+    TELEM_PROFILE_TURN_PHASE,
+    TELEM_PROFILE_TURN_RATE,
+    TELEM_PROFILE_TURN_ANGLE,
+    TELEM_PROFILE_TURN_TIMING,
+    TELEM_PROFILE_TURN_SPEED,
+    TELEM_PROFILE_ACCEL,
+    TELEM_PROFILE_GYRO,
+    TELEM_PROFILE_ATTITUDE,
+    TELEM_PROFILE_IMU_TEMPERATURE,
+    TELEM_PROFILE_IMU_STATE,
+    TELEM_PROFILE_IMU_AGE,
+    TELEM_PROFILE_GRAY_RAW,
+    TELEM_PROFILE_GRAY_HEALTH,
+    TELEM_PROFILE_GRAY_AGE,
+    TELEM_PROFILE_FAULT,
+    TELEM_PROFILE_UART
+};
+TelemProfile g_telemProfile = TELEM_PROFILE_FULL;
 
 bool StrEqual(const char *left, const char *right)
 {
@@ -2900,6 +2939,9 @@ void OledCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(board::Board_OledWidth());
         services::Shell_WriteString("x");
         services::Shell_WriteUInt32(board::Board_OledHeight());
+        services::Shell_WriteString(" pending=");
+        services::Shell_WriteUInt32(
+            board::Board_OledHasPendingFlush() ? 1U : 0U);
         services::Shell_WriteString(" probe=");
         services::Shell_WriteString(DriverStatusText(probe_status));
         services::Shell_WriteString(" bus=");
@@ -6048,7 +6090,7 @@ void PrintRunUsage(void)
         "    LED: p1=0(both)|2|3; buzzer: p1=0; p2=0 or auto-off 50..30000");
     services::Shell_WriteLine("    output actions require until=immediate; off requires p2=0");
     services::Shell_WriteLine("    onsuccess/ontimeout: index 0..63, or 'next'/'abort'");
-    services::Shell_WriteLine("  run clear|start|cancel|status|dump");
+    services::Shell_WriteLine("  run clear|validate|start|cancel|status|dump");
 }
 
 bool ParseActionOp(const char *t, app::ActionOp *op)
@@ -6131,6 +6173,66 @@ const char *CondText(app::ActionCond c)
     }
 }
 
+const char *ActionRunResultText(app::ActionRunResult result)
+{
+    switch (result) {
+    case app::ACT_RUN_IDLE: return "idle";
+    case app::ACT_RUN_RUNNING: return "running";
+    case app::ACT_RUN_SUCCESS: return "success";
+    case app::ACT_RUN_ABORTED: return "aborted";
+    case app::ACT_RUN_CANCELLED: return "cancelled";
+    case app::ACT_RUN_FAULT: return "fault";
+    case app::ACT_RUN_TIMEOUT: return "timeout";
+    case app::ACT_RUN_INVALID: return "invalid";
+    default: return "unknown";
+    }
+}
+
+const char *ActionFailureText(app::ActionFailureReason reason)
+{
+    switch (reason) {
+    case app::ACT_FAIL_NONE: return "none";
+    case app::ACT_FAIL_START: return "start_failed";
+    case app::ACT_FAIL_INSTR_TIMEOUT: return "instruction_timeout";
+    case app::ACT_FAIL_SEQUENCE_TIMEOUT: return "sequence_timeout";
+    case app::ACT_FAIL_FAULT: return "fault";
+    case app::ACT_FAIL_CANCELLED: return "cancelled";
+    case app::ACT_FAIL_INVALID: return "invalid_table";
+    default: return "unknown";
+    }
+}
+
+const char *ValidationFieldText(app::ActionValidationField field)
+{
+    switch (field) {
+    case app::ACT_VALID_FIELD_TABLE: return "table";
+    case app::ACT_VALID_FIELD_OP: return "op";
+    case app::ACT_VALID_FIELD_PARAM1: return "param1";
+    case app::ACT_VALID_FIELD_PARAM2: return "param2";
+    case app::ACT_VALID_FIELD_CONDITION: return "condition";
+    case app::ACT_VALID_FIELD_ON_SUCCESS: return "on_success";
+    case app::ACT_VALID_FIELD_ON_TIMEOUT: return "on_timeout";
+    case app::ACT_VALID_FIELD_NONE:
+    default: return "none";
+    }
+}
+
+const char *ValidationReasonText(app::ActionValidationReason reason)
+{
+    switch (reason) {
+    case app::ACT_VALID_EMPTY: return "empty";
+    case app::ACT_VALID_TOO_MANY: return "too_many";
+    case app::ACT_VALID_UNKNOWN_OP: return "unknown_op";
+    case app::ACT_VALID_OUT_OF_RANGE: return "out_of_range";
+    case app::ACT_VALID_MUST_BE_ZERO: return "must_be_zero";
+    case app::ACT_VALID_MUST_BE_NONZERO: return "must_be_nonzero";
+    case app::ACT_VALID_WRONG_CONDITION: return "wrong_condition";
+    case app::ACT_VALID_BAD_TARGET: return "bad_target";
+    case app::ACT_VALID_OK:
+    default: return "ok";
+    }
+}
+
 void RunCommand(int argc, const char * const argv[])
 {
 #if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
@@ -6156,6 +6258,43 @@ void RunCommand(int argc, const char * const argv[])
         if (st->running && (st->current < st->count)) {
             services::Shell_WriteString(" cur=");
             services::Shell_WriteString(OpText(st->instrs[st->current].op));
+        }
+        const app::ChassisState *chassis = app::Chassis_GetState();
+        services::Shell_WriteString(" result=");
+        services::Shell_WriteString(ActionRunResultText(st->result));
+        services::Shell_WriteString(" status=");
+        services::Shell_WriteString(DriverStatusText(st->last_status));
+        services::Shell_WriteString(" reason=");
+        services::Shell_WriteString(ActionFailureText(st->failure_reason));
+        services::Shell_WriteString(" fail_index=");
+        services::Shell_WriteUInt32(st->failure_index);
+        services::Shell_WriteString(" drive=");
+        WriteInt32(chassis->left.target_rpm);
+        services::Shell_WriteString("/");
+        WriteInt32(chassis->right.target_rpm);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "validate")) {
+        if (argc != 2) {
+            PrintRunUsage();
+            return;
+        }
+        app::ActionValidationResult validation;
+        const drivers::DriverStatus status =
+            app::ActionRunner_Validate(&validation);
+        services::Shell_WriteString("run validate ");
+        if (status == drivers::DRIVER_OK) {
+            services::Shell_WriteString("ok count=");
+            services::Shell_WriteUInt32(app::ActionRunner_GetState()->count);
+        } else {
+            services::Shell_WriteString("error index=");
+            services::Shell_WriteUInt32(validation.index);
+            services::Shell_WriteString(" field=");
+            services::Shell_WriteString(ValidationFieldText(validation.field));
+            services::Shell_WriteString(" reason=");
+            services::Shell_WriteString(ValidationReasonText(validation.reason));
         }
         services::Shell_WriteString("\r\n");
         return;
@@ -6236,10 +6375,24 @@ void RunCommand(int argc, const char * const argv[])
             return;
         }
         bool params_ok = false;
-        if (op == app::ACT_OP_DRIVE_MM) {
+        if ((op == app::ACT_OP_DRIVE) || (op == app::ACT_OP_FOLLOW)) {
+            params_ok = ParseInt32(argv[3], -max_rpm, max_rpm, &p1) &&
+                        ParseInt32(argv[4], 1, 30000, &p2);
+        } else if (op == app::ACT_OP_DRIVE_MM) {
             params_ok = ParseInt32(argv[3], -10000, 10000, &p1) &&
                         (p1 != 0) &&
                         ParseInt32(argv[4], 1, max_rpm, &p2);
+        } else if (op == app::ACT_OP_TURN) {
+            params_ok = ParseInt32(argv[3], -180, 180, &p1) &&
+                        ParseInt32(argv[4], 1, 30000, &p2);
+        } else if (op == app::ACT_OP_WAIT) {
+            params_ok = ParseInt32(argv[3], 0, 0, &p1) &&
+                        ParseInt32(argv[4], 0, 30000, &p2);
+        } else if ((op == app::ACT_OP_STOP) ||
+                   (op == app::ACT_OP_BRANCH) ||
+                   (op == app::ACT_OP_END)) {
+            params_ok = ParseInt32(argv[3], 0, 0, &p1) &&
+                        ParseInt32(argv[4], 0, 0, &p2);
         } else if ((op >= app::ACT_OP_LED_ON) &&
                    (op <= app::ACT_OP_LED_TOGGLE)) {
             params_ok = ParseInt32(argv[3], 0, 3, &p1) &&
@@ -6248,9 +6401,6 @@ void RunCommand(int argc, const char * const argv[])
         } else if ((op >= app::ACT_OP_BUZZER_ON) &&
                    (op <= app::ACT_OP_BUZZER_TOGGLE)) {
             params_ok = ParseInt32(argv[3], 0, 0, &p1) &&
-                        ParseInt32(argv[4], 0, 30000, &p2);
-        } else {
-            params_ok = ParseInt32(argv[3], -max_rpm, max_rpm, &p1) &&
                         ParseInt32(argv[4], 0, 30000, &p2);
         }
         if ((!params_ok) ||
@@ -8471,8 +8621,247 @@ void SeqCommand(int argc, const char * const argv[])
 
 /* ===== FireWater telemetry (VOFA+ protocol) ===== */
 
+const char *TelemProfileText(TelemProfile profile)
+{
+    switch (profile) {
+        case TELEM_PROFILE_RUNTIME: return "runtime";
+        case TELEM_PROFILE_COMPETITION: return "competition";
+        case TELEM_PROFILE_MOTOR: return "motor";
+        case TELEM_PROFILE_HEADING: return "heading";
+        case TELEM_PROFILE_HEADING_OUTPUT: return "heading_output";
+        case TELEM_PROFILE_CHASSIS: return "chassis";
+        case TELEM_PROFILE_FEEDBACK_STATE: return "feedback_state";
+        case TELEM_PROFILE_FEEDBACK_AGE: return "feedback_age";
+        case TELEM_PROFILE_LINE: return "line";
+        case TELEM_PROFILE_LINE_POSITION: return "line_position";
+        case TELEM_PROFILE_LINE_OUTPUT: return "line_output";
+        case TELEM_PROFILE_LINE_QUALITY: return "line_quality";
+        case TELEM_PROFILE_LINE_STATE: return "line_state";
+        case TELEM_PROFILE_LINE_FAULTS: return "line_faults";
+        case TELEM_PROFILE_ROAD_EVENT: return "road_event";
+        case TELEM_PROFILE_ROAD_SEQUENCE: return "road_sequence";
+        case TELEM_PROFILE_ROAD_PHASE: return "road_phase";
+        case TELEM_PROFILE_TURN_PHASE: return "turn_phase";
+        case TELEM_PROFILE_TURN_RATE: return "turn_rate";
+        case TELEM_PROFILE_TURN_ANGLE: return "turn_angle";
+        case TELEM_PROFILE_TURN_TIMING: return "turn_timing";
+        case TELEM_PROFILE_TURN_SPEED: return "turn_speed";
+        case TELEM_PROFILE_ACCEL: return "accel";
+        case TELEM_PROFILE_GYRO: return "gyro";
+        case TELEM_PROFILE_ATTITUDE: return "attitude";
+        case TELEM_PROFILE_IMU_TEMPERATURE: return "imu_temperature";
+        case TELEM_PROFILE_IMU_STATE: return "imu_state";
+        case TELEM_PROFILE_IMU_AGE: return "imu_age";
+        case TELEM_PROFILE_GRAY_RAW: return "gray_raw";
+        case TELEM_PROFILE_GRAY_HEALTH: return "gray_health";
+        case TELEM_PROFILE_GRAY_AGE: return "gray_age";
+        case TELEM_PROFILE_FAULT: return "fault";
+        case TELEM_PROFILE_UART: return "uart";
+        case TELEM_PROFILE_FULL:
+        default: return "full";
+    }
+}
+
+bool ParseTelemProfile(const char *text, TelemProfile *profile)
+{
+    if ((text == 0) || (profile == 0)) {
+        return false;
+    }
+    if (StrEqual(text, "runtime")) {
+        *profile = TELEM_PROFILE_RUNTIME;
+    } else if (StrEqual(text, "competition")) {
+        *profile = TELEM_PROFILE_COMPETITION;
+    } else if (StrEqual(text, "motor")) {
+        *profile = TELEM_PROFILE_MOTOR;
+    } else if (StrEqual(text, "heading")) {
+        *profile = TELEM_PROFILE_HEADING;
+    } else if (StrEqual(text, "heading_output")) {
+        *profile = TELEM_PROFILE_HEADING_OUTPUT;
+    } else if (StrEqual(text, "chassis")) {
+        *profile = TELEM_PROFILE_CHASSIS;
+    } else if (StrEqual(text, "feedback_state")) {
+        *profile = TELEM_PROFILE_FEEDBACK_STATE;
+    } else if (StrEqual(text, "feedback_age")) {
+        *profile = TELEM_PROFILE_FEEDBACK_AGE;
+    } else if (StrEqual(text, "line")) {
+        *profile = TELEM_PROFILE_LINE;
+    } else if (StrEqual(text, "line_position")) {
+        *profile = TELEM_PROFILE_LINE_POSITION;
+    } else if (StrEqual(text, "line_output")) {
+        *profile = TELEM_PROFILE_LINE_OUTPUT;
+    } else if (StrEqual(text, "line_quality")) {
+        *profile = TELEM_PROFILE_LINE_QUALITY;
+    } else if (StrEqual(text, "line_state")) {
+        *profile = TELEM_PROFILE_LINE_STATE;
+    } else if (StrEqual(text, "line_faults")) {
+        *profile = TELEM_PROFILE_LINE_FAULTS;
+    } else if (StrEqual(text, "road_event")) {
+        *profile = TELEM_PROFILE_ROAD_EVENT;
+    } else if (StrEqual(text, "road_sequence")) {
+        *profile = TELEM_PROFILE_ROAD_SEQUENCE;
+    } else if (StrEqual(text, "road_phase")) {
+        *profile = TELEM_PROFILE_ROAD_PHASE;
+    } else if (StrEqual(text, "turn_phase")) {
+        *profile = TELEM_PROFILE_TURN_PHASE;
+    } else if (StrEqual(text, "turn_rate")) {
+        *profile = TELEM_PROFILE_TURN_RATE;
+    } else if (StrEqual(text, "turn_angle")) {
+        *profile = TELEM_PROFILE_TURN_ANGLE;
+    } else if (StrEqual(text, "turn_timing")) {
+        *profile = TELEM_PROFILE_TURN_TIMING;
+    } else if (StrEqual(text, "turn_speed")) {
+        *profile = TELEM_PROFILE_TURN_SPEED;
+    } else if (StrEqual(text, "accel")) {
+        *profile = TELEM_PROFILE_ACCEL;
+    } else if (StrEqual(text, "gyro")) {
+        *profile = TELEM_PROFILE_GYRO;
+    } else if (StrEqual(text, "attitude")) {
+        *profile = TELEM_PROFILE_ATTITUDE;
+    } else if (StrEqual(text, "imu_temperature")) {
+        *profile = TELEM_PROFILE_IMU_TEMPERATURE;
+    } else if (StrEqual(text, "imu_state")) {
+        *profile = TELEM_PROFILE_IMU_STATE;
+    } else if (StrEqual(text, "imu_age")) {
+        *profile = TELEM_PROFILE_IMU_AGE;
+    } else if (StrEqual(text, "gray_raw")) {
+        *profile = TELEM_PROFILE_GRAY_RAW;
+    } else if (StrEqual(text, "gray_health")) {
+        *profile = TELEM_PROFILE_GRAY_HEALTH;
+    } else if (StrEqual(text, "gray_age")) {
+        *profile = TELEM_PROFILE_GRAY_AGE;
+    } else if (StrEqual(text, "fault")) {
+        *profile = TELEM_PROFILE_FAULT;
+    } else if (StrEqual(text, "uart")) {
+        *profile = TELEM_PROFILE_UART;
+    } else {
+        return false;
+    }
+    return true;
+}
+
 void TelemSendHeader(void)
 {
+    switch (g_telemProfile) {
+        case TELEM_PROFILE_RUNTIME:
+            services::DebugUart_WriteString("#t,mode,step\n");
+            return;
+        case TELEM_PROFILE_COMPETITION:
+            services::DebugUart_WriteString(
+                "#t,comp_slot,comp_slot_valid,comp_count\n");
+            return;
+        case TELEM_PROFILE_MOTOR:
+            services::DebugUart_WriteString(
+                "#t,L_tgt,L_act,R_tgt,R_act\n");
+            return;
+        case TELEM_PROFILE_HEADING:
+            services::DebugUart_WriteString(
+                "#t,yaw_tgt,yaw,head_err\n");
+            return;
+        case TELEM_PROFILE_HEADING_OUTPUT:
+            services::DebugUart_WriteString("#t,head_corr\n");
+            return;
+        case TELEM_PROFILE_CHASSIS:
+            services::DebugUart_WriteString(
+                "#t,chassis_init,chassis_status\n");
+            return;
+        case TELEM_PROFILE_FEEDBACK_STATE:
+            services::DebugUart_WriteString(
+                "#t,feedback_status,feedback_valid\n");
+            return;
+        case TELEM_PROFILE_FEEDBACK_AGE:
+            services::DebugUart_WriteString("#t,feedback_age_ms\n");
+            return;
+        case TELEM_PROFILE_LINE:
+            services::DebugUart_WriteString(
+                "#t,gray_pos,lf_err,lf_corr\n");
+            return;
+        case TELEM_PROFILE_LINE_POSITION:
+            services::DebugUart_WriteString("#t,gray_pos,lf_err\n");
+            return;
+        case TELEM_PROFILE_LINE_OUTPUT:
+            services::DebugUart_WriteString("#t,lf_corr\n");
+            return;
+        case TELEM_PROFILE_LINE_QUALITY:
+            services::DebugUart_WriteString(
+                "#t,gray_strength,gray_conf\n");
+            return;
+        case TELEM_PROFILE_LINE_STATE:
+            services::DebugUart_WriteString(
+                "#t,gray_valid,gray_state\n");
+            return;
+        case TELEM_PROFILE_LINE_FAULTS:
+            services::DebugUart_WriteString("#t,lf_weak,lf_invalid\n");
+            return;
+        case TELEM_PROFILE_ROAD_EVENT:
+            services::DebugUart_WriteString(
+                "#t,road_type,road_event_type,road_paths\n");
+            return;
+        case TELEM_PROFILE_ROAD_SEQUENCE:
+            services::DebugUart_WriteString("#t,road_event_seq\n");
+            return;
+        case TELEM_PROFILE_ROAD_PHASE:
+            services::DebugUart_WriteString(
+                "#t,road_phase,road_ctrl_phase\n");
+            return;
+        case TELEM_PROFILE_TURN_PHASE:
+            services::DebugUart_WriteString("#t,head_turn_phase\n");
+            return;
+        case TELEM_PROFILE_TURN_RATE:
+            services::DebugUart_WriteString(
+                "#t,head_turn_rate_mdps,head_turn_settle_mdps\n");
+            return;
+        case TELEM_PROFILE_TURN_ANGLE:
+            services::DebugUart_WriteString(
+                "#t,head_turn_brake_mdeg,head_turn_margin_mdeg\n");
+            return;
+        case TELEM_PROFILE_TURN_TIMING:
+            services::DebugUart_WriteString("#t,head_turn_brake_ms\n");
+            return;
+        case TELEM_PROFILE_TURN_SPEED:
+            services::DebugUart_WriteString("#t,head_turn_settle_rpm\n");
+            return;
+        case TELEM_PROFILE_ACCEL:
+            services::DebugUart_WriteString(
+                "#t,acc_x_mg,acc_y_mg,acc_z_mg\n");
+            return;
+        case TELEM_PROFILE_GYRO:
+            services::DebugUart_WriteString(
+                "#t,gyro_x_mdps,gyro_y_mdps,gyro_z_mdps\n");
+            return;
+        case TELEM_PROFILE_ATTITUDE:
+            services::DebugUart_WriteString("#t,pitch,roll\n");
+            return;
+        case TELEM_PROFILE_IMU_TEMPERATURE:
+            services::DebugUart_WriteString("#t,imu_temp_cc\n");
+            return;
+        case TELEM_PROFILE_IMU_STATE:
+            services::DebugUart_WriteString(
+                "#t,imu_valid,imu_error_count\n");
+            return;
+        case TELEM_PROFILE_IMU_AGE:
+            services::DebugUart_WriteString("#t,imu_age_ms\n");
+            return;
+        case TELEM_PROFILE_GRAY_RAW:
+            services::DebugUart_WriteString(
+                "#t,gray0,gray1,gray2,gray3,gray4,gray5,gray6,gray7\n");
+            return;
+        case TELEM_PROFILE_GRAY_HEALTH:
+            services::DebugUart_WriteString(
+                "#t,gray_sample_valid,gray_error_count\n");
+            return;
+        case TELEM_PROFILE_GRAY_AGE:
+            services::DebugUart_WriteString("#t,gray_age_ms\n");
+            return;
+        case TELEM_PROFILE_FAULT:
+            services::DebugUart_WriteString("#t,fault_code,fault_count\n");
+            return;
+        case TELEM_PROFILE_UART:
+            services::DebugUart_WriteString("#t,tx_pending,tx_dropped\n");
+            return;
+        case TELEM_PROFILE_FULL:
+        default:
+            break;
+    }
     services::DebugUart_WriteString(
         "#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,head_err,"
         "head_corr,gray_pos,gray_strength,gray_conf,gray_valid,"
@@ -8481,16 +8870,215 @@ void TelemSendHeader(void)
         "road_ctrl_phase,head_turn_phase,head_turn_rate_mdps,"
         "head_turn_brake_mdeg,head_turn_brake_ms,"
         "head_turn_margin_mdeg,head_turn_settle_mdps,"
-        "head_turn_settle_rpm\n");
+        "head_turn_settle_rpm,fault_code,fault_count,comp_slot,"
+        "comp_slot_valid,comp_count,chassis_init,chassis_status,"
+        "feedback_status,feedback_valid,feedback_age_ms,tx_pending,"
+        "tx_dropped,imu_valid,imu_age_ms,imu_error_count,acc_x_mg,"
+        "acc_y_mg,acc_z_mg,gyro_x_mdps,gyro_y_mdps,gyro_z_mdps,"
+        "pitch,roll,imu_temp_cc,gray_sample_valid,gray_age_ms,"
+        "gray_error_count,gray0,gray1,gray2,gray3,gray4,gray5,"
+        "gray6,gray7\n");
+}
+
+void TelemWriteInt32(int32_t value)
+{
+    services::Shell_WriteString(",");
+    WriteInt32(value);
+}
+
+void TelemWriteUInt32(uint32_t value)
+{
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(value);
+}
+
+void TelemWriteFixedMilli(int32_t value)
+{
+    services::Shell_WriteString(",");
+    WriteFixedMilli(value);
+}
+
+void TelemSendSelectedData(void)
+{
+    const uint32_t now = services::Time_Millis();
+    const app::AppState *app_state = app::App_GetState();
+    const app::ActionRunnerState *action = app::ActionRunner_GetState();
+    const app::CompetitionState *competition =
+        app::App_CompetitionGetState();
+    const app::ChassisState *chassis = app::Chassis_GetState();
+    const app::HeadingState *heading = app::Heading_GetState();
+    const app::LFState *line = app::LF_GetState();
+    const app::AppImuData *imu = app::App_ImuGetData();
+    const app::AppGrayscaleData *gray = app::App_GrayscaleGetData();
+    const app::ConfigStoreParams *params = app::ConfigStore_Get();
+
+    services::Shell_WriteUInt32(now);
+    switch (g_telemProfile) {
+        case TELEM_PROFILE_RUNTIME:
+            TelemWriteInt32(static_cast<int32_t>(app_state->mode));
+            TelemWriteInt32(action->running
+                ? static_cast<int32_t>(action->current) : -1);
+            break;
+        case TELEM_PROFILE_COMPETITION:
+            TelemWriteUInt32(competition->selected_slot);
+            TelemWriteUInt32(competition->slot_valid ? 1U : 0U);
+            TelemWriteUInt32(competition->instruction_count);
+            break;
+        case TELEM_PROFILE_MOTOR:
+            TelemWriteInt32(chassis->left.target_rpm);
+            TelemWriteInt32(chassis->left.actual_rpm);
+            TelemWriteInt32(chassis->right.target_rpm);
+            TelemWriteInt32(chassis->right.actual_rpm);
+            break;
+        case TELEM_PROFILE_HEADING:
+            TelemWriteFixedMilli(heading->target_yaw_mdeg);
+            TelemWriteFixedMilli((imu != 0) ? imu->yaw_mdeg : 0);
+            TelemWriteFixedMilli(heading->error_mdeg);
+            break;
+        case TELEM_PROFILE_HEADING_OUTPUT:
+            TelemWriteInt32(heading->correction_rpm);
+            break;
+        case TELEM_PROFILE_CHASSIS:
+            TelemWriteUInt32(chassis->initialized ? 1U : 0U);
+            TelemWriteUInt32(static_cast<uint32_t>(chassis->last_status));
+            break;
+        case TELEM_PROFILE_FEEDBACK_STATE:
+            TelemWriteUInt32(
+                static_cast<uint32_t>(chassis->last_feedback_status));
+            TelemWriteUInt32((chassis->feedback_sequence != 0U) ? 1U : 0U);
+            break;
+        case TELEM_PROFILE_FEEDBACK_AGE:
+            TelemWriteUInt32((chassis->feedback_sequence != 0U)
+                ? static_cast<uint32_t>(now - chassis->last_feedback_ms)
+                : 0U);
+            break;
+        case TELEM_PROFILE_LINE:
+            TelemWriteInt32((gray != 0) ? gray->line_position : 0);
+            TelemWriteInt32((line != 0) ? line->error_mpos : 0);
+            TelemWriteInt32((line != 0) ? line->correction_rpm : 0);
+            break;
+        case TELEM_PROFILE_LINE_POSITION:
+            TelemWriteInt32((gray != 0) ? gray->line_position : 0);
+            TelemWriteInt32((line != 0) ? line->error_mpos : 0);
+            break;
+        case TELEM_PROFILE_LINE_OUTPUT:
+            TelemWriteInt32((line != 0) ? line->correction_rpm : 0);
+            break;
+        case TELEM_PROFILE_LINE_QUALITY:
+            TelemWriteUInt32((gray != 0) ? gray->line_strength : 0U);
+            TelemWriteUInt32((gray != 0) ? gray->position_confidence : 0U);
+            break;
+        case TELEM_PROFILE_LINE_STATE:
+            TelemWriteUInt32(((gray != 0) && gray->position_valid) ? 1U : 0U);
+            TelemWriteUInt32((gray != 0)
+                ? static_cast<uint32_t>(gray->track_state) : 0U);
+            break;
+        case TELEM_PROFILE_LINE_FAULTS:
+            TelemWriteUInt32((line != 0) ? line->weak_tracking_frames : 0U);
+            TelemWriteUInt32((line != 0) ? line->invalid_frames : 0U);
+            break;
+        case TELEM_PROFILE_ROAD_EVENT:
+            TelemWriteUInt32((gray != 0)
+                ? static_cast<uint32_t>(gray->road_type) : 0U);
+            TelemWriteUInt32((gray != 0)
+                ? static_cast<uint32_t>(gray->road_event_type) : 0U);
+            TelemWriteUInt32((gray != 0) ? gray->road_event_paths : 0U);
+            break;
+        case TELEM_PROFILE_ROAD_SEQUENCE:
+            TelemWriteUInt32((gray != 0) ? gray->road_event_sequence : 0U);
+            break;
+        case TELEM_PROFILE_ROAD_PHASE:
+            TelemWriteUInt32((gray != 0)
+                ? static_cast<uint32_t>(gray->road_phase) : 0U);
+            TelemWriteUInt32(static_cast<uint32_t>(
+                app::RoadEventController_GetState()->phase));
+            break;
+        case TELEM_PROFILE_TURN_PHASE:
+            TelemWriteUInt32(static_cast<uint32_t>(heading->turn_phase));
+            break;
+        case TELEM_PROFILE_TURN_RATE:
+            TelemWriteInt32(heading->turn_rate_mdps);
+            TelemWriteUInt32(params->heading_turn_settle_rate_mdps);
+            break;
+        case TELEM_PROFILE_TURN_ANGLE:
+            TelemWriteInt32(heading->turn_brake_angle_mdeg);
+            TelemWriteUInt32(params->heading_turn_brake_margin_mdeg);
+            break;
+        case TELEM_PROFILE_TURN_TIMING:
+            TelemWriteUInt32(params->heading_turn_brake_ms);
+            break;
+        case TELEM_PROFILE_TURN_SPEED:
+            TelemWriteUInt32(params->heading_turn_settle_rpm);
+            break;
+        case TELEM_PROFILE_ACCEL:
+        case TELEM_PROFILE_GYRO: {
+            const int32_t *values = (g_telemProfile == TELEM_PROFILE_ACCEL)
+                ? ((imu != 0) ? imu->accel_mg : 0)
+                : ((imu != 0) ? imu->gyro_mdps : 0);
+            for (uint32_t axis = 0U; axis < 3U; axis++) {
+                TelemWriteInt32((values != 0) ? values[axis] : 0);
+            }
+            break;
+        }
+        case TELEM_PROFILE_ATTITUDE:
+            TelemWriteFixedMilli((imu != 0) ? imu->pitch_mdeg : 0);
+            TelemWriteFixedMilli((imu != 0) ? imu->roll_mdeg : 0);
+            break;
+        case TELEM_PROFILE_IMU_TEMPERATURE:
+            TelemWriteInt32((imu != 0) ? imu->temp_centi_c : 0);
+            break;
+        case TELEM_PROFILE_IMU_STATE:
+            TelemWriteUInt32(((imu != 0) && imu->valid) ? 1U : 0U);
+            TelemWriteUInt32((imu != 0) ? imu->error_count : 0U);
+            break;
+        case TELEM_PROFILE_IMU_AGE:
+            TelemWriteUInt32(((imu != 0) && (imu->sequence != 0U))
+                ? static_cast<uint32_t>(now - imu->last_update_ms) : 0U);
+            break;
+        case TELEM_PROFILE_GRAY_RAW:
+            for (uint32_t channel = 0U;
+                 channel < drivers::GRAYSCALE_CHANNEL_COUNT;
+                 channel++) {
+                TelemWriteUInt32((gray != 0) ? gray->raw[channel] : 0U);
+            }
+            break;
+        case TELEM_PROFILE_GRAY_HEALTH:
+            TelemWriteUInt32(((gray != 0) && gray->valid) ? 1U : 0U);
+            TelemWriteUInt32((gray != 0) ? gray->error_count : 0U);
+            break;
+        case TELEM_PROFILE_GRAY_AGE:
+            TelemWriteUInt32(((gray != 0) && (gray->sequence != 0U))
+                ? static_cast<uint32_t>(now - gray->last_update_ms) : 0U);
+            break;
+        case TELEM_PROFILE_FAULT:
+            TelemWriteUInt32(static_cast<uint32_t>(services::Fault_Get()));
+            TelemWriteUInt32(services::Fault_GetCount());
+            break;
+        case TELEM_PROFILE_UART:
+            TelemWriteUInt32(services::DebugUart_GetTxPending());
+            TelemWriteUInt32(services::DebugUart_GetTxDroppedCount());
+            break;
+        case TELEM_PROFILE_FULL:
+        default:
+            break;
+    }
+    services::Shell_WriteString("\n");
 }
 
 void TelemSendData(void)
 {
+    if (g_telemProfile != TELEM_PROFILE_FULL) {
+        TelemSendSelectedData();
+        return;
+    }
     const uint32_t now = services::Time_Millis();
     const app::AppState *app = app::App_GetState();
     const app::ChassisState *cs = app::Chassis_GetState();
     const app::HeadingState *hs = app::Heading_GetState();
     const app::ActionRunnerState *as = app::ActionRunner_GetState();
+    const app::CompetitionState *competition =
+        app::App_CompetitionGetState();
+    const app::AppImuData *imu = app::App_ImuGetData();
     const app::AppGrayscaleData *gray = app::App_GrayscaleGetData();
     const app::LFState *lf = app::LF_GetState();
     const app::ConfigStoreParams *params = app::ConfigStore_Get();
@@ -8517,10 +9105,7 @@ void TelemSendData(void)
     services::Shell_WriteString(",");
     WriteFixedMilli(hs->target_yaw_mdeg);
     services::Shell_WriteString(",");
-    {
-        const app::AppImuData *imu = app::App_ImuGetData();
-        WriteFixedMilli((imu != 0) ? imu->yaw_mdeg : 0);
-    }
+    WriteFixedMilli((imu != 0) ? imu->yaw_mdeg : 0);
     services::Shell_WriteString(",");
     WriteFixedMilli(hs->error_mdeg);
     /* corr */
@@ -8586,6 +9171,80 @@ void TelemSendData(void)
     services::Shell_WriteUInt32(params->heading_turn_settle_rate_mdps);
     services::Shell_WriteString(",");
     services::Shell_WriteUInt32(params->heading_turn_settle_rpm);
+    /* Dashboard health and raw-sensor extension. Existing VOFA+ channels
+     * above retain their original names and order. */
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        static_cast<uint32_t>(services::Fault_Get()));
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(services::Fault_GetCount());
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(competition->selected_slot);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(competition->slot_valid ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(competition->instruction_count);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(cs->initialized ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        static_cast<uint32_t>(cs->last_status));
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        static_cast<uint32_t>(cs->last_feedback_status));
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        (cs->feedback_sequence != 0U) ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((cs->feedback_sequence != 0U)
+        ? static_cast<uint32_t>(now - cs->last_feedback_ms)
+        : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(services::DebugUart_GetTxPending());
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(services::DebugUart_GetTxDroppedCount());
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        ((imu != 0) && imu->valid) ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        ((imu != 0) && (imu->sequence != 0U))
+            ? static_cast<uint32_t>(now - imu->last_update_ms)
+            : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((imu != 0) ? imu->error_count : 0U);
+    for (uint32_t axis = 0U; axis < 3U; axis++) {
+        services::Shell_WriteString(",");
+        WriteInt32((imu != 0) ? imu->accel_mg[axis] : 0);
+    }
+    for (uint32_t axis = 0U; axis < 3U; axis++) {
+        services::Shell_WriteString(",");
+        WriteInt32((imu != 0) ? imu->gyro_mdps[axis] : 0);
+    }
+    services::Shell_WriteString(",");
+    WriteFixedMilli((imu != 0) ? imu->pitch_mdeg : 0);
+    services::Shell_WriteString(",");
+    WriteFixedMilli((imu != 0) ? imu->roll_mdeg : 0);
+    services::Shell_WriteString(",");
+    WriteInt32((imu != 0) ? imu->temp_centi_c : 0);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        ((gray != 0) && gray->valid) ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        ((gray != 0) && (gray->sequence != 0U))
+            ? static_cast<uint32_t>(now - gray->last_update_ms)
+            : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        (gray != 0) ? gray->error_count : 0U);
+    for (uint32_t channel = 0U;
+         channel < drivers::GRAYSCALE_CHANNEL_COUNT;
+         channel++) {
+        services::Shell_WriteString(",");
+        services::Shell_WriteUInt32(
+            (gray != 0) ? gray->raw[channel] : 0U);
+    }
     services::Shell_WriteString("\n");
 }
 
@@ -8650,17 +9309,50 @@ drivers::DriverStatus TelemSetEnabled(bool enabled)
         return status;
     }
 
-    g_telemHeaderSent = false;
-    g_telemEnabled = true;
-    g_telemLastUpdateMs = services::Time_Millis();
-    return SchedulerStatusToDriverStatus(
+    const drivers::DriverStatus enable_status = SchedulerStatusToDriverStatus(
         services::Scheduler_EnableTask(g_telemTaskId, true));
+    if (enable_status != drivers::DRIVER_OK) {
+        g_telemEnabled = false;
+        return enable_status;
+    }
+
+    g_telemHeaderSent = false;
+    g_telemLastUpdateMs = services::Time_Millis();
+    g_telemEnabled = true;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus TelemStart(TelemProfile profile, uint32_t period)
+{
+    const TelemProfile previous_profile = g_telemProfile;
+    const uint32_t previous_period = g_telemPeriodMs;
+    g_telemProfile = profile;
+    g_telemPeriodMs = period;
+    const drivers::DriverStatus status = TelemSetEnabled(true);
+    if (status != drivers::DRIVER_OK) {
+        g_telemProfile = previous_profile;
+        g_telemPeriodMs = previous_period;
+    }
+    return status;
 }
 
 void PrintTelemUsage(void)
 {
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  telem on [period_ms 50..5000]");
+    services::Shell_WriteLine("  telem on <profile> [period_ms 50..5000]");
+    services::Shell_WriteLine(
+        "  profiles: runtime competition motor heading heading_output");
+    services::Shell_WriteLine(
+        "    chassis feedback_state feedback_age line line_position");
+    services::Shell_WriteLine(
+        "    line_output line_quality line_state line_faults road_event");
+    services::Shell_WriteLine(
+        "    road_sequence road_phase turn_phase turn_rate turn_angle");
+    services::Shell_WriteLine(
+        "    turn_timing turn_speed accel gyro attitude imu_temperature");
+    services::Shell_WriteLine(
+        "    imu_state imu_age gray_raw gray_health gray_age fault uart");
     services::Shell_WriteLine("  telem off");
     services::Shell_WriteLine("  telem status");
 }
@@ -8673,18 +9365,33 @@ void TelemCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "on")) {
+        TelemProfile profile = TELEM_PROFILE_FULL;
+        uint32_t period = g_telemPeriodMs;
+        if ((argc < 2) || (argc > 4)) {
+            PrintTelemUsage();
+            return;
+        }
         if (argc == 3) {
-            uint32_t period = 0U;
-            if ((!ParseUint32(argv[2], 5000U, &period)) ||
+            if (!ParseTelemProfile(argv[2], &profile)) {
+                if ((!ParseUint32(argv[2], 5000U, &period)) ||
+                    (period < 50U)) {
+                    PrintTelemUsage();
+                    return;
+                }
+            }
+        } else if (argc == 4) {
+            if ((!ParseTelemProfile(argv[2], &profile)) ||
+                (!ParseUint32(argv[3], 5000U, &period)) ||
                 (period < 50U)) {
                 PrintTelemUsage();
                 return;
             }
-            g_telemPeriodMs = period;
         }
-        const drivers::DriverStatus status = TelemSetEnabled(true);
+        const drivers::DriverStatus status = TelemStart(profile, period);
         services::Shell_WriteString("telem: ");
         services::Shell_WriteString(DriverStatusText(status));
+        services::Shell_WriteString(" profile=");
+        services::Shell_WriteString(TelemProfileText(g_telemProfile));
         services::Shell_WriteString(" period_ms=");
         services::Shell_WriteUInt32(g_telemPeriodMs);
         services::Shell_WriteString("\r\n");
@@ -8708,6 +9415,8 @@ void TelemCommand(int argc, const char * const argv[])
         }
         services::Shell_WriteString("telem enabled=");
         services::Shell_WriteUInt32(g_telemEnabled ? 1U : 0U);
+        services::Shell_WriteString(" profile=");
+        services::Shell_WriteString(TelemProfileText(g_telemProfile));
         services::Shell_WriteString(" period_ms=");
         services::Shell_WriteUInt32(g_telemPeriodMs);
         services::Shell_WriteString("\r\n");
@@ -8715,6 +9424,16 @@ void TelemCommand(int argc, const char * const argv[])
     }
 
     PrintTelemUsage();
+}
+
+void EstopCommand(int argc, const char * const argv[])
+{
+    (void) argv;
+    if (argc != 1) {
+        services::Shell_WriteLine("usage: estop");
+        return;
+    }
+    WriteStatusLine("estop: ", app::App_EmergencyStop());
 }
 
 void AppShell_RegisterCommands(void)
@@ -8849,6 +9568,10 @@ void AppShell_RegisterCommands(void)
         "comp",
         "Competition: arm|select <n>|start [n]|stop|status",
         CompCommand);
+    (void) services::Shell_RegisterCommand(
+        "estop",
+        "Software-wide motion stop",
+        EstopCommand);
     (void) services::Shell_RegisterCommand(
         "telem",
         "Telemetry (FireWater/VOFA+): on [period_ms]|off|status",

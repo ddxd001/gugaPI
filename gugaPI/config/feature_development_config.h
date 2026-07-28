@@ -24,7 +24,7 @@
 #define FEATURE_ENABLE_CAN                 (1U)
 #define FEATURE_ENABLE_JYME02_CAN          (1U)
 #define FEATURE_ENABLE_MOTOR_DRIVER        (1U)
-#define FEATURE_ENABLE_OLED                (0U)
+#define FEATURE_ENABLE_OLED                (1U)
 #define FEATURE_ENABLE_IMU                 (1U)
 #define FEATURE_ENABLE_MOTOR               (0U)
 #define FEATURE_ENABLE_ENCODER             (0U)

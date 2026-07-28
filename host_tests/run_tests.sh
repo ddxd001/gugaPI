@@ -8,8 +8,17 @@ trap 'rm -rf "${build_dir}"' EXIT
 cd "${repo_root}"
 
 cxx="${CXX:-g++}"
-node_bin="${NODE:-node}"
-common_flags=(-std=c++17 -Wall -Wextra -Werror -IgugaPI)
+if [[ -n "${NODE:-}" ]]; then
+    node_bin="${NODE}"
+elif command -v node >/dev/null 2>&1; then
+    node_bin="node"
+elif command -v node.exe >/dev/null 2>&1; then
+    node_bin="node.exe"
+else
+    echo "node/node.exe is required for JavaScript host tests" >&2
+    exit 1
+fi
+common_flags=(-std=c++17 -Wall -Wextra -Werror -Ihost_tests/stubs -IgugaPI)
 
 build_and_run() {
     local name="$1"
@@ -40,8 +49,24 @@ build_and_run linefollow_road_handoff \
 build_and_run road_event_controller \
     host_tests/road_event_controller_test.cpp \
     gugaPI/app/road_event_controller.cpp
+build_and_run action_runner \
+    host_tests/action_runner_test.cpp \
+    gugaPI/app/action.cpp \
+    gugaPI/app/seq_store.cpp
+build_and_run oled_framebuffer \
+    host_tests/oled_framebuffer_test.cpp \
+    gugaPI/drivers/oled/oled_ssd1306.cpp
 
 echo "[host-test] shell_command_catalog"
 "${node_bin}" host_tests/shell_command_catalog_test.js
+
+echo "[host-test] parameter_catalog"
+"${node_bin}" host_tests/parameter_catalog_test.js
+
+echo "[host-test] sequence_core"
+"${node_bin}" host_tests/sequence_core_test.js
+
+echo "[host-test] dashboard_core"
+"${node_bin}" host_tests/dashboard_core_test.js
 
 echo "[host-test] all tests passed"
