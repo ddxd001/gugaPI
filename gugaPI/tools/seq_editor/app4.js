@@ -7,7 +7,7 @@ var TERM_MAX_CHARS=200000;
 var TERM_COMMANDS=[
   'help','version','reset','sched','txstat','led','buzzer','button','fram',
   'param','oled','imu','gray','lora','motor','chassis','heading','run','lf',
-  'road','comp','telem','seq','i2c','can'
+  'road','comp','telem','seq','i2c','can','jyme02'
 ];
 
 function terminalAppend(data,type){
