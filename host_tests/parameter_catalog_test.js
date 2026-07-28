@@ -1,0 +1,66 @@
+'use strict';
+
+const assert=require('assert');
+const fs=require('fs');
+const path=require('path');
+const vm=require('vm');
+
+const root=path.resolve(__dirname,'..');
+const storeSource=fs.readFileSync(
+  path.join(root,'gugaPI/app/config_store.cpp'),'utf8');
+const parameterSource=fs.readFileSync(
+  path.join(root,'gugaPI/tools/seq_editor/app5.js'),'utf8');
+
+const metadataSource=parameterSource.slice(0,parameterSource.indexOf('var paramPageState='));
+const context={};
+vm.createContext(context);
+vm.runInContext(metadataSource,context,{filename:'app5.js metadata'});
+
+const descriptorNames=[...storeSource.matchAll(
+  /\{\s*"([a-zA-Z0-9_]+)"\s*,\s*PARAM_(?:U8|U16|U32|I32)\s*,/g
+)].map(match=>match[1]);
+
+assert.strictEqual(descriptorNames.length,97,
+  'firmware parameter count changed; audit the host metadata');
+assert.strictEqual(new Set(descriptorNames).size,descriptorNames.length,
+  'firmware parameter descriptors contain duplicates');
+assert.strictEqual(new Set(context.PARAM_ORDER).size,context.PARAM_ORDER.length,
+  'host parameter metadata contains duplicates');
+assert.deepStrictEqual(
+  [...context.PARAM_ORDER].sort(),
+  [...descriptorNames].sort(),
+  'host parameter names must match ConfigStore descriptors');
+
+const v15Parameters={
+  road_align_distance_mm:{defaultValue:0,min:0,max:300},
+  road_align_rpm:{defaultValue:30,min:1,max:300},
+  road_turn_outer_max_rpm:{defaultValue:220,min:1,max:1000},
+  road_turn_inner_reverse_max_rpm:{defaultValue:120,min:0,max:1000}
+};
+for(const [name,expected] of Object.entries(v15Parameters)){
+  assert(context.PARAM_META[name],name+' is missing from the host parameter tree');
+  for(const [field,value] of Object.entries(expected)){
+    assert.strictEqual(context.PARAM_META[name][field],value,
+      name+' '+field+' must match firmware v15');
+  }
+}
+
+const grayWhite=[3253,3217,3189,3316,3151,3011,2802,3188];
+const grayBlack=[1010,934,737,2010,1548,1347,753,1362];
+for(let index=0;index<8;index++){
+  assert.strictEqual(context.PARAM_META['gray_white_'+index].defaultValue,
+    grayWhite[index],'gray white defaults must match the commissioned car');
+  assert.strictEqual(context.PARAM_META['gray_black_'+index].defaultValue,
+    grayBlack[index],'gray black defaults must match the commissioned car');
+}
+assert.strictEqual(context.PARAM_META.gray_track_mask.defaultValue,0x7E,
+  'host default grayscale tracking mask must match firmware migration');
+
+assert(/static const uint16_t kVersion = 15U;/.test(storeSource),
+  'firmware ConfigStore version changed');
+assert(/static const uint16_t kPayloadLength = 223U;/.test(storeSource),
+  'firmware ConfigStore payload length changed');
+assert(/len=223/.test(parameterSource),
+  'host simulator must report the v15 payload length');
+
+console.log('parameter catalog ok: 97 parameters, ConfigStore v15 payload 223');

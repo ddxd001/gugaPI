@@ -48,6 +48,9 @@ build_and_run action_runner \
 echo "[host-test] shell_command_catalog"
 "${node_bin}" host_tests/shell_command_catalog_test.js
 
+echo "[host-test] parameter_catalog"
+"${node_bin}" host_tests/parameter_catalog_test.js
+
 echo "[host-test] sequence_core"
 "${node_bin}" host_tests/sequence_core_test.js
 

@@ -103,17 +103,19 @@ addParamMeta('ina_comm_fail_samples','INA219 通信失败次数','power',3,1,100
 addParamMeta('ina_latch_faults','锁存电源故障','power',0,0,1,'bool','开启后电源故障保持锁存，需要复位处理。',false,'bool');
 addParamMeta('ina_motion_inhibit','电源异常禁止运动','power',0,0,1,'bool','开启后欠压、过流或通信异常会禁止运动。',false,'bool');
 
+var DEFAULT_GRAY_WHITE=[3253,3217,3189,3316,3151,3011,2802,3188];
+var DEFAULT_GRAY_BLACK=[1010,934,737,2010,1548,1347,753,1362];
 for(var grayIndex=0;grayIndex<8;grayIndex++){
-  addParamMeta('gray_white_'+grayIndex,'灰度 '+grayIndex+' 白色标定','gray_cal',4095,0,4095,'ADC','第 '+grayIndex+' 路白色表面的原始采样值；不得等于黑色标定值。',true);
+  addParamMeta('gray_white_'+grayIndex,'灰度 '+grayIndex+' 白色标定','gray_cal',DEFAULT_GRAY_WHITE[grayIndex],0,4095,'ADC','第 '+grayIndex+' 路白色表面的原始采样值；不得等于黑色标定值。',true);
 }
 for(var blackIndex=0;blackIndex<8;blackIndex++){
-  addParamMeta('gray_black_'+blackIndex,'灰度 '+blackIndex+' 黑色标定','gray_cal',0,0,4095,'ADC','第 '+blackIndex+' 路黑色表面的原始采样值；不得等于白色标定值。',true);
+  addParamMeta('gray_black_'+blackIndex,'灰度 '+blackIndex+' 黑色标定','gray_cal',DEFAULT_GRAY_BLACK[blackIndex],0,4095,'ADC','第 '+blackIndex+' 路黑色表面的原始采样值；不得等于白色标定值。',true);
 }
 addParamMeta('gray_threshold','灰度判定阈值','gray_proc',500,1,999,'permille','归一化灰度的中心阈值。',true);
 addParamMeta('gray_hysteresis','灰度判定回差','gray_proc',300,0,998,'permille','阈值回差，用于抑制边界抖动。',true);
 addParamMeta('gray_position_floor','位置计算强度下限','gray_proc',100,0,999,'permille','参与线位置计算的通道最低强度。',true);
 addParamMeta('gray_min_strength','最小赛道强度','gray_proc',600,1,8000,'sum','低于该强度时认为赛道信号不足。',true);
-addParamMeta('gray_track_mask','循迹通道掩码','gray_proc',60,1,255,'bitmask','8 路灰度中参与循迹计算的通道位掩码。',true,'number','mask');
+addParamMeta('gray_track_mask','循迹通道掩码','gray_proc',126,1,255,'bitmask','8 路灰度中参与循迹计算的通道位掩码。',true,'number','mask');
 
 addParamMeta('lf_kp','循迹 Kp','linefollow',10000,0,1000000,'scaled','线位置误差的比例修正增益。',true);
 addParamMeta('lf_kd','循迹 Kd','linefollow',0,0,1000000,'scaled','线位置误差变化率的微分修正增益。',true);
