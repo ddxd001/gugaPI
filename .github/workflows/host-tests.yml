@@ -31,5 +31,5 @@ jobs:
       - name: Run host regressions
         run: bash host_tests/run_tests.sh
 
-      - name: Check whitespace errors
-        run: git diff-tree --check --no-commit-id --root -r HEAD
+      - name: Check latest commit for whitespace errors
+        run: git diff-tree --check --no-commit-id -r HEAD
