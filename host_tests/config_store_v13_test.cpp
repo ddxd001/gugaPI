@@ -84,34 +84,70 @@ int main(void)
     using namespace app;
 
     ConfigStore_ResetDefaults();
+    assert(ConfigStore_Get()->road_align_distance_mm == 0U);
+    assert(ConfigStore_Get()->road_align_rpm == 30U);
+    assert(ConfigStore_Get()->road_turn_outer_max_rpm == 220U);
+    assert(ConfigStore_Get()->road_turn_inner_reverse_max_rpm == 120U);
     assert(ConfigStore_Set("heading_kp", 4321) == drivers::DRIVER_OK);
+    assert(ConfigStore_Set("road_align_distance_mm", 20) ==
+           drivers::DRIVER_OK);
+    assert(ConfigStore_Set("road_align_rpm", 45) ==
+           drivers::DRIVER_OK);
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 13U);
-    assert(ReadU16(&g_fram[6]) == 215U);
+    assert(ReadU16(&g_fram[4]) == 15U);
+    assert(ReadU16(&g_fram[6]) == 223U);
 
-    /* Convert the freshly encoded prefix into a valid historical v12 image. */
+    /* A v14 image retains alignment settings and receives new asymmetric
+     * turn defaults without changing any prior field offset. */
     static const uint16_t kHeaderLength = 8U;
-    static const uint16_t kV12PayloadLength = 191U;
-    WriteU16(&g_fram[4], 12U);
-    WriteU16(&g_fram[6], kV12PayloadLength);
-    WriteU32(&g_fram[kHeaderLength + kV12PayloadLength],
-             Crc32(g_fram, kHeaderLength + kV12PayloadLength));
+    static const uint16_t kV14PayloadLength = 219U;
+    static const uint16_t kV13PayloadLength = 215U;
+    WriteU16(&g_fram[4], 14U);
+    WriteU16(&g_fram[6], kV14PayloadLength);
+    WriteU32(&g_fram[kHeaderLength + kV14PayloadLength],
+             Crc32(g_fram, kHeaderLength + kV14PayloadLength));
 
     ConfigStore_ResetDefaults();
     assert(ConfigStore_Load() == drivers::DRIVER_OK);
     const ConfigStoreParams *params = ConfigStore_Get();
+    assert(params->heading_kp == 4321);
+    assert(params->road_align_distance_mm == 20U);
+    assert(params->road_align_rpm == 45U);
+    assert(params->road_turn_outer_max_rpm == 220U);
+    assert(params->road_turn_inner_reverse_max_rpm == 120U);
+    assert(ConfigStore_GetStatus()->dirty);
+    assert(ConfigStore_GetStatus()->stored_length == kV14PayloadLength);
+
+    assert(ConfigStore_Save() == drivers::DRIVER_OK);
+    assert(ReadU16(&g_fram[4]) == 15U);
+    assert(ReadU16(&g_fram[6]) == 223U);
+    assert(!ConfigStore_GetStatus()->dirty);
+
+    /* Convert the freshly encoded prefix into a valid historical v13 image. */
+    WriteU16(&g_fram[4], 13U);
+    WriteU16(&g_fram[6], kV13PayloadLength);
+    WriteU32(&g_fram[kHeaderLength + kV13PayloadLength],
+             Crc32(g_fram, kHeaderLength + kV13PayloadLength));
+
+    ConfigStore_ResetDefaults();
+    assert(ConfigStore_Load() == drivers::DRIVER_OK);
+    params = ConfigStore_Get();
     assert(params->heading_kp == 4321);
     assert(params->heading_lock_kp == 1500);
     assert(params->heading_lock_kd == 250);
     assert(params->heading_lock_wake_mdeg == 2000U);
     assert(params->heading_lock_settle_mdeg == 800U);
     assert(params->heading_lock_timeout_ms == 3000U);
+    assert(params->road_align_distance_mm == 0U);
+    assert(params->road_align_rpm == 30U);
+    assert(params->road_turn_outer_max_rpm == 220U);
+    assert(params->road_turn_inner_reverse_max_rpm == 120U);
     assert(ConfigStore_GetStatus()->dirty);
-    assert(ConfigStore_GetStatus()->stored_length == kV12PayloadLength);
+    assert(ConfigStore_GetStatus()->stored_length == kV13PayloadLength);
 
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 13U);
-    assert(ReadU16(&g_fram[6]) == 215U);
+    assert(ReadU16(&g_fram[4]) == 15U);
+    assert(ReadU16(&g_fram[6]) == 223U);
     assert(!ConfigStore_GetStatus()->dirty);
 
     assert(ConfigStore_Set("heading_lock_settle_mdeg", 2500) ==
@@ -124,9 +160,31 @@ int main(void)
            drivers::DRIVER_ERROR_INVALID_ARG);
     assert(ConfigStore_Set("max_wheel_rpm", 20) ==
            drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("road_align_distance_mm", 301) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("road_align_rpm", 0) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("road_align_rpm", 301) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("road_turn_outer_max_rpm", 0) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("road_turn_outer_max_rpm", 1001) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("road_turn_inner_reverse_max_rpm", -1) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("road_turn_inner_reverse_max_rpm", 1001) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
 
     assert(ConfigStore_Set("heading_lock_kp", 1750) == drivers::DRIVER_OK);
     assert(ConfigStore_Set("heading_lock_kd", 300) == drivers::DRIVER_OK);
+    assert(ConfigStore_Set("road_align_distance_mm", 35) ==
+           drivers::DRIVER_OK);
+    assert(ConfigStore_Set("road_align_rpm", 80) ==
+           drivers::DRIVER_OK);
+    assert(ConfigStore_Set("road_turn_outer_max_rpm", 210) ==
+           drivers::DRIVER_OK);
+    assert(ConfigStore_Set("road_turn_inner_reverse_max_rpm", 140) ==
+           drivers::DRIVER_OK);
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
     ConfigStore_ResetDefaults();
     assert(ConfigStore_Load() == drivers::DRIVER_OK);
@@ -135,8 +193,12 @@ int main(void)
     assert(params->heading_lock_kd == 300);
     assert(params->heading_lock_wake_mdeg == 3000U);
     assert(params->heading_lock_settle_mdeg == 2500U);
+    assert(params->road_align_distance_mm == 35U);
+    assert(params->road_align_rpm == 80U);
+    assert(params->road_turn_outer_max_rpm == 210U);
+    assert(params->road_turn_inner_reverse_max_rpm == 140U);
     assert(!ConfigStore_GetStatus()->dirty);
 
-    puts("config store v13 migration ok");
+    puts("config store v15 migration ok");
     return 0;
 }

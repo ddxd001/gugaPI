@@ -5193,6 +5193,8 @@ const char *HeadingModeText(app::HeadingMode mode)
         return "distance";
     case app::HEADING_LOCK:
         return "lock";
+    case app::HEADING_ARC_TURN:
+        return "arc_turn";
     default:
         return "idle";
     }
@@ -5322,6 +5324,10 @@ void HeadingCommand(int argc, const char * const argv[])
         WriteInt32(st->correction_rpm);
         services::Shell_WriteString("rpm at_target=");
         services::Shell_WriteUInt32(st->at_target ? 1U : 0U);
+        services::Shell_WriteString(" arc_lr=");
+        WriteInt32(st->arc_left_command_rpm);
+        services::Shell_WriteString("/");
+        WriteInt32(st->arc_right_command_rpm);
         services::Shell_WriteString(" last=");
         services::Shell_WriteString(DriverStatusText(st->last_status));
         services::Shell_WriteString(" profile=");
@@ -6137,6 +6143,8 @@ void PrintRoadUsage(void)
     services::Shell_WriteLine("  road status|event|clear");
     services::Shell_WriteLine("  road mode detect|corner");
     services::Shell_WriteLine("  road auto on|off");
+    services::Shell_WriteLine("  road align show");
+    services::Shell_WriteLine("  road align set <distance_mm 0..300> <rpm 1..300>");
     services::Shell_WriteLine("  road turn show");
     services::Shell_WriteLine(
         "  road turn set <left_deg> <right_deg> <align_mm> <rpm> <reacquire_ms>");
@@ -6192,6 +6200,14 @@ void RoadCommand(int argc, const char * const argv[])
         WriteHex8(data->road_observed_paths);
         services::Shell_WriteString(" handled=");
         services::Shell_WriteUInt32(state->handled_event_sequence);
+        services::Shell_WriteString(" align_mm=");
+        WriteInt32(state->config.align_distance_mm);
+        services::Shell_WriteString(" align_rpm=");
+        services::Shell_WriteUInt32(state->config.align_rpm);
+        services::Shell_WriteString(" active_rpm=");
+        WriteInt32(state->road_base_rpm);
+        services::Shell_WriteString(" reacq_frames=");
+        services::Shell_WriteUInt32(state->reacquire_valid_frames);
         services::Shell_WriteString(" policy=");
         services::Shell_WriteString(
             app::RoadEventController_PolicyText(state->last_policy));
@@ -6253,6 +6269,33 @@ void RoadCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" reacquire_ms=");
         services::Shell_WriteUInt32(config.reacquire_timeout_ms);
         services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if ((argc == 3) && StrEqual(argv[1], "align") &&
+        StrEqual(argv[2], "show")) {
+        const app::RoadControlConfig &config =
+            app::RoadEventController_GetState()->config;
+        services::Shell_WriteString("road align distance_mm=");
+        WriteInt32(config.align_distance_mm);
+        services::Shell_WriteString(" rpm=");
+        services::Shell_WriteUInt32(config.align_rpm);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if ((argc == 5) && StrEqual(argv[1], "align") &&
+        StrEqual(argv[2], "set")) {
+        int32_t distance_mm = 0;
+        uint32_t rpm = 0U;
+        if ((!ParseInt32(argv[3], 0, 300, &distance_mm)) ||
+            (!ParseUint32(argv[4], 300U, &rpm)) || (rpm == 0U)) {
+            PrintRoadUsage();
+            return;
+        }
+        WriteStatusLine(
+            "road align: ",
+            app::RoadEventController_SetAlignConfig(distance_mm, rpm));
         return;
     }
 

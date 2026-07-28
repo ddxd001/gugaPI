@@ -3,6 +3,7 @@
 #include "app/app_grayscale.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
+#include "app/linefollow_road_handoff.h"
 #include "drivers/common/driver_status.h"
 #include "services/fault.h"
 #include "services/time.h"
@@ -304,6 +305,16 @@ drivers::DriverStatus LF_Stop(void)
     return status;
 }
 
+drivers::DriverStatus LF_ReleaseForMotionHandoff(void)
+{
+    if (g_state.mode != LF_FOLLOW) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    g_state.mode = LF_IDLE;
+    g_state.last_status = drivers::DRIVER_OK;
+    return drivers::DRIVER_OK;
+}
+
 void LF_Update(void)
 {
     if (g_state.mode == LF_IDLE) {
@@ -351,11 +362,13 @@ void LF_Update(void)
     if ((!data->line_detected) || (!data->position_valid) ||
         (data->track_state != drivers::GRAYSCALE_TRACK_VALID)) {
         /* A branch/crossing can temporarily make the analogue geometry wide
-         * or multiple even though a forward path is confirmed. Traverse that
-         * bounded classifier window straight. Corners and T junctions never
-         * enter this path because their current road type has no forward
-         * continuation. */
-        if (IsForwardJunctionPassThrough(data)) {
+         * while a forward path exists. A corner can also lose its center one
+         * classifier frame before the confirmed event is published. Keep
+         * moving straight only during those bounded classifier windows so
+         * RoadEventController_Update() can pre-empt LF before LF_Stop(). */
+        if (IsForwardJunctionPassThrough(data) ||
+            linefollow_road_handoff::ShouldHoldForPendingRoadEvent(
+                data->road_phase)) {
             g_state.lost = false;
             g_state.lost_since_ms = 0U;
             g_state.error_mpos = 0;

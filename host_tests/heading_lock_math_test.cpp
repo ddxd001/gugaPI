@@ -10,16 +10,23 @@ int main(void)
     using app::heading_lock::DurationReached;
     using app::heading_lock::ReadyToSettle;
     using app::heading_lock::ShortestAngleDiff;
+    using app::heading_lock::ShouldStopForSettle;
     using app::heading_lock::ShouldWake;
 
     assert(ShortestAngleDiff(-179000, 179000) == 2000);
     assert(ShortestAngleDiff(179000, -179000) == -2000);
     assert(ShortestAngleDiff(180000, 0) == 180000);
     assert(ShortestAngleDiff(-180000, 0) == -180000);
+    assert(ShortestAngleDiff(-22000, 69000) == -91000);
+    assert(ShortestAngleDiff(-170000, 170000) == 20000);
 
     assert(!ShouldWake(1999, 2000));
     assert(ShouldWake(2000, 2000));
     assert(ShouldWake(-2000, 2000));
+
+    assert(ShouldStopForSettle(800, 800));
+    assert(ShouldStopForSettle(-800, 800));
+    assert(!ShouldStopForSettle(801, 800));
 
     assert(ReadyToSettle(800, 1500, 800, 1500));
     assert(!ReadyToSettle(801, 0, 800, 1500));

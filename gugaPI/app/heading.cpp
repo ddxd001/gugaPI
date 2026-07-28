@@ -3,6 +3,7 @@
 #include "app/app_imu.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
+#include "app/heading_arc_math.h"
 #include "app/heading_lock_math.h"
 #include "drivers/common/driver_status.h"
 #include "services/fault.h"
@@ -24,11 +25,11 @@ static const int32_t kTurnTimeoutMs = 8000;
  * completion gates are ConfigStore parameters so they can be tuned on-car. */
 static const int32_t kScale = 1000000;        /* correction_rpm = error_mdeg * kp / kScale */
 static const int32_t kDistanceMaxMm = 10000;
-static const uint32_t kDistanceSettleMs = 100U;
-static const uint8_t kDistanceSettleCycles = 3U;
 static const uint32_t kFeedbackStaleMs = 100U;
 static const uint32_t kDistanceMinTimeoutMs = 500U;
 static const uint32_t kDistanceMaxTimeoutMs = 60000U;
+static const uint32_t kDistanceSettleMs = 100U;
+static const uint8_t kDistanceSettleCycles = 3U;
 /* 355/113 keeps sub-millimeter fixed-point math inside int64_t. */
 static const int64_t kPiNumerator = 355LL;
 static const int64_t kPiDenominator = 113LL;
@@ -328,6 +329,7 @@ void ResetDistanceState(void)
     g_state.brake_distance_mm = 0;
     g_state.distance_phase = DISTANCE_PHASE_IDLE;
     g_state.distance_settle_cycles = 0U;
+    g_state.distance_rolling_handoff = false;
     g_state.distance_start_ms = 0U;
     g_state.distance_timeout_ms = 0U;
     g_state.profile_last_update_ms = 0U;
@@ -365,6 +367,9 @@ int32_t GainToRpm(int32_t error_mdeg, int32_t kp)
 void SafetyStop(services::FaultCode code)
 {
     g_state.mode = HEADING_IDLE;
+    g_state.arc_left_command_rpm = 0;
+    g_state.arc_right_command_rpm = 0;
+    g_state.distance_rolling_handoff = false;
     g_state.turn_phase = HEADING_TURN_PHASE_IDLE;
     g_state.turn_rate_mdps = 0;
     g_state.turn_brake_angle_mdeg = 0;
@@ -424,6 +429,8 @@ drivers::DriverStatus Heading_HoldStart(int32_t base_rpm)
     g_state.target_yaw_mdeg = imu->yaw_mdeg;   /* lock current heading */
     g_state.base_rpm = base_rpm;
     g_state.correction_rpm = 0;
+    g_state.arc_left_command_rpm = 0;
+    g_state.arc_right_command_rpm = 0;
     g_state.error_mdeg = 0;
     g_state.at_target = false;
     g_state.at_target_since_ms = 0U;
@@ -477,6 +484,8 @@ drivers::DriverStatus Heading_LockStart(void)
     g_state.target_yaw_mdeg = imu->yaw_mdeg;
     g_state.base_rpm = 0;
     g_state.correction_rpm = 0;
+    g_state.arc_left_command_rpm = 0;
+    g_state.arc_right_command_rpm = 0;
     g_state.error_mdeg = 0;
     g_state.at_target = true;
     g_state.at_target_since_ms = now;
@@ -524,6 +533,8 @@ drivers::DriverStatus Heading_TurnStart(int32_t delta_deg)
     g_state.target_yaw_mdeg = WrapToSigned180(imu->yaw_mdeg + adjusted_delta);
     g_state.base_rpm = 0;
     g_state.correction_rpm = 0;
+    g_state.arc_left_command_rpm = 0;
+    g_state.arc_right_command_rpm = 0;
     g_state.error_mdeg = delta_mdeg;
     g_state.at_target = false;
     g_state.at_target_since_ms = 0U;
@@ -534,6 +545,65 @@ drivers::DriverStatus Heading_TurnStart(int32_t delta_deg)
     ResetDistanceState();
     g_state.turn_start_ms = services::Time_Millis();
     g_state.last_run_ms = g_state.turn_start_ms;
+    g_state.last_status = drivers::DRIVER_OK;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus Heading_ArcTurnStart(int32_t delta_deg,
+                                           int32_t base_rpm)
+{
+    const uint32_t now = services::Time_Millis();
+    if ((delta_deg < -180) || (delta_deg > 180) || (delta_deg == 0) ||
+        (base_rpm == 0)) {
+        g_state.last_status = drivers::DRIVER_ERROR_INVALID_ARG;
+        return g_state.last_status;
+    }
+    if (g_state.mode != HEADING_IDLE) {
+        g_state.last_status = drivers::DRIVER_ERROR_BUSY;
+        return g_state.last_status;
+    }
+    if (services::Fault_HasFault()) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return g_state.last_status;
+    }
+
+    const AppImuData *imu = App_ImuGetData();
+    const ChassisState *chassis = Chassis_GetState();
+    if ((!IsImuFresh(imu, now)) || (!IsFeedbackFresh(chassis, now))) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return g_state.last_status;
+    }
+    if (AbsInt32(base_rpm) >=
+        static_cast<int32_t>(chassis->config.max_wheel_rpm)) {
+        g_state.last_status = drivers::DRIVER_ERROR_INVALID_ARG;
+        return g_state.last_status;
+    }
+
+    const int32_t delta_mdeg = delta_deg * 1000;
+    int32_t adjusted_delta = delta_mdeg;
+    if (delta_mdeg == -180000) {
+        adjusted_delta = -179999;
+    } else if (delta_mdeg == 180000) {
+        adjusted_delta = 179999;
+    }
+
+    g_state.mode = HEADING_ARC_TURN;
+    g_state.target_yaw_mdeg = WrapToSigned180(
+        imu->yaw_mdeg + adjusted_delta);
+    g_state.base_rpm = base_rpm;
+    g_state.correction_rpm = 0;
+    g_state.arc_left_command_rpm = 0;
+    g_state.arc_right_command_rpm = 0;
+    g_state.error_mdeg = delta_mdeg;
+    g_state.at_target = false;
+    g_state.at_target_since_ms = 0U;
+    g_state.turn_phase = HEADING_TURN_PHASE_DRIVE;
+    g_state.turn_rate_mdps = imu->gyro_mdps[2];
+    g_state.turn_brake_angle_mdeg = 0;
+    ResetLockState();
+    ResetDistanceState();
+    g_state.turn_start_ms = now;
+    g_state.last_run_ms = now;
     g_state.last_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 }
@@ -583,6 +653,8 @@ drivers::DriverStatus Heading_DistanceStart(int32_t distance_mm,
     g_state.target_yaw_mdeg = imu->yaw_mdeg;
     g_state.base_rpm = 0;
     g_state.correction_rpm = 0;
+    g_state.arc_left_command_rpm = 0;
+    g_state.arc_right_command_rpm = 0;
     g_state.error_mdeg = 0;
     g_state.at_target = false;
     g_state.at_target_since_ms = 0U;
@@ -603,6 +675,7 @@ drivers::DriverStatus Heading_DistanceStart(int32_t distance_mm,
     g_state.brake_distance_mm = 0;
     g_state.distance_phase = DISTANCE_PHASE_ACCEL;
     g_state.distance_settle_cycles = 0U;
+    g_state.distance_rolling_handoff = false;
     g_state.distance_start_ms = now;
     g_state.distance_timeout_ms = (timeout_ms == 0U)
         ? CalculateDistanceTimeoutMs(distance_mm,
@@ -618,9 +691,83 @@ drivers::DriverStatus Heading_DistanceStart(int32_t distance_mm,
     return drivers::DRIVER_OK;
 }
 
+drivers::DriverStatus Heading_DistanceStartWithInitialRpm(
+    int32_t distance_mm,
+    int32_t max_rpm,
+    uint32_t timeout_ms,
+    int32_t initial_rpm)
+{
+    if ((initial_rpm < 0) || (initial_rpm > max_rpm)) {
+        g_state.last_status = drivers::DRIVER_ERROR_INVALID_ARG;
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+
+    const drivers::DriverStatus status = Heading_DistanceStart(
+        distance_mm,
+        max_rpm,
+        timeout_ms);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+
+    const int32_t direction = (distance_mm > 0) ? 1 : -1;
+    g_state.profile_command_rpm = initial_rpm;
+    g_state.base_rpm = initial_rpm * direction;
+    g_state.distance_phase = (initial_rpm >= max_rpm)
+        ? DISTANCE_PHASE_CRUISE
+        : DISTANCE_PHASE_ACCEL;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus Heading_DistanceStartForRollingHandoff(
+    int32_t distance_mm,
+    int32_t max_rpm,
+    uint32_t timeout_ms,
+    int32_t initial_rpm)
+{
+    if (initial_rpm <= 0) {
+        g_state.last_status = drivers::DRIVER_ERROR_INVALID_ARG;
+        return g_state.last_status;
+    }
+    const drivers::DriverStatus status =
+        Heading_DistanceStartWithInitialRpm(distance_mm,
+                                            max_rpm,
+                                            timeout_ms,
+                                            initial_rpm);
+    if (status == drivers::DRIVER_OK) {
+        g_state.distance_rolling_handoff = true;
+        g_state.distance_phase = DISTANCE_PHASE_CRUISE;
+    }
+    return status;
+}
+
+drivers::DriverStatus Heading_ReleaseForMotionHandoff(void)
+{
+    if (g_state.mode != HEADING_ARC_TURN) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return g_state.last_status;
+    }
+    if (!g_state.at_target) {
+        g_state.last_status = drivers::DRIVER_ERROR_BUSY;
+        return g_state.last_status;
+    }
+
+    g_state.mode = HEADING_IDLE;
+    g_state.arc_left_command_rpm = 0;
+    g_state.arc_right_command_rpm = 0;
+    g_state.turn_phase = HEADING_TURN_PHASE_IDLE;
+    g_state.turn_rate_mdps = 0;
+    g_state.turn_brake_angle_mdeg = 0;
+    g_state.last_status = drivers::DRIVER_OK;
+    return drivers::DRIVER_OK;
+}
+
 drivers::DriverStatus Heading_Stop(void)
 {
     g_state.mode = HEADING_IDLE;
+    g_state.arc_left_command_rpm = 0;
+    g_state.arc_right_command_rpm = 0;
+    g_state.distance_rolling_handoff = false;
     g_state.turn_phase = HEADING_TURN_PHASE_IDLE;
     g_state.turn_rate_mdps = 0;
     g_state.turn_brake_angle_mdeg = 0;
@@ -702,11 +849,11 @@ void Heading_Update(void)
             SafetyStop(services::FAULT_SENSOR_LOST);
             return;
         }
-        if (AbsInt32(error) > kMaxErrorMdeg) {
-            g_state.last_status = drivers::DRIVER_ERROR;
-            SafetyStop(services::FAULT_SENSOR_LOST);
-            return;
-        }
+        /* A large angle is a legitimate external disturbance in stationary
+         * lock mode. ShortestAngleDiff already bounds it to +/-180 degrees;
+         * recover at the configured maximum RPM and let the local timeout
+         * stop a blocked chassis. HEADING_HOLD and HEADING_DISTANCE retain
+         * their 90-degree sensor-sanity guards. */
 
         const int32_t gyro_rate = imu->gyro_mdps[2];
         g_state.lock_rate_mdps = gyro_rate;
@@ -785,11 +932,8 @@ void Heading_Update(void)
             return;
         }
 
-        if (heading_lock::ReadyToSettle(
-                error,
-                gyro_rate,
-                params->heading_lock_settle_mdeg,
-                params->heading_lock_settle_rate_mdps)) {
+        if (heading_lock::ShouldStopForSettle(
+                error, params->heading_lock_settle_mdeg)) {
             g_state.correction_rpm = 0;
             g_state.last_status = StopTurnWheels();
             if (g_state.last_status != drivers::DRIVER_OK) {
@@ -871,6 +1015,43 @@ void Heading_Update(void)
         g_state.remaining_distance_mm =
             MicrometersToMillimeters(remaining_um);
 
+        if (g_state.distance_rolling_handoff) {
+            const int32_t direction =
+                (g_state.target_distance_mm > 0) ? 1 : -1;
+            if (heading_arc::IsRollingDistanceReached(
+                    remaining_um, direction)) {
+                /* Preserve the last moving wheel target. The road controller
+                 * starts the arc immediately after observing HEADING_IDLE. */
+                g_state.mode = HEADING_IDLE;
+                g_state.at_target = true;
+                g_state.at_target_since_ms = now;
+                g_state.distance_phase = DISTANCE_PHASE_IDLE;
+                g_state.last_status = drivers::DRIVER_OK;
+                return;
+            }
+
+            g_state.distance_phase = DISTANCE_PHASE_CRUISE;
+            g_state.base_rpm = g_state.profile_command_rpm * direction;
+            int32_t correction = GainToRpm(error, params->heading_kp);
+            correction = ClampInt32(
+                correction,
+                -params->heading_max_correction_rpm,
+                params->heading_max_correction_rpm);
+            correction *= kYawSign;
+            g_state.correction_rpm = correction;
+            const int32_t wheel_limit =
+                static_cast<int32_t>(chassis->config.max_wheel_rpm);
+            const int32_t left = ClampInt32(
+                g_state.base_rpm - correction, -wheel_limit, wheel_limit);
+            const int32_t right = ClampInt32(
+                g_state.base_rpm + correction, -wheel_limit, wheel_limit);
+            g_state.last_status = Chassis_SetWheelRpm(left, right);
+            if (g_state.last_status != drivers::DRIVER_OK) {
+                SafetyStop(services::FAULT_DRIVER_TIMEOUT);
+            }
+            return;
+        }
+
         if (g_state.at_target) {
             const bool stopped =
                 (AbsInt32(chassis->left.actual_rpm) <=
@@ -884,7 +1065,8 @@ void Heading_Update(void)
             } else {
                 g_state.distance_settle_cycles = 0U;
             }
-            if (((now - g_state.at_target_since_ms) >= kDistanceSettleMs) &&
+            if (stopped &&
+                ((now - g_state.at_target_since_ms) >= kDistanceSettleMs) &&
                 (g_state.distance_settle_cycles >= kDistanceSettleCycles)) {
                 g_state.mode = HEADING_IDLE;
                 g_state.distance_phase = DISTANCE_PHASE_IDLE;
@@ -1014,6 +1196,90 @@ void Heading_Update(void)
                                          -wheel_limit,
                                          wheel_limit);
         g_state.last_status = Chassis_SetWheelRpm(left, right);
+        if (g_state.last_status != drivers::DRIVER_OK) {
+            SafetyStop(services::FAULT_DRIVER_TIMEOUT);
+        }
+        return;
+    }
+
+    if (g_state.mode == HEADING_ARC_TURN) {
+        const int32_t gyro_rate = imu->gyro_mdps[2];
+        const bool at_target = heading_arc::IsAtTarget(
+            error,
+            gyro_rate,
+            params->heading_tolerance_mdeg,
+            params->heading_turn_settle_rate_mdps);
+        if ((!at_target) &&
+            (static_cast<int32_t>(now - g_state.turn_start_ms) >
+             kTurnTimeoutMs)) {
+            g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;
+            SafetyStop(services::FAULT_DRIVER_TIMEOUT);
+            return;
+        }
+
+        const ChassisState *chassis = Chassis_GetState();
+        if (!IsFeedbackFresh(chassis, now)) {
+            g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;
+            SafetyStop(services::FAULT_SENSOR_LOST);
+            return;
+        }
+
+        const int32_t predicted_error = heading_arc::PredictErrorMdeg(
+            error,
+            gyro_rate,
+            params->heading_turn_brake_ms,
+            params->heading_turn_brake_margin_mdeg);
+        const int32_t wheel_limit =
+            static_cast<int32_t>(chassis->config.max_wheel_rpm);
+        const int32_t wheel_headroom =
+            wheel_limit - AbsInt32(g_state.base_rpm);
+        int32_t correction = heading_arc::ComputeCorrectionRpm(
+            error,
+            predicted_error,
+            params->heading_kp,
+            params->heading_turn_min_rpm,
+            params->heading_turn_max_rpm,
+            wheel_headroom,
+            params->heading_tolerance_mdeg);
+        correction *= kYawSign;
+        const heading_arc::WheelCommand command =
+            heading_arc::MakeAsymmetricWheelCommand(
+                g_state.base_rpm,
+                correction,
+                params->heading_turn_max_rpm,
+                params->road_turn_outer_max_rpm,
+                params->road_turn_inner_reverse_max_rpm,
+                wheel_limit);
+
+        g_state.correction_rpm = correction;
+        g_state.arc_left_command_rpm = command.left_rpm;
+        g_state.arc_right_command_rpm = command.right_rpm;
+        g_state.turn_rate_mdps = gyro_rate;
+        g_state.turn_brake_angle_mdeg = heading_arc::BrakeAngleMdeg(
+            error,
+            gyro_rate,
+            params->heading_turn_brake_ms,
+            params->heading_turn_brake_margin_mdeg);
+        g_state.at_target = at_target;
+        if (at_target) {
+            if (g_state.at_target_since_ms == 0U) {
+                g_state.at_target_since_ms = now;
+            }
+            g_state.turn_phase = HEADING_TURN_PHASE_SETTLE;
+        } else {
+            g_state.at_target_since_ms = 0U;
+            const bool predicted_braking =
+                (AbsInt32(predicted_error) < AbsInt32(error)) ||
+                (((predicted_error < 0) && (error > 0)) ||
+                 ((predicted_error > 0) && (error < 0)));
+            g_state.turn_phase = predicted_braking
+                ? HEADING_TURN_PHASE_BRAKE
+                : HEADING_TURN_PHASE_DRIVE;
+        }
+
+        g_state.last_status = Chassis_SetWheelRpm(
+            command.left_rpm,
+            command.right_rpm);
         if (g_state.last_status != drivers::DRIVER_OK) {
             SafetyStop(services::FAULT_DRIVER_TIMEOUT);
         }

@@ -13,7 +13,8 @@ enum HeadingMode {
     HEADING_HOLD,
     HEADING_TURN,
     HEADING_DISTANCE,
-    HEADING_LOCK
+    HEADING_LOCK,
+    HEADING_ARC_TURN
 };
 
 enum DistanceProfilePhase {
@@ -44,8 +45,10 @@ enum HeadingLockPhase {
 struct HeadingState {
     HeadingMode mode;
     int32_t target_yaw_mdeg;   /* HOLD: locked yaw; TURN: wrapped target */
-    int32_t base_rpm;          /* HOLD forward base; TURN = 0 */
-    int32_t correction_rpm;   /* last differential correction (HOLD) / turn speed (TURN) */
+    int32_t base_rpm;          /* HOLD/DISTANCE/ARC forward base; TURN = 0 */
+    int32_t correction_rpm;   /* last differential correction / turn speed */
+    int32_t arc_left_command_rpm;  /* last asymmetric ARC wheel target */
+    int32_t arc_right_command_rpm;
     int32_t error_mdeg;        /* last shortest-angle error */
     bool at_target;            /* TURN within tolerance */
     uint32_t at_target_since_ms;
@@ -71,6 +74,7 @@ struct HeadingState {
     int32_t brake_distance_mm;
     DistanceProfilePhase distance_phase;
     uint8_t distance_settle_cycles;
+    bool distance_rolling_handoff;
     uint32_t distance_start_ms;
     uint32_t distance_timeout_ms;
     uint32_t profile_last_update_ms;
@@ -94,11 +98,34 @@ drivers::DriverStatus Heading_HoldStart(int32_t base_rpm);
  * external disturbance exceeds the configured deadband. */
 drivers::DriverStatus Heading_LockStart(void);
 drivers::DriverStatus Heading_TurnStart(int32_t delta_deg);
+/* Moving relative turn for automatic road handling. The signed base RPM is
+ * preserved throughout the arc and subsequent target-heading reacquisition;
+ * only a fault, timeout, cancellation or explicit stop commands zero speed. */
+drivers::DriverStatus Heading_ArcTurnStart(int32_t delta_deg,
+                                           int32_t base_rpm);
 /* distance_mm: positive forward, negative reverse. max_rpm must be positive.
  * timeout_ms=0 derives a bounded timeout from distance and speed. */
 drivers::DriverStatus Heading_DistanceStart(int32_t distance_mm,
                                             int32_t max_rpm,
                                             uint32_t timeout_ms);
+/* Distance start for a moving controller handoff. initial_rpm seeds the
+ * speed profile so the first distance update does not restart from zero. */
+drivers::DriverStatus Heading_DistanceStartWithInitialRpm(
+    int32_t distance_mm,
+    int32_t max_rpm,
+    uint32_t timeout_ms,
+    int32_t initial_rpm);
+/* Road-corner variant: hold the supplied moving speed and initial yaw without
+ * endpoint braking. Reaching the encoder target releases Heading while the
+ * last wheel target remains active for the following arc controller. */
+drivers::DriverStatus Heading_DistanceStartForRollingHandoff(
+    int32_t distance_mm,
+    int32_t max_rpm,
+    uint32_t timeout_ms,
+    int32_t initial_rpm);
+/* Release a completed arc to another moving controller without sending a
+ * chassis stop command. Valid only after HEADING_ARC_TURN reaches target. */
+drivers::DriverStatus Heading_ReleaseForMotionHandoff(void);
 drivers::DriverStatus Heading_Stop(void);
 void Heading_Update(void);
 const HeadingState *Heading_GetState(void);

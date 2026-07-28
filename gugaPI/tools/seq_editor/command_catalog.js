@@ -287,7 +287,9 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('road status|event|clear','查看状态、读取最近事件或清除事件。','W'),
       ShellForm('road mode detect|corner','切换普通检测或弯道恢复模式。','W'),
       ShellForm('road auto on|off','自动弯道模式开关的兼容入口。','W'),
-      ShellForm('road turn show','查看左右转角和重新捕线参数。'),
+      ShellForm('road align show','查看持久化的路口对齐距离和连续处理速度上限。'),
+      ShellForm('road align set <distance_mm 0..300> <rpm 1..300>','设置实际转弯位置及对齐/圆弧/未确认线路时的捕线速度；转弯末段提前确认新线路，param save后写入FRAM。','W'),
+      ShellForm('road turn show','查看左右转角、距离对齐和重新捕线参数。'),
       ShellForm('road turn set <left_deg> <right_deg> <align_mm> <rpm> <reacquire_ms>','设置路口闭环转弯参数。','W')
     ]),
 
