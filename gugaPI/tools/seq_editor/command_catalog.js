@@ -264,8 +264,12 @@ var SHELL_COMMAND_LIBRARY=[
 
   ShellCommand('run','RAM动作序列','流程',
     '在 RAM 中构建、检查和执行最多 64 步的动作状态机。','M',BOTH,[
-      ShellForm('run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>','追加动作；支持运动、等待、分支、结束及 LED/蜂鸣器共 14 种操作码。','W'),
-      ShellForm('run clear|validate|start|cancel|status|dump','清空、校验、启动、取消、查看状态或导出 RAM 动作序列；validate 返回首个错误字段。','M')
+      ShellForm('run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>','追加传统运动、等待、结束及 LED/蜂鸣器动作。','W'),
+      ShellForm('run add condition <source> <cmp> <value> <instant|wait>','后续填写超时、稳定时间和真假跳转，追加通用条件判断。','W'),
+      ShellForm('run add drive_if|follow_if <rpm> <source> <cmp> <value>','后续填写超时、稳定时间和跳转，运动期间持续判断通用条件。','W'),
+      ShellForm('run add loop <count> 0 immediate <body_index> <done_index>','追加计数循环；循环体返回本节点，完成出口连接后续动作。','W'),
+      ShellForm('run add road_nav <route> <rpm> <timeout_ms> <onsuccess> <onfailure>','循迹通过下一个路口；route 支持左/直/右及左右圆弧或原地掉头。','M'),
+      ShellForm('run clear|validate|start|cancel|status|dump','清空、校验、启动、取消、查看状态或导出 RAM 动作序列；另支持 validate competition。','M')
     ],'start可能产生运动；建议先run dump核对每一步和跳转目标。'),
 
   ShellCommand('lf','灰度循迹控制','运动',

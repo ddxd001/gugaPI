@@ -762,6 +762,20 @@ drivers::DriverStatus Heading_ReleaseForMotionHandoff(void)
     return drivers::DRIVER_OK;
 }
 
+drivers::DriverStatus Heading_HoldReleaseForMotionHandoff(void)
+{
+    if (g_state.mode != HEADING_HOLD) {
+        g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return g_state.last_status;
+    }
+
+    g_state.mode = HEADING_IDLE;
+    g_state.base_rpm = 0;
+    g_state.correction_rpm = 0;
+    g_state.last_status = drivers::DRIVER_OK;
+    return drivers::DRIVER_OK;
+}
+
 drivers::DriverStatus Heading_Stop(void)
 {
     g_state.mode = HEADING_IDLE;

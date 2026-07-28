@@ -246,7 +246,7 @@
 
 目标：所有动作都通过周期更新执行，运行过程中 Shell、传感器、看门狗和急停仍可工作。
 
-> 已通过 `heading.cpp`（HOLD/TURN/DISTANCE）、`linefollow.cpp`（FOLLOW）和 `action.cpp`（统一解释器）实现。航向和动作解释器以 50 ms 周期更新，循迹以 20 ms 周期更新，均不阻塞主循环。动作失败/超时/取消均调用 `StopAll()`（Heading_Stop + LF_Stop + Chassis_Stop）。
+> 已通过 `heading.cpp`（HOLD/TURN/DISTANCE/ARC）、`linefollow.cpp`（FOLLOW）、`road_event_controller.cpp`（路口复合控制）和 `action.cpp`（统一解释器）实现。航向和动作解释器以 50 ms 周期更新，循迹与道路控制按各自调度周期运行，均不阻塞主循环。动作失败/超时/取消均调用统一安全停车；只有成功且连续的 `road_nav` 允许保留循迹运动交接。
 
 ### 6.1 统一动作接口
 
@@ -341,8 +341,8 @@ Idle -> Running -> Success
 - 操作码 `ACT_OP`：`DRIVE`（航向保持直行）、`TURN`（相对角度转弯）、`FOLLOW`（循迹）、`WAIT`（等待）、`STOP`（立即停车）、`BRANCH`（条件跳转，不产生运动）、`END`（序列完成）。
 - 完成条件 `ACT_COND`：`TIMEOUT`（param2 ms 后完成）、`HEADING_REACHED`（转弯到位）、`LINE_DETECTED`（灰度检测到线）、`LINE_LOST`（灰度丢线）、`BUTTON`（按键 1 按下）、`IMMEDIATE`（立即为真）。
 - 跳转目标：`ACT_NEXT`（on_success=下一条，on_timeout=中止）或索引 0..63（goto）。
-- 每条指令完成后调用 `StopAll()` 清除运动状态，再启动下一条，避免 drive→wait 继续行驶等问题。
-- 整序列超时 60 s（`kSequenceTimeoutMs`）→ 中止。
+- 普通指令完成后调用 `StopAll()` 清除运动状态，再启动下一条，避免 drive→wait 继续行驶等问题。操作码19 `road_nav` 成功时可把 `LF_FOLLOW` 无停车交给下一个 `road_nav`，经过计数循环节点也保持交接；转入其他动作、失败出口或结束时仍先停车。
+- 整序列超时 300 s（`kSequenceTimeoutMs`）→ 中止；单动作上限仍为 30 s。
 - `Fault_HasFault()` → 中止。指令启动失败 → 走 `on_timeout` 路径。
 
 示例流程（Shell 构建）：
@@ -487,15 +487,18 @@ lf losttimeout <ms>   # 兼容旧配置，当前不延迟停车
 实现内容：
 
 - 编译时：`feature_competition_config.h` 开启 IMU/LED/BUZZER，关闭 LoRa/诊断/调试日志。
-- 运行时状态机：`APP_MODE_COMPETITION_ARMED`（安全静止）→ `APP_MODE_COMPETITION_RUNNING`（序列执行中）→ ARMED。
-- 上电后保持安全静止（比赛配置下 chassis 任务禁用，电机 coast）。
+- 运行时状态机：`APP_MODE_COMPETITION_ARMED`（安全静止）→ `APP_MODE_COMPETITION_RUNNING`（序列执行中）→ ARMED；所有 feature profile 上电都默认进入 ARMED。
+- 上电初始化结束前立即停止底盘并禁用 chassis 任务，保持电机 coast。
 - ARMED 下按键 1/3 循环选择 FRAM 槽位 0..7，OLED 显示槽位、有效性和指令数。
 - 按键 2 或 `comp start [slot]` 校验并加载当前槽位，然后启动 ActionRunner。
-- RUNNING 下按键 2 或 `comp stop` 取消序列并停车；按键 1 保留给 ActionRunner 的 `button` 条件。
+- RUNNING 下按键 2 或 `comp stop` 取消序列并停车；未形成系统组合键时，按键 1/3 可供 ActionRunner 条件使用。
+- B1+B3 两个消抖电平连续重叠 1 秒，在比赛模式和 `dev-running` 间切换；两键确认同时按下时立即全停，成功触发后必须全部释放才能重新布防。
+- 比赛运行中若未保持满 1 秒就松开，仍保持停车并停留在 ARMED；FAULT 下组合键无效。
 - OLED 在运行中显示任务进度，结束后显示 DONE/FAILED/STOPPED 2 秒；FAULT 界面优先级最高。
-- `comp arm` 从开发模式进入比赛模式（测试用）。
+- `comp arm` 保留为从开发模式进入比赛模式的 Shell 备用入口。
 - 故障后锁定停车（FAULT），必须 `reset` 复位。
-- LED 指示：ARMED 慢闪（1Hz）、RUNNING 常亮、FAULT 快闪（5Hz）；蜂鸣器保持关闭。
+- LED 指示：ARMED 慢闪（1Hz）、比赛 RUNNING 常亮、FAULT 快闪（5Hz）、`dev-running` 熄灭；蜂鸣器保持关闭。
+- `FEATURE_PROFILE_COMPETITION` 只控制编译能力；运行态切到调试模式不会恢复已编译关闭的诊断功能。
 
 ## 10. 系统级回归测试
 

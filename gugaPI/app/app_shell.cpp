@@ -6079,15 +6079,33 @@ void PrintRunUsage(void)
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>");
     services::Shell_WriteLine(
-        "    op: drive|drive_mm|turn|follow|wait|stop|branch|end");
+        "    op: drive|drive_mm|turn|follow|wait|stop|branch|loop|road_nav|end");
     services::Shell_WriteLine(
         "        led_on|led_off|led_toggle|buzzer_on|buzzer_off|buzzer_toggle");
+    services::Shell_WriteLine(
+        "  run add condition <source> <cmp> <value> <instant|wait>");
+    services::Shell_WriteLine(
+        "    <timeout_ms> <stable_ms> <ontrue> <onfalse>");
+    services::Shell_WriteLine(
+        "  run add drive_if|follow_if <rpm> <source> <cmp> <value>");
+    services::Shell_WriteLine(
+        "    <timeout_ms> <stable_ms> <onsuccess> <onfailure>");
+    services::Shell_WriteLine(
+        "  run add loop <count> 0 immediate <body_index> <done_index>");
+    services::Shell_WriteLine(
+        "  run add road_nav <route> <rpm> <timeout_ms> <onsuccess> <onfailure>");
+    services::Shell_WriteLine(
+        "    route: left|straight|right|uturn_left_arc|uturn_right_arc");
+    services::Shell_WriteLine(
+        "           uturn_left_pivot|uturn_right_pivot");
     services::Shell_WriteLine(
         "    until: timeout|heading_reached|distance_reached|line_detected|line_lost|button|immediate");
     services::Shell_WriteLine(
         "    drive_mm: p1=signed mm, p2=max rpm, until=distance_reached");
     services::Shell_WriteLine(
         "    LED: p1=0(both)|2|3; buzzer: p1=0; p2=0 or auto-off 50..30000");
+    services::Shell_WriteLine(
+        "    loop: p1=count 1..1000, p2=0, immediate, both targets explicit");
     services::Shell_WriteLine("    output actions require until=immediate; off requires p2=0");
     services::Shell_WriteLine("    onsuccess/ontimeout: index 0..63, or 'next'/'abort'");
     services::Shell_WriteLine("  run clear|validate|start|cancel|status|dump");
@@ -6109,6 +6127,67 @@ bool ParseActionOp(const char *t, app::ActionOp *op)
     if (StrEqual(t, "buzzer_on")) { *op = app::ACT_OP_BUZZER_ON; return true; }
     if (StrEqual(t, "buzzer_off")) { *op = app::ACT_OP_BUZZER_OFF; return true; }
     if (StrEqual(t, "buzzer_toggle")) { *op = app::ACT_OP_BUZZER_TOGGLE; return true; }
+    if (StrEqual(t, "condition")) { *op = app::ACT_OP_CONDITION; return true; }
+    if (StrEqual(t, "drive_if")) { *op = app::ACT_OP_DRIVE_IF; return true; }
+    if (StrEqual(t, "follow_if")) { *op = app::ACT_OP_FOLLOW_IF; return true; }
+    if (StrEqual(t, "loop")) { *op = app::ACT_OP_LOOP; return true; }
+    if (StrEqual(t, "road_nav")) { *op = app::ACT_OP_ROAD_NAV; return true; }
+    return false;
+}
+
+bool ParseRoadRoute(const char *text, app::RoadRoute *route)
+{
+    if ((text == 0) || (route == 0)) {
+        return false;
+    }
+    for (uint8_t raw = 0U;
+         raw < static_cast<uint8_t>(app::ROAD_ROUTE_COUNT);
+         raw++) {
+        const app::RoadRoute candidate =
+            static_cast<app::RoadRoute>(raw);
+        if (StrEqual(text,
+                     app::RoadEventController_RouteText(candidate))) {
+            *route = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ParseActionConditionSource(const char *text,
+                                app::ActionConditionSource *source)
+{
+    if ((text == 0) || (source == 0)) {
+        return false;
+    }
+    for (uint8_t raw = 0U;
+         raw < static_cast<uint8_t>(app::ACT_SOURCE_COUNT);
+         raw++) {
+        const app::ActionConditionSource candidate =
+            static_cast<app::ActionConditionSource>(raw);
+        if (StrEqual(text, app::ActionCondition_SourceText(candidate))) {
+            *source = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ParseActionCompare(const char *text, app::ActionCompareOp *compare)
+{
+    if ((text == 0) || (compare == 0)) {
+        return false;
+    }
+    for (uint8_t raw = 0U;
+         raw <= static_cast<uint8_t>(app::ACT_COMPARE_NOT_CONTAINS);
+         raw++) {
+        const app::ActionCompareOp candidate =
+            static_cast<app::ActionCompareOp>(raw);
+        if (StrEqual(text, app::ActionCondition_CompareText(candidate))) {
+            *compare = candidate;
+            return true;
+        }
+    }
     return false;
 }
 
@@ -6155,6 +6234,11 @@ const char *OpText(app::ActionOp op)
     case app::ACT_OP_BUZZER_ON: return "buzzer_on";
     case app::ACT_OP_BUZZER_OFF: return "buzzer_off";
     case app::ACT_OP_BUZZER_TOGGLE: return "buzzer_toggle";
+    case app::ACT_OP_CONDITION: return "condition";
+    case app::ACT_OP_DRIVE_IF: return "drive_if";
+    case app::ACT_OP_FOLLOW_IF: return "follow_if";
+    case app::ACT_OP_LOOP: return "loop";
+    case app::ACT_OP_ROAD_NAV: return "road_nav";
     default: return "none";
     }
 }
@@ -6198,8 +6282,87 @@ const char *ActionFailureText(app::ActionFailureReason reason)
     case app::ACT_FAIL_FAULT: return "fault";
     case app::ACT_FAIL_CANCELLED: return "cancelled";
     case app::ACT_FAIL_INVALID: return "invalid_table";
+    case app::ACT_FAIL_CONDITION_FALSE: return "condition_false";
+    case app::ACT_FAIL_CONDITION_TIMEOUT: return "condition_timeout";
+    case app::ACT_FAIL_CONDITION_UNAVAILABLE:
+        return "condition_unavailable";
+    case app::ACT_FAIL_ROUTE_UNAVAILABLE:
+        return "route_unavailable";
+    case app::ACT_FAIL_ROUTE_REACQUIRE_FAILED:
+        return "route_reacquire_failed";
     default: return "unknown";
     }
+}
+
+void WriteActionInstr(const app::Instr &instr, bool include_index,
+                      uint8_t index)
+{
+    if (include_index) {
+        services::Shell_WriteUInt32(index);
+        services::Shell_WriteString(" ");
+    }
+    services::Shell_WriteString(OpText(instr.op));
+    services::Shell_WriteString(" ");
+    if (instr.op == app::ACT_OP_ROAD_NAV) {
+        services::Shell_WriteString(
+            app::RoadEventController_RouteText(
+                static_cast<app::RoadRoute>(instr.condition_value)));
+        services::Shell_WriteString(" ");
+        WriteInt32(instr.param1);
+        services::Shell_WriteString(" ");
+        WriteInt32(instr.param2);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(instr.on_success);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(instr.on_timeout);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+    if (app::ActionCondition_IsCompareOp(instr.op)) {
+        app::ActionConditionConfig condition;
+        if (!app::ActionCondition_Decode(&instr, &condition)) {
+            services::Shell_WriteLine("invalid");
+            return;
+        }
+        if ((instr.op == app::ACT_OP_DRIVE_IF) ||
+            (instr.op == app::ACT_OP_FOLLOW_IF)) {
+            WriteInt32(instr.param1);
+            services::Shell_WriteString(" ");
+        }
+        services::Shell_WriteString(
+            app::ActionCondition_SourceText(condition.source));
+        services::Shell_WriteString(" ");
+        services::Shell_WriteString(
+            app::ActionCondition_CompareText(condition.compare));
+        services::Shell_WriteString(" ");
+        WriteInt32(condition.value);
+        services::Shell_WriteString(" ");
+        if (instr.op == app::ACT_OP_CONDITION) {
+            services::Shell_WriteString(
+                (condition.mode == app::ACT_CONDITION_WAIT) ?
+                    "wait" : "instant");
+            services::Shell_WriteString(" ");
+        }
+        services::Shell_WriteUInt32(condition.timeout_ms);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(condition.stable_ms);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(instr.on_success);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(instr.on_timeout);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+    WriteInt32(instr.param1);
+    services::Shell_WriteString(" ");
+    WriteInt32(instr.param2);
+    services::Shell_WriteString(" ");
+    services::Shell_WriteString(CondText(instr.until));
+    services::Shell_WriteString(" ");
+    services::Shell_WriteUInt32(instr.on_success);
+    services::Shell_WriteString(" ");
+    services::Shell_WriteUInt32(instr.on_timeout);
+    services::Shell_WriteString("\r\n");
 }
 
 const char *ValidationFieldText(app::ActionValidationField field)
@@ -6277,12 +6440,14 @@ void RunCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "validate")) {
-        if (argc != 2) {
+        if ((argc != 2) &&
+            ((argc != 3) || !StrEqual(argv[2], "competition"))) {
             PrintRunUsage();
             return;
         }
         app::ActionValidationResult validation;
-        const drivers::DriverStatus status =
+        const drivers::DriverStatus status = (argc == 3) ?
+            app::ActionRunner_ValidateCompetition(&validation) :
             app::ActionRunner_Validate(&validation);
         services::Shell_WriteString("run validate ");
         if (status == drivers::DRIVER_OK) {
@@ -6310,21 +6475,7 @@ void RunCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(st->count);
         services::Shell_WriteString("\r\n");
         for (uint8_t i = 0U; i < st->count; i++) {
-            const app::Instr *in = &st->instrs[i];
-            services::Shell_WriteUInt32(i);
-            services::Shell_WriteString(" ");
-            services::Shell_WriteString(OpText(in->op));
-            services::Shell_WriteString(" ");
-            WriteInt32(in->param1);
-            services::Shell_WriteString(" ");
-            WriteInt32(in->param2);
-            services::Shell_WriteString(" ");
-            services::Shell_WriteString(CondText(in->until));
-            services::Shell_WriteString(" ");
-            services::Shell_WriteUInt32(in->on_success);
-            services::Shell_WriteString(" ");
-            services::Shell_WriteUInt32(in->on_timeout);
-            services::Shell_WriteString("\r\n");
+            WriteActionInstr(st->instrs[i], true, i);
         }
         return;
     }
@@ -6357,6 +6508,126 @@ void RunCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "add")) {
+        if ((argc >= 3) && StrEqual(argv[2], "condition")) {
+            if (argc != 11) {
+                PrintRunUsage();
+                return;
+            }
+            app::ActionConditionConfig condition = {
+                app::ACT_SOURCE_CONSTANT,
+                app::ACT_COMPARE_EQ,
+                0,
+                app::ACT_CONDITION_IMMEDIATE,
+                0U,
+                0U
+            };
+            int32_t timeout_ms = 0;
+            int32_t stable_ms = 0;
+            uint8_t ons = 0U;
+            uint8_t ont = 0U;
+            if ((!ParseActionConditionSource(argv[3],
+                                             &condition.source)) ||
+                (!ParseActionCompare(argv[4], &condition.compare)) ||
+                (!ParseInt32(argv[5], -2000000, 2000000,
+                             &condition.value)) ||
+                ((!StrEqual(argv[6], "instant")) &&
+                 (!StrEqual(argv[6], "wait"))) ||
+                (!ParseInt32(argv[7], 0, 30000, &timeout_ms)) ||
+                (!ParseInt32(argv[8], 0, 1000, &stable_ms)) ||
+                (!ParseTarget(argv[9], &ons)) ||
+                (!ParseTarget(argv[10], &ont))) {
+                PrintRunUsage();
+                return;
+            }
+            condition.mode = StrEqual(argv[6], "wait") ?
+                app::ACT_CONDITION_WAIT :
+                app::ACT_CONDITION_IMMEDIATE;
+            condition.timeout_ms = static_cast<uint16_t>(timeout_ms);
+            condition.stable_ms = static_cast<uint16_t>(stable_ms);
+            WriteStatusLine(
+                "run add: ",
+                app::ActionRunner_AddCompareInstr(
+                    app::ACT_OP_CONDITION, 0, &condition, ons, ont));
+            return;
+        }
+        if ((argc >= 3) &&
+            (StrEqual(argv[2], "drive_if") ||
+             StrEqual(argv[2], "follow_if"))) {
+            if (argc != 11) {
+                PrintRunUsage();
+                return;
+            }
+            const app::ChassisState *cs = app::Chassis_GetState();
+            const int32_t max_rpm =
+                static_cast<int32_t>(cs->config.max_wheel_rpm);
+            int32_t rpm = 0;
+            int32_t timeout_ms = 0;
+            int32_t stable_ms = 0;
+            uint8_t ons = 0U;
+            uint8_t ont = 0U;
+            app::ActionConditionConfig condition = {
+                app::ACT_SOURCE_CONSTANT,
+                app::ACT_COMPARE_EQ,
+                0,
+                app::ACT_CONDITION_WAIT,
+                0U,
+                0U
+            };
+            if ((!ParseInt32(argv[3], -max_rpm, max_rpm, &rpm)) ||
+                (!ParseActionConditionSource(argv[4],
+                                             &condition.source)) ||
+                (!ParseActionCompare(argv[5], &condition.compare)) ||
+                (!ParseInt32(argv[6], -2000000, 2000000,
+                             &condition.value)) ||
+                (!ParseInt32(argv[7], 50, 30000, &timeout_ms)) ||
+                (!ParseInt32(argv[8], 0, 1000, &stable_ms)) ||
+                (!ParseTarget(argv[9], &ons)) ||
+                (!ParseTarget(argv[10], &ont))) {
+                PrintRunUsage();
+                return;
+            }
+            condition.timeout_ms = static_cast<uint16_t>(timeout_ms);
+            condition.stable_ms = static_cast<uint16_t>(stable_ms);
+            const app::ActionOp op = StrEqual(argv[2], "drive_if") ?
+                app::ACT_OP_DRIVE_IF : app::ACT_OP_FOLLOW_IF;
+            WriteStatusLine(
+                "run add: ",
+                app::ActionRunner_AddCompareInstr(
+                    op, rpm, &condition, ons, ont));
+            return;
+        }
+        if ((argc >= 3) && StrEqual(argv[2], "road_nav")) {
+            if (argc != 8) {
+                PrintRunUsage();
+                return;
+            }
+            app::RoadRoute route = app::ROAD_ROUTE_STRAIGHT;
+            const app::ChassisState *cs = app::Chassis_GetState();
+            const int32_t max_rpm =
+                static_cast<int32_t>(cs->config.max_wheel_rpm);
+            int32_t rpm = 0;
+            int32_t timeout_ms = 0;
+            uint8_t ons = 0U;
+            uint8_t onf = 0U;
+            if ((!ParseRoadRoute(argv[3], &route)) ||
+                (!ParseInt32(argv[4], 1, max_rpm, &rpm)) ||
+                (!ParseInt32(argv[5], 50, 30000, &timeout_ms)) ||
+                ((timeout_ms % 50) != 0) ||
+                (!ParseTarget(argv[6], &ons)) ||
+                (!ParseTarget(argv[7], &onf))) {
+                PrintRunUsage();
+                return;
+            }
+            WriteStatusLine(
+                "run add: ",
+                app::ActionRunner_AddRoadNav(
+                    static_cast<int32_t>(route),
+                    rpm,
+                    timeout_ms,
+                    ons,
+                    onf));
+            return;
+        }
         if (argc != 8) {
             PrintRunUsage();
             return;
@@ -6392,6 +6663,9 @@ void RunCommand(int argc, const char * const argv[])
                    (op == app::ACT_OP_BRANCH) ||
                    (op == app::ACT_OP_END)) {
             params_ok = ParseInt32(argv[3], 0, 0, &p1) &&
+                        ParseInt32(argv[4], 0, 0, &p2);
+        } else if (op == app::ACT_OP_LOOP) {
+            params_ok = ParseInt32(argv[3], 1, 1000, &p1) &&
                         ParseInt32(argv[4], 0, 0, &p2);
         } else if ((op >= app::ACT_OP_LED_ON) &&
                    (op <= app::ACT_OP_LED_TOGGLE)) {
@@ -6560,9 +6834,9 @@ void LFCommand(int argc, const char * const argv[])
 #if FEATURE_ENABLE_IMU
         const app::RoadControlPhase road_phase =
             app::RoadEventController_GetState()->phase;
-        if ((road_phase == app::ROAD_CONTROL_PHASE_ALIGNING) ||
-            (road_phase == app::ROAD_CONTROL_PHASE_TURNING) ||
-            (road_phase == app::ROAD_CONTROL_PHASE_REACQUIRE)) {
+        if (app::RoadEventController_IsRouteActive() ||
+            ((road_phase != app::ROAD_CONTROL_PHASE_IDLE) &&
+             (road_phase != app::ROAD_CONTROL_PHASE_STOPPED))) {
             WriteStatusLine("lf stop: ",
                             app::RoadEventController_Cancel());
             return;
@@ -6725,6 +6999,13 @@ void RoadCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" phase=");
         services::Shell_WriteString(
             app::RoadEventController_PhaseText(state->phase));
+        services::Shell_WriteString(" route=");
+        services::Shell_WriteString(
+            app::RoadEventController_RouteText(state->route));
+        services::Shell_WriteString(" route_result=");
+        services::Shell_WriteString(
+            app::RoadEventController_RouteResultText(
+                state->route_result));
         services::Shell_WriteString(" detector=");
         services::Shell_WriteString(
             app::GrayscaleRoad_PhaseText(data->road_phase));
@@ -8552,18 +8833,7 @@ void SeqCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(count);
         services::Shell_WriteString("\r\n");
         for (uint8_t i = 0; i < count; i++) {
-            services::Shell_WriteString(OpText(instrs[i].op));
-            services::Shell_WriteString(" ");
-            WriteInt32(instrs[i].param1);
-            services::Shell_WriteString(" ");
-            WriteInt32(instrs[i].param2);
-            services::Shell_WriteString(" ");
-            services::Shell_WriteString(CondText(instrs[i].until));
-            services::Shell_WriteString(" ");
-            services::Shell_WriteUInt32(instrs[i].on_success);
-            services::Shell_WriteString(" ");
-            services::Shell_WriteUInt32(instrs[i].on_timeout);
-            services::Shell_WriteString("\r\n");
+            WriteActionInstr(instrs[i], false, i);
         }
         services::Shell_WriteLine("END");
         return;

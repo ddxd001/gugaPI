@@ -34,6 +34,9 @@ const CompetitionState *App_CompetitionGetState(void);
 drivers::DriverStatus App_CompetitionSelect(uint8_t slot);
 drivers::DriverStatus App_CompetitionRefreshSelection(void);
 drivers::DriverStatus App_CompetitionArm(void);
+/* Enter the normal development runtime from competition ARMED. Compiled-out
+ * feature-profile capabilities remain unavailable. */
+drivers::DriverStatus App_DebugModeEnter(void);
 drivers::DriverStatus App_CompetitionStart(void);
 drivers::DriverStatus App_CompetitionStop(void);
 /* Software-wide motion stop used by the debug shell/dashboard. This cancels

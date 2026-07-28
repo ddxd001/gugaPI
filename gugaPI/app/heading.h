@@ -126,6 +126,9 @@ drivers::DriverStatus Heading_DistanceStartForRollingHandoff(
 /* Release a completed arc to another moving controller without sending a
  * chassis stop command. Valid only after HEADING_ARC_TURN reaches target. */
 drivers::DriverStatus Heading_ReleaseForMotionHandoff(void);
+/* Release a running HEADING_HOLD search directly to LF_FOLLOW. The caller
+ * must start LF first so one closed-loop owner is always active. */
+drivers::DriverStatus Heading_HoldReleaseForMotionHandoff(void);
 drivers::DriverStatus Heading_Stop(void);
 void Heading_Update(void);
 const HeadingState *Heading_GetState(void);

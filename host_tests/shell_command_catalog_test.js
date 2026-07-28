@@ -7,6 +7,8 @@ const vm=require('vm');
 
 const root=path.resolve(__dirname,'..');
 const shellSource=fs.readFileSync(path.join(root,'gugaPI/app/app_shell.cpp'),'utf8');
+const debugConfigSource=fs.readFileSync(
+  path.join(root,'gugaPI/config/debug_config.h'),'utf8');
 const catalogSource=fs.readFileSync(
   path.join(root,'gugaPI/tools/seq_editor/command_catalog.js'),'utf8');
 const context={};
@@ -31,6 +33,12 @@ const active=catalog.filter(entry=>entry.profiles.includes(meta.activeProfile));
 assert.strictEqual(active.length,27,'development profile top-level command count changed');
 assert(!catalogNames.has('adc')&&!catalogNames.has('pwm'),
   'unregistered adc/pwm placeholders must not return to the catalog');
+
+const maxArgsMatch=debugConfigSource.match(
+  /#define\s+DEBUG_SHELL_MAX_ARGS\s+\((\d+)U\)/);
+assert(maxArgsMatch,'DEBUG_SHELL_MAX_ARGS must remain a numeric constant');
+assert(Number(maxArgsMatch[1])>=12,
+  'Shell argv capacity must cover condition and full CAN commands');
 
 for(const entry of catalog){
   assert(/[\u3400-\u9fff]/.test(entry.title+entry.summary),
