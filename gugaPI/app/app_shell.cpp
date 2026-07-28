@@ -37,6 +37,7 @@
 #include "drivers/common/driver_status.h"
 #include "drivers/i2c_diag/i2c_diag.h"
 #include "services/debug_uart.h"
+#include "services/fault.h"
 #include "services/scheduler.h"
 #include "services/shell.h"
 #include "services/time.h"
@@ -8481,7 +8482,14 @@ void TelemSendHeader(void)
         "road_ctrl_phase,head_turn_phase,head_turn_rate_mdps,"
         "head_turn_brake_mdeg,head_turn_brake_ms,"
         "head_turn_margin_mdeg,head_turn_settle_mdps,"
-        "head_turn_settle_rpm\n");
+        "head_turn_settle_rpm,fault_code,fault_count,comp_slot,"
+        "comp_slot_valid,comp_count,chassis_init,chassis_status,"
+        "feedback_status,feedback_valid,feedback_age_ms,tx_pending,"
+        "tx_dropped,imu_valid,imu_age_ms,imu_error_count,acc_x_mg,"
+        "acc_y_mg,acc_z_mg,gyro_x_mdps,gyro_y_mdps,gyro_z_mdps,"
+        "pitch,roll,imu_temp_cc,gray_sample_valid,gray_age_ms,"
+        "gray_error_count,gray0,gray1,gray2,gray3,gray4,gray5,"
+        "gray6,gray7\n");
 }
 
 void TelemSendData(void)
@@ -8491,6 +8499,9 @@ void TelemSendData(void)
     const app::ChassisState *cs = app::Chassis_GetState();
     const app::HeadingState *hs = app::Heading_GetState();
     const app::ActionRunnerState *as = app::ActionRunner_GetState();
+    const app::CompetitionState *competition =
+        app::App_CompetitionGetState();
+    const app::AppImuData *imu = app::App_ImuGetData();
     const app::AppGrayscaleData *gray = app::App_GrayscaleGetData();
     const app::LFState *lf = app::LF_GetState();
     const app::ConfigStoreParams *params = app::ConfigStore_Get();
@@ -8517,10 +8528,7 @@ void TelemSendData(void)
     services::Shell_WriteString(",");
     WriteFixedMilli(hs->target_yaw_mdeg);
     services::Shell_WriteString(",");
-    {
-        const app::AppImuData *imu = app::App_ImuGetData();
-        WriteFixedMilli((imu != 0) ? imu->yaw_mdeg : 0);
-    }
+    WriteFixedMilli((imu != 0) ? imu->yaw_mdeg : 0);
     services::Shell_WriteString(",");
     WriteFixedMilli(hs->error_mdeg);
     /* corr */
@@ -8586,6 +8594,80 @@ void TelemSendData(void)
     services::Shell_WriteUInt32(params->heading_turn_settle_rate_mdps);
     services::Shell_WriteString(",");
     services::Shell_WriteUInt32(params->heading_turn_settle_rpm);
+    /* Dashboard health and raw-sensor extension. Existing VOFA+ channels
+     * above retain their original names and order. */
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        static_cast<uint32_t>(services::Fault_Get()));
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(services::Fault_GetCount());
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(competition->selected_slot);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(competition->slot_valid ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(competition->instruction_count);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(cs->initialized ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        static_cast<uint32_t>(cs->last_status));
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        static_cast<uint32_t>(cs->last_feedback_status));
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        (cs->feedback_sequence != 0U) ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((cs->feedback_sequence != 0U)
+        ? static_cast<uint32_t>(now - cs->last_feedback_ms)
+        : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(services::DebugUart_GetTxPending());
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(services::DebugUart_GetTxDroppedCount());
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        ((imu != 0) && imu->valid) ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        ((imu != 0) && (imu->sequence != 0U))
+            ? static_cast<uint32_t>(now - imu->last_update_ms)
+            : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32((imu != 0) ? imu->error_count : 0U);
+    for (uint32_t axis = 0U; axis < 3U; axis++) {
+        services::Shell_WriteString(",");
+        WriteInt32((imu != 0) ? imu->accel_mg[axis] : 0);
+    }
+    for (uint32_t axis = 0U; axis < 3U; axis++) {
+        services::Shell_WriteString(",");
+        WriteInt32((imu != 0) ? imu->gyro_mdps[axis] : 0);
+    }
+    services::Shell_WriteString(",");
+    WriteFixedMilli((imu != 0) ? imu->pitch_mdeg : 0);
+    services::Shell_WriteString(",");
+    WriteFixedMilli((imu != 0) ? imu->roll_mdeg : 0);
+    services::Shell_WriteString(",");
+    WriteInt32((imu != 0) ? imu->temp_centi_c : 0);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        ((gray != 0) && gray->valid) ? 1U : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        ((gray != 0) && (gray->sequence != 0U))
+            ? static_cast<uint32_t>(now - gray->last_update_ms)
+            : 0U);
+    services::Shell_WriteString(",");
+    services::Shell_WriteUInt32(
+        (gray != 0) ? gray->error_count : 0U);
+    for (uint32_t channel = 0U;
+         channel < drivers::GRAYSCALE_CHANNEL_COUNT;
+         channel++) {
+        services::Shell_WriteString(",");
+        services::Shell_WriteUInt32(
+            (gray != 0) ? gray->raw[channel] : 0U);
+    }
     services::Shell_WriteString("\n");
 }
 
@@ -8715,6 +8797,16 @@ void TelemCommand(int argc, const char * const argv[])
     }
 
     PrintTelemUsage();
+}
+
+void EstopCommand(int argc, const char * const argv[])
+{
+    (void) argv;
+    if (argc != 1) {
+        services::Shell_WriteLine("usage: estop");
+        return;
+    }
+    WriteStatusLine("estop: ", app::App_EmergencyStop());
 }
 
 void AppShell_RegisterCommands(void)
@@ -8849,6 +8941,10 @@ void AppShell_RegisterCommands(void)
         "comp",
         "Competition: arm|select <n>|start [n]|stop|status",
         CompCommand);
+    (void) services::Shell_RegisterCommand(
+        "estop",
+        "Software-wide motion stop",
+        EstopCommand);
     (void) services::Shell_RegisterCommand(
         "telem",
         "Telemetry (FireWater/VOFA+): on [period_ms]|off|status",

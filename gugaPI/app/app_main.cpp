@@ -1273,4 +1273,45 @@ drivers::DriverStatus App_CompetitionStop(void)
     return drivers::DRIVER_OK;
 }
 
+drivers::DriverStatus App_EmergencyStop(void)
+{
+    drivers::DriverStatus first_error = drivers::DRIVER_OK;
+
+    const auto record_error = [&first_error](drivers::DriverStatus status) {
+        if ((first_error == drivers::DRIVER_OK) &&
+            (status != drivers::DRIVER_OK)) {
+            first_error = status;
+        }
+    };
+
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER && \
+    FEATURE_ENABLE_IMU
+    record_error(RoadEventController_Cancel());
+#endif
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+    record_error(ActionRunner_Cancel());
+    record_error(Heading_Stop());
+#endif
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+    record_error(LF_Stop());
+#endif
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    /* Release raw Shell position/speed leases even if chassis initialization
+     * failed, then always make the final direct MotorDriver stop attempt. */
+    Chassis_ReleaseAllMotorCommands();
+    record_error(Chassis_Stop());
+#endif
+
+    if (g_appState.mode == APP_MODE_COMPETITION_RUNNING) {
+        CompetitionSetResult(COMP_RESULT_STOPPED, first_error);
+        CompetitionClearButtonEvents();
+        g_appState.mode = APP_MODE_COMPETITION_ARMED;
+    } else if ((g_appState.mode != APP_MODE_COMPETITION_ARMED) &&
+               (g_appState.mode != APP_MODE_FAULT)) {
+        g_appState.mode = APP_MODE_IDLE;
+    }
+
+    return first_error;
+}
+
 } /* namespace app */

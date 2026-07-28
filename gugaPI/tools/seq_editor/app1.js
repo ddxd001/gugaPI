@@ -10,6 +10,7 @@ let slots=Array(8).fill(null);
 let rxBuf='',rxResolve=null,simMode=false;
 var onSerialData=null,onSerialStateChange=null;
 var commandQueue=Promise.resolve();
+var serialRouter=null;
 let simSlots=Array(8).fill(null);
 simSlots[0]=[{op:1,p1:60,p2:3000,until:0,ons:255,ont:255},{op:2,p1:90,p2:8000,until:1,ons:255,ont:255},{op:1,p1:60,p2:3000,until:0,ons:255,ont:255},{op:5,p1:0,p2:0,until:5,ons:255,ont:255},{op:7,p1:0,p2:0,until:5,ons:255,ont:255}];
 simSlots[1]=[{op:1,p1:80,p2:5000,until:0,ons:255,ont:255},{op:2,p1:-90,p2:8000,until:1,ons:255,ont:255},{op:3,p1:80,p2:30000,until:3,ons:255,ont:255},{op:5,p1:0,p2:0,until:5,ons:255,ont:255},{op:7,p1:0,p2:0,until:5,ons:255,ont:255}];
@@ -17,14 +18,42 @@ simSlots[2]=[{op:1,p1:60,p2:5000,until:2,ons:255,ont:4},{op:2,p1:90,p2:8000,unti
 let simInstrs=[];
 const $=id=>document.getElementById(id);
 function logc(cls,msg){var el=$('log');el.innerHTML+='<span class="'+cls+'">'+msg+'</span>\n';el.scrollTop=el.scrollHeight}
+function shellTextReceived(text){
+  if(!text)return;
+  logc('rx',text);
+  if(typeof onSerialData==='function')onSerialData(text,'rx');
+  rxBuf+=text;
+  if(/(?:^|\n)> $/.test(rxBuf)||rxBuf==='> '){
+    if(rxResolve)rxResolve(rxBuf);
+  }
+}
+function telemetryReceived(event,raw){
+  if(typeof DashboardTelemetry_OnEvent==='function'){
+    DashboardTelemetry_OnEvent(event,raw);
+  }
+  if(typeof Terminal_ShouldShowTelemetry==='function'&&
+     Terminal_ShouldShowTelemetry()&&typeof onSerialData==='function'){
+    onSerialData(raw,'telemetry');
+  }
+}
+if(typeof DashboardCore!=='undefined'){
+  serialRouter=new DashboardCore.SerialRouter({
+    onText:shellTextReceived,
+    onTelemetry:telemetryReceived
+  });
+}
+function routeSerialData(data){
+  if(serialRouter)serialRouter.push(data);
+  else shellTextReceived(String(data).replace(/\r/g,''));
+}
 $('btnConnect').onclick=async()=>{
-  if(port){try{if(reader){await reader.cancel();if(readableClosed)await readableClosed.catch(function(){});reader.releaseLock()}if(writer){await writer.close();if(writableClosed)await writableClosed.catch(function(){});writer.releaseLock()}await port.close()}catch(e){logc('tx','[DISC ERR] '+e.message)}reader=null;writer=null;readableClosed=null;writableClosed=null;port=null;$('btnConnect').textContent='Connect';$('btnRefresh').disabled=true;$('statusText').textContent='';logc('tx','[DISC]');if(typeof onSerialStateChange==='function')onSerialStateChange(false);return}
+  if(port){try{if(typeof Dashboard_BeforeDisconnect==='function')await Dashboard_BeforeDisconnect();if(reader){await reader.cancel();if(readableClosed)await readableClosed.catch(function(){});reader.releaseLock()}if(writer){await writer.close();if(writableClosed)await writableClosed.catch(function(){});writer.releaseLock()}await port.close()}catch(e){logc('tx','[DISC ERR] '+e.message)}reader=null;writer=null;readableClosed=null;writableClosed=null;port=null;if(serialRouter)serialRouter.reset();$('btnConnect').textContent='Connect';$('btnRefresh').disabled=true;$('statusText').textContent='';logc('tx','[DISC]');if(typeof onSerialStateChange==='function')onSerialStateChange(false);return}
   try{port=await navigator.serial.requestPort();await port.open({baudRate:115200});
     var dec=new TextDecoderStream();readableClosed=port.readable.pipeTo(dec.writable);reader=dec.readable.getReader();
     var enc=new TextEncoderStream();writableClosed=enc.readable.pipeTo(port.writable);writer=enc.writable.getWriter();
     $('btnConnect').textContent='Disconnect';$('btnRefresh').disabled=false;$('statusText').textContent='Connected';logc('tx','[CONN]');
     if(typeof onSerialStateChange==='function')onSerialStateChange(true);
-    (async()=>{try{while(true){var r=await reader.read();if(r.done)break;if(r.value){logc('rx',r.value.replace(/\r/g,''));if(typeof onSerialData==='function')onSerialData(r.value.replace(/\r/g,''),'rx');rxBuf+=r.value;if(/(?:^|\r?\n)> $/.test(rxBuf)){if(rxResolve)rxResolve(rxBuf)}}}}catch(e){if(typeof onSerialData==='function')onSerialData('[串口读取中断] '+e.message+'\n','error')}})();
+    (async()=>{try{while(true){var r=await reader.read();if(r.done)break;if(r.value)routeSerialData(r.value)}}catch(e){if(typeof onSerialData==='function')onSerialData('[串口读取中断] '+e.message+'\n','error')}})();
     await refreshSlots();
   }catch(e){port=null;reader=null;writer=null;readableClosed=null;writableClosed=null;logc('tx','[ERR]'+e.message);if(typeof onSerialStateChange==='function')onSerialStateChange(false);if(typeof onSerialData==='function')onSerialData('[连接失败] '+e.message+'\n','error')}};
 $('btnSim').onclick=async()=>{
