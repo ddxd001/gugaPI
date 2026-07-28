@@ -10,6 +10,77 @@ static const uint32_t kI2cErrataDelayNs = 2500U;
 static const uint32_t kBusRecoveryDelayUs = 8U;
 static const uint8_t kBusRecoveryClockPulses = 9U;
 static const uint8_t kProbeByte = 0x00U;
+static const uint8_t kAsyncBusSlots = 2U;
+
+struct AsyncWriteState {
+    I2C_Regs *i2c;
+    DMA_Regs *dma;
+    uint8_t channel_id;
+    uint32_t start_ms;
+    uint32_t timeout_ms;
+    volatile bool active;
+    volatile bool dma_done;
+    bool completion_pending;
+    DriverStatus result;
+};
+
+static AsyncWriteState g_asyncWrites[kAsyncBusSlots] = {};
+
+AsyncWriteState *FindAsyncState(I2C_Regs *i2c)
+{
+    for (uint8_t i = 0U; i < kAsyncBusSlots; i++) {
+        if (g_asyncWrites[i].i2c == i2c) {
+            return &g_asyncWrites[i];
+        }
+    }
+    return 0;
+}
+
+AsyncWriteState *FindOrAllocateAsyncState(I2C_Regs *i2c)
+{
+    AsyncWriteState *state = FindAsyncState(i2c);
+    if (state != 0) {
+        return state;
+    }
+
+    for (uint8_t i = 0U; i < kAsyncBusSlots; i++) {
+        if (g_asyncWrites[i].i2c == 0) {
+            g_asyncWrites[i].i2c = i2c;
+            return &g_asyncWrites[i];
+        }
+    }
+    return 0;
+}
+
+bool IsDmaConfigValid(const I2cControllerDmaTxConfig *config)
+{
+    return (config != 0) && (config->dma != 0) &&
+           (config->timeout_ms != 0U);
+}
+
+bool IsAsyncActive(I2C_Regs *i2c)
+{
+    const AsyncWriteState *state = FindAsyncState(i2c);
+    return (state != 0) && state->active;
+}
+
+void CompleteAsync(AsyncWriteState *state, DriverStatus result)
+{
+    DL_DMA_disableChannel(state->dma, state->channel_id);
+    state->active = false;
+    state->dma_done = false;
+    state->completion_pending = true;
+    state->result = result;
+}
+
+void CancelAsyncForBus(const I2cControllerConfig *config,
+                       DriverStatus result)
+{
+    AsyncWriteState *state = FindAsyncState(config->i2c);
+    if ((state != 0) && state->active) {
+        CompleteAsync(state, result);
+    }
+}
 
 void ResetTransfer(I2C_Regs *i2c)
 {
@@ -51,6 +122,10 @@ void AbortTransfer(const I2cControllerConfig *config)
 
 DriverStatus WaitForIdle(const I2cControllerConfig *config)
 {
+    if (IsAsyncActive(config->i2c)) {
+        return DRIVER_ERROR_BUSY;
+    }
+
     uint32_t timeout = config->timeout_iterations;
     while ((DL_I2C_getControllerStatus(config->i2c) &
             DL_I2C_CONTROLLER_STATUS_IDLE) == 0U) {
@@ -232,6 +307,7 @@ DriverStatus I2cController_RecoverBus(const I2cControllerConfig *config)
         return DRIVER_ERROR_INVALID_ARG;
     }
 
+    CancelAsyncForBus(config, DRIVER_ERROR);
     AbortTransfer(config);
     DL_I2C_disableController(config->i2c);
     ConfigureRecoveryGpio(config);
@@ -452,6 +528,143 @@ DriverStatus I2cController_WriteRead(const I2cControllerConfig *config,
     status = ReceiveStartedTransfer(config, read_data, read_length);
     DL_I2C_disableControllerReadOnTXEmpty(config->i2c);
     return status;
+}
+
+DriverStatus I2cController_AsyncWriteStart(
+    const I2cControllerConfig *config,
+    const I2cControllerDmaTxConfig *dma_config,
+    uint8_t target_address,
+    const uint8_t *data,
+    uint16_t length)
+{
+    if ((!I2cController_IsConfigValid(config)) ||
+        (!IsDmaConfigValid(dma_config)) ||
+        (!I2cController_IsAddressValid(target_address)) || (data == 0) ||
+        (length == 0U) || (length > I2C_CONTROLLER_MAX_TRANSFER_BYTES)) {
+        return DRIVER_ERROR_INVALID_ARG;
+    }
+
+    AsyncWriteState *state = FindOrAllocateAsyncState(config->i2c);
+    if ((state == 0) || state->active || state->completion_pending) {
+        return DRIVER_ERROR_BUSY;
+    }
+
+    DriverStatus status = WaitForIdle(config);
+    if (status != DRIVER_OK) {
+        return status;
+    }
+
+    ResetTransfer(config->i2c);
+    state->dma = dma_config->dma;
+    state->channel_id = dma_config->channel_id;
+    state->start_ms = services::Time_Millis();
+    state->timeout_ms = dma_config->timeout_ms;
+    state->result = DRIVER_ERROR_BUSY;
+    state->dma_done = false;
+    state->completion_pending = false;
+    state->active = true;
+
+    DL_DMA_disableChannel(state->dma, state->channel_id);
+    DL_DMA_setSrcAddr(state->dma,
+                      state->channel_id,
+                      reinterpret_cast<uint32_t>(data));
+    DL_DMA_setDestAddr(state->dma,
+                       state->channel_id,
+                       reinterpret_cast<uint32_t>(
+                           &config->i2c->MASTER.MTXDATA));
+    DL_DMA_setTransferSize(state->dma, state->channel_id, length);
+    DL_DMA_enableChannel(state->dma, state->channel_id);
+
+    DL_I2C_startControllerTransfer(config->i2c,
+                                   target_address,
+                                   DL_I2C_CONTROLLER_DIRECTION_TX,
+                                   length);
+    services::Time_DelayNs(kI2cErrataDelayNs);
+    return DRIVER_OK;
+}
+
+DriverStatus I2cController_AsyncWritePoll(
+    const I2cControllerConfig *config,
+    const I2cControllerDmaTxConfig *dma_config)
+{
+    if ((!I2cController_IsConfigValid(config)) ||
+        (!IsDmaConfigValid(dma_config))) {
+        return DRIVER_ERROR_INVALID_ARG;
+    }
+
+    AsyncWriteState *state = FindAsyncState(config->i2c);
+    if ((state == 0) || (state->dma != dma_config->dma) ||
+        (state->channel_id != dma_config->channel_id)) {
+        return DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    if (state->completion_pending) {
+        const DriverStatus result = state->result;
+        state->completion_pending = false;
+        state->result = DRIVER_ERROR_BUSY;
+        return result;
+    }
+    if (!state->active) {
+        return DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    const uint32_t controller_status =
+        DL_I2C_getControllerStatus(config->i2c);
+    const DriverStatus decoded = DecodeControllerStatus(controller_status);
+    if (decoded != DRIVER_OK) {
+        CompleteAsync(state, decoded);
+        AbortTransfer(config);
+        return I2cController_AsyncWritePoll(config, dma_config);
+    }
+
+    if (services::Time_HasElapsed(state->start_ms, state->timeout_ms)) {
+        CompleteAsync(state, DRIVER_ERROR_TIMEOUT);
+        AbortTransfer(config);
+        /* A timed-out target may still be holding SDA low. Run the standard
+         * nine-clock recovery before releasing the bus to another client. */
+        (void) I2cController_RecoverBus(config);
+        return I2cController_AsyncWritePoll(config, dma_config);
+    }
+
+    const bool dma_finished = state->dma_done ||
+        (DL_DMA_getTransferSize(state->dma, state->channel_id) == 0U);
+    if (!dma_finished) {
+        if ((controller_status & DL_I2C_CONTROLLER_STATUS_BUSY) == 0U) {
+            CompleteAsync(state, DRIVER_ERROR);
+            ResetTransfer(config->i2c);
+            return I2cController_AsyncWritePoll(config, dma_config);
+        }
+        return DRIVER_ERROR_BUSY;
+    }
+
+    if ((controller_status & DL_I2C_CONTROLLER_STATUS_BUSY) != 0U) {
+        return DRIVER_ERROR_BUSY;
+    }
+
+    CompleteAsync(state, DRIVER_OK);
+    ResetTransfer(config->i2c);
+    return I2cController_AsyncWritePoll(config, dma_config);
+}
+
+void I2cController_AsyncWriteHandleInterrupt(
+    const I2cControllerConfig *config)
+{
+    if (!I2cController_IsConfigValid(config)) {
+        return;
+    }
+
+    AsyncWriteState *state = FindAsyncState(config->i2c);
+    const DL_I2C_IIDX interrupt = DL_I2C_getPendingInterrupt(config->i2c);
+    if ((state != 0) && state->active &&
+        (interrupt == DL_I2C_IIDX_CONTROLLER_EVENT1_DMA_DONE)) {
+        state->dma_done = true;
+    }
+}
+
+bool I2cController_IsBusBusy(const I2cControllerConfig *config)
+{
+    return I2cController_IsConfigValid(config) &&
+           IsAsyncActive(config->i2c);
 }
 
 } /* namespace drivers */

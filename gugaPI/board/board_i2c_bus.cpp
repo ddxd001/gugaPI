@@ -24,13 +24,11 @@ bool StrEqual(const char *left, const char *right)
 
 // 板级 I2C 总线表。后续增加新设备时，在这里追加总线别名和引脚配置。
 //
-// CONCURRENCY CONTRACT: "fram", "oled" and "ina219" all share SENSOR_I2C
-// (MCU I2C2). They are only safe to use from the main loop today because the
-// scheduler is cooperative AND no ISR touches I2C2 - the FRAM/INA219/OLED
-// drivers call DL_I2C_* directly with no lock. If any future ISR (e.g. an ADC
-// alarm handler) needs to read INA219, it must NOT share this controller with
-// the main loop without a critical section (NVIC_DisableIRQ around each
-// transaction), or ResetTransfer() will corrupt an in-flight transfer.
+// CONCURRENCY CONTRACT: "fram", "oled" and "ina219" share SENSOR_I2C
+// (MCU I2C2). OLED owns the controller while its TX DMA transfer is active;
+// synchronous clients receive DRIVER_ERROR_BUSY and retry from the cooperative
+// main loop. The I2C ISR only records DMA completion and never starts another
+// bus operation, so reset/recovery remains in main-loop context.
 static const drivers::I2cDiagBusConfig g_i2cBuses[] = {
     {
         "motor",

@@ -1079,6 +1079,11 @@ void App_Run(void)
 {
     g_appState.uptime_ms = services::Time_Millis();
 
+#if FEATURE_ENABLE_OLED
+    /* Progress the OLED DMA state machine before other shared-I2C clients. */
+    (void) board::Board_OledService();
+#endif
+
 #if FEATURE_ENABLE_INA219
     App_Ina219Run();
 #if FEATURE_ENABLE_MOTOR_DRIVER

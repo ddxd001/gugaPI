@@ -53,6 +53,9 @@ build_and_run action_runner \
     host_tests/action_runner_test.cpp \
     gugaPI/app/action.cpp \
     gugaPI/app/seq_store.cpp
+build_and_run oled_framebuffer \
+    host_tests/oled_framebuffer_test.cpp \
+    gugaPI/drivers/oled/oled_ssd1306.cpp
 
 echo "[host-test] shell_command_catalog"
 "${node_bin}" host_tests/shell_command_catalog_test.js

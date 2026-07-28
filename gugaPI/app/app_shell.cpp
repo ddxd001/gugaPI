@@ -2939,6 +2939,9 @@ void OledCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(board::Board_OledWidth());
         services::Shell_WriteString("x");
         services::Shell_WriteUInt32(board::Board_OledHeight());
+        services::Shell_WriteString(" pending=");
+        services::Shell_WriteUInt32(
+            board::Board_OledHasPendingFlush() ? 1U : 0U);
         services::Shell_WriteString(" probe=");
         services::Shell_WriteString(DriverStatusText(probe_status));
         services::Shell_WriteString(" bus=");
