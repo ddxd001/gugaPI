@@ -1,5 +1,6 @@
 'use strict';
 var seqMaxRpm=1000,seqLastCompile=null,seqPollTimer=null;
+var seqEmergencyStopPromise=null,seqOperationEpoch=0;
 function commandOk(response,label){return String(response).toLowerCase().indexOf(String(label).toLowerCase()+': ok')>=0}
 async function seqRefreshMaxRpm(){if(!writer&&!simMode)return;try{var r=await send('param get max_wheel_rpm'),m=String(r).match(/max_wheel_rpm\s*=\s*(\d+)/);if(m)seqMaxRpm=Math.max(1,Number(m[1]));render();edit()}catch(e){}}
 function seqShowNotice(message,type){var el=$('seqNotice');if(!el)return;el.textContent=message;el.className=type||'';clearTimeout(el._timer);el._timer=setTimeout(function(){el.textContent='';el.className=''},3500)}
@@ -10,14 +11,117 @@ function edit(){var el=$('editorContent');if(!el||!seqProject)return;var validat
  el.querySelectorAll('.seq-prop').forEach(function(input){input.onchange=function(){var before=seqSnapshot(),key=input.dataset.key,value=input.tagName==='SELECT'?input.value:Number(input.value);node.params[key]=value;seqCommit('已更新“'+a.name+'”参数',before)}});$('btnDuplicateNode').onclick=seqDuplicate;$('btnDeleteNode').onclick=seqDeleteSelection}
 function seqRawEqual(a,b){if(a.length!==b.length)return false;return a.every(function(x,i){var y=b[i];return['op','p1','p2','until','ons','ont'].every(function(k){return Number(x[k])===Number(y[k])})})}
 function seqParseRunDump(text){var lines=String(text).split(/\r?\n/),out=[];lines.forEach(function(l){var p=l.trim().split(/\s+/);if(p.length>=7&&/^\d+$/.test(p[0])){var op=Object.keys(OP).find(function(k){return OP[k]===p[1]});out.push({op:Number(op),p1:Number(p[2]),p2:Number(p[3]),until:COND.indexOf(p[4]),ons:Number(p[5]),ont:Number(p[6])})}});return out}
-async function seqUpload(instrs){var r=await send('run clear');if(!commandOk(r,'run clear'))throw new Error('清空 RAM 表失败');for(var i=0;i<instrs.length;i++){var x=instrs[i],cmd='run add '+OP[x.op]+' '+x.p1+' '+x.p2+' '+COND[x.until]+' '+(x.ons===255?'next':x.ons)+' '+(x.ont===255?'abort':x.ont);r=await send(cmd);if(!commandOk(r,'run add'))throw new Error('第 '+i+' 步下发失败：'+r.trim())}r=await send('run validate');if(!/run validate ok/i.test(r))throw new Error('固件校验失败：'+r.trim());var back=seqParseRunDump(await send('run dump'));if(!seqRawEqual(instrs,back))throw new Error('RAM 回读内容与画布编译结果不一致');return true}
+function seqDelay(ms){return new Promise(function(resolve){setTimeout(resolve,ms)})}
+async function seqEnsureQuietShell(){
+  if(simMode)return true;
+  var lastResponse='';
+  for(var attempt=0;attempt<2;attempt++){
+    lastResponse=await send('telem off',{timeoutMs:1800});
+    if(commandOk(lastResponse,'telem off'))return true;
+    var status=await send('telem status',{timeoutMs:1800});
+    if(/telem enabled=0/i.test(status))return true;
+    lastResponse=status||lastResponse;
+    await seqDelay(60);
+  }
+  throw new Error('停止实时遥测失败：'+
+    (lastResponse.trim()||'设备未确认'));
+}
+function seqAssertOperationActive(operationEpoch){
+  if((operationEpoch!==undefined)&&(operationEpoch!==seqOperationEpoch)){
+    var error=new Error('当前操作已被紧急停止取消');
+    error.seqCancelled=true;
+    throw error;
+  }
+}
+async function seqUploadOnce(instrs,operationEpoch){
+  seqAssertOperationActive(operationEpoch);
+  var r=await send('run clear',{timeoutMs:2200});
+  seqAssertOperationActive(operationEpoch);
+  if(!commandOk(r,'run clear')){
+    throw new Error('清空 RAM 表失败：'+(r.trim()||'设备无响应'));
+  }
+  for(var i=0;i<instrs.length;i++){
+    var x=instrs[i];
+    var cmd='run add '+OP[x.op]+' '+x.p1+' '+x.p2+' '+COND[x.until]+' '+
+      (x.ons===255?'next':x.ons)+' '+(x.ont===255?'abort':x.ont);
+    r=await send(cmd,{timeoutMs:2200});
+    seqAssertOperationActive(operationEpoch);
+    if(!commandOk(r,'run add')){
+      throw new Error('第 '+i+' 步下发失败：'+
+        (r.trim()||'设备无响应'));
+    }
+  }
+  r=await send('run validate',{timeoutMs:2200});
+  seqAssertOperationActive(operationEpoch);
+  if(!/run validate ok/i.test(r)){
+    throw new Error('固件校验失败：'+(r.trim()||'设备无响应'));
+  }
+  var back=seqParseRunDump(await send('run dump',{timeoutMs:2200}));
+  seqAssertOperationActive(operationEpoch);
+  if(!seqRawEqual(instrs,back)){
+    throw new Error('RAM 回读内容与画布编译结果不一致');
+  }
+  return true;
+}
+async function seqUpload(instrs,operationEpoch){
+  await seqEnsureQuietShell();
+  seqAssertOperationActive(operationEpoch);
+  var lastError=null;
+  for(var attempt=0;attempt<2;attempt++){
+    try{return await seqUploadOnce(instrs,operationEpoch)}
+    catch(error){
+      if(error.seqCancelled)throw error;
+      lastError=error;
+      if(attempt===0)await seqDelay(80);
+    }
+  }
+  throw lastError;
+}
 async function seqRestoreRam(raw){try{if(raw&&raw.length)await seqUpload(raw);else await send('run clear')}catch(e){logc('tx','[RAM RESTORE FAILED] '+e.message)}}
 function seqCompileCurrent(){seqLastCompile=SC.compile(seqProject,{maxRpm:seqMaxRpm});return seqLastCompile}
-async function runSlot(){if((!writer&&!simMode)||!seqProject){seqShowNotice('请先连接串口或开启模拟模式','error');return}var backup=[];try{var compiled=seqCompileCurrent();backup=seqParseRunDump(await send('run dump'));await seqUpload(compiled.instrs);var start=await send('run start');if(!commandOk(start,'run start'))throw new Error('启动失败：'+start.trim());seqShowNotice('当前画布已在 RAM 中启动，未写入 FRAM','ok');seqStartPolling()}catch(e){await seqRestoreRam(backup);seqShowNotice(e.message,'error');logc('tx','[试运行失败] '+e.message)}}
-async function saveSlot(){if((!writer&&!simMode)||!seqProject){seqShowNotice('请先连接串口或开启模拟模式','error');return}var slot=Number(seqProject.slot);if(slots[slot]&&slots[slot].length&&!window.confirm('槽位 '+slot+' 已有 '+slots[slot].length+' 步，确认覆盖 FRAM？'))return;try{var compiled=seqCompileCurrent();await seqUpload(compiled.instrs);var r=await send('seq save '+slot);if(!commandOk(r,'seq save'))throw new Error('FRAM 保存失败');var back=parse(await send('seq dump '+slot));if(!seqRawEqual(compiled.instrs,back))throw new Error('FRAM 保存后的回读比对失败');slots[slot]=back;seqShowNotice('已保存到 FRAM 槽位 '+slot+'，并通过回读比对','ok');await refreshSlots()}catch(e){seqShowNotice(e.message,'error');logc('tx','[保存失败] '+e.message)}}
+async function seqWaitForEmergencyStop(){
+  if(seqEmergencyStopPromise)await seqEmergencyStopPromise;
+}
+function seqRunStartError(response){
+  var detail=String(response).trim()||'设备无响应';
+  if(/run start:\s*not-initialized/i.test(detail)){
+    return '设备存在锁存故障，急停不会清除安全故障；请排除故障并复位设备后再试';
+  }
+  return '启动失败：'+detail;
+}
+async function runSlot(){if((!writer&&!simMode)||!seqProject){seqShowNotice('请先连接串口或开启模拟模式','error');return}var backup=[];try{await seqWaitForEmergencyStop();var operationEpoch=seqOperationEpoch;var compiled=seqCompileCurrent();backup=seqParseRunDump(await send('run dump'));seqAssertOperationActive(operationEpoch);await seqUpload(compiled.instrs,operationEpoch);var start=await send('run start');seqAssertOperationActive(operationEpoch);if(!commandOk(start,'run start'))throw new Error(seqRunStartError(start));seqShowNotice('当前画布已在 RAM 中启动，未写入 FRAM','ok');seqStartPolling()}catch(e){try{await seqWaitForEmergencyStop()}catch(stopError){if(e.seqCancelled)e=stopError}await seqRestoreRam(backup);seqShowNotice(e.message,'error');logc('tx','[试运行失败] '+e.message)}}
+async function saveSlot(){if((!writer&&!simMode)||!seqProject){seqShowNotice('请先连接串口或开启模拟模式','error');return}var slot=Number(seqProject.slot);if(slots[slot]&&slots[slot].length&&!window.confirm('槽位 '+slot+' 已有 '+slots[slot].length+' 步，确认覆盖 FRAM？'))return;try{await seqWaitForEmergencyStop();var operationEpoch=seqOperationEpoch;var compiled=seqCompileCurrent();await seqUpload(compiled.instrs,operationEpoch);var r=await send('seq save '+slot,{timeoutMs:2500});seqAssertOperationActive(operationEpoch);var back=parse(await send('seq dump '+slot,{timeoutMs:2500}));seqAssertOperationActive(operationEpoch);if(!commandOk(r,'seq save')&&!seqRawEqual(compiled.instrs,back))throw new Error('FRAM 保存失败：'+(r.trim()||'设备无响应'));if(!seqRawEqual(compiled.instrs,back))throw new Error('FRAM 保存后的回读比对失败');slots[slot]=back;seqShowNotice('已保存到 FRAM 槽位 '+slot+'，并通过回读比对','ok');await refreshSlots()}catch(e){seqShowNotice(e.message,'error');logc('tx','[保存失败] '+e.message)}}
 function seqParseStatus(text){var m=String(text).match(/run\s+(\d+)\/(\d+)\s+running=(\d).*?result=([^\s]+)/s);return m?{current:+m[1],count:+m[2],running:m[3]==='1',result:m[4]}:null}
 function seqStartPolling(){clearInterval(seqPollTimer);seqPollTimer=setInterval(async function(){try{var s=seqParseStatus(await send('run status'));if(!s)return;if(seqLastCompile&&s.current<seqLastCompile.nodeOrder.length)seqActiveNode=seqLastCompile.nodeOrder[s.current];else seqActiveNode=null;render();if(!s.running){clearInterval(seqPollTimer);seqPollTimer=null;seqShowNotice(s.result==='success'?'序列执行完成':'序列已停止：'+s.result,s.result==='success'?'ok':'error')}}catch(e){}},500)}
-async function seqEmergencyStop(){clearInterval(seqPollTimer);seqPollTimer=null;seqActiveNode=null;render();if(!writer&&!simMode){seqShowNotice('当前未连接设备','error');return}var commands=['run cancel','comp stop','heading stop','lf stop','chassis stop'];for(var i=0;i<commands.length;i++){try{await send(commands[i],{timeoutMs:700})}catch(e){}}seqShowNotice('已发送序列、比赛、航向、循迹和底盘停止命令','error')}
+async function seqPerformEmergencyStop(){
+  clearInterval(seqPollTimer);
+  seqPollTimer=null;
+  seqActiveNode=null;
+  render();
+  if(!writer&&!simMode){
+    seqShowNotice('当前未连接设备','error');
+    return;
+  }
+  var response=await send('estop',{timeoutMs:2200});
+  if(!commandOk(response,'estop')){
+    throw new Error('紧急停止未获设备确认：'+
+      (response.trim()||'设备无响应'));
+  }
+  seqShowNotice('设备已确认紧急停止','error');
+}
+async function seqEmergencyStop(){
+  if(seqEmergencyStopPromise)return seqEmergencyStopPromise;
+  seqOperationEpoch++;
+  seqEmergencyStopPromise=seqPerformEmergencyStop();
+  try{
+    return await seqEmergencyStopPromise;
+  }catch(error){
+    seqShowNotice(error.message,'error');
+    logc('tx','[紧急停止失败] '+error.message);
+  }finally{
+    seqEmergencyStopPromise=null;
+  }
+}
 function seqDownload(){var blob=new Blob([SC.serialize(seqProject)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(seqProject.name||'gugapi-sequence').replace(/[\\/:*?"<>|]/g,'_')+'.json';a.click();setTimeout(function(){URL.revokeObjectURL(a.href)},1000)}
 function seqBindUi(){seqBuildPalette();seqInitCanvas();$('btnSeqUndo').onclick=seqUndo;$('btnSeqRedo').onclick=seqRedo;$('btnSeqFit').onclick=seqFit;$('btnSeqLayout').onclick=seqAutoLayout;$('btnSeqNew').onclick=function(){if(window.confirm('新建工程会替换当前本地画布，继续吗？'))setSeqProject(SC.newProject('未命名流程',curSlot>=0?curSlot:7))};$('btnSeqExport').onclick=seqDownload;$('btnSeqImport').onclick=function(){$('seqFileInput').click()};$('seqFileInput').onchange=async function(){try{var text=await this.files[0].text();setSeqProject(SC.normalizeProject(JSON.parse(text)));seqShowNotice('工程导入成功','ok')}catch(e){seqShowNotice('导入失败：'+e.message,'error')}this.value=''};$('seqProjectName').onchange=function(){var before=seqSnapshot();seqProject.name=this.value.trim()||'未命名流程';seqCommit('已修改工程名称',before)};$('seqProjectSlot').onchange=function(){var before=seqSnapshot();seqProject.slot=Number(this.value);curSlot=seqProject.slot;seqCommit('已绑定槽位 '+seqProject.slot,before)};$('seqTemplate').onchange=function(){if(this.value==='')return;var p=SC.templates()[Number(this.value)];if(p){p.slot=seqProject.slot;setSeqProject(p);seqShowNotice('已载入模板“'+p.name+'”','ok')}this.value=''};$('btnSeqRun').onclick=runSlot;$('btnSeqSave').onclick=saveSlot;$('btnEmergencyStop').onclick=seqEmergencyStop;$('btnSeqHelp').onclick=function(){$('seqGuide').classList.add('show')};$('btnGuideClose').onclick=function(){$('seqGuide').classList.remove('show');localStorage.setItem('gugapi-seq-guide-seen','1')};var saved=localStorage.getItem(seqStorageKey());try{setSeqProject(saved?JSON.parse(saved):SC.templates()[0])}catch(e){setSeqProject(SC.templates()[0])}if(!localStorage.getItem('gugapi-seq-guide-seen'))$('seqGuide').classList.add('show')}
 var oldRender=render;render=function(){oldRender();if(seqProject){$('seqProjectName').value=seqProject.name;$('seqProjectSlot').value=String(seqProject.slot)}};

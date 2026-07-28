@@ -5,7 +5,7 @@ const OPC={1:'#89b4fa',2:'#fab387',3:'#a6e3a1',4:'#9399b2',5:'#f38ba8',6:'#cba6f
 const COND=['timeout','heading_reached','line_detected','line_lost','button','immediate','distance_reached'];
 let port=null,reader=null,writer=null,readableClosed=null,writableClosed=null;
 let curSlot=-1,instrs=[],selIdx=-1,slots=Array(8).fill(null);
-let rxBuf='',rxResolve=null,simMode=false;
+let rxBuf='',rxResolve=null,rxExpectedCommand='',simMode=false;
 var onSerialData=null,onSerialStateChange=null,commandQueue=Promise.resolve();
 var serialRouter=null;
 let simSlots=Array(8).fill(null),simInstrs=[],simRun={running:false,current:0,started:0,result:'idle'};
@@ -18,7 +18,11 @@ function shellTextReceived(text){
   logc('rx',text);
   if(typeof onSerialData==='function')onSerialData(text,'rx');
   rxBuf+=text;
-  if(/(?:^|\n)> $/.test(rxBuf)||rxBuf==='> '){
+  var responseComplete=typeof DashboardCore!=='undefined'&&
+    typeof DashboardCore.isShellCommandResponseComplete==='function'?
+      DashboardCore.isShellCommandResponseComplete(rxBuf,rxExpectedCommand):
+      (/(?:^|\n)> $/.test(rxBuf)||rxBuf==='> ');
+  if(responseComplete){
     if(rxResolve)rxResolve(rxBuf);
   }
 }
@@ -89,8 +93,37 @@ $('btnSim').onclick=async function(){
   await refreshSlots();
 };
 function send(cmd,options){var task=commandQueue.then(function(){return sendNow(cmd,options)});commandQueue=task.catch(function(){});return task}
-async function sendNow(cmd,options){if(!writer)return'';logc('tx','> '+cmd);if(typeof onSerialData==='function')onSerialData('> '+cmd+'\n','tx');if(simMode)return simResponse(cmd);rxBuf='';await writer.write(cmd+'\r\n');var timeoutMs=options&&options.timeoutMs?options.timeoutMs:1500;return new Promise(function(resolve){var settled=false,timer;function finish(text){if(settled)return;settled=true;clearTimeout(timer);if(rxResolve===finish)rxResolve=null;resolve(text)}rxResolve=finish;timer=setTimeout(function(){finish(rxBuf)},timeoutMs)})}
-function simResponse(cmd){var resp='';if(cmd.indexOf('seq dump ')===0){var s=+cmd.split(' ')[2],a=simSlots[s];resp='SEQ '+s+' '+(a?a.length:0)+'\r\n';(a||[]).forEach(function(x){resp+=OP[x.op]+' '+x.p1+' '+x.p2+' '+COND[x.until]+' '+(x.ons===255?'next':x.ons)+' '+(x.ont===255?'abort':x.ont)+'\r\n'});resp+='END\r\n> '}else if(cmd==='seq list'){for(var i=0;i<8;i++){var sl=simSlots[i];resp+='seq '+i+' '+(sl&&sl.length?'ok':'empty')+' count='+(sl?sl.length:0)+'\r\n'}resp+='> '}else if(cmd==='run clear'){simInstrs=[];simRun={running:false,current:0,started:0,result:'idle'};resp='run clear: ok\r\n> '}else if(cmd.indexOf('run add ')===0){var p=cmd.split(/\s+/),opKey=Object.keys(OP).find(function(k){return OP[k]===p[2]});simInstrs.push({op:+opKey,p1:+p[3],p2:+p[4],until:COND.indexOf(p[5]),ons:p[6]==='next'?255:+p[6],ont:p[7]==='abort'||p[7]==='next'?255:+p[7]});resp='run add: ok\r\n> '}else if(cmd==='run validate'){resp=simInstrs.length?'run validate ok count='+simInstrs.length+'\r\n> ':'run validate error index=255 field=table reason=empty\r\n> '}else if(cmd==='run dump'){resp='seq '+simInstrs.length+'\r\n';simInstrs.forEach(function(x,i){resp+=i+' '+OP[x.op]+' '+x.p1+' '+x.p2+' '+COND[x.until]+' '+x.ons+' '+x.ont+'\r\n'});resp+='> '}else if(cmd==='run start'){simRun={running:true,current:0,started:Date.now(),result:'running'};resp='run start: ok\r\n> '}else if(cmd==='run status'){if(simRun.running){var elapsed=Date.now()-simRun.started;simRun.current=Math.min(Math.max(0,simInstrs.length-1),Math.floor(elapsed/450));if(elapsed>Math.max(800,simInstrs.length*450)){simRun.running=false;simRun.current=simInstrs.length;simRun.result='success'}}resp='run '+simRun.current+'/'+simInstrs.length+' running='+(simRun.running?1:0)+' last='+(simRun.result==='success'?1:0)+(simRun.running&&simInstrs[simRun.current]?' cur='+OP[simInstrs[simRun.current].op]:'')+' result='+simRun.result+' status=ok reason=none fail_index=255 drive=0/0\r\n> '}else if(cmd==='run cancel'){simRun.running=false;simRun.result='cancelled';resp='run cancel: ok\r\n> '}else if(cmd.indexOf('seq save ')===0){var saveSlot=+cmd.split(' ')[2];simSlots[saveSlot]=simInstrs.map(function(x){return Object.assign({},x)});resp='seq save: ok\r\n> '}else if(cmd.indexOf('seq del ')===0){simSlots[+cmd.split(' ')[2]]=null;resp='seq del: ok\r\n> '}else if(cmd==='param get max_wheel_rpm'){resp='max_wheel_rpm = 1000\r\n> '}else if(typeof paramSimCommand==='function'&&(cmd==='param'||cmd.indexOf('param ')===0||cmd==='comp status'||cmd==='reset'))resp=paramSimCommand(cmd);else if(cmd==='help')resp='commands: version reset sched led buzzer param gray imu motor chassis heading run lf road comp seq\r\n> ';else resp=cmd+': simulated\r\n> ';logc('rx',resp.replace(/\r/g,''));if(typeof onSerialData==='function')onSerialData(resp.replace(/\r/g,''),'rx');return new Promise(function(resolve){setTimeout(function(){resolve(resp)},35)})}
+async function sendNow(cmd,options){
+  if(!writer)return'';
+  logc('tx','> '+cmd);
+  if(typeof onSerialData==='function')onSerialData('> '+cmd+'\n','tx');
+  if(simMode)return simResponse(cmd);
+  rxBuf='';
+  rxExpectedCommand=cmd;
+  await writer.write(cmd+'\r\n');
+  var timeoutMs=options&&options.timeoutMs?options.timeoutMs:1500;
+  return new Promise(function(resolve){
+    var settled=false,timer;
+    function finish(text){
+      if(settled)return;
+      settled=true;
+      clearTimeout(timer);
+      if(rxResolve===finish){
+        rxResolve=null;
+        rxExpectedCommand='';
+      }
+      resolve(text);
+    }
+    rxResolve=finish;
+    timer=setTimeout(function(){finish(rxBuf)},timeoutMs);
+    if(typeof DashboardCore!=='undefined'&&
+       typeof DashboardCore.isShellCommandResponseComplete==='function'&&
+       DashboardCore.isShellCommandResponseComplete(rxBuf,cmd)){
+      finish(rxBuf);
+    }
+  });
+}
+function simResponse(cmd){var resp='';if(cmd.indexOf('seq dump ')===0){var s=+cmd.split(' ')[2],a=simSlots[s];resp='SEQ '+s+' '+(a?a.length:0)+'\r\n';(a||[]).forEach(function(x){resp+=OP[x.op]+' '+x.p1+' '+x.p2+' '+COND[x.until]+' '+(x.ons===255?'next':x.ons)+' '+(x.ont===255?'abort':x.ont)+'\r\n'});resp+='END\r\n> '}else if(cmd==='seq list'){for(var i=0;i<8;i++){var sl=simSlots[i];resp+='seq '+i+' '+(sl&&sl.length?'ok':'empty')+' count='+(sl?sl.length:0)+'\r\n'}resp+='> '}else if(cmd==='run clear'){simInstrs=[];simRun={running:false,current:0,started:0,result:'idle'};resp='run clear: ok\r\n> '}else if(cmd.indexOf('run add ')===0){var p=cmd.split(/\s+/),opKey=Object.keys(OP).find(function(k){return OP[k]===p[2]});simInstrs.push({op:+opKey,p1:+p[3],p2:+p[4],until:COND.indexOf(p[5]),ons:p[6]==='next'?255:+p[6],ont:p[7]==='abort'||p[7]==='next'?255:+p[7]});resp='run add: ok\r\n> '}else if(cmd==='run validate'){resp=simInstrs.length?'run validate ok count='+simInstrs.length+'\r\n> ':'run validate error index=255 field=table reason=empty\r\n> '}else if(cmd==='run dump'){resp='seq '+simInstrs.length+'\r\n';simInstrs.forEach(function(x,i){resp+=i+' '+OP[x.op]+' '+x.p1+' '+x.p2+' '+COND[x.until]+' '+x.ons+' '+x.ont+'\r\n'});resp+='> '}else if(cmd==='run start'){simRun={running:true,current:0,started:Date.now(),result:'running'};resp='run start: ok\r\n> '}else if(cmd==='run status'){if(simRun.running){var elapsed=Date.now()-simRun.started;simRun.current=Math.min(Math.max(0,simInstrs.length-1),Math.floor(elapsed/450));if(elapsed>Math.max(800,simInstrs.length*450)){simRun.running=false;simRun.current=simInstrs.length;simRun.result='success'}}resp='run '+simRun.current+'/'+simInstrs.length+' running='+(simRun.running?1:0)+' last='+(simRun.result==='success'?1:0)+(simRun.running&&simInstrs[simRun.current]?' cur='+OP[simInstrs[simRun.current].op]:'')+' result='+simRun.result+' status=ok reason=none fail_index=255 drive=0/0\r\n> '}else if(cmd==='run cancel'){simRun.running=false;simRun.result='cancelled';resp='run cancel: ok\r\n> '}else if(cmd==='estop'){simRun.running=false;simRun.result='cancelled';resp='estop: ok\r\n> '}else if(cmd.indexOf('seq save ')===0){var saveSlot=+cmd.split(' ')[2];simSlots[saveSlot]=simInstrs.map(function(x){return Object.assign({},x)});resp='seq save: ok\r\n> '}else if(cmd.indexOf('seq del ')===0){simSlots[+cmd.split(' ')[2]]=null;resp='seq del: ok\r\n> '}else if(cmd==='param get max_wheel_rpm'){resp='max_wheel_rpm = 1000\r\n> '}else if(typeof paramSimCommand==='function'&&(cmd==='param'||cmd.indexOf('param ')===0||cmd==='comp status'||cmd==='reset'))resp=paramSimCommand(cmd);else if(cmd==='help')resp='commands: version reset sched led buzzer param gray imu motor chassis heading run lf road comp seq estop\r\n> ';else resp=cmd+': simulated\r\n> ';logc('rx',resp.replace(/\r/g,''));if(typeof onSerialData==='function')onSerialData(resp.replace(/\r/g,''),'rx');return new Promise(function(resolve){setTimeout(function(){resolve(resp)},35)})}
 function parse(text){var lines=String(text).split(/\r?\n/),out=[],inside=false;for(var i=0;i<lines.length;i++){var line=lines[i].trim();if(/^SEQ\s/.test(line)){inside=true;continue}if(!inside)continue;if(line==='END'||line==='>')break;var p=line.split(/\s+/);if(p.length<6)continue;var opKey=Object.keys(OP).find(function(k){return OP[k]===p[0]});out.push({op:+opKey,p1:+p[1],p2:+p[2],until:COND.indexOf(p[3]),ons:p[4]==='next'?255:+p[4],ont:p[5]==='abort'||p[5]==='next'?255:+p[5]})}return out}
 async function refreshSlots(){for(var i=0;i<8;i++){var data=parse(await send('seq dump '+i));slots[i]=data.length?data:null;var el=$('slotInfo'+i);if(el){el.textContent=data.length?data.length+' 步':'空';el.style.color=data.length?'#a6e3a1':'#6c7086'}}if(typeof seqRefreshMaxRpm==='function')await seqRefreshMaxRpm()}
 function buildList(){$('slotList').innerHTML='';for(var i=0;i<8;i++){var c=document.createElement('button');c.className='slot-card';c.dataset.slot=i;c.type='button';c.innerHTML='<span>槽位 '+i+'</span><span id="slotInfo'+i+'">...</span>';c.onclick=(function(slot){return function(){selectSlot(slot)}})(i);$('slotList').appendChild(c)}}

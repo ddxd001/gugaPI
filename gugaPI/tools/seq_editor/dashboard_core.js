@@ -296,6 +296,16 @@
     }
   };
 
+  function isShellCommandResponseComplete(buffer,command){
+    var normalized=String(buffer||'').replace(/\r/g,'');
+    var expected=String(command||'').trim();
+    if(!expected||!/(?:^|\n)>\s*$/.test(normalized))return false;
+    return normalized.split('\n').some(function(line){
+      var candidate=line.trim().replace(/^>\s*/,'');
+      return candidate===expected;
+    });
+  }
+
   function csvEscape(value){
     var text=String(value===undefined?'':value);
     return /[",\r\n]/.test(text)?'"'+text.replace(/"/g,'""')+'"':text;
@@ -361,6 +371,7 @@
     describeValue:describeValue,
     TelemetryParser:TelemetryParser,
     SerialRouter:SerialRouter,
+    isShellCommandResponseComplete:isShellCommandResponseComplete,
     findNearestSample:findNearestSample,
     buildTimeline:buildTimeline,
     trimTimelineSamples:trimTimelineSamples,

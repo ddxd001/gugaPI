@@ -153,6 +153,26 @@ assert.strictEqual(telemetry[2].values.L_tgt,91);
 assert(text.join('').includes('> '),
   'prompt prefix must remain visible to shell command handling');
 
+assert.strictEqual(
+  core.isShellCommandResponseComplete(
+    '> \n#t,mode,step\n100,3,0\n> telem on motor 100\n'+
+    'telem: ok profile=motor period_ms=100\n> ',
+    'telem on motor 100'),
+  true,
+  'the prompt after the current command echo completes the response');
+assert.strictEqual(
+  core.isShellCommandResponseComplete(
+    '> \n#t,mode,step\n100,3,0\n',
+    'telem on motor 100'),
+  false,
+  'a stale prompt before the current command echo must be ignored');
+assert.strictEqual(
+  core.isShellCommandResponseComplete(
+    '> telem on heading 100\n',
+    'telem on heading 100'),
+  false,
+  'the command echo alone must not complete the response');
+
 const csv=core.exportCsv(
   ['t','mode'],
   [{
