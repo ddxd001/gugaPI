@@ -9,7 +9,7 @@ cd "${repo_root}"
 
 cxx="${CXX:-g++}"
 node_bin="${NODE:-node}"
-common_flags=(-std=c++17 -Wall -Wextra -Werror -IgugaPI)
+common_flags=(-std=c++17 -Wall -Wextra -Werror -Ihost_tests/stubs -IgugaPI)
 
 build_and_run() {
     local name="$1"
@@ -40,8 +40,15 @@ build_and_run linefollow_road_handoff \
 build_and_run road_event_controller \
     host_tests/road_event_controller_test.cpp \
     gugaPI/app/road_event_controller.cpp
+build_and_run action_runner \
+    host_tests/action_runner_test.cpp \
+    gugaPI/app/action.cpp \
+    gugaPI/app/seq_store.cpp
 
 echo "[host-test] shell_command_catalog"
 "${node_bin}" host_tests/shell_command_catalog_test.js
+
+echo "[host-test] sequence_core"
+"${node_bin}" host_tests/sequence_core_test.js
 
 echo "[host-test] all tests passed"

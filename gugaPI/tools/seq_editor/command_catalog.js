@@ -263,9 +263,9 @@ var SHELL_COMMAND_LIBRARY=[
     ]),
 
   ShellCommand('run','RAM动作序列','流程',
-    '在RAM中构建、检查和执行最多16步的动作状态机。','M',BOTH,[
-      ShellForm('run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>','追加动作；op支持drive、drive_mm、turn、follow、wait、stop、branch、end。','W'),
-      ShellForm('run clear|start|cancel|status|dump','清空、启动、取消、查看状态或导出RAM动作序列。','M')
+    '在 RAM 中构建、检查和执行最多 64 步的动作状态机。','M',BOTH,[
+      ShellForm('run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>','追加动作；支持运动、等待、分支、结束及 LED/蜂鸣器共 14 种操作码。','W'),
+      ShellForm('run clear|validate|start|cancel|status|dump','清空、校验、启动、取消、查看状态或导出 RAM 动作序列；validate 返回首个错误字段。','M')
     ],'start可能产生运动；建议先run dump核对每一步和跳转目标。'),
 
   ShellCommand('lf','灰度循迹控制','运动',

@@ -1,161 +1,38 @@
-﻿var vb={x:0,y:0,w:800,h:600};
-var panning=false,px=0,py=0;
-function updVB(){$('flow').setAttribute('viewBox',vb.x+' '+vb.y+' '+vb.w+' '+vb.h)}
-var cv=$('canvas');
-cv.addEventListener('mousedown',function(e){if(e.button!==0)return;panning=true;px=e.clientX;py=e.clientY});
-window.addEventListener('mousemove',function(e){if(!panning)return;var dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;var r=cv.getBoundingClientRect();vb.x-=dx*(vb.w/r.width);vb.y-=dy*(vb.h/r.height);updVB()});
-window.addEventListener('mouseup',function(){panning=false});
-cv.addEventListener('wheel',function(e){e.preventDefault();var r=cv.getBoundingClientRect();var mx=(e.clientX-r.left)/r.width,my=(e.clientY-r.top)/r.height;var f=e.deltaY>0?1.15:0.87;vb.x+=(vb.w-vb.w*f)*mx;vb.y+=(vb.h-vb.h*f)*my;vb.w*=f;vb.h*=f;updVB()},{passive:false});
-var NW=120,NH=50,DY=90,GAP=40;
-var BL={0:['timeout','no timeout'],1:['reached','not reached'],2:['line found','no line'],3:['line lost','line exists'],4:['button','no button'],5:['always','never'],6:['distance reached','moving']};
-
-function buildGraph(){
-var nodes=[],edges=[],ns={};
-function add(id){if(!ns[id]){ns[id]=1;nodes.push(id)}}
-add(0);
-for(var i=0;i<instrs.length;i++){
-var ins=instrs[i],isB=ins.op===6;
-var s=ins.ons===255?i+1:ins.ons,t=ins.ont;
-var sl,fl;
-if(isB){var b=BL[ins.until]||['true','false'];sl=b[0];fl=b[1]}else{sl='ok';fl='fail'}
-if(s<instrs.length){add(s);edges.push({f:i,t:s,tp:'succ',lb:sl,br:isB})}
-else if(ins.op===7){add('done');edges.push({f:i,t:'done',tp:'succ',lb:sl,br:isB})}
-if(isB&&t!==255&&t<instrs.length){add(t);edges.push({f:i,t:t,tp:'fail',lb:fl,br:isB})}
-}
-var reach={0:1},q=[0];
-while(q.length){var n=q.shift();edges.forEach(function(e){if(e.f===n&&!reach[e.t]){reach[e.t]=1;q.push(e.t)}})}
-return{nodes:nodes,edges:edges,reach:reach}
-}
-function sugiyama(){
-var g=buildGraph(),nodes=g.nodes,edges=g.edges,reach=g.reach;
-var rn=nodes.filter(function(n){return reach[n]});
-var layer={};
-var ch=true,it=0;
-while(ch&&it<100){ch=false;it++;edges.forEach(function(e){if(reach[e.f]&&reach[e.t]){var nl=(layer[e.f]||0)+1;if((layer[e.t]||0)<nl){layer[e.t]=nl;ch=true}}})}
-var maxL=0;rn.forEach(function(n){if((layer[n]||0)>maxL)maxL=layer[n]||0});
-var layers=[];for(var l=0;l<=maxL;l++)layers[l]=[];
-rn.forEach(function(n){layers[layer[n]||0].push(n)});
-layers=layers.filter(function(l){return l.length>0});
-var lm={};layers.forEach(function(ln,li){ln.forEach(function(n){lm[n]=li})});
-var did=10000,dm={};
-edges.forEach(function(e){if(!reach[e.f]||!reach[e.t])return;var lf=lm[e.f],lt=lm[e.t];if(lt>lf+1){e.path=[e.f];for(var d=lf+1;d<lt;d++){var id=++did;dm[id]=1;layers[d].push(id);lm[id]=d;e.path.push(id)}e.path.push(e.t)}});
-function bary(node,ali){
-var sum=0,cnt=0;
-layers[ali].forEach(function(o,i){edges.forEach(function(e){if(!e.path){if(e.f===node&&e.t===o){sum+=i;cnt++}if(e.f===o&&e.t===node){sum+=i;cnt++}}})});
-edges.forEach(function(e){if(e.path){e.path.forEach(function(pid,idx){if(pid===node&&idx>0){var pv=e.path[idx-1];if(lm[pv]===ali){var pi=layers[ali].indexOf(pv);if(pi>=0){sum+=pi;cnt++}}}if(pid===node&&idx<e.path.length-1){var nx=e.path[idx+1];if(lm[nx]===ali){var ni=layers[ali].indexOf(nx);if(ni>=0){sum+=ni;cnt++}}}})}});
-return cnt>0?sum/cnt:-1}
-for(var pass=0;pass<24;pass++){
-if(pass%2===0){for(var li=1;li<layers.length;li++){layers[li].sort(function(a,b){return bary(a,li-1)-bary(b,li-1)})}}
-else{for(var li2=layers.length-2;li2>=0;li2--){layers[li2].sort(function(a,b){return bary(a,li2+1)-bary(b,li2+1)})}}
-}
-var pos={},maxW=0;
-layers.forEach(function(ln){var w=ln.length*(NW+GAP);if(w>maxW)maxW=w});
-layers.forEach(function(ln,li){var w=ln.length*(NW+GAP);var sx=(maxW-w)/2;ln.forEach(function(n,i){pos[n]={x:sx+i*(NW+GAP),y:li*DY}})});
-var uc=0,ml=layers.length;
-nodes.forEach(function(n){if(!reach[n]&&n!==0){pos[n]={x:maxW/2-NW/2,y:(ml+uc)*DY};uc++}});
-var hd=edges.some(function(e){return e.t==='done'});
-var ty=ml*DY;
-if(hd){var dc=layers.filter(function(l){return l.indexOf('done')>=0}).length;if(dc===0){pos['done']={x:0,y:ty};ml++}}
-return{pos:pos,edges:edges,reach:reach,hasDone:hd,hasAbort:false}
-}
-
+'use strict';
+var SC=window.SequenceCore;
+var seqProject=null,seqSelectedNode=null,seqSelectedEdge=null,seqActiveNode=null;
+var seqHistory=[],seqFuture=[],seqView={x:0,y:0,w:1200,h:720},seqDrag=null,seqWire=null;
+var SEQ_W=176,SEQ_H=84;
+function seqEsc(s){return String(s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function seqStorageKey(){return'gugapi-sequence-project-v1'}
+function seqSnapshot(){return JSON.stringify(seqProject)}
+function seqSaveLocal(){if(!seqProject)return;seqProject.updatedAt=new Date().toISOString();localStorage.setItem(seqStorageKey(),JSON.stringify(seqProject));var el=$('seqAutosave');if(el)el.textContent='已自动保存 '+new Date().toLocaleTimeString()}
+function seqCommit(label,before){if(!seqProject)return;var snap=before||seqSnapshot();if(!seqHistory.length||seqHistory[seqHistory.length-1]!==snap)seqHistory.push(snap);if(seqHistory.length>80)seqHistory.shift();seqFuture=[];seqSaveLocal();render();edit();seqShowNotice(label||'已更新','ok')}
+function seqUndo(){if(!seqHistory.length||!seqProject)return;seqFuture.push(seqSnapshot());seqProject=JSON.parse(seqHistory.pop());seqSelectedNode=null;seqSelectedEdge=null;seqSaveLocal();render();edit()}
+function seqRedo(){if(!seqFuture.length||!seqProject)return;seqHistory.push(seqSnapshot());seqProject=JSON.parse(seqFuture.pop());seqSelectedNode=null;seqSelectedEdge=null;seqSaveLocal();render();edit()}
+function setSeqProject(project,keepHistory){seqProject=SC.normalizeProject(project);seqSelectedNode=null;seqSelectedEdge=null;seqActiveNode=null;if(!keepHistory){seqHistory=[];seqFuture=[]}seqSaveLocal();render();edit()}
+function seqNode(id){return seqProject&&seqProject.nodes.find(function(n){return n.id===id})}
+function seqNodeSize(n){return(n.type==='system_start'||n.type==='system_abort')?{w:148,h:58}:{w:SEQ_W,h:SEQ_H}}
+function seqSummary(n){var p=n.params||{};switch(n.type){case'drive':return p.rpm+' RPM · '+p.timeoutMs+' ms';case'drive_mm':return p.distanceMm+' mm · ≤'+p.maxRpm+' RPM';case'turn':return(p.angleDeg>0?'左 ':'右 ')+Math.abs(p.angleDeg)+'° · '+p.timeoutMs+' ms';case'follow':return p.rpm+' RPM · '+SC.COND_LABELS[p.condition];case'wait':return SC.COND_LABELS[p.condition]+' · '+p.timeoutMs+' ms';case'branch':return SC.COND_LABELS[p.condition];case'led_on':case'led_toggle':return(p.target===0?'LED2+LED3':'LED'+p.target)+' · '+p.durationMs+' ms';case'led_off':return p.target===0?'LED2+LED3':'LED'+p.target;case'buzzer_on':case'buzzer_toggle':return p.durationMs+' ms';default:return''}}
+function seqPortLabel(n,port){if(n.type==='system_start')return'开始';if(n.type==='branch')return port==='success'?'条件成立':'条件不成立';return port==='success'?'完成':'失败/超时'}
+function seqPortPoint(n,port){var s=seqNodeSize(n);return{x:n.x+s.w,y:n.y+(port==='success'?30:s.h-22)}}
+function seqInputPoint(n){var s=seqNodeSize(n);return{x:n.x,y:n.y+s.h/2}}
+function seqPath(a,b){var dx=Math.max(50,Math.abs(b.x-a.x)*.45),c1=a.x+dx,c2=b.x-dx;return'M '+a.x+' '+a.y+' C '+c1+' '+a.y+', '+c2+' '+b.y+', '+b.x+' '+b.y}
+function seqViewApply(){$('flow').setAttribute('viewBox',[seqView.x,seqView.y,seqView.w,seqView.h].join(' '))}
 function render(){
-var svg=$('flow');
-if(!instrs.length){svg.innerHTML='<text x="50" y="50" fill="#6c7086" font-size="16">No instructions</text>';vb={x:0,y:0,w:800,h:600};updVB();return}
-var L=sugiyama(),pos=L.pos,edges=L.edges,reach=L.reach;
-var mnX=1e9,mxX=-1e9,mnY=1e9,mxY=-1e9;
-Object.keys(pos).forEach(function(id){var p=pos[id];if(p.x<mnX)mnX=p.x;if(p.x>mxX)mxX=p.x;if(p.y<mnY)mnY=p.y;if(p.y>mxY)mxY=p.y});
-if(mnX>1e8){mnX=0;mxX=800;mnY=0;mxY=600}
-var pad=80;
-vb={x:mnX-pad,y:mnY-pad,w:(mxX-mnX)+NW+pad*2,h:(mxY-mnY)+NH+pad*2};updVB();
-var h='<defs>';
-h+='<marker id="mao" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0L10,5L0,10Z" fill="#a6e3a1"/></marker>';
-h+='<marker id="mat" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0L10,5L0,10Z" fill="#f38ba8"/></marker>';
-h+='<marker id="mab" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto"><path d="M0,0L10,5L0,10Z" fill="#cdd6f4"/></marker>';
-h+='</defs>';
-// Collect all node bounding boxes for collision check
-var boxes=[];
-instrs.forEach(function(ins,i){var p=pos[i];if(p)boxes.push({x:p.x,y:p.y,w:NW,h:NH,id:i})});
-function segHitsBox(x1,y1,x2,y2,bx,by,bw,bh){
-if(y1===y2){return y1>=by&&y1<=by+bh&&Math.min(x1,x2)<=bx+bw&&Math.max(x1,x2)>=bx}
-if(x1===x2){return x1>=bx&&x1<=bx+bw&&Math.min(y1,y2)<=by+bh&&Math.max(y1,y2)>=by}
-return false}
-function findClearY(y1,y2,preferDown){
-var mid=(y1+y2)/2;
-// Try mid, then offset further into gap
-for(var off=2;off<(y2-y1)/2;off+=3){
-var ty=preferDown?mid+off:mid-off;
-if(ty<=y1||ty>=y2)continue;
-var clear=true;
-for(var bi=0;bi<boxes.length;bi++){var b=boxes[bi];if(ty>=b.y&&ty<=b.y+b.h){clear=false;break}}
-if(clear)return ty;
+ var svg=$('flow');if(!svg||!seqProject)return;var issues=SC.validate(seqProject,{maxRpm:window.seqMaxRpm||1000}).issues,bad={};issues.forEach(function(i){if(i.nodeId&&i.severity==='error')bad[i.nodeId]=1});var by={};seqProject.nodes.forEach(function(n){by[n.id]=n});var h='<defs><marker id="seqArrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0L9,4.5L0,9Z" fill="#7f8da3"/></marker><marker id="seqArrowBad" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0,0L9,4.5L0,9Z" fill="#e06c75"/></marker><pattern id="seqGrid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M24 0H0V24" fill="none" stroke="#303443" stroke-width="1"/></pattern></defs><rect class="seq-bg" x="-5000" y="-5000" width="10000" height="10000" fill="url(#seqGrid)"/>';
+ seqProject.edges.forEach(function(e){var s=by[e.source],t=by[e.target];if(!s||!t)return;var a=seqPortPoint(s,e.port),b=seqInputPoint(t),selected=e.id===seqSelectedEdge,col=e.port==='failure'?'#e06c75':'#79bf8a',d=seqPath(a,b);h+='<g class="seq-edge '+(selected?'selected':'')+'" data-edge="'+seqEsc(e.id)+'"><path class="seq-edge-hit" d="'+d+'"/><path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="'+(selected?4:2.2)+'" '+(e.port==='failure'?'stroke-dasharray="7 5"':'')+' marker-end="url(#seqArrow)"/><text x="'+(a.x+12)+'" y="'+(a.y-7)+'">'+seqEsc(seqPortLabel(s,e.port))+'</text></g>'});
+ if(seqWire){h+='<path id="seqWirePreview" d="'+seqPath(seqWire.from,seqWire.to)+'" fill="none" stroke="#f1c75b" stroke-width="2.5" stroke-dasharray="6 4" pointer-events="none"/>'}
+ seqProject.nodes.forEach(function(n){var sys=n.type.indexOf('system_')===0,s=seqNodeSize(n),a=SC.ACTIONS[n.type],name=n.type==='system_start'?'开始':n.type==='system_abort'?'中止':a.name,color=sys?(n.type==='system_start'?'#5caf7d':'#d95c72'):a.color,cls=['seq-node'];if(seqSelectedNode===n.id)cls.push('selected');if(seqActiveNode===n.id)cls.push('active');if(bad[n.id])cls.push('invalid');h+='<g class="'+cls.join(' ')+'" data-node="'+seqEsc(n.id)+'" transform="translate('+n.x+' '+n.y+')"><rect width="'+s.w+'" height="'+s.h+'" rx="'+(sys?29:10)+'" fill="#202632" stroke="'+color+'"/><rect width="6" height="'+s.h+'" rx="3" fill="'+color+'"/>'+(n.type!=='system_start'?'<circle class="seq-input" cx="0" cy="'+(s.h/2)+'" r="6"/>':'')+'<text class="seq-title" x="18" y="25">'+seqEsc(name)+'</text>'+(sys?'<text class="seq-sub" x="18" y="43">'+(n.type==='system_start'?'流程入口':'失败路径终点')+'</text>':'<text class="seq-op" x="18" y="43">'+seqEsc(n.type+' · op '+a.op)+'</text><text class="seq-sub" x="18" y="64">'+seqEsc(seqSummary(n))+'</text>');SC.ports(n.type).forEach(function(port){var y=port==='success'?30:s.h-22,label=seqPortLabel(n,port);h+='<text class="seq-port-label" text-anchor="end" x="'+(s.w-12)+'" y="'+(y+4)+'">'+seqEsc(label)+'</text><g class="seq-port" role="button" aria-label="'+seqEsc(name+'：'+label+'端口')+'" data-port="'+port+'" data-source="'+seqEsc(n.id)+'"><circle cx="'+s.w+'" cy="'+y+'" r="8"/></g>'});h+='</g>'});
+ svg.innerHTML=h;seqViewApply();var count=seqProject.nodes.filter(function(n){return SC.ACTIONS[n.type]}).length;$('seqCount').textContent=count+'/64 步';var state=$('seqValidationState');var errors=issues.filter(function(i){return i.severity==='error'}).length,warns=issues.length-errors;state.textContent=errors?errors+' 个错误':warns?warns+' 个提醒':'流程检查通过';state.className=errors?'bad':warns?'warn':'ok';
 }
-return mid}
-edges.forEach(function(e){
-if(!reach[e.f])return;
-var fp=pos[e.f],tp=pos[e.t];if(!fp||!tp)return;
-var fx,fy,tx=tp.x+NW/2,ty=tp.y;
-if(e.br){
-var sib=edges.filter(function(o){return o.br&&o.f===e.f&&o.tp!==e.tp&&reach[o.f]});
-var swap=false;
-if(sib.length>0){var sp=pos[sib[0].t];if(sp){if(e.tp==='succ'&&tp.x>sp.x)swap=true;if(e.tp==='fail'&&tp.x<sp.x)swap=true}}
-var goLeft=(e.tp==='succ'&&!swap)||(e.tp==='fail'&&swap);
-fx=goLeft?fp.x+NW/2-NW/4:fp.x+NW/2+NW/4;
-fy=fp.y+NH/2+NH/3;
-}
-else{fx=fp.x+NW/2;fy=fp.y+NH}
-var col=e.br?'#cdd6f4':(e.tp==='succ'?'#a6e3a1':'#f38ba8');
-var dash=e.tp==='fail'&&!e.br?'stroke-dasharray="5,3"':'';
-var mk='url(#'+(e.br?'mab':(e.tp==='succ'?'mao':'mat'))+')';
-// Build orthogonal path through gap midpoints
-var pts=[[fx,fy]];
-if(e.path&&e.path.length>2){
-for(var pi=1;pi<e.path.length-1;pi++){
-var pp=pos[e.path[pi]];if(!pp)continue;
-var px2=pp.x+NW/2,py2=pp.y;
-var gapMid=findClearY(pts[pts.length-1][1],py2,true);
-pts.push([pts[pts.length-1][0],gapMid]);
-pts.push([px2,gapMid]);
-pts.push([px2,py2+NH]);
-}}
-// Final segment to target
-var lastY=pts[pts.length-1][1];
-var gapMid2=findClearY(Math.min(lastY,ty),Math.max(lastY,ty),ty>lastY);
-if(Math.abs(pts[pts.length-1][0]-tx)<5){
-pts.push([tx,ty]);
-}else{
-pts.push([pts[pts.length-1][0],gapMid2]);
-pts.push([tx,gapMid2]);
-pts.push([tx,ty]);
-}
-var d='M'+pts[0][0]+','+pts[0][1];
-for(var pi2=1;pi2<pts.length;pi2++){d+=' L'+pts[pi2][0]+','+pts[pi2][1]}
-h+='<path d="'+d+'" stroke="'+col+'" stroke-width="2" fill="none" '+dash+' marker-end="'+mk+'" />';
-// Label near first bend
-var ly2=pts.length>2?pts[1][1]:(fy+ty)/2;
-var lx2=pts.length>2?pts[1][0]+8:fx+12;
-h+='<text class="arrow-label" x="'+lx2+'" y="'+(ly2-3)+'" fill="'+col+'" style="font-size:10px;font-weight:600">'+e.lb+'</text>';
-});
-if(L.hasDone){var dp=pos['done'];if(dp)h+='<g><rect x="'+dp.x+'" y="'+dp.y+'" width="'+NW+'" height="'+NH+'" rx="25" fill="#a6e3a1" opacity="0.2" stroke="#a6e3a1" stroke-width="2"/><text x="'+(dp.x+NW/2)+'" y="'+(dp.y+30)+'" text-anchor="middle" fill="#a6e3a1" font-size="13" font-weight="600">DONE</text></g>'}
-instrs.forEach(function(ins,i){
-var p=pos[i];if(!p)return;
-var c=OPC[ins.op]||'#585b70',l=OPL[ins.op]||'?',sel=i===selIdx,unreach=!reach[i]&&i!==0;
-var d='';
-if(ins.op===1)d=ins.p1+'RPM '+ins.p2+'ms';else if(ins.op===2)d=ins.p1+'deg '+ins.p2+'ms';
-else if(ins.op===3)d=ins.p1+'RPM';else if(ins.op===4)d=ins.p2+'ms';else if(ins.op===6)d=COND[ins.until];
-else if(ins.op===8)d=ins.p1+'mm @ '+ins.p2+'RPM';
-else if(ins.op>=9&&ins.op<=11)d=(ins.p1===0?'LED2+3':'LED'+ins.p1)+(ins.p2?' '+ins.p2+'ms':'');
-else if(ins.op>=12&&ins.op<=14)d=ins.p2?ins.p2+'ms':'persistent';
-var sw=sel?2:(unreach?1:0),st=sel?'#fff':(unreach?'#6c7086':'none'),da=unreach?' stroke-dasharray="3,3"':'';
-if(ins.op===6){
-var cx=p.x+NW/2,cy=p.y+NH/2,dw=NW+20,dh=NH+20;
-var pts=cx+','+(cy-dh/2)+' '+(cx+dw/2)+','+cy+' '+cx+','+(cy+dh/2)+' '+(cx-dw/2)+','+cy;
-h+='<g class="instr-node" style="cursor:pointer" onclick="sel('+i+')"><polygon points="'+pts+'" fill="'+c+'" opacity="'+(sel?0.9:0.75)+'" stroke="'+st+'" stroke-width="'+sw+'"'+da+'/><text x="'+cx+'" y="'+(cy-2)+'" text-anchor="middle" fill="#1e1e2e" font-size="12" font-weight="600">'+i+': '+l+'</text><text x="'+cx+'" y="'+(cy+14)+'" text-anchor="middle" fill="#1e1e2e" font-size="9">'+d+'</text></g>';
-}else if(ins.op===5||ins.op===7){
-h+='<g class="instr-node" style="cursor:pointer" onclick="sel('+i+')"><rect x="'+p.x+'" y="'+p.y+'" width="'+NW+'" height="'+NH+'" rx="25" fill="'+c+'" opacity="'+(sel?1:0.85)+'" stroke="'+st+'" stroke-width="'+sw+'"'+da+'/><text x="'+(p.x+NW/2)+'" y="'+(p.y+20)+'" text-anchor="middle" fill="#1e1e2e" font-size="13" font-weight="600">'+i+': '+l+'</text><text x="'+(p.x+NW/2)+'" y="'+(p.y+37)+'" text-anchor="middle" fill="#1e1e2e" font-size="10">'+d+'</text></g>';
-}else{
-h+='<g class="instr-node" style="cursor:pointer" onclick="sel('+i+')"><rect x="'+p.x+'" y="'+p.y+'" width="'+NW+'" height="'+NH+'" rx="6" fill="'+c+'" opacity="'+(sel?1:0.85)+'" stroke="'+st+'" stroke-width="'+sw+'"'+da+'/><text x="'+(p.x+NW/2)+'" y="'+(p.y+20)+'" text-anchor="middle" fill="#1e1e2e" font-size="13" font-weight="600">'+i+': '+l+'</text><text x="'+(p.x+NW/2)+'" y="'+(p.y+37)+'" text-anchor="middle" fill="#1e1e2e" font-size="10">'+d+'</text></g>';
-}});
-svg.innerHTML=h;
-}
-function sel(i){selIdx=i;render();edit()}
+function seqWorld(e){var svg=$('flow'),matrix=svg.getScreenCTM();if(matrix){var point=svg.createSVGPoint();point.x=e.clientX;point.y=e.clientY;var world=point.matrixTransform(matrix.inverse());return{x:world.x,y:world.y}}var r=svg.getBoundingClientRect();return{x:seqView.x+(e.clientX-r.left)/r.width*seqView.w,y:seqView.y+(e.clientY-r.top)/r.height*seqView.h}}
+function seqUpdateWirePreview(){var preview=$('seqWirePreview');if(!preview&&seqWire){render();preview=$('seqWirePreview')}if(preview&&seqWire)preview.setAttribute('d',seqPath(seqWire.from,seqWire.to))}
+function seqFixWirePointerEvents(){$('flow').addEventListener('pointermove',function(e){if(!seqWire)return;e.stopImmediatePropagation();seqWire.to=seqWorld(e);seqUpdateWirePreview()},true)}
+function seqSelectNode(id){seqSelectedNode=id;seqSelectedEdge=null;render();edit()}
+function seqDeleteSelection(){if(!seqProject)return;if(seqSelectedEdge){var b=seqSnapshot();seqProject.edges=seqProject.edges.filter(function(e){return e.id!==seqSelectedEdge});seqSelectedEdge=null;seqCommit('已删除连线',b);return}var n=seqNode(seqSelectedNode);if(!n||n.type.indexOf('system_')===0)return;var before=seqSnapshot();seqProject.nodes=seqProject.nodes.filter(function(x){return x.id!==n.id});seqProject.edges=seqProject.edges.filter(function(e){return e.source!==n.id&&e.target!==n.id});seqSelectedNode=null;seqCommit('已删除动作块',before)}
+function seqDuplicate(){var n=seqNode(seqSelectedNode);if(!n||!SC.ACTIONS[n.type])return;var before=seqSnapshot(),copy=SC.clone(n);copy.id=SC.uid('n');copy.x+=36;copy.y+=36;copy.createdOrder=Math.max.apply(null,seqProject.nodes.map(function(x){return x.createdOrder||0}))+1;seqProject.nodes.push(copy);seqSelectedNode=copy.id;seqCommit('已复制动作块',before)}
+function seqAutoLayout(){if(!seqProject)return;var before=seqSnapshot();SC.autoLayout(seqProject);seqCommit('已自动布局',before);seqFit()}
+function seqFit(){if(!seqProject||!seqProject.nodes.length)return;var minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;seqProject.nodes.forEach(function(n){var s=seqNodeSize(n);minX=Math.min(minX,n.x);minY=Math.min(minY,n.y);maxX=Math.max(maxX,n.x+s.w);maxY=Math.max(maxY,n.y+s.h)});var pad=100;seqView={x:minX-pad,y:minY-pad,w:Math.max(600,maxX-minX+pad*2),h:Math.max(420,maxY-minY+pad*2)};seqViewApply()}
+function seqInitCanvas(){var svg=$('flow'),canvas=$('canvas');svg.addEventListener('pointerdown',function(e){var portEl=e.target.closest('.seq-port');if(portEl){e.stopPropagation();var n=seqNode(portEl.dataset.source),before=seqSnapshot();seqWire={source:n.id,port:portEl.dataset.port,from:seqPortPoint(n,portEl.dataset.port),to:seqWorld(e),before:before};svg.setPointerCapture(e.pointerId);return}var edge=e.target.closest('.seq-edge');if(edge){seqSelectedEdge=edge.dataset.edge;seqSelectedNode=null;render();edit();return}var nodeEl=e.target.closest('.seq-node');if(nodeEl){var n2=seqNode(nodeEl.dataset.node);seqSelectNode(n2.id);seqDrag={kind:'node',id:n2.id,start:seqWorld(e),x:n2.x,y:n2.y,before:seqSnapshot(),moved:false};svg.setPointerCapture(e.pointerId);return}seqSelectedNode=null;seqSelectedEdge=null;var matrix=svg.getScreenCTM(),scaleX=matrix?Math.sqrt(matrix.a*matrix.a+matrix.b*matrix.b):svg.getBoundingClientRect().width/seqView.w,scaleY=matrix?Math.sqrt(matrix.c*matrix.c+matrix.d*matrix.d):svg.getBoundingClientRect().height/seqView.h;seqDrag={kind:'pan',cx:e.clientX,cy:e.clientY,scaleX:scaleX||1,scaleY:scaleY||1,view:SC.clone(seqView)};svg.setPointerCapture(e.pointerId);render();edit()});svg.addEventListener('pointermove',function(e){if(seqWire){seqWire.to=seqWorld(e);render();return}if(!seqDrag)return;if(seqDrag.kind==='node'){var p=seqWorld(e),n=seqNode(seqDrag.id);n.x=Math.round((seqDrag.x+p.x-seqDrag.start.x)/8)*8;n.y=Math.round((seqDrag.y+p.y-seqDrag.start.y)/8)*8;seqDrag.moved=true;render()}else{seqView.x=seqDrag.view.x-(e.clientX-seqDrag.cx)/seqDrag.scaleX;seqView.y=seqDrag.view.y-(e.clientY-seqDrag.cy)/seqDrag.scaleY;seqViewApply()}});svg.addEventListener('pointerup',function(e){if(seqWire){var hit=document.elementFromPoint(e.clientX,e.clientY),nodeEl=hit&&hit.closest('.seq-node'),target=nodeEl&&nodeEl.dataset.node;if(target&&target!==seqWire.source){SC.connect(seqProject,seqWire.source,seqWire.port,target);var before=seqWire.before;seqWire=null;seqCommit('已建立连线',before)}else{seqWire=null;render()}return}if(seqDrag&&seqDrag.kind==='node'&&seqDrag.moved)seqCommit('已移动动作块',seqDrag.before);seqDrag=null});svg.addEventListener('wheel',function(e){e.preventDefault();var p=seqWorld(e),factor=e.deltaY>0?1.14:.88,newW=Math.max(360,Math.min(3600,seqView.w*factor)),newH=newW*(seqView.h/seqView.w);seqView.x=p.x-(p.x-seqView.x)*newW/seqView.w;seqView.y=p.y-(p.y-seqView.y)*newH/seqView.h;seqView.w=newW;seqView.h=newH;seqViewApply()},{passive:false});canvas.addEventListener('dragover',function(e){e.preventDefault();e.dataTransfer.dropEffect='copy'});canvas.addEventListener('drop',function(e){e.preventDefault();var type=e.dataTransfer.getData('application/x-gugapi-action');if(!SC.ACTIONS[type])return;var before=seqSnapshot(),p=seqWorld(e),order=Math.max.apply(null,seqProject.nodes.map(function(n){return n.createdOrder||0}))+1,n=SC.actionNode(type,p.x-SEQ_W/2,p.y-SEQ_H/2,order);seqProject.nodes.push(n);seqSelectedNode=n.id;seqCommit('已添加“'+SC.ACTIONS[type].name+'”',before)});window.addEventListener('keydown',function(e){if(e.target.matches('input,select,textarea'))return;if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='z'){e.preventDefault();e.shiftKey?seqRedo():seqUndo()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='y'){e.preventDefault();seqRedo()}else if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){e.preventDefault();seqDuplicate()}else if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();seqDeleteSelection()}})}
+function seqBuildPalette(){var box=$('actionPalette'),groups={};Object.keys(SC.ACTIONS).forEach(function(k){var a=SC.ACTIONS[k];(groups[a.group]||(groups[a.group]=[])).push({type:k,a:a})});box.innerHTML=Object.keys(groups).map(function(g){return'<section><h4>'+g+'</h4>'+groups[g].map(function(x){var danger=x.a.group==='运动';return'<button class="action-item'+(danger?' motion-risk':'')+'" draggable="true" data-action="'+x.type+'" title="'+seqEsc((danger?'危险动作：可能驱动车轮。':'')+x.a.help)+'"><span style="background:'+x.a.color+'"></span><b>'+x.a.name+'</b><small>'+(danger?'⚠ ':'')+x.type+'</small></button>'}).join('')+'</section>'}).join('');box.querySelectorAll('.action-item').forEach(function(el){el.addEventListener('dragstart',function(e){e.dataTransfer.setData('application/x-gugapi-action',el.dataset.action);e.dataTransfer.effectAllowed='copy'})})}

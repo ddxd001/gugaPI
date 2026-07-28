@@ -6048,7 +6048,7 @@ void PrintRunUsage(void)
         "    LED: p1=0(both)|2|3; buzzer: p1=0; p2=0 or auto-off 50..30000");
     services::Shell_WriteLine("    output actions require until=immediate; off requires p2=0");
     services::Shell_WriteLine("    onsuccess/ontimeout: index 0..63, or 'next'/'abort'");
-    services::Shell_WriteLine("  run clear|start|cancel|status|dump");
+    services::Shell_WriteLine("  run clear|validate|start|cancel|status|dump");
 }
 
 bool ParseActionOp(const char *t, app::ActionOp *op)
@@ -6131,6 +6131,66 @@ const char *CondText(app::ActionCond c)
     }
 }
 
+const char *ActionRunResultText(app::ActionRunResult result)
+{
+    switch (result) {
+    case app::ACT_RUN_IDLE: return "idle";
+    case app::ACT_RUN_RUNNING: return "running";
+    case app::ACT_RUN_SUCCESS: return "success";
+    case app::ACT_RUN_ABORTED: return "aborted";
+    case app::ACT_RUN_CANCELLED: return "cancelled";
+    case app::ACT_RUN_FAULT: return "fault";
+    case app::ACT_RUN_TIMEOUT: return "timeout";
+    case app::ACT_RUN_INVALID: return "invalid";
+    default: return "unknown";
+    }
+}
+
+const char *ActionFailureText(app::ActionFailureReason reason)
+{
+    switch (reason) {
+    case app::ACT_FAIL_NONE: return "none";
+    case app::ACT_FAIL_START: return "start_failed";
+    case app::ACT_FAIL_INSTR_TIMEOUT: return "instruction_timeout";
+    case app::ACT_FAIL_SEQUENCE_TIMEOUT: return "sequence_timeout";
+    case app::ACT_FAIL_FAULT: return "fault";
+    case app::ACT_FAIL_CANCELLED: return "cancelled";
+    case app::ACT_FAIL_INVALID: return "invalid_table";
+    default: return "unknown";
+    }
+}
+
+const char *ValidationFieldText(app::ActionValidationField field)
+{
+    switch (field) {
+    case app::ACT_VALID_FIELD_TABLE: return "table";
+    case app::ACT_VALID_FIELD_OP: return "op";
+    case app::ACT_VALID_FIELD_PARAM1: return "param1";
+    case app::ACT_VALID_FIELD_PARAM2: return "param2";
+    case app::ACT_VALID_FIELD_CONDITION: return "condition";
+    case app::ACT_VALID_FIELD_ON_SUCCESS: return "on_success";
+    case app::ACT_VALID_FIELD_ON_TIMEOUT: return "on_timeout";
+    case app::ACT_VALID_FIELD_NONE:
+    default: return "none";
+    }
+}
+
+const char *ValidationReasonText(app::ActionValidationReason reason)
+{
+    switch (reason) {
+    case app::ACT_VALID_EMPTY: return "empty";
+    case app::ACT_VALID_TOO_MANY: return "too_many";
+    case app::ACT_VALID_UNKNOWN_OP: return "unknown_op";
+    case app::ACT_VALID_OUT_OF_RANGE: return "out_of_range";
+    case app::ACT_VALID_MUST_BE_ZERO: return "must_be_zero";
+    case app::ACT_VALID_MUST_BE_NONZERO: return "must_be_nonzero";
+    case app::ACT_VALID_WRONG_CONDITION: return "wrong_condition";
+    case app::ACT_VALID_BAD_TARGET: return "bad_target";
+    case app::ACT_VALID_OK:
+    default: return "ok";
+    }
+}
+
 void RunCommand(int argc, const char * const argv[])
 {
 #if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
@@ -6156,6 +6216,43 @@ void RunCommand(int argc, const char * const argv[])
         if (st->running && (st->current < st->count)) {
             services::Shell_WriteString(" cur=");
             services::Shell_WriteString(OpText(st->instrs[st->current].op));
+        }
+        const app::ChassisState *chassis = app::Chassis_GetState();
+        services::Shell_WriteString(" result=");
+        services::Shell_WriteString(ActionRunResultText(st->result));
+        services::Shell_WriteString(" status=");
+        services::Shell_WriteString(DriverStatusText(st->last_status));
+        services::Shell_WriteString(" reason=");
+        services::Shell_WriteString(ActionFailureText(st->failure_reason));
+        services::Shell_WriteString(" fail_index=");
+        services::Shell_WriteUInt32(st->failure_index);
+        services::Shell_WriteString(" drive=");
+        WriteInt32(chassis->left.target_rpm);
+        services::Shell_WriteString("/");
+        WriteInt32(chassis->right.target_rpm);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "validate")) {
+        if (argc != 2) {
+            PrintRunUsage();
+            return;
+        }
+        app::ActionValidationResult validation;
+        const drivers::DriverStatus status =
+            app::ActionRunner_Validate(&validation);
+        services::Shell_WriteString("run validate ");
+        if (status == drivers::DRIVER_OK) {
+            services::Shell_WriteString("ok count=");
+            services::Shell_WriteUInt32(app::ActionRunner_GetState()->count);
+        } else {
+            services::Shell_WriteString("error index=");
+            services::Shell_WriteUInt32(validation.index);
+            services::Shell_WriteString(" field=");
+            services::Shell_WriteString(ValidationFieldText(validation.field));
+            services::Shell_WriteString(" reason=");
+            services::Shell_WriteString(ValidationReasonText(validation.reason));
         }
         services::Shell_WriteString("\r\n");
         return;
@@ -6236,10 +6333,24 @@ void RunCommand(int argc, const char * const argv[])
             return;
         }
         bool params_ok = false;
-        if (op == app::ACT_OP_DRIVE_MM) {
+        if ((op == app::ACT_OP_DRIVE) || (op == app::ACT_OP_FOLLOW)) {
+            params_ok = ParseInt32(argv[3], -max_rpm, max_rpm, &p1) &&
+                        ParseInt32(argv[4], 1, 30000, &p2);
+        } else if (op == app::ACT_OP_DRIVE_MM) {
             params_ok = ParseInt32(argv[3], -10000, 10000, &p1) &&
                         (p1 != 0) &&
                         ParseInt32(argv[4], 1, max_rpm, &p2);
+        } else if (op == app::ACT_OP_TURN) {
+            params_ok = ParseInt32(argv[3], -180, 180, &p1) &&
+                        ParseInt32(argv[4], 1, 30000, &p2);
+        } else if (op == app::ACT_OP_WAIT) {
+            params_ok = ParseInt32(argv[3], 0, 0, &p1) &&
+                        ParseInt32(argv[4], 0, 30000, &p2);
+        } else if ((op == app::ACT_OP_STOP) ||
+                   (op == app::ACT_OP_BRANCH) ||
+                   (op == app::ACT_OP_END)) {
+            params_ok = ParseInt32(argv[3], 0, 0, &p1) &&
+                        ParseInt32(argv[4], 0, 0, &p2);
         } else if ((op >= app::ACT_OP_LED_ON) &&
                    (op <= app::ACT_OP_LED_TOGGLE)) {
             params_ok = ParseInt32(argv[3], 0, 3, &p1) &&
@@ -6248,9 +6359,6 @@ void RunCommand(int argc, const char * const argv[])
         } else if ((op >= app::ACT_OP_BUZZER_ON) &&
                    (op <= app::ACT_OP_BUZZER_TOGGLE)) {
             params_ok = ParseInt32(argv[3], 0, 0, &p1) &&
-                        ParseInt32(argv[4], 0, 30000, &p2);
-        } else {
-            params_ok = ParseInt32(argv[3], -max_rpm, max_rpm, &p1) &&
                         ParseInt32(argv[4], 0, 30000, &p2);
         }
         if ((!params_ok) ||

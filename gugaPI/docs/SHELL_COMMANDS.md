@@ -1868,13 +1868,13 @@ run add <op> <param1> <param2> <until> <onsuccess> <ontimeout>
 
 | 操作码 | 动作 | 典型条件 |
 | --- | --- | --- |
-| `drive` | 航向保持直行（`heading hold`） | `timeout` / `line_detected` / `line_lost` |
+| `drive` | 航向保持直行（`heading hold`），p1 为 `-max_wheel_rpm..max_wheel_rpm`，p2 为 `1..30000 ms` | `timeout` / `line_detected` / `line_lost` / `button` |
 | `drive_mm` | 编码器距离闭环并保持启动航向 | `distance_reached` |
-| `turn` | 相对角度转弯（`heading turn`） | `heading_reached` |
-| `follow` | 循迹（`lf start`） | `timeout` / `line_lost` |
-| `wait` | 等待（不产生运动） | `timeout` / `button` |
+| `turn` | 相对角度 `-180..180°` 转弯；p2 为 `1..30000 ms` 安全超时 | `heading_reached` |
+| `follow` | 有符号 RPM 循迹；p2 为 `1..30000 ms` 安全时间 | `timeout` / `line_lost` / `line_detected` / `button` |
+| `wait` | 等待（p1 固定为 0，p2 为 `0..30000 ms`） | `timeout` / `line_detected` / `line_lost` / `button` |
 | `stop` | 立即停车 | `immediate` |
-| `branch` | 条件跳转（不产生运动），成功走 onsuccess，失败走 ontimeout | 任意条件 |
+| `branch` | p1/p2 固定为 0，成功走 onsuccess，失败走 ontimeout | `line_detected` / `line_lost` / `button` / `immediate` / `timeout` |
 | `end` | 序列完成（成功） | `immediate` |
 | `led_on/off/toggle` | LED2/LED3 输出；p1=0（两灯）、2 或 3；p2=0 或自动关闭 50..30000 ms | `immediate` |
 | `buzzer_on/off/toggle` | 有源蜂鸣器输出；p1=0；p2=0 或自动关闭 50..30000 ms | `immediate` |
@@ -1886,7 +1886,7 @@ LED2、LED3 和蜂鸣器都会关闭。序列运行期间仍可通过 Shell 查�
 
 ### `run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>`
 
-追加一条指令到序列末尾。最多 16 条。
+追加一条指令到序列末尾。最多 64 条。参数会立即执行与 `run validate` 相同的类型规则；允许先引用尚未追加的后续索引，整表跳转在启动或保存前检查。
 
 ```text
 run add drive  80  5000  timeout          next abort
@@ -1910,10 +1910,19 @@ run clear
 
 ### `run start`
 
-启动序列（从第 0 条指令开始）。有故障时拒绝启动。
+启动序列（从第 0 条指令开始）。启动前强制执行整表校验；有故障或无效跳转时拒绝启动。
 
 ```text
 run start
+```
+
+### `run validate`
+
+使用与 `run add`、`run start`、`seq save` 相同的校验器检查完整 RAM 指令表。成功时返回指令数；失败时返回首个错误指令、字段和原因。
+
+```text
+run validate ok count=5
+run validate error index=2 field=on_timeout reason=bad_target
 ```
 
 ### `run cancel`
@@ -1935,10 +1944,10 @@ run status
 输出示例：
 
 ```text
-run 2/5 running=1 last=1 cur=turn
+run 2/5 running=1 last=1 cur=turn result=running status=ok reason=none fail_index=255 drive=-60/60
 ```
 
-字段：`当前步/总步数`、`running`、`last`（上一步是否成功）、`cur`（当前操作码）。
+原有字段 `当前步/总步数`、`running`、`last` 和 `cur` 保持不变。追加字段为 `result`（整次执行结果）、`status`（驱动状态）、`reason`（失败原因）、`fail_index`（失败步骤，255 表示无）和 `drive`（左右轮目标 RPM）。
 
 ### `run dump`
 

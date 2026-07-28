@@ -2,7 +2,8 @@
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
-<title>gugaPI Control Center</title>
+<title>gugaPI 中文控制中心</title>
+<link rel="icon" href="data:,">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:system-ui,sans-serif;font-size:14px;background:#1e1e2e;color:#cdd6f4;display:flex;flex-direction:column;height:100vh}
@@ -157,15 +158,33 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 .command-form-desc{color:#9aa5b4;font-size:11px;line-height:1.45}
 .command-form-actions{display:flex;gap:5px}
 .command-form-actions button{padding:4px 7px;font-size:10px}
+.seq-shell{display:grid;grid-template-rows:auto minmax(0,1fr);flex:1;min-width:0;background:#171a22}
+#seqToolbar{display:flex;align-items:center;gap:7px;padding:8px 10px;background:#262b35;border-bottom:1px solid #3b4250;flex-wrap:wrap}
+#seqToolbar input,#seqToolbar select{background:#151820;color:#e9edf4;border:1px solid #414958;border-radius:5px;padding:6px 8px}
+#seqProjectName{width:190px}.seq-spacer{flex:1}.seq-status{font-size:11px;color:#8f9aaa}.seq-status .ok{color:#79bf8a}.seq-status .warn{color:#e5b45d}.seq-status .bad{color:#ef7187}
+.seq-layout{display:grid;grid-template-columns:220px minmax(520px,1fr) 310px;min-height:0;overflow:hidden}
+.seq-left,.seq-right{min-height:0;overflow:auto;background:#20242d;border-right:1px solid #373e4a}.seq-right{border-right:0;border-left:1px solid #373e4a;padding:14px}
+.seq-left-head{padding:13px 12px 8px;font-weight:700;color:#f0f3f8}.seq-left-note{padding:0 12px 10px;color:#7f8a9b;font-size:11px;line-height:1.5}
+#actionPalette section{padding:4px 8px 10px}#actionPalette h4{font-size:10px;letter-spacing:.1em;color:#758092;padding:7px 5px;text-transform:uppercase}
+.action-item{display:grid;grid-template-columns:6px 1fr auto;gap:8px;align-items:center;width:100%;margin:3px 0;padding:8px;background:#282e39;border-color:#3a4250;text-align:left}.action-item>span{width:6px;height:28px;border-radius:3px}.action-item b{font-size:12px}.action-item small{font:9px Consolas,monospace;color:#758092}
+.action-item.motion-risk small{color:#e5a85d}.action-item.motion-risk{border-color:#57452f}
+.seq-slots{border-top:1px solid #373e4a;margin-top:8px;padding:10px 8px}.seq-slots-title{font-size:10px;letter-spacing:.1em;color:#758092;padding:5px}.slot-card{width:100%;border:0;background:transparent;border-radius:5px;padding:7px 8px;margin:1px 0;color:#cdd6f4}.slot-card:hover{background:#2c333e}.slot-card.active{border:0;box-shadow:inset 3px 0 #57a9dc;background:#283847}
+.seq-center{display:grid;grid-template-rows:minmax(0,1fr) auto;min-width:0;min-height:0}.canvas-area{position:relative;overflow:hidden;background:#161922;cursor:grab}.canvas-area:active{cursor:grabbing}.canvas-area svg{width:100%;height:100%;touch-action:none}
+.seq-node{cursor:move}.seq-node rect:first-child{stroke-width:2}.seq-node text{pointer-events:none}.seq-title{fill:#f3f5f8;font-size:14px;font-weight:700}.seq-op{fill:#7e8b9e;font:9px Consolas,monospace}.seq-sub{fill:#adb6c4;font-size:10px}.seq-node.selected rect:first-child{stroke:#fff;stroke-width:3}.seq-node.active rect:first-child{stroke:#f6d365;stroke-width:5;filter:drop-shadow(0 0 7px #f6d36599)}.seq-node.invalid rect:first-child{stroke:#ed6078;stroke-dasharray:5 3}.seq-input{fill:#161922;stroke:#7f8da3;stroke-width:2}.seq-port circle{fill:#161922;stroke:#79bf8a;stroke-width:2;cursor:crosshair}.seq-port[data-port=failure] circle{stroke:#e06c75}.seq-port-label{fill:#8f9aaa;font-size:9px}.seq-edge{cursor:pointer}.seq-edge text{fill:#9ba6b7;font-size:9px}.seq-edge-hit{fill:none;stroke:transparent;stroke-width:14}.seq-edge.selected path:last-of-type{filter:drop-shadow(0 0 4px #fff)}
+#seqNotice{min-height:30px;padding:7px 12px;background:#20242d;color:#8792a2;font-size:11px}#seqNotice.ok{color:#87d49b}#seqNotice.error{color:#ff879a}
+.seq-panel-title{font-size:18px;font-weight:750;color:#f0f3f8;margin-bottom:5px}.seq-tech{font:10px Consolas,monospace;color:#5fb9e8}.seq-action-help,.seq-muted{color:#909bad;line-height:1.55;margin:12px 0}.seq-right label{display:block;color:#adb6c4;font-size:11px;margin:12px 0 5px}.seq-right select,.seq-right input{width:100%;padding:7px;background:#151820;color:#edf0f5;border:1px solid #3c4553;border-radius:5px}.seq-right small{display:block;color:#737f91;font-size:10px;line-height:1.45;margin-top:4px}.seq-input-unit{display:flex}.seq-input-unit input{border-radius:5px 0 0 5px}.seq-input-unit span{display:flex;align-items:center;padding:0 9px;background:#2b323e;border:1px solid #3c4553;border-left:0;border-radius:0 5px 5px 0;color:#9ca7b7;font-size:11px}.seq-project-meta{display:flex;flex-direction:column;gap:4px;color:#8c97a8;margin:10px 0 15px}.seq-issues{display:flex;flex-direction:column;gap:5px}.seq-issue{display:block;text-align:left;border:1px solid #4a3f2e;background:#332c22;color:#e4b65f;font-size:11px}.seq-issue.error{border-color:#59333c;background:#38242a;color:#ef8697}.seq-pass{padding:10px;background:#21372e;color:#87d49b;border-radius:5px}.seq-help{border-top:1px solid #353d49;margin-top:18px;padding-top:14px;color:#8d98a9;font-size:11px;line-height:1.55}.seq-help b{color:#ccd3dd}.seq-help p{margin:4px 0 12px}.seq-inline-errors{margin-top:12px}.seq-inline-errors p{padding:6px 8px;border-radius:4px;font-size:11px}.seq-inline-errors .error{background:#3a252b;color:#ef8697}.seq-inline-errors .warning{background:#372f22;color:#e3b55c}
+.seq-guide{display:none;position:fixed;inset:0;z-index:50;background:#07090dbb;align-items:center;justify-content:center}.seq-guide.show{display:flex}.seq-guide-card{width:min(720px,90vw);max-height:85vh;overflow:auto;background:#232833;border:1px solid #495362;border-radius:12px;padding:25px;box-shadow:0 20px 70px #000}.seq-guide-card h2{margin-bottom:12px}.seq-guide-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}.seq-guide-grid div{padding:13px;background:#191d25;border-radius:7px}.seq-guide-grid b{color:#7ec8ef}.seq-guide-grid p{margin-top:6px;color:#a1acba;line-height:1.55;font-size:12px}
+#btnEmergencyStop{position:relative;background:#d84f68;color:#fff;font-weight:800;border:0;box-shadow:0 0 0 2px #ff8b9d33}
 @media(max-width:1100px){#paramLayout{grid-template-columns:190px minmax(330px,1fr) 310px}#commandLayout{grid-template-columns:330px minmax(400px,1fr)}}
 </style>
 </head>
 <body>
 <header>
-<h1>gugaPI Control Center</h1>
-<button id="btnConnect" class="primary">Connect</button>
-<button id="btnSim">Simulate</button>
-<button id="btnRefresh" disabled>Refresh</button>
+<h1>gugaPI 中文控制中心</h1>
+<button id="btnConnect" class="primary">连接串口</button>
+<button id="btnSim">模拟设备</button>
+<button id="btnRefresh" disabled>刷新槽位</button>
+<button id="btnEmergencyStop" type="button">紧急停止</button>
 <span id="statusText"></span>
 </header>
 <div class="tabbar">
@@ -175,9 +194,22 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <button class="tab" id="tabCommands" type="button">命令库</button>
 </div>
 <div id="editorView" class="main">
-<div class="sidebar"><div style="font-size:12px;opacity:0.5;margin-bottom:6px">SLOTS</div><div id="slotList"></div></div>
-<div class="canvas-area" id="canvas"><svg id="flow"></svg></div>
-<div class="editor"><h3 style="color:#89b4fa;margin-bottom:10px">Editor</h3><div id="editorContent" style="opacity:0.4">Connect and select a slot</div></div>
+<div class="seq-shell">
+<div id="seqToolbar">
+<input id="seqProjectName" aria-label="工程名称" placeholder="工程名称">
+<label>槽位 <select id="seqProjectSlot"><option>0</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option selected>7</option></select></label>
+<select id="seqTemplate" aria-label="载入示例"><option value="">载入中文示例…</option><option value="0">定距直行—左转—停车</option><option value="1">循迹直到丢线</option><option value="2">条件分支与失败恢复</option><option value="3">声光提示后启动运动</option></select>
+<button id="btnSeqNew">新建</button><button id="btnSeqImport">导入 JSON</button><button id="btnSeqExport">导出 JSON</button><input id="seqFileInput" type="file" accept=".json,application/json" hidden>
+<span class="seq-spacer"></span><button id="btnSeqUndo" title="Ctrl+Z">撤销</button><button id="btnSeqRedo" title="Ctrl+Y">重做</button><button id="btnSeqLayout">自动布局</button><button id="btnSeqFit">适应窗口</button><button id="btnSeqHelp">使用说明</button>
+<button id="btnSeqRun" class="danger">试运行当前画布</button><button id="btnSeqSave" class="primary">保存到 FRAM</button>
+<span class="seq-status"><span id="seqCount">0/64 步</span> · <span id="seqValidationState"></span> · <span id="seqAutosave"></span></span>
+</div>
+<div class="seq-layout">
+<aside class="seq-left"><div class="seq-left-head">动作库</div><div class="seq-left-note">把动作拖入画布。动作块右侧端口可拖线，空白处拖动画布，滚轮缩放。</div><div id="actionPalette"></div><div class="seq-slots"><div class="seq-slots-title">FRAM 槽位（点击读取）</div><div id="slotList"></div></div></aside>
+<section class="seq-center"><div class="canvas-area" id="canvas"><svg id="flow" aria-label="序列流程画布"></svg></div><div id="seqNotice" role="status" aria-live="polite"></div></section>
+<aside class="seq-right"><div id="editorContent"></div></aside>
+</div>
+</div>
 </div>
 <div id="termView" class="main" hidden>
 <div id="termPanel">
@@ -246,12 +278,14 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 </div>
 <div class="log" id="log"></div>
 <div id="paramToast" role="status" aria-live="polite"></div>
-<script src="app1.js"></script>
-<script src="app2.js"></script>
-<script src="app3.js"></script>
+<div id="seqGuide" class="seq-guide"><div class="seq-guide-card"><h2>第一次使用图形序列编辑器</h2><p>这个编辑器把当前画布编译成固件可脱机执行的 ActionRunner 指令，不会生成依赖上位机在线发送的脚本块。</p><div class="seq-guide-grid"><div><b>1. 拖入动作</b><p>从左侧动作库拖到画布；点击动作后在右侧设置中文参数。</p></div><div><b>2. 连接端口</b><p>从动作块右侧圆点拖到目标块。绿色表示完成，红色表示失败或超时。</p></div><div><b>3. 先试运行</b><p>试运行只临时更新 MCU RAM，校验并回读比对后启动，不会写 FRAM。</p></div><div><b>4. 再保存</b><p>保存会覆盖绑定槽位，写入后自动通过 seq dump 逐项比对。</p></div></div><p style="color:#ef8697">运动动作具有机械风险。实车测试前请架空车轮，并确保“紧急停止”按钮始终可操作。</p><button id="btnGuideClose" class="primary">开始编辑</button></div></div>
+<script src="sequence_core.js?v=20260728-seq-v1"></script>
+<script src="app1.js?v=20260728-seq-v1"></script>
+<script src="app2.js?v=20260728-pointer-fix"></script>
+<script src="app3.js?v=20260728-pointer-fix"></script>
 <script src="app4.js"></script>
-<script src="app5.js?v=20260728-rolling-corner"></script>
-<script src="command_catalog.js?v=20260728-rolling-corner"></script>
+<script src="app5.js?v=20260728-host-sync"></script>
+<script src="command_catalog.js?v=20260728-host-sync"></script>
 <script src="app6.js?v=20260728-shell-library"></script>
 </body>
 </html>

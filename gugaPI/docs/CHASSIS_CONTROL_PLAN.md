@@ -337,10 +337,10 @@ Idle -> Running -> Success
 
 实现内容（`action.h` / `action.cpp`）：
 
-- 指令表最多 16 条指令，每条指令包含 `op`、`param1`、`param2`、`until`（完成条件）、`on_success`、`on_timeout`（跳转目标）。
+- 指令表最多 64 条指令，每条指令包含 `op`、`param1`、`param2`、`until`（完成条件）、`on_success`、`on_timeout`（跳转目标）。
 - 操作码 `ACT_OP`：`DRIVE`（航向保持直行）、`TURN`（相对角度转弯）、`FOLLOW`（循迹）、`WAIT`（等待）、`STOP`（立即停车）、`BRANCH`（条件跳转，不产生运动）、`END`（序列完成）。
 - 完成条件 `ACT_COND`：`TIMEOUT`（param2 ms 后完成）、`HEADING_REACHED`（转弯到位）、`LINE_DETECTED`（灰度检测到线）、`LINE_LOST`（灰度丢线）、`BUTTON`（按键 1 按下）、`IMMEDIATE`（立即为真）。
-- 跳转目标：`ACT_NEXT`（on_success=下一条，on_timeout=中止）或索引 0..15（goto）。
+- 跳转目标：`ACT_NEXT`（on_success=下一条，on_timeout=中止）或索引 0..63（goto）。
 - 每条指令完成后调用 `StopAll()` 清除运动状态，再启动下一条，避免 drive→wait 继续行驶等问题。
 - 整序列超时 60 s（`kSequenceTimeoutMs`）→ 中止。
 - `Fault_HasFault()` → 中止。指令启动失败 → 走 `on_timeout` 路径。
@@ -374,6 +374,7 @@ run start
 
 - `run add <op> <p1> <p2_ms> <until> <onsuccess> <ontimeout>`：追加指令。
 - `run clear`：清空指令表。
+- `run validate`：用统一校验器返回首个错误指令、字段和原因；`run start` 与 `seq save` 会强制执行同一校验。
 - `run start`：启动序列（有故障时拒绝）。
 - `run cancel`：中止序列。
 - `run status`：查看当前步/总步数/运行状态/当前操作码。
