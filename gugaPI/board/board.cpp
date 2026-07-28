@@ -3,6 +3,7 @@
 #include "board/board_button.h"
 
 #include "board/board_buzzer.h"
+#include "board/board_can.h"
 #include "board/board_config.h"
 #include "board/board_fram.h"
 #include "board/board_grayscale.h"
@@ -104,6 +105,10 @@ drivers::DriverStatus Board_Init(void)
 
 #if FEATURE_ENABLE_LORA
     TrackInit("lora", Board_LoraInit(), BOARD_INIT_DEGRADED);
+#endif
+
+#if FEATURE_ENABLE_CAN
+    TrackInit("can", Board_CanInit(), BOARD_INIT_OPTIONAL);
 #endif
 
 #if FEATURE_ENABLE_MOTOR_DRIVER

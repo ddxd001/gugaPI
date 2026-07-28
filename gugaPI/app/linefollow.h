@@ -79,6 +79,9 @@ void LF_Init(void);
 drivers::DriverStatus LF_CalibrateStart(void);
 drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms);
 drivers::DriverStatus LF_Stop(void);
+/* Transfer motion ownership without writing a zero-speed command. The caller
+ * must immediately start another closed-loop motion and stop on failure. */
+drivers::DriverStatus LF_ReleaseForMotionHandoff(void);
 void LF_Update(void);
 const LFState *LF_GetState(void);
 

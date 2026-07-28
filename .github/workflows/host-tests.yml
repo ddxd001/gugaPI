@@ -1,0 +1,35 @@
+name: Host Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - feature/chassis-control
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run host regressions
+        run: bash host_tests/run_tests.sh
+
+      - name: Check latest commit for whitespace errors
+        run: git diff-tree --check --no-commit-id -r HEAD

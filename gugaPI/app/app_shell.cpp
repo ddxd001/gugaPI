@@ -7,6 +7,7 @@
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
 #include "app/app_ina219.h"
+#include "app/app_jyme02_can.h"
 #include "app/battery_monitor.h"
 #include "app/app_lora.h"
 #include "app/action.h"
@@ -18,6 +19,7 @@
 #include "app/seq_store.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
+#include "board/board_can.h"
 #include "board/board_config.h"
 #include "board/board_fram.h"
 #include "board/board_gy931.h"
@@ -45,6 +47,10 @@ namespace {
 
 namespace motor = motor_driver_client;
 
+#if FEATURE_ENABLE_CAN
+static bool g_canWatchEnabled = false;
+#endif
+
 static const uint16_t kFramShellMaxReadBytes = 32U;
 static const uint8_t kParamExportDefaultCount = 16U;
 static const uint8_t kParamExportMaxCount = 16U;
@@ -60,8 +66,10 @@ static const uint32_t kImuSpiBurstMaxBytes = 1000000U;
 static const uint32_t kImuSpiSampleDefaultBytes = 8U;
 static const uint32_t kImuSpiSampleMaxBytes = 16U;
 #endif
+#if FEATURE_ENABLE_OLED
 static const uint8_t kOledTextRows = 4U;
 static const uint8_t kOledTextCols = 21U;
+#endif
 #if FEATURE_ENABLE_GY931
 static const uint8_t kGy931MaxReadWords = drivers::GY931_MAX_READ_WORDS;
 #endif
@@ -83,10 +91,12 @@ static const uint32_t kBatteryLogDefaultPeriodMs = 500U;
 static const uint32_t kBatteryLogMinPeriodMs = 100U;
 static const uint32_t kBatteryLogMaxPeriodMs = 5000U;
 #endif
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_OLED
 static const uint32_t kGrayOledTaskPeriodMs = 50U;
 static const uint32_t kGrayOledDefaultPeriodMs = 200U;
 static const uint32_t kGrayOledMinPeriodMs = 50U;
 static const uint32_t kGrayOledMaxPeriodMs = 5000U;
+#endif
 static const int32_t kChassisLinearLimitMmS = 5000;
 static const int32_t kChassisAngularLimitMdegS = 720000;
 motor::Client g_motorClient = { motor::TRANSPORT_I2C,
@@ -163,6 +173,7 @@ bool StrEqual(const char *left, const char *right)
     return (*left == '\0') && (*right == '\0');
 }
 
+#if FEATURE_ENABLE_OLED
 bool CompetitionOwnsOled(void)
 {
     const AppMode mode = App_GetState()->mode;
@@ -180,6 +191,7 @@ uint8_t CountTextCells(const char *text, uint8_t max_cells)
 
     return count;
 }
+#endif
 
 bool ParseUint32(const char *text, uint32_t maxValue, uint32_t *outValue)
 {
@@ -224,6 +236,42 @@ bool ParseUint32(const char *text, uint32_t maxValue, uint32_t *outValue)
     }
 
     *outValue = value;
+    return true;
+}
+
+bool ParseHexUint32(const char *text,
+                    uint32_t max_value,
+                    uint32_t *out_value)
+{
+    uint32_t value = 0U;
+    if ((text == 0) || (out_value == 0) || (*text == '\0')) {
+        return false;
+    }
+    if ((text[0] == '0') && ((text[1] == 'x') || (text[1] == 'X'))) {
+        text += 2;
+        if (*text == '\0') {
+            return false;
+        }
+    }
+    while (*text != '\0') {
+        uint32_t digit = 0U;
+        if ((*text >= '0') && (*text <= '9')) {
+            digit = static_cast<uint32_t>(*text - '0');
+        } else if ((*text >= 'a') && (*text <= 'f')) {
+            digit = 10U + static_cast<uint32_t>(*text - 'a');
+        } else if ((*text >= 'A') && (*text <= 'F')) {
+            digit = 10U + static_cast<uint32_t>(*text - 'A');
+        } else {
+            return false;
+        }
+        if ((digit > max_value) ||
+            (value > ((max_value - digit) / 16U))) {
+            return false;
+        }
+        value = (value * 16U) + digit;
+        text++;
+    }
+    *out_value = value;
     return true;
 }
 
@@ -432,6 +480,22 @@ void WriteStatusLine(const char *prefix, drivers::DriverStatus status)
     services::Shell_WriteString("\r\n");
 }
 
+drivers::DriverStatus SchedulerStatusToDriverStatus(
+    services::SchedulerStatus status)
+{
+    switch (status) {
+        case services::SCHEDULER_OK:
+            return drivers::DRIVER_OK;
+        case services::SCHEDULER_ERROR_INVALID_ARG:
+        case services::SCHEDULER_ERROR_INVALID_ID:
+            return drivers::DRIVER_ERROR_INVALID_ARG;
+        case services::SCHEDULER_ERROR_FULL:
+            return drivers::DRIVER_ERROR_BUSY;
+        default:
+            return drivers::DRIVER_ERROR;
+    }
+}
+
 void PrintFramUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -482,6 +546,7 @@ void PrintBatteryUsage(void)
 }
 #endif
 
+#if FEATURE_ENABLE_OLED
 void PrintOledUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -494,6 +559,7 @@ void PrintOledUsage(void)
     services::Shell_WriteLine("  oled invert on|off");
     services::Shell_WriteLine("  oled on|off");
 }
+#endif
 
 #if FEATURE_ENABLE_GY931
 void PrintGy931Usage(void)
@@ -616,22 +682,6 @@ drivers::DriverStatus OledTextWriteLine(uint8_t row, const char *text)
     char *cursor = AppendString(line, &line[kOledTextCols], text);
     FinishOledLine(line, cursor);
     return board::Board_OledWriteText(row, 0U, line);
-}
-
-drivers::DriverStatus SchedulerStatusToDriverStatus(
-    services::SchedulerStatus status)
-{
-    switch (status) {
-        case services::SCHEDULER_OK:
-            return drivers::DRIVER_OK;
-        case services::SCHEDULER_ERROR_INVALID_ARG:
-        case services::SCHEDULER_ERROR_INVALID_ID:
-            return drivers::DRIVER_ERROR_INVALID_ARG;
-        case services::SCHEDULER_ERROR_FULL:
-            return drivers::DRIVER_ERROR_BUSY;
-        default:
-            return drivers::DRIVER_ERROR;
-    }
 }
 
 #if FEATURE_ENABLE_GY931
@@ -1833,6 +1883,345 @@ void PrintI2cUsage(void)
     services::Shell_WriteLine("  i2c test <bus> [start end]");
 }
 #endif
+#if FEATURE_ENABLE_CAN
+void WriteCanFrame(const drivers::CanFrame &frame)
+{
+    services::Shell_WriteString("can rx ");
+    services::Shell_WriteString(frame.extended ? "ext id=" : "std id=");
+    WriteHex32(frame.id);
+    services::Shell_WriteString(" dlc=");
+    services::Shell_WriteUInt32(frame.length);
+    services::Shell_WriteString(" data=");
+    for (uint8_t i = 0U; i < frame.length; i++) {
+        if (i != 0U) {
+            services::Shell_WriteString(" ");
+        }
+        WriteHex8(frame.data[i]);
+    }
+    services::Shell_WriteString("\r\n");
+}
+
+void PrintCanUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  can status");
+    services::Shell_WriteLine("  can mode normal|standby");
+    services::Shell_WriteLine("  can send std|ext <hex_id> [hex_byte ...]");
+    services::Shell_WriteLine("  can read [count 1..32]");
+    services::Shell_WriteLine("  can watch on|off");
+    services::Shell_WriteLine("  can clear|cancel|recover");
+}
+
+void WriteCanStatus(void)
+{
+    drivers::CanStatus status = {};
+    const drivers::DriverStatus result =
+        board::Board_CanGetStatus(&status);
+    if (result != drivers::DRIVER_OK) {
+        WriteStatusLine("can status: ", result);
+        return;
+    }
+
+    services::Shell_WriteString("can ready=1 mode=");
+    services::Shell_WriteString(
+        (status.mode == drivers::CAN_TRANSCEIVER_NORMAL) ?
+        "normal" : "standby");
+    services::Shell_WriteString(" bitrate=");
+    services::Shell_WriteUInt32(status.bitrate);
+    services::Shell_WriteString(" watch=");
+    services::Shell_WriteUInt32(g_canWatchEnabled ? 1U : 0U);
+    services::Shell_WriteString(" rx/queued/drop/fifo_lost=");
+    services::Shell_WriteUInt32(status.rx_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.rx_available);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.rx_dropped_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.rx_fifo_lost_count);
+#if FEATURE_ENABLE_JYME02_CAN
+    services::Shell_WriteString(" app_queue/drop=");
+    services::Shell_WriteUInt32(AppJyme02Can_GetRawAvailable());
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(AppJyme02Can_GetRawDropped());
+#endif
+    services::Shell_WriteString(" tx_req/done/cancel=");
+    services::Shell_WriteUInt32(status.tx_request_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.tx_complete_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.tx_cancel_count);
+    services::Shell_WriteString(" pending=");
+    services::Shell_WriteUInt32(status.tx_pending ? 1U : 0U);
+    services::Shell_WriteString(" err_evt=");
+    services::Shell_WriteUInt32(status.error_event_count);
+    services::Shell_WriteString(" TEC/REC=");
+    services::Shell_WriteUInt32(status.tx_error_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.rx_error_count);
+    services::Shell_WriteString(" LEC=");
+    services::Shell_WriteUInt32(status.last_error_code);
+    services::Shell_WriteString(" BO/EP/EW=");
+    services::Shell_WriteUInt32(status.bus_off ? 1U : 0U);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.error_passive ? 1U : 0U);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(status.warning ? 1U : 0U);
+    services::Shell_WriteString(" irq=");
+    WriteHex32(status.last_interrupt_status);
+    services::Shell_WriteString("\r\n");
+}
+
+void CanCommand(int argc, const char * const argv[])
+{
+    if (argc < 2) {
+        PrintCanUsage();
+        return;
+    }
+
+    if (StrEqual(argv[1], "status") && (argc == 2)) {
+        WriteCanStatus();
+        return;
+    }
+
+    if (StrEqual(argv[1], "mode") && (argc == 3)) {
+        drivers::CanTransceiverMode mode;
+        if (StrEqual(argv[2], "normal")) {
+            mode = drivers::CAN_TRANSCEIVER_NORMAL;
+        } else if (StrEqual(argv[2], "standby")) {
+            mode = drivers::CAN_TRANSCEIVER_STANDBY;
+        } else {
+            PrintCanUsage();
+            return;
+        }
+        WriteStatusLine("can mode: ", board::Board_CanSetMode(mode));
+        return;
+    }
+
+    if (StrEqual(argv[1], "send") &&
+        (argc >= 4) && (argc <= 12)) {
+        drivers::CanFrame frame = {};
+        if (StrEqual(argv[2], "std")) {
+            frame.extended = false;
+        } else if (StrEqual(argv[2], "ext")) {
+            frame.extended = true;
+        } else {
+            PrintCanUsage();
+            return;
+        }
+        const uint32_t max_id =
+            frame.extended ? 0x1FFFFFFFU : 0x7FFU;
+        if (!ParseHexUint32(argv[3], max_id, &frame.id)) {
+            PrintCanUsage();
+            return;
+        }
+        frame.length = static_cast<uint8_t>(argc - 4);
+        for (uint8_t i = 0U; i < frame.length; i++) {
+            uint32_t value = 0U;
+            if (!ParseHexUint32(argv[4 + i], 0xFFU, &value)) {
+                PrintCanUsage();
+                return;
+            }
+            frame.data[i] = static_cast<uint8_t>(value);
+        }
+        WriteStatusLine("can send: ", board::Board_CanSend(&frame));
+        return;
+    }
+
+    if (StrEqual(argv[1], "read") &&
+        ((argc == 2) || (argc == 3))) {
+        uint32_t count = 1U;
+        if ((argc == 3) &&
+            ((!ParseUint32(argv[2], BOARD_CAN_RX_QUEUE_SIZE, &count)) ||
+             (count == 0U))) {
+            PrintCanUsage();
+            return;
+        }
+        uint32_t read_count = 0U;
+        drivers::CanFrame frame = {};
+        while ((read_count < count) && AppJyme02Can_ReadRaw(&frame)) {
+            WriteCanFrame(frame);
+            read_count++;
+        }
+        if (read_count == 0U) {
+            services::Shell_WriteLine("can rx: none");
+        }
+        return;
+    }
+
+    if (StrEqual(argv[1], "watch") && (argc == 3)) {
+        if (StrEqual(argv[2], "on")) {
+            g_canWatchEnabled = true;
+        } else if (StrEqual(argv[2], "off")) {
+            g_canWatchEnabled = false;
+        } else {
+            PrintCanUsage();
+            return;
+        }
+        services::Shell_WriteString("can watch ");
+        services::Shell_WriteLine(g_canWatchEnabled ? "on" : "off");
+        return;
+    }
+
+    if (StrEqual(argv[1], "clear") && (argc == 2)) {
+        AppJyme02Can_Clear();
+        WriteStatusLine("can clear: ", board::Board_CanClear());
+        return;
+    }
+    if (StrEqual(argv[1], "cancel") && (argc == 2)) {
+        WriteStatusLine("can cancel: ", board::Board_CanCancelTx());
+        return;
+    }
+    if (StrEqual(argv[1], "recover") && (argc == 2)) {
+        WriteStatusLine("can recover: ", board::Board_CanRecover());
+        return;
+    }
+
+    PrintCanUsage();
+}
+
+#if FEATURE_ENABLE_JYME02_CAN
+void PrintJyme02Usage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  jyme02 status");
+    services::Shell_WriteLine("  jyme02 readreg <hex_reg>");
+    services::Shell_WriteLine("  jyme02 regs");
+    services::Shell_WriteLine("  jyme02 address <hex_id>       (parser only)");
+    services::Shell_WriteLine("  jyme02 sampletime <100us>     (parser only)");
+    services::Shell_WriteLine("  jyme02 clear");
+}
+
+void WriteJyme02Status(void)
+{
+    const drivers::JYME02CanData *data = AppJyme02Can_GetData();
+    if (data == 0) {
+        services::Shell_WriteLine("jyme02: not initialized");
+        return;
+    }
+
+    const uint32_t now_ms = services::Time_Millis();
+    services::Shell_WriteString("jyme02 id=");
+    WriteHex16(data->address);
+    services::Shell_WriteString(" sample_100us=");
+    services::Shell_WriteUInt32(data->sample_time_100us);
+    services::Shell_WriteString(" fresh(meas/temp)=");
+    services::Shell_WriteUInt32(
+        AppJyme02Can_IsMeasurementFresh(now_ms) ? 1U : 0U);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(
+        AppJyme02Can_IsTemperatureFresh(now_ms) ? 1U : 0U);
+    services::Shell_WriteString(" count(meas/temp/reg/invalid)=");
+    services::Shell_WriteUInt32(data->measurement_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(data->temperature_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(data->register_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(data->invalid_count);
+    services::Shell_WriteString("\r\n");
+
+    if (data->measurement_valid) {
+        services::Shell_WriteString("  angle_raw/mdeg=");
+        services::Shell_WriteUInt32(data->angle_raw);
+        services::Shell_WriteString("/");
+        services::Shell_WriteUInt32(data->angle_mdeg);
+        services::Shell_WriteString(" velocity_raw/mdeg_s=");
+        WriteInt32(data->angular_velocity_raw);
+        services::Shell_WriteString("/");
+        WriteInt32(data->angular_velocity_mdeg_s);
+        services::Shell_WriteString(" revolutions=");
+        WriteInt32(data->revolutions);
+        services::Shell_WriteString(" age_ms=");
+        services::Shell_WriteUInt32(
+            (uint32_t) (now_ms - data->last_measurement_ms));
+        services::Shell_WriteString("\r\n");
+    }
+    if (data->temperature_valid) {
+        services::Shell_WriteString("  temperature_raw/mdeg_c=");
+        WriteInt32(data->temperature_raw);
+        services::Shell_WriteString("/");
+        WriteInt32(data->temperature_mdeg_c);
+        services::Shell_WriteString(" age_ms=");
+        services::Shell_WriteUInt32(
+            (uint32_t) (now_ms - data->last_temperature_ms));
+        services::Shell_WriteString("\r\n");
+    }
+}
+
+void WriteJyme02Registers(void)
+{
+    const drivers::JYME02CanData *data = AppJyme02Can_GetData();
+    if ((data == 0) || (!data->register_valid)) {
+        services::Shell_WriteLine("jyme02 regs: none");
+        return;
+    }
+
+    services::Shell_WriteString("jyme02 regs start=");
+    WriteHex8(data->register_start);
+    services::Shell_WriteString(" values=");
+    for (uint8_t i = 0U; i < 3U; i++) {
+        if (i != 0U) {
+            services::Shell_WriteString(" ");
+        }
+        WriteHex16(data->register_values[i]);
+    }
+    services::Shell_WriteString("\r\n");
+}
+
+void JYME02Command(int argc, const char * const argv[])
+{
+    if ((argc == 2) && StrEqual(argv[1], "status")) {
+        WriteJyme02Status();
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "regs")) {
+        WriteJyme02Registers();
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "clear")) {
+        AppJyme02Can_Clear();
+        services::Shell_WriteLine("jyme02 clear: ok");
+        return;
+    }
+    if ((argc == 3) && StrEqual(argv[1], "readreg")) {
+        uint32_t value = 0U;
+        if (!ParseHexUint32(argv[2], 0xFFU, &value)) {
+            PrintJyme02Usage();
+            return;
+        }
+        WriteStatusLine(
+            "jyme02 readreg: ",
+            AppJyme02Can_ReadRegister(static_cast<uint8_t>(value)));
+        return;
+    }
+    if ((argc == 3) && StrEqual(argv[1], "address")) {
+        uint32_t value = 0U;
+        if (!ParseHexUint32(argv[2], 0x7FFU, &value)) {
+            PrintJyme02Usage();
+            return;
+        }
+        WriteStatusLine(
+            "jyme02 address: ",
+            AppJyme02Can_SetAddress(static_cast<uint16_t>(value)));
+        return;
+    }
+    if ((argc == 3) && StrEqual(argv[1], "sampletime")) {
+        uint32_t value = 0U;
+        if ((!ParseUint32(argv[2], 0xFFFFU, &value)) || (value == 0U)) {
+            PrintJyme02Usage();
+            return;
+        }
+        WriteStatusLine(
+            "jyme02 sampletime: ",
+            AppJyme02Can_SetSampleTime(static_cast<uint16_t>(value)));
+        return;
+    }
+
+    PrintJyme02Usage();
+}
+#endif
+#endif
+
 void VersionCommand(int argc, const char * const argv[])
 {
     (void) argc;
@@ -2478,9 +2867,9 @@ void FramCommand(int argc, const char * const argv[])
 #endif
 }
 
+#if FEATURE_ENABLE_OLED
 void OledCommand(int argc, const char * const argv[])
 {
-#if FEATURE_ENABLE_OLED
     uint32_t value = 0U;
 
     if (argc < 2) {
@@ -2667,12 +3056,8 @@ void OledCommand(int argc, const char * const argv[])
     }
 
     PrintOledUsage();
-#else
-    (void) argc;
-    (void) argv;
-    services::Shell_WriteLine("oled: disabled");
-#endif
 }
+#endif
 
 #if FEATURE_ENABLE_GY931
 void Gy931Command(int argc, const char * const argv[])
@@ -5193,6 +5578,8 @@ const char *HeadingModeText(app::HeadingMode mode)
         return "distance";
     case app::HEADING_LOCK:
         return "lock";
+    case app::HEADING_ARC_TURN:
+        return "arc_turn";
     default:
         return "idle";
     }
@@ -5322,6 +5709,10 @@ void HeadingCommand(int argc, const char * const argv[])
         WriteInt32(st->correction_rpm);
         services::Shell_WriteString("rpm at_target=");
         services::Shell_WriteUInt32(st->at_target ? 1U : 0U);
+        services::Shell_WriteString(" arc_lr=");
+        WriteInt32(st->arc_left_command_rpm);
+        services::Shell_WriteString("/");
+        WriteInt32(st->arc_right_command_rpm);
         services::Shell_WriteString(" last=");
         services::Shell_WriteString(DriverStatusText(st->last_status));
         services::Shell_WriteString(" profile=");
@@ -6137,6 +6528,8 @@ void PrintRoadUsage(void)
     services::Shell_WriteLine("  road status|event|clear");
     services::Shell_WriteLine("  road mode detect|corner");
     services::Shell_WriteLine("  road auto on|off");
+    services::Shell_WriteLine("  road align show");
+    services::Shell_WriteLine("  road align set <distance_mm 0..300> <rpm 1..300>");
     services::Shell_WriteLine("  road turn show");
     services::Shell_WriteLine(
         "  road turn set <left_deg> <right_deg> <align_mm> <rpm> <reacquire_ms>");
@@ -6192,6 +6585,14 @@ void RoadCommand(int argc, const char * const argv[])
         WriteHex8(data->road_observed_paths);
         services::Shell_WriteString(" handled=");
         services::Shell_WriteUInt32(state->handled_event_sequence);
+        services::Shell_WriteString(" align_mm=");
+        WriteInt32(state->config.align_distance_mm);
+        services::Shell_WriteString(" align_rpm=");
+        services::Shell_WriteUInt32(state->config.align_rpm);
+        services::Shell_WriteString(" active_rpm=");
+        WriteInt32(state->road_base_rpm);
+        services::Shell_WriteString(" reacq_frames=");
+        services::Shell_WriteUInt32(state->reacquire_valid_frames);
         services::Shell_WriteString(" policy=");
         services::Shell_WriteString(
             app::RoadEventController_PolicyText(state->last_policy));
@@ -6253,6 +6654,33 @@ void RoadCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" reacquire_ms=");
         services::Shell_WriteUInt32(config.reacquire_timeout_ms);
         services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if ((argc == 3) && StrEqual(argv[1], "align") &&
+        StrEqual(argv[2], "show")) {
+        const app::RoadControlConfig &config =
+            app::RoadEventController_GetState()->config;
+        services::Shell_WriteString("road align distance_mm=");
+        WriteInt32(config.align_distance_mm);
+        services::Shell_WriteString(" rpm=");
+        services::Shell_WriteUInt32(config.align_rpm);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if ((argc == 5) && StrEqual(argv[1], "align") &&
+        StrEqual(argv[2], "set")) {
+        int32_t distance_mm = 0;
+        uint32_t rpm = 0U;
+        if ((!ParseInt32(argv[3], 0, 300, &distance_mm)) ||
+            (!ParseUint32(argv[4], 300U, &rpm)) || (rpm == 0U)) {
+            PrintRoadUsage();
+            return;
+        }
+        WriteStatusLine(
+            "road align: ",
+            app::RoadEventController_SetAlignConfig(distance_mm, rpm));
         return;
     }
 
@@ -7751,6 +8179,25 @@ void GrayCommand(int argc, const char * const argv[])
 
 } /* namespace */
 
+void AppShell_CanWatchUpdate(void)
+{
+#if FEATURE_ENABLE_CAN
+    if (!g_canWatchEnabled) {
+        return;
+    }
+
+    /* Bound each cooperative invocation so sustained bus traffic cannot
+     * monopolize the main loop or overflow the debug UART TX queue. */
+    drivers::CanFrame frame = {};
+    for (uint8_t count = 0U; count < 4U; count++) {
+        if (!AppJyme02Can_ReadRaw(&frame)) {
+            break;
+        }
+        WriteCanFrame(frame);
+    }
+#endif
+}
+
 void AppShell_DisableOledStreams(void)
 {
 #if FEATURE_ENABLE_GY931 && FEATURE_ENABLE_OLED
@@ -8352,6 +8799,18 @@ void AppShell_RegisterCommands(void)
         "lora",
         "LoRa UART and framed protocol diagnostics",
         LoraCommand);
+#endif
+#if FEATURE_ENABLE_CAN
+    (void) services::Shell_RegisterCommand(
+        "can",
+        "CANFD1 classic CAN diagnostics: status|mode|send|read|watch",
+        CanCommand);
+#if FEATURE_ENABLE_JYME02_CAN
+    (void) services::Shell_RegisterCommand(
+        "jyme02",
+        "JY-ME02-CAN encoder: status|readreg|regs|address|sampletime",
+        JYME02Command);
+#endif
 #endif
 #if FEATURE_ENABLE_MOTOR_DRIVER
     (void) services::Shell_RegisterCommand(

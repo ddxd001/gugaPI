@@ -11,7 +11,11 @@ namespace {
 
 static const uint16_t kFramAddress = 0x0000U;
 static const uint32_t kMagic = 0x47504643U; /* "CFPG" little-endian */
-static const uint16_t kVersion = 13U;
+static const uint16_t kVersion = 15U;
+static const uint16_t kV14Version = 14U;
+static const uint16_t kV14PayloadLength = 219U;
+static const uint16_t kV13Version = 13U;
+static const uint16_t kV13PayloadLength = 215U;
 static const uint16_t kV12Version = 12U;
 static const uint16_t kV12PayloadLength = 191U;
 static const uint16_t kV11Version = 11U;
@@ -36,9 +40,11 @@ static const uint16_t kLegacyVersion = 1U;
 static const uint16_t kLegacyPayloadLength = 66U;
 static const uint16_t kV2PayloadLength = 68U; /* v2 layout length (motor_invert guard) */
 /* v11 keeps the v10 binary layout and migrates the former default four-channel
- * grayscale tracking mask. v12 appends predictive TURN fields and v13 appends
- * stationary heading-lock fields; every older field keeps its binary offset. */
-static const uint16_t kPayloadLength = 215U;
+ * grayscale tracking mask. v12 appends predictive TURN fields, v13 appends
+ * stationary heading-lock fields, v14 appends corner alignment distance and
+ * speed, and v15 appends asymmetric road-turn wheel limits;
+ * every older field keeps its binary offset. */
+static const uint16_t kPayloadLength = 223U;
 static const uint16_t kHeaderLength = 8U;
 static const uint16_t kCrcLength = 4U;
 static const uint16_t kImageLength =
@@ -174,6 +180,14 @@ static const ParamDescriptor kParamDescriptors[] = {
       PARAM_OFFSET(heading_lock_settle_ms), 50, 5000 },
     { "heading_lock_timeout_ms", PARAM_U16,
       PARAM_OFFSET(heading_lock_timeout_ms), 500, 10000 },
+    { "road_align_distance_mm", PARAM_U16,
+      PARAM_OFFSET(road_align_distance_mm), 0, 300 },
+    { "road_align_rpm", PARAM_U16,
+      PARAM_OFFSET(road_align_rpm), 1, 300 },
+    { "road_turn_outer_max_rpm", PARAM_U16,
+      PARAM_OFFSET(road_turn_outer_max_rpm), 1, 1000 },
+    { "road_turn_inner_reverse_max_rpm", PARAM_U16,
+      PARAM_OFFSET(road_turn_inner_reverse_max_rpm), 0, 1000 },
     { "distance_speed_mode", PARAM_U8,
       PARAM_OFFSET(distance_speed_mode),
       DISTANCE_SPEED_MODE_LEGACY, DISTANCE_SPEED_MODE_TRAPEZOID },
@@ -400,10 +414,14 @@ void SetDefaults(ConfigStoreParams *params)
     params->heading_lock_settle_rpm = 3U;
     params->heading_lock_settle_ms = 250U;
     params->heading_lock_timeout_ms = 3000U;
+    params->road_align_distance_mm = 0U;
+    params->road_align_rpm = 30U;
+    params->road_turn_outer_max_rpm = 220U;
+    params->road_turn_inner_reverse_max_rpm = 120U;
 
-    /* Conservative defaults for the existing 100 ms MotorDriver speed loop.
-     * The latency term deliberately includes one complete local control cycle
-     * plus gugaPI feedback/heading scheduling delay. */
+    /* MotorDriver closes its speed loop every 10 ms. These conservative
+     * endpoint values model end-to-end command/feedback delay and mechanical
+     * coast; gugaPI's 100 ms chassis service only refreshes the motion lease. */
     params->distance_speed_mode = DISTANCE_SPEED_MODE_TRAPEZOID;
     params->distance_accel_rpm_s = 600U;
     params->distance_decel_rpm_s = 900U;
@@ -601,7 +619,11 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     cursor = AppendU16(cursor, params.heading_lock_settle_rate_mdps);
     cursor = AppendU16(cursor, params.heading_lock_settle_rpm);
     cursor = AppendU16(cursor, params.heading_lock_settle_ms);
-    (void) AppendU16(cursor, params.heading_lock_timeout_ms);
+    cursor = AppendU16(cursor, params.heading_lock_timeout_ms);
+    cursor = AppendU16(cursor, params.road_align_distance_mm);
+    cursor = AppendU16(cursor, params.road_align_rpm);
+    cursor = AppendU16(cursor, params.road_turn_outer_max_rpm);
+    (void) AppendU16(cursor, params.road_turn_inner_reverse_max_rpm);
 }
 
 void DecodePayload(const uint8_t *payload,
@@ -753,7 +775,7 @@ void DecodePayload(const uint8_t *payload,
             &params->heading_turn_settle_rate_mdps);
         cursor = ReadU16Field(cursor, &params->heading_turn_settle_rpm);
     }
-    if (payload_length >= kPayloadLength) {
+    if (payload_length >= kV13PayloadLength) {
         cursor = ReadI32Field(cursor, &params->heading_lock_kp);
         cursor = ReadI32Field(cursor, &params->heading_lock_kd);
         cursor = ReadU16Field(cursor, &params->heading_lock_wake_mdeg);
@@ -764,7 +786,17 @@ void DecodePayload(const uint8_t *payload,
                               &params->heading_lock_settle_rate_mdps);
         cursor = ReadU16Field(cursor, &params->heading_lock_settle_rpm);
         cursor = ReadU16Field(cursor, &params->heading_lock_settle_ms);
-        (void) ReadU16Field(cursor, &params->heading_lock_timeout_ms);
+        cursor = ReadU16Field(cursor, &params->heading_lock_timeout_ms);
+    }
+    if (payload_length >= kV14PayloadLength) {
+        cursor = ReadU16Field(cursor, &params->road_align_distance_mm);
+        cursor = ReadU16Field(cursor, &params->road_align_rpm);
+    }
+    if (payload_length >= kPayloadLength) {
+        cursor = ReadU16Field(cursor, &params->road_turn_outer_max_rpm);
+        (void) ReadU16Field(
+            cursor,
+            &params->road_turn_inner_reverse_max_rpm);
     }
     (void) cursor;
 }
@@ -911,6 +943,10 @@ drivers::DriverStatus ConfigStore_Load(void)
 
     const bool current_layout =
         (version == kVersion) && (length == kPayloadLength);
+    const bool v14_layout =
+        (version == kV14Version) && (length == kV14PayloadLength);
+    const bool v13_layout =
+        (version == kV13Version) && (length == kV13PayloadLength);
     const bool v12_layout =
         (version == kV12Version) && (length == kV12PayloadLength);
     const bool v11_layout =
@@ -935,7 +971,7 @@ drivers::DriverStatus ConfigStore_Load(void)
         (version == kLegacyVersion) && (length == kLegacyPayloadLength);
     const bool legacy_v2 = (version == 2U) && (length == kV2PayloadLength);
     const bool legacy_layout =
-        v12_layout || v11_layout || v10_layout || v9_layout || v8_layout || v7_layout || v6_layout ||
+        v14_layout || v13_layout || v12_layout || v11_layout || v10_layout || v9_layout || v8_layout || v7_layout || v6_layout ||
         v5_layout || v4_layout || v3_layout || legacy_v1 || legacy_v2;
 
     if ((magic != kMagic) ||
