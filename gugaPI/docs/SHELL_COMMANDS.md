@@ -2157,6 +2157,18 @@ comp mode=armed slot=3 valid=1 any_valid=1 count=6 step=0 result=none last=ok
 
 模式值：`armed`（安全静止）、`running`（序列执行中）、`fault`（故障锁定）、`dev-running`（开发模式）。结果值包括 `none`、`done`、`failed`、`stopped` 和 `load-error`。
 
+## 软件全停
+
+### `estop`
+
+取消道路控制、动作序列、航向控制和循迹控制，释放运动命令租约并最终直接停止两个车轮。比赛运行中返回 ARMED 并记录 `stopped`；普通运行返回 IDLE；FAULT 保持锁存且不会被清除。
+
+```text
+estop
+```
+
+正常返回 `estop: ok`。即使某个上层控制器停止失败，固件仍会继续执行后续停止路径，并返回遇到的第一个错误。该命令是调试用软件全停，不能替代硬件急停或切断电机电源。
+
 ## 遥测（FireWater / VOFA+）
 
 FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接收实时画图。非阻塞，TX 缓冲接近满时自动丢帧。
@@ -2199,6 +2211,19 @@ FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接�
 | `head_turn_settle_mdps` | 配置的稳定角速度阈值 |
 | `head_turn_settle_rpm` | 配置的稳定轮速阈值 |
 
+实时仪表盘扩展字段追加在上述兼容字段之后：
+
+| 字段组 | 通道 |
+| --- | --- |
+| 故障与任务 | `fault_code`, `fault_count`, `comp_slot`, `comp_slot_valid`, `comp_count` |
+| 底盘健康 | `chassis_init`, `chassis_status`, `feedback_status`, `feedback_valid`, `feedback_age_ms` |
+| 调试串口 | `tx_pending`, `tx_dropped` |
+| IMU 健康 | `imu_valid`, `imu_age_ms`, `imu_error_count` |
+| IMU 原始与姿态 | `acc_x_mg..acc_z_mg`, `gyro_x_mdps..gyro_z_mdps`, `pitch`, `roll`, `imu_temp_cc` |
+| 灰度健康与原始值 | `gray_sample_valid`, `gray_age_ms`, `gray_error_count`, `gray0..gray7` |
+
+扩展只读取各应用模块已经缓存的状态，不在遥测任务中发起额外 I²C/SPI/UART 事务。上位机按表头名称解析；连接旧固件时，缺失字段显示为不可用。
+
 ### `telem on [period_ms]`
 
 开启遥测输出。默认周期 100ms（10Hz），范围 `50..5000`ms。开启时先发送通道名行（`#` 开头），然后周期输出数据行。
@@ -2222,7 +2247,7 @@ telem on 200
 python host_tools/linefollow_capture.py --port COM14 --start-rpm 60 --run-ms 6000 --enable-oled
 ```
 
-预测制动调试可执行一次有界相对转弯并生成33列CSV，以及目标角、实际角、轮速、动态
+预测制动调试可执行一次有界相对转弯并生成兼容原有33列且带扩展字段的CSV，以及目标角、实际角、轮速、动态
 制动角、陀螺角速度和控制阶段曲线：
 
 ```text

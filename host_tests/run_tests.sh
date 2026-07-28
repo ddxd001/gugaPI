@@ -8,7 +8,16 @@ trap 'rm -rf "${build_dir}"' EXIT
 cd "${repo_root}"
 
 cxx="${CXX:-g++}"
-node_bin="${NODE:-node}"
+if [[ -n "${NODE:-}" ]]; then
+    node_bin="${NODE}"
+elif command -v node >/dev/null 2>&1; then
+    node_bin="node"
+elif command -v node.exe >/dev/null 2>&1; then
+    node_bin="node.exe"
+else
+    echo "node/node.exe is required for JavaScript host tests" >&2
+    exit 1
+fi
 common_flags=(-std=c++17 -Wall -Wextra -Werror -Ihost_tests/stubs -IgugaPI)
 
 build_and_run() {
@@ -53,5 +62,8 @@ echo "[host-test] parameter_catalog"
 
 echo "[host-test] sequence_core"
 "${node_bin}" host_tests/sequence_core_test.js
+
+echo "[host-test] dashboard_core"
+"${node_bin}" host_tests/dashboard_core_test.js
 
 echo "[host-test] all tests passed"

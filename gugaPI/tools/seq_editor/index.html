@@ -177,6 +177,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 #btnEmergencyStop{position:relative;background:#d84f68;color:#fff;font-weight:800;border:0;box-shadow:0 0 0 2px #ff8b9d33}
 @media(max-width:1100px){#paramLayout{grid-template-columns:190px minmax(330px,1fr) 310px}#commandLayout{grid-template-columns:330px minmax(400px,1fr)}}
 </style>
+<link rel="stylesheet" href="dashboard.css?v=20260728-workbench">
 </head>
 <body>
 <header>
@@ -189,9 +190,95 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 </header>
 <div class="tabbar">
 <button class="tab active" id="tabEditor" type="button">序列编辑器</button>
+<button class="tab" id="tabDashboard" type="button">实时仪表盘</button>
 <button class="tab" id="tabTerminal" type="button">串口终端</button>
 <button class="tab" id="tabParameters" type="button">参数</button>
 <button class="tab" id="tabCommands" type="button">命令库</button>
+</div>
+<div id="dashboardView" class="main" hidden>
+<div id="dashboardShell">
+<div id="dashboardToolbar">
+<div class="dash-page-title"><strong>REALTIME INSPECTOR</strong><span>底盘运行状态与传感器遥测</span></div>
+<div class="dash-live"><span id="dashTelemetryDot"></span><span><b id="dashTelemetryText">遥测未启动</b><small id="dashSampleCount">0 samples</small></span></div>
+<div class="dash-control-group">
+<label>采样周期
+<select id="dashPeriod">
+<option value="50">50 ms</option>
+<option value="100" selected>100 ms</option>
+<option value="200">200 ms</option>
+<option value="500">500 ms</option>
+<option value="1000">1000 ms</option>
+</select>
+</label>
+<label>窗口
+<select id="dashWindow">
+<option value="10">10 s</option>
+<option value="30" selected>30 s</option>
+<option value="60">60 s</option>
+</select>
+</label>
+<button id="btnDashTelemetry" type="button" disabled>开启遥测</button>
+<button id="btnDashRecord" type="button" disabled>开始记录</button>
+<button id="btnDashExport" type="button" disabled>导出 CSV</button>
+<button id="btnDashClear" type="button">清空曲线</button>
+</div>
+<span class="dash-spacer"></span>
+<button id="btnDashEstop" class="danger" type="button" disabled>STOP ALL</button>
+</div>
+<div id="dashboardContent">
+<aside id="dashDataBrowser">
+<div class="dash-section-title"><strong>DATA GROUPS</strong><span>选择主图数据源</span></div>
+<nav id="dashGroupList" aria-label="遥测数据组"></nav>
+<div class="dash-section-title dash-series-title"><strong>VISIBLE SERIES</strong><span>点击隐藏或显示曲线</span></div>
+<div id="dashSeriesList"></div>
+</aside>
+<section id="dashPlotWorkspace">
+<header id="dashPlotHeader">
+<div><h2 id="dashChartTitle">车轮转速</h2><p id="dashChartSubtitle">目标与实际转速 · RPM</p></div>
+<div id="dashMainLegend"></div>
+</header>
+<div id="dashMainChartWrap">
+<canvas id="dashMainChart"></canvas>
+<div id="dashChartTooltip" hidden></div>
+</div>
+<footer id="dashPlotFooter">
+<span>移动鼠标查看历史采样点</span>
+<span id="dashVisibleRange">--</span>
+</footer>
+</section>
+<aside id="dashboardSensors">
+<article class="dash-inspector-panel">
+<header><strong>SYSTEM STATUS</strong><span>运行摘要</span></header>
+<div class="dash-summary">
+<div><span>LINK</span><strong id="dashSampleAge">未连接</strong></div>
+<div><span>MODE</span><strong id="dashMode">--</strong></div>
+<div><span>FAULT</span><strong id="dashFault">--</strong></div>
+<div><span>TASK</span><strong id="dashTask">--</strong></div>
+<div><span>CHASSIS</span><strong id="dashFeedback">--</strong></div>
+<div><span>UART TX</span><strong id="dashTx">--</strong></div>
+</div>
+</article>
+<article class="dash-inspector-panel">
+<header><strong>LIVE VALUES</strong><span>当前曲线</span></header>
+<div id="dashCurrentValues"></div>
+</article>
+<article class="dash-inspector-panel">
+<header><strong>IMU ATTITUDE</strong><span>姿态与温度</span></header>
+<div class="dash-value-grid">
+<div><span>Yaw</span><strong id="dashYaw">--</strong><small>deg</small></div>
+<div><span>Pitch</span><strong id="dashPitch">--</strong><small>deg</small></div>
+<div><span>Roll</span><strong id="dashRoll">--</strong><small>deg</small></div>
+<div><span>温度</span><strong id="dashTemp">--</strong><small>°C</small></div>
+</div>
+</article>
+<article class="dash-inspector-panel dash-gray-panel">
+<header><strong>GRAYSCALE</strong><span>八路原始值 · ADC</span></header>
+<div id="dashGrayBars"></div>
+</article>
+</aside>
+</div>
+</div>
+<div id="dashToast" role="status" aria-live="polite"></div>
 </div>
 <div id="editorView" class="main">
 <div class="seq-shell">
@@ -215,6 +302,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <div id="termPanel">
 <div id="termToolbar">
 <span class="term-info">gugaPI UART6 · PC10/PC11 · 115200 8N1 · Enter 发送 · ↑↓ 历史 · Tab 补全</span>
+<label class="term-info"><input id="termShowTelemetry" type="checkbox"> 显示遥测</label>
 <button id="btnTermHelp" type="button" disabled>help</button>
 <button id="btnTermClear" type="button">清屏</button>
 </div>
@@ -280,12 +368,14 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <div id="paramToast" role="status" aria-live="polite"></div>
 <div id="seqGuide" class="seq-guide"><div class="seq-guide-card"><h2>第一次使用图形序列编辑器</h2><p>这个编辑器把当前画布编译成固件可脱机执行的 ActionRunner 指令，不会生成依赖上位机在线发送的脚本块。</p><div class="seq-guide-grid"><div><b>1. 拖入动作</b><p>从左侧动作库拖到画布；点击动作后在右侧设置中文参数。</p></div><div><b>2. 连接端口</b><p>从动作块右侧圆点拖到目标块。绿色表示完成，红色表示失败或超时。</p></div><div><b>3. 先试运行</b><p>试运行只临时更新 MCU RAM，校验并回读比对后启动，不会写 FRAM。</p></div><div><b>4. 再保存</b><p>保存会覆盖绑定槽位，写入后自动通过 seq dump 逐项比对。</p></div></div><p style="color:#ef8697">运动动作具有机械风险。实车测试前请架空车轮，并确保“紧急停止”按钮始终可操作。</p><button id="btnGuideClose" class="primary">开始编辑</button></div></div>
 <script src="sequence_core.js?v=20260728-seq-v1"></script>
-<script src="app1.js?v=20260728-seq-v1"></script>
+<script src="dashboard_core.js?v=20260728-workbench"></script>
+<script src="app1.js?v=20260728-seq-dashboard"></script>
 <script src="app2.js?v=20260728-pointer-fix"></script>
 <script src="app3.js?v=20260728-pointer-fix"></script>
 <script src="app4.js"></script>
 <script src="app5.js?v=20260728-host-sync"></script>
 <script src="command_catalog.js?v=20260728-host-sync"></script>
 <script src="app6.js?v=20260728-shell-library"></script>
+<script src="app7.js?v=20260728-workbench"></script>
 </body>
 </html>
