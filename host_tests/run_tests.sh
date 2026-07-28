@@ -9,7 +9,14 @@ cd "${repo_root}"
 
 cxx="${CXX:-g++}"
 node_bin="${NODE:-node}"
-common_flags=(-std=c++17 -Wall -Wextra -Werror -IgugaPI)
+common_flags=(
+    -std=c++17
+    -Wall
+    -Wextra
+    -Werror
+    -DFEATURE_PROFILE_HOST_TEST=1
+    -IgugaPI
+)
 
 build_and_run() {
     local name="$1"

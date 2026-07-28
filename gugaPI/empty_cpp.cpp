@@ -37,6 +37,7 @@
 #include "board/board.h"
 #include "board/board_buzzer.h"
 #include "board/board_led.h"
+#include "board/board_local_motor.h"
 #include "board/board_oled.h"
 #include "config/feature_config.h"
 #include "drivers/common/driver_status.h"
@@ -67,6 +68,10 @@ void CompetitionSyscfgInitPower(void)
     DL_I2C_reset(MOTOR_I2C_INST);
     DL_UART_Main_reset(MOTOR_UART_INST);
 #endif
+#if FEATURE_ENABLE_LOCAL_MOTOR && FEATURE_LOCAL_MOTOR_RIGHT_ONLY
+    DL_TimerG_reset(MOTOR_PWM_INST);
+    DL_TimerG_reset(RIGHT_MOTOR_QEI_INST);
+#endif
 #if FEATURE_ENABLE_LORA
     DL_UART_Main_reset(LORA_UART_INST);
 #endif
@@ -93,6 +98,10 @@ void CompetitionSyscfgInitPower(void)
     DL_I2C_enablePower(MOTOR_I2C_INST);
     DL_UART_Main_enablePower(MOTOR_UART_INST);
 #endif
+#if FEATURE_ENABLE_LOCAL_MOTOR && FEATURE_LOCAL_MOTOR_RIGHT_ONLY
+    DL_TimerG_enablePower(MOTOR_PWM_INST);
+    DL_TimerG_enablePower(RIGHT_MOTOR_QEI_INST);
+#endif
 #if FEATURE_ENABLE_LORA
     DL_UART_Main_enablePower(LORA_UART_INST);
 #endif
@@ -115,6 +124,50 @@ void CompetitionSyscfgInitPower(void)
 
 void CompetitionSyscfgInitGpio(void)
 {
+#if FEATURE_ENABLE_LOCAL_MOTOR && FEATURE_LOCAL_MOTOR_RIGHT_ONLY
+    DL_GPIO_initPeripheralOutputFunction(GPIO_MOTOR_PWM_C0_IOMUX,
+                                         GPIO_MOTOR_PWM_C0_IOMUX_FUNC);
+    DL_GPIO_enableOutput(GPIO_MOTOR_PWM_C0_PORT,
+                         GPIO_MOTOR_PWM_C0_PIN);
+    DL_GPIO_initPeripheralInputFunctionFeatures(
+        GPIO_RIGHT_MOTOR_QEI_PHA_IOMUX,
+        GPIO_RIGHT_MOTOR_QEI_PHA_IOMUX_FUNC,
+        DL_GPIO_INVERSION_DISABLE,
+        DL_GPIO_RESISTOR_PULL_UP,
+        DL_GPIO_HYSTERESIS_DISABLE,
+        DL_GPIO_WAKEUP_DISABLE);
+    DL_GPIO_initPeripheralInputFunctionFeatures(
+        GPIO_RIGHT_MOTOR_QEI_PHB_IOMUX,
+        GPIO_RIGHT_MOTOR_QEI_PHB_IOMUX_FUNC,
+        DL_GPIO_INVERSION_DISABLE,
+        DL_GPIO_RESISTOR_PULL_UP,
+        DL_GPIO_HYSTERESIS_DISABLE,
+        DL_GPIO_WAKEUP_DISABLE);
+
+    DL_GPIO_initDigitalOutput(GPIO_MOTOR_SLEEP_MOTOR_RIGHT_NSLEEP_IOMUX);
+    DL_GPIO_initDigitalOutput(GPIO_MOTOR_SLEEP_MOTOR_LEFT_NSLEEP_IOMUX);
+    DL_GPIO_clearPins(GPIO_MOTOR_SLEEP_PORT,
+                      GPIO_MOTOR_SLEEP_MOTOR_RIGHT_NSLEEP_PIN |
+                          GPIO_MOTOR_SLEEP_MOTOR_LEFT_NSLEEP_PIN);
+    DL_GPIO_enableOutput(GPIO_MOTOR_SLEEP_PORT,
+                         GPIO_MOTOR_SLEEP_MOTOR_RIGHT_NSLEEP_PIN |
+                             GPIO_MOTOR_SLEEP_MOTOR_LEFT_NSLEEP_PIN);
+
+    DL_GPIO_initDigitalOutput(GPIO_MOTOR_DIRECTION_MOTOR_RIGHT_PH_IOMUX);
+    DL_GPIO_initDigitalOutput(GPIO_MOTOR_DIRECTION_MOTOR_LEFT_PH_IOMUX);
+    DL_GPIO_clearPins(GPIO_MOTOR_DIRECTION_PORT,
+                      GPIO_MOTOR_DIRECTION_MOTOR_RIGHT_PH_PIN |
+                          GPIO_MOTOR_DIRECTION_MOTOR_LEFT_PH_PIN);
+    DL_GPIO_enableOutput(GPIO_MOTOR_DIRECTION_PORT,
+                         GPIO_MOTOR_DIRECTION_MOTOR_RIGHT_PH_PIN |
+                             GPIO_MOTOR_DIRECTION_MOTOR_LEFT_PH_PIN);
+
+    DL_GPIO_initDigitalInput(
+        GPIO_MOTOR_DIRECTION_MOTOR_LEFT_ENCODER_A_IOMUX);
+    DL_GPIO_initDigitalInput(
+        GPIO_MOTOR_DIRECTION_MOTOR_LEFT_ENCODER_B_IOMUX);
+#endif
+
     if (kUsesSensorI2c) {
         DL_GPIO_initPeripheralInputFunctionFeatures(
             GPIO_SENSOR_I2C_IOMUX_SDA,
@@ -286,6 +339,10 @@ extern "C" void SYSCFG_DL_init(void)
     CompetitionSyscfgInitPower();
     CompetitionSyscfgInitGpio();
     SYSCFG_DL_SYSCTL_init();
+#if FEATURE_ENABLE_LOCAL_MOTOR && FEATURE_LOCAL_MOTOR_RIGHT_ONLY
+    SYSCFG_DL_MOTOR_PWM_init();
+    SYSCFG_DL_RIGHT_MOTOR_QEI_init();
+#endif
 #if FEATURE_ENABLE_FRAM || FEATURE_ENABLE_INA219 || FEATURE_ENABLE_OLED
     SYSCFG_DL_SENSOR_I2C_init();
 #endif
@@ -300,6 +357,7 @@ extern "C" void SYSCFG_DL_init(void)
 #endif
 #if FEATURE_ENABLE_DEBUG_UART
     SYSCFG_DL_DEBUG_UART_init();
+    SYSCFG_DL_DMA_init();
 #endif
 #if FEATURE_ENABLE_MOTOR_DRIVER
     SYSCFG_DL_MOTOR_UART_init();
@@ -320,6 +378,11 @@ extern "C" void SYSCFG_DL_init(void)
  * ever returns. */
 static void PanicHandler(services::FaultCode code)
 {
+#if FEATURE_ENABLE_LOCAL_MOTOR
+    /* Panic owns the CPU forever, so force both bridges asleep before any
+     * diagnostic output or blink loop can block the cooperative watchdog. */
+    (void) board::Board_LocalMotorSleepAll();
+#endif
 #if FEATURE_ENABLE_LOG
     services::Log_Error("panic");
 #endif

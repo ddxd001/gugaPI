@@ -43,6 +43,14 @@ while (1) {
 
 `SYSCFG_DL_init()` 由 SysConfig 生成，负责时钟、电源、引脚复用和外设基础初始化。不要手改 `Debug/ti_msp_dl_config.c` 或 `Debug/ti_msp_dl_config.h`。
 
+> 当前无 MCU DRV8876 接口使用右侧 MR 单电机台架配置：
+> `FEATURE_LOCAL_MOTOR_RIGHT_ONLY=1`，
+> `FEATURE_ENABLE_DIFFERENTIAL_CHASSIS=0`。PB13/PB7/PA10 控制 MR，
+> PC0/PC1 由 TIMG8 读取右编码器。左桥保持休眠，PB15/PB16 不得配置为
+> PH 输出。PB15/PB16 也可在另一个 ML-only 配置中整体映射为 TIMG8
+> CCP0/1，但与当前 PC0/PC1 QEI 互斥。完整接线和台架限制见
+> `docs/LOCAL_MOTOR_MIGRATION.md`。
+
 ## 三、目录职责
 
 ### app/
@@ -78,7 +86,7 @@ drivers/oled/
 
 - `time`：1 ms 系统时间戳和延时
 - `scheduler`：无 RTOS 协作式任务调度
-- `debug_uart`：UART6 调试串口底层收发，RX使用中断环形缓冲，TX使用环形缓冲和分块DMA
+- `debug_uart`：UART3 调试串口底层收发，RX使用中断环形缓冲，TX使用环形缓冲和分块DMA
 - `log`：日志等级接口，提供 `LOG_INFO`、`LOG_WARN`、`LOG_ERROR`、`LOG_DEBUG`
 - `shell`：调试命令行，主循环中调用 `Shell_Process()` 解析命令
 - `fault`：统一错误码和严重错误处理
@@ -213,7 +221,7 @@ LOG_DEBUG("control loop entered");
 app/app_shell.cpp       注册板级和业务命令
 services/shell.cpp      命令行输入、分词、命令分发
 services/log.cpp        日志等级格式
-services/debug_uart.cpp UART6 TX/RX、RX中断缓冲、TX分块DMA
+services/debug_uart.cpp UART3 TX/RX、RX中断缓冲、TX分块DMA
 ```
 
 要求：
@@ -296,9 +304,9 @@ PA27、PA26、PB27 的初始输出配置为 `SET`，所以上电初始化后 LED
 
 PC16 的初始输出配置为 `CLEARED`，所以上电初始化后蜂鸣器默认不响。
 
-### 调试串口 UART6
+### 调试串口 UART3
 
-- 引脚：RX PC10，TX PC11
+- 引脚：RX PA13，TX PA14
 - 电平：TTL 串口电平
 - 波特率：115200
 - SysConfig 实例：`DEBUG_UART`
@@ -311,6 +319,10 @@ PC16 的初始输出配置为 `CLEARED`，所以上电初始化后蜂鸣器默�
 - 当前交互：主循环调用 `Shell_Process()`，支持 `help`、`version`、`reset`、`led on/off`、`buzzer on/off`、`adc`、`pwm 50`
 
 调试串口由 `FEATURE_ENABLE_DEBUG_UART` 控制，日志由 `FEATURE_ENABLE_LOG` 控制，Shell 由 `FEATURE_ENABLE_SHELL` 控制。比赛配置保留 Shell 命令解析，但关闭 banner、提示符和回显。计数打印测试仍保留在 `FEATURE_ENABLE_UART_COUNTER_TEST` 后面，默认关闭，避免干扰 Shell 交互。
+
+PA14/PA13 原为 LoRa UART3 引脚。当前已专用于调试串口，
+`FEATURE_ENABLE_LORA=0` 且 SysConfig 不再生成 `LORA_UART`；如需恢复
+LoRa，必须先重新分配另一组 UART 外设和引脚。
 
 ### FM24CL64B-GTR FRAM
 
@@ -341,7 +353,7 @@ fram write 0x0000 0x5A
 - 器件：维特 GY931 姿态/角度传感器模块，按 WIT 标准寄存器协议读取
 - I2C 地址：默认 `0x50`，可通过 `gy931 scan` 和 `gy931 addr` 在运行时确认
 - 单片机连接：`PA29` 为 SCL，`PA30` 为 SDA
-- 总线方式：GPIO 软件 I2C。PA29/PA30 可复用到硬件 I2C1/I2C2，但当前硬件 I2C1 已用于 MotorDriver，I2C2 已用于 FRAM/OLED/INA219，因此不抢占硬件总线
+- 总线方式：GPIO 软件 I2C。PA29/PA30 可复用到硬件 I2C1/I2C2，但当前保持软件 I2C，以免影响共享 SENSOR_I2C 和本地电机引脚配置；旧 MotorDriver I2C1 后端已禁用
 - SysConfig 分组：`GPIO_GY931_I2C`
 - 板级接口：`board/board_gy931.h`
 - 驱动实现：`drivers/soft_i2c/`、`drivers/gy931/`

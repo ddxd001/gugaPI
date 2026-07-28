@@ -35,7 +35,7 @@ There is **no automated test suite**. "Testing" means bench regression: build, f
 
 Debug consoles (all 115200 8N1):
 - FOC: UART1 PA8/PA9, single-char commands (`s` start, `x` stop, `f` status, `i` current ADC, `a` encoder, `n`/`t` CAN). See `FOC/README.md`.
-- gugaPI: UART0 PB0/PB1, line-based shell. See `gugaPI/docs/SHELL_COMMANDS.md`.
+- gugaPI: UART3 PA14/TX and PA13/RX, line-based shell. See `gugaPI/docs/SHELL_COMMANDS.md`.
 - MotorDriver: UART4 PB17/PB18, `0xAA CMD REG LEN DATA... CRC8` frames.
 
 ## Architecture

@@ -12,6 +12,7 @@
 #include "board/board_imu.h"
 #include "board/board_led.h"
 #include "board/board_lora.h"
+#include "board/board_local_motor.h"
 #include "board/board_motor_driver.h"
 #include "board/board_oled.h"
 #include "board/board_pins.h"
@@ -113,6 +114,10 @@ drivers::DriverStatus Board_Init(void)
 
 #if FEATURE_ENABLE_MOTOR_DRIVER
     TrackInit("motor_driver", Board_MotorDriverInit(),
+              BOARD_INIT_MOTION_INHIBIT);
+#endif
+#if FEATURE_ENABLE_LOCAL_MOTOR
+    TrackInit("local_motor", Board_LocalMotorInit(),
               BOARD_INIT_MOTION_INHIBIT);
 #endif
 #if FEATURE_ENABLE_GRAYSCALE

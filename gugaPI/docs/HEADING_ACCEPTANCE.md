@@ -2,6 +2,11 @@
 
 本文档是 `CHASSIS_CONTROL_PLAN.md` 阶段二的硬件验收流程。航向源为 ICM-45686 陀螺仪 Z 轴 yaw 积分（非 GY931），闭环代码在 `heading.cpp`，IMU 采样在 `app_imu.cpp`。
 
+> **当前阻塞**：右侧 MR 单电机配置设置
+> `FEATURE_ENABLE_DIFFERENTIAL_CHASSIS=0`，不能产生左右轮差速。本文保留
+> 旧双轮验收记录，但当前台架不得执行 HOLD、TURN、LOCK 或 DISTANCE
+> 运动测试。
+
 ## 0. 前置知识与安全约定
 
 ### 0.1 航向源
@@ -52,7 +57,7 @@
 
 ### 0.6 测试串口
 
-UART6，PC10/RX、PC11/TX，`115200 8N1`。所有命令通过 Shell 执行。
+UART3，PA13/RX、PA14/TX，`115200 8N1`。所有命令通过 Shell 执行。
 
 ---
 
@@ -369,13 +374,13 @@ heading turn 90
 
 **预期**：8 秒后超时停车，触发 `FAULT_DRIVER_TIMEOUT`。
 
-### 5.4 底盘通信故障
+### 5.4 本地电机续租超时
 
-此测试在 `heading hold 80` 运行中拔掉 gugaPI→MotorDriver 的 I2C 线：
+当前底盘不再经过外置 MotorDriver I2C。使用测试构建，在 `heading hold 80` 运行中停止 100 ms 的底盘续租、但保留 10 ms 本地电机控制任务：
 
-**预期**：底盘命令失败 → 立即停车（不锁故障）。MotorDriver 看门狗 1 秒后超时也会 coast。
+**预期**：300 ms 租约超时后两路 PWM 归零、nSLEEP 拉低并锁存 timeout；必须显式执行停止/重新下发命令，旧运动命令不会自动恢复。
 
-> 此路径不设故障码，恢复通信后可直接重新启动 `heading hold`。
+> 该测试只覆盖协作调度器内的软件租约。主循环完全卡死需要独立 IWDT，详见 `LOCAL_MOTOR_MIGRATION.md` 的残余风险说明。
 
 ### 5.5 安全路径验收
 

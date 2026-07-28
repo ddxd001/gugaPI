@@ -38,8 +38,12 @@ struct ChassisState {
 
 drivers::DriverStatus Chassis_Init(void);
 drivers::DriverStatus Chassis_Stop(void);
+/* Right-only bench builds accept only (left_rpm=0, right_rpm=target).
+ * Nonzero left commands are stopped and rejected as unsupported. */
 drivers::DriverStatus Chassis_SetWheelRpm(int32_t left_rpm,
                                           int32_t right_rpm);
+/* Unsupported in right-only bench builds because chassis velocity requires
+ * two independently driven wheels. */
 drivers::DriverStatus Chassis_SetVelocity(int32_t linear_mm_s,
                                           int32_t angular_mdeg_s);
 /* Keep a raw shell position command alive until it settles, without adding a
@@ -47,6 +51,8 @@ drivers::DriverStatus Chassis_SetVelocity(int32_t linear_mm_s,
 drivers::DriverStatus Chassis_TrackMotorPosition(bool motor1);
 void Chassis_ReleaseMotorCommand(bool motor1);
 void Chassis_ReleaseAllMotorCommands(void);
+/* 10 ms local speed-loop task. Remote MotorDriver builds do not call this. */
+drivers::DriverStatus Chassis_ControlUpdate(void);
 drivers::DriverStatus Chassis_Service(void);
 drivers::DriverStatus Chassis_Update(void);
 const ChassisState *Chassis_GetState(void);

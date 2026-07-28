@@ -4,8 +4,15 @@
 
 数字参数支持十进制或 `0x` 开头的十六进制，例如 `16` 和 `0x10`。
 
-DEBUG UART 固定使用 UART6（PC11/TX、PC10/RX）。比赛配置仍保留
+DEBUG UART 固定使用 UART3（PA14/TX、PA13/RX）。比赛配置仍保留
 Shell 命令解析，但关闭 banner、提示符、输入回显和调试级日志。
+
+> **当前运动能力限制**：无 MCU DRV8876 板保持原 U9 网络，固件使用
+> `FEATURE_LOCAL_MOTOR_RIGHT_ONLY=1`，只允许右侧 `MR` 单电机台架测试；
+> `FEATURE_ENABLE_DIFFERENTIAL_CHASSIS=0`。除 `chassis status`、
+> `chassis stop` 和左目标为 0 的右轮低速测试外，不得下发底盘、航向、
+> 定距、循迹、路口或动作序列运动命令。接线和上电顺序见
+> `LOCAL_MOTOR_MIGRATION.md`。
 
 ## 通用命令
 
@@ -35,7 +42,7 @@ sched
 
 ### `txstat`
 
-查看调试 UART（UART6）TX/RX 队列和 TX DMA 状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
+查看调试 UART（UART3）TX/RX 队列和 TX DMA 状态。仅在开发配置（`FEATURE_ENABLE_DEBUG_UART`）下可用。
 
 ```text
 txstat
@@ -950,10 +957,11 @@ A L:55 R:63
 
 | 名称 | 用途 |
 | --- | --- |
-| `motor` | MotorDriver 专用 IIC1 / MCU I2C1 总线 |
 | `fram` | FRAM 所在的共享 IIC3 / MCU I2C2 总线 |
 | `oled` | OLED 所在的共享 IIC3 / MCU I2C2 总线 |
 | `ina219` | INA219 所在的共享 IIC3 / MCU I2C2 总线 |
+
+当前配置未实例化旧 MotorDriver I2C1，因此 `i2c list` 不会列出 `motor`。`oled`/`ina219` 仍作为共享 I2C2 的底层诊断别名保留，即使相应高层设备功能暂时关闭也可用于总线排查。
 
 ### `i2c list`
 
@@ -1026,6 +1034,10 @@ i2c test ina219 0x40 0x4F
 
 ## LoRa 串口透传
 
+> 当前构建已将 PA14/PA13 转为 DEBUG_UART，因此
+> `FEATURE_ENABLE_LORA=0`，下列 `lora` 命令不会注册。本节仅作为
+> 将 LoRa 重新分配到其他 UART 引脚后的接口参考。
+
 LoRa 使用 `115200 8N1` 串口透传。该命令只做原始串口收发，不理解 LoRa 模块协议。
 
 ### `lora status`
@@ -1097,9 +1109,9 @@ lora read
 lora read 16
 ```
 
-## MotorDriver 控制
+## 旧 MotorDriver 控制（当前配置禁用）
 
-gugaPI 默认使用 `motor` I2C 总线控制 MotorDriver，默认 7-bit 地址 `0x20`。`PA8/UART1_TX`、`PA9/UART1_RX` 仍保留为 UART 调试链路，也可以通过 `motor bus uart` 手动切换到 UART 协议帧访问。
+本节仅保留给旧的“外置 MCU MotorDriver”后端参考。当前开发版和比赛版均使用主控 MSPM0G3519 直接驱动 DRV8876，`FEATURE_ENABLE_MOTOR_DRIVER=0`，因此不会注册 `motor` 命令；当前调试入口请使用后文的 `chassis` 命令。若以后恢复旧后端，默认 I2C 7-bit 地址为 `0x20`，也可通过 `PA8/UART1_TX`、`PA9/UART1_RX` 使用 UART 调试链路。
 
 UART 硬件连接：
 
@@ -1119,7 +1131,7 @@ MotorDriver 协议帧：
 
 CRC 为 `CRC-8 poly 0x07 init 0x00`，覆盖 `SOF` 到 `DATA`。
 
-I2C 当前使用 `motor` 总线别名，走 gugaPI 的 MotorDriver 专用 IIC1 / MCU I2C1 总线，默认 7-bit 地址 `0x20`。I2C 不使用 UART 帧，协议是直接寄存器访问：写 1 字节寄存器地址后读 N 字节，或写 `[reg, data...]`。
+若恢复旧外置 MotorDriver 后端，其 I2C 使用 `motor` 总线别名，走专用 IIC1 / MCU I2C1，默认 7-bit 地址 `0x20`。该 I2C 协议不使用 UART 帧，而是直接寄存器访问：写 1 字节寄存器地址后读 N 字节，或写 `[reg, data...]`。当前本地电机配置不会实例化此总线。
 
 ### 安全建议
 
@@ -1402,11 +1414,16 @@ motor read 16
 
 ## 底盘控制
 
-底盘控制层封装左右轮转速命令、线速度/角速度转换和编码器读取，是航向闭环、循迹和动作序列的基础。底层仍通过 `motor` 命令的 I2C/UART 通道访问 MotorDriver。
+当前配置不是双轮底盘，而是右侧 `MR` 单电机台架。底层在 MSPM0G3519
+上以 10 ms 周期读取 TIMG8 QEI，并通过 PB13/TIMG12 PWM2、PB7/GPIO2
+和 PA10/NSLEEP2 控制右桥。左桥保持休眠。双轮速度换算和所有依赖差速的
+上层运动功能禁用。
 
 ### `chassis status`
 
-主动刷新并查看底盘完整状态（含两轮目标/实测 RPM、编码器 count/cps、底盘几何配置）。会触发一次 I2C 往返。
+查看单电机控制器状态，包括右侧目标/实测 RPM、编码器 count/cps 和最近
+状态。若输出仍保留左右字段，左侧字段必须保持 0/未启用。数据来自本地
+控制器快照，不触发 I2C 往返。
 
 ```text
 chassis status
@@ -1414,7 +1431,7 @@ chassis status
 
 ### `chassis stat`
 
-查看缓存状态（单行摘要）。不触发 I2C 往返，数据来自 20 ms 周期反馈任务。用于快速确认 actual_rpm 是否在刷新。
+查看缓存状态（单行摘要）。数据来自 10 ms 本地速度环，用于快速确认 actual_rpm 是否在刷新。
 
 ```text
 chassis stat
@@ -1423,12 +1440,13 @@ chassis stat
 输出示例：
 
 ```text
-chassis stat: L tgt=80 act=76 R tgt=80 act=78 last=ok
+chassis stat: L tgt=0 act=0 R tgt=30 act=29 last=ok
 ```
 
 ### `chassis stop`
 
-停止底盘（两轮写入 coast + duty 0）。同时清除航向和循迹状态。
+停止右侧电机（PB13 PWM 归零并拉低 PA10/NSLEEP2），同时确保左桥保持
+休眠并清除任何上层运动状态。
 
 ```text
 chassis stop
@@ -1436,24 +1454,28 @@ chassis stop
 
 ### `chassis wheel <left_rpm> <right_rpm>`
 
-直接设置左右轮目标转速，范围为 `-max_wheel_rpm..max_wheel_rpm`（默认 1000）。正值前进，负值后退。此命令会刷新 MotorDriver 看门狗。
+在右侧单电机配置中，仅允许 `left_rpm=0`，`right_rpm` 范围为
+`-max_wheel_rpm..max_wheel_rpm`。非零左轮目标不可用。底盘服务会持续
+刷新本地控制器的 300 ms 命令租约；若调度停顿或租约超时，右桥立即停机
+并锁存，直至显式停止后重新下发命令。
 
 ```text
-chassis wheel 80 80
-chassis wheel -50 -50
-chassis wheel 60 -60
+chassis wheel 0 30
+chassis stop
+chassis wheel 0 -30
+chassis stop
 ```
 
 ### `chassis vel <linear_mm_s> <angular_mdeg_s>`
 
-通过线速度和角速度设置底盘目标。线速度范围 `-5000..5000 mm/s`，角速度范围 `-720000..720000 mdeg/s`。内部根据高精度参数 `wheel_radius_um` 和 `wheel_track_mm` 换算为左右轮 RPM。
-
-```text
-chassis vel 200 0
-chassis vel 0 90000
-```
+当前不可用。该命令需要左右轮差速能力；右侧单电机配置必须返回
+`unsupported`，不得用于台架。
 
 ## 航向闭环
+
+> 当前整个 `heading` 命令入口返回 `disabled in MR-only bench mode`。
+> HOLD、TURN、LOCK 和 DISTANCE 均依赖双轮差速。以下内容只保留作为
+> 双轮硬件恢复后的接口说明。
 
 航向闭环使用 ICM-45686 陀螺仪 Z 轴 yaw 积分实现行走中的直行保持、相对角度转弯，以及带航向修正的编码器距离行驶。航向源为 IMU yaw（毫度），不是 GY931。
 
@@ -1567,7 +1589,7 @@ heading lockcfg save
 `settle`必须小于`wake`，`minrpm`不得大于`maxrpm`，`maxrpm`不得超过
 `max_wheel_rpm`。一次回正超过`timeout`后电机停止，`heading status`显示
 `lock_phase=failed`和`lock_result=timeout`；物理阻挡不会单独触发全局故障。
-IMU或MotorDriver通信故障仍使用现有全局安全停车路径。
+IMU故障或本地电机控制器故障仍使用现有全局安全停车路径。
 
 锁向模式允许外力造成超过90度的大角度扰动，并按正负180度范围内的最短路径
 回正；行驶航向保持和定距控制仍保留90度异常保护。大角度回正若超过默认3秒，
@@ -1604,8 +1626,8 @@ param save
 
 ### `heading profile`
 
-查看或设置定距动作的速度曲线。它只整形gugaPI发送给MotorDriver的RPM目标，**不会修改
-MotorDriver当前100 ms速度环周期**，也不修改调度器。
+查看或设置定距动作的速度曲线。它只整形上层发送给本地电机控制器的 RPM 目标，**不会修改
+本地速度环的 10 ms 周期**，也不修改调度器。
 
 ```text
 heading profile
@@ -1639,10 +1661,10 @@ heading profile save
 
 修改后立即作用于下一次定距动作，并将参数标为dirty；执行 `heading profile save` 或
 `param save` 才会写入FRAM。旧V1～V7配置加载后使用上述默认曲线参数；旧V1～V8配置
-加载后使用1500/2000 RPM/s的MotorDriver ramp默认值。兼容加载会标记dirty，保存后统一
+加载后使用1500/2000 RPM/s的本地速度环 ramp 默认值。兼容加载会标记dirty，保存后统一
 升级为V9。定距动作正在运行时，`heading profile` 只允许查看，修改或保存返回`busy`；
-先执行 `heading stop`。这里的600/900 RPM/s是gugaPI定距目标整形参数，与底层持久化的
-MotorDriver ramp 1500/2000 RPM/s是两层不同的限速。
+先执行 `heading stop`。这里的600/900 RPM/s是定距目标整形参数，与底层本地速度环持久化的
+ramp 1500/2000 RPM/s是两层不同的限速。
 
 ### `heading stop`
 
@@ -1653,6 +1675,10 @@ heading stop
 ```
 
 ## 循迹控制
+
+> 当前整个 `lf` 命令入口返回 `disabled in MR-only bench mode`。
+> `lf start`、自动路口转向以及 ActionRunner 的
+> DRIVE/TURN/FOLLOW/DRIVE_MM 动作均依赖双轮差速。以下只保留旧接口说明。
 
 8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间六路位置帧约 7 ms；10 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置由 `track_mask=0x7E` 的中间六路插值，全八路迟滞位图独立识别道路类型，最外侧 0、7 路不拉动循迹质心。
 
@@ -1710,7 +1736,7 @@ lf start 80 10000
 
 修正先在 40 RPM 参考速度计算：`reference_correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，再按 `abs(base_rpm) / 40` 缩放并限制在基础速度的 40%。中心 `±50` 位置刻度使用死区，微分滤波时间常数为 40 ms。修正量变化率由 `lf_slew_permille_s` 限制，默认 25000；从最大左修正切换到最大右修正的理论斜率时间约 32 ms。`left = base - correction`，`right = base + correction`。
 
-左右轮目标RPM占用MotorDriver连续寄存器，正常循迹更新使用一次4字节I²C块写入和一次4字节读回校验，避免两轮分开发送产生的时间差并减少总线事务。
+左右轮目标 RPM 在同一次底盘更新中写入本地控制器，随后由 10 ms 速度环同步处理；此路径不产生 I²C 总线事务。
 
 ### `lf stop`
 
@@ -1771,6 +1797,9 @@ lf losttimeout 1000
 ```
 
 ## 路口事件
+
+> 当前整个 `road` 命令入口返回 `disabled in MR-only bench mode`。
+> 原始灰度采样与标定仍可使用 `gray` 命令，但路口状态机和自动转向不运行。
 
 路口检测使用全八路灰度掩码和连续帧状态机，类型包括`left_corner`、
 `right_corner`、`left_branch`、`right_branch`、`t`和`cross`。事件只在进入路口时
@@ -1842,6 +1871,10 @@ road turn set 90 -90 20 40 800
 更新上述ConfigStore参数，可通过`param save`持久化。
 
 ## 动作序列
+
+> 当前整个 `run` 命令入口返回 `disabled in MR-only bench mode`。
+> 可以检查 `seq` 的持久化槽位，但不得执行包含 DRIVE、DRIVE_MM、TURN 或
+> FOLLOW 的序列。右侧单电机台架不能满足这些动作的安全假设。
 
 条件驱动的指令表解释器，通过 `run add` 逐条构建指令序列，`run start` 启动。50 ms 周期任务 `ActionRunner_Update` 执行当前指令，满足完成条件后跳转到 `on_success` / `on_timeout` 目标。
 
@@ -2032,8 +2065,8 @@ param left_counts_per_rev=1456 range=1..100000000
 | `speed_kd` | 0..255 | 0 | 速度环 Kd（Q4.4） |
 | `speed_max_duty` | 0..100 | 60 | 速度环最大占空比（%） |
 | `speed_min_duty` | 0..100 | 4 | 速度环最小占空比（%） |
-| `speed_accel_rpm_s` | 0..65535 | 1500 | MotorDriver目标转速加速斜坡（RPM/s，0表示立即跟随） |
-| `speed_decel_rpm_s` | 0..65535 | 2000 | MotorDriver目标转速减速斜坡（RPM/s，0表示立即跟随） |
+| `speed_accel_rpm_s` | 0..65535 | 1500 | 本地速度环目标转速加速斜坡（RPM/s，0表示立即跟随） |
+| `speed_decel_rpm_s` | 0..65535 | 2000 | 本地速度环目标转速减速斜坡（RPM/s，0表示立即跟随） |
 | `position_kp` | 0..255 | 15 | 位置环 Kp（Q4.4） |
 | `position_ki` | 0..255 | 0 | 位置环 Ki（Q4.4） |
 | `position_kd` | 0..255 | 0 | 位置环 Kd（Q4.4） |
@@ -2092,6 +2125,9 @@ param reset
 ```
 
 ## 比赛模式
+
+> 当前单电机配置不具备比赛运行能力。不得通过 `mode arm`、按键或其他
+> 入口启动运动序列；比赛模式说明仅为恢复双轮硬件后保留。
 
 比赛模式状态机：`ARMED`（安全静止并选择任务）→ `RUNNING`（序列执行中）→ `ARMED`。在比赛配置（`FEATURE_PROFILE_COMPETITION=1`）下上电自动进入 ARMED；开发配置下可用 `comp arm` 手动进入。
 

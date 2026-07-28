@@ -1,9 +1,11 @@
 #include "board/board_motor_driver.h"
 
 #include "board/board_pins.h"
+#include "config/feature_config.h"
 #include "drivers/motor_driver/motor_driver_uart.h"
 
 namespace board {
+#if FEATURE_ENABLE_MOTOR_DRIVER
 namespace {
 
 void ConfigureMotorDriverRxPullUp(void)
@@ -99,9 +101,69 @@ void Board_MotorDriverIrqHandler(void)
     drivers::MotorDriverUart_IrqHandler(&g_motorDriverContext);
 }
 
+#else
+
+drivers::DriverStatus Board_MotorDriverInit(void)
+{
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+}
+
+drivers::DriverStatus Board_MotorDriverWriteByte(uint8_t)
+{
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+}
+
+drivers::DriverStatus Board_MotorDriverWrite(const uint8_t *, uint16_t)
+{
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+}
+
+bool Board_MotorDriverReadByte(uint8_t *)
+{
+    return false;
+}
+
+uint16_t Board_MotorDriverGetRxAvailable(void)
+{
+    return 0U;
+}
+
+uint32_t Board_MotorDriverGetRxDroppedCount(void)
+{
+    return 0U;
+}
+
+uint32_t Board_MotorDriverGetBaudrate(void)
+{
+    return 0U;
+}
+
+drivers::DriverStatus Board_MotorDriverGetControllerStatus(uint32_t *)
+{
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+}
+
+drivers::DriverStatus Board_MotorDriverClearRxBuffer(void)
+{
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
+}
+
+bool Board_MotorDriverIsReady(void)
+{
+    return false;
+}
+
+void Board_MotorDriverIrqHandler(void)
+{
+}
+
+#endif
+
 } /* namespace board */
 
+#if FEATURE_ENABLE_MOTOR_DRIVER
 extern "C" void MOTOR_UART_INST_IRQHandler(void)
 {
     board::Board_MotorDriverIrqHandler();
 }
+#endif

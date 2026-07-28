@@ -4,13 +4,18 @@
 /*
  * Competition profile.
  *
- * Keep only peripherals used by the current robot:
- * - Buttons for competition task selection and start/stop.
- * - FRAM for persisted chassis/config parameters.
- * - Grayscale sensor. INA219, OLED and GY931 are temporarily disabled.
- * - MotorDriver link for chassis control.
- * - ICM-45686 IMU for heading closed-loop (HOLD/TURN).
- * - Status LED for competition state; buzzer is initialized but kept silent.
+ * Keep only peripherals used by the current bench build:
+ * - Buttons remain available for input diagnostics; competition start is
+ *   rejected while differential drive is unavailable.
+ * - FRAM stores the motor/chassis parameters used during commissioning.
+ * - Grayscale remains available for sensor diagnostics. INA219, OLED and
+ *   GY931 are temporarily disabled.
+ * - Local DRV8876 MR motor drive and its hardware-QEI encoder. Differential
+ *   chassis/competition motion remains disabled in this bench-only build.
+ * - ICM-45686 remains available for IMU diagnostics; heading motion is
+ *   disabled.
+ * - Status LED remains available; buzzer is initialized but kept silent.
+ * - CAN and JY-ME02 remain available for encoder integration diagnostics.
  * - Debug UART shell stays enabled for command/control, but startup prompt,
  *   echo, and debug logs are muted.
  */
@@ -35,11 +40,12 @@
 #define FEATURE_ENABLE_LORA                (0U)
 #define FEATURE_ENABLE_CAN                 (1U)
 #define FEATURE_ENABLE_JYME02_CAN          (1U)
-#define FEATURE_ENABLE_MOTOR_DRIVER        (1U)
+#define FEATURE_ENABLE_MOTOR_DRIVER        (0U)
 #define FEATURE_ENABLE_OLED                (0U)
 #define FEATURE_ENABLE_IMU                 (1U)
-#define FEATURE_ENABLE_MOTOR               (0U)
-#define FEATURE_ENABLE_ENCODER             (0U)
+#define FEATURE_ENABLE_MOTOR               (1U)
+#define FEATURE_ENABLE_ENCODER             (1U)
+#define FEATURE_LOCAL_MOTOR_RIGHT_ONLY      (1U)
 #define FEATURE_ENABLE_GY931               (0U)
 #define FEATURE_ENABLE_BUTTON_CHASSIS_TEST (0U)
 #define FEATURE_ENABLE_GRAYSCALE           (1U)

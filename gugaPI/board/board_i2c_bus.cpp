@@ -1,6 +1,7 @@
 #include "board/board_i2c_bus.h"
 
 #include "board/board_pins.h"
+#include "config/feature_config.h"
 
 namespace board {
 namespace {
@@ -32,6 +33,7 @@ bool StrEqual(const char *left, const char *right)
 // the main loop without a critical section (NVIC_DisableIRQ around each
 // transaction), or ResetTransfer() will corrupt an in-flight transfer.
 static const drivers::I2cDiagBusConfig g_i2cBuses[] = {
+#if FEATURE_ENABLE_MOTOR_DRIVER
     {
         "motor",
         BOARD_MOTOR_DRIVER_I2C_INST,
@@ -45,6 +47,7 @@ static const drivers::I2cDiagBusConfig g_i2cBuses[] = {
         BOARD_MOTOR_DRIVER_I2C_SDA_IOMUX,
         BOARD_MOTOR_DRIVER_I2C_SDA_IOMUX_FUNC
     },
+#endif
     {
         "fram",
         BOARD_FRAM_I2C_INST,

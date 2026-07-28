@@ -397,6 +397,10 @@ drivers::DriverStatus ActionRunner_AddInstr(ActionOp op,
 
 drivers::DriverStatus ActionRunner_Start(void)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        StopAll();
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+    }
     if (g_state.running) {
         return drivers::DRIVER_ERROR_BUSY;
     }

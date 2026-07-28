@@ -41,7 +41,20 @@ enum OutputTestState {
 };
 #endif
 
-#if FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_LOCAL_MOTOR
+const uint32_t LOCAL_MOTOR_CONTROL_PERIOD_MS = 10U;
+
+void App_LocalMotorControlTask(void)
+{
+    const drivers::DriverStatus status = app::Chassis_ControlUpdate();
+    if ((status != drivers::DRIVER_OK) &&
+        (status != drivers::DRIVER_ERROR_BUSY)) {
+        services::Fault_Set(services::FAULT_DRIVER_TIMEOUT);
+    }
+}
+#endif
+
+#if FEATURE_ENABLE_CHASSIS
 const uint32_t CHASSIS_SERVICE_PERIOD_MS = 100U;
 const uint32_t CHASSIS_FEEDBACK_PERIOD_MS = 20U;
 const uint8_t CHASSIS_FEEDBACK_FAULT_THRESHOLD = 3U;
@@ -100,7 +113,7 @@ void App_ChassisFeedbackTask(void)
 }
 #endif
 
-#if FEATURE_ENABLE_INA219 && FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_INA219 && FEATURE_ENABLE_CHASSIS
 static bool g_powerInhibitHandled = false;
 #endif
 
@@ -116,7 +129,7 @@ const uint32_t GRAYSCALE_PERIOD_MS = 1U;
 const uint32_t IMU_PERIOD_MS = 5U;
 #endif
 
-#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
 /* Heading TURN needs lower command latency than the general action
  * sequencer. Consume the newest 200 Hz IMU sample every 10 ms without
  * changing the scheduler implementation. */
@@ -135,7 +148,7 @@ void App_ActionTask(void)
 }
 #endif
 
-#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
 /* Wake at 10 ms so a completed 8-channel frame is consumed promptly.
  * LF_Update ignores duplicate sequence numbers, so this does not create
  * redundant MotorDriver writes when no new frame is available. */
@@ -349,7 +362,7 @@ void App_ButtonScanTask(void)
 }
 #endif
 
-#if FEATURE_ENABLE_BUTTONS && FEATURE_ENABLE_MOTOR_DRIVER && \
+#if FEATURE_ENABLE_BUTTONS && FEATURE_ENABLE_DIFFERENTIAL_CHASSIS && \
     FEATURE_ENABLE_BUTTON_CHASSIS_TEST
 const uint32_t BUTTON_CHASSIS_TEST_PERIOD_MS = 10U;
 const uint32_t BUTTON_CHASSIS_TEST_RUN_MS = 1000U;
@@ -765,7 +778,7 @@ void App_CompetitionStatusTask(void)
 namespace app {
 
 static AppState g_appState = {
-#if FEATURE_PROFILE_COMPETITION
+#if FEATURE_PROFILE_COMPETITION && FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
     APP_MODE_COMPETITION_ARMED,
 #else
     APP_MODE_RUNNING,
@@ -886,13 +899,13 @@ void App_Init(void)
     }
 #endif
 
-#if FEATURE_PROFILE_COMPETITION
+#if FEATURE_PROFILE_COMPETITION && FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
     g_appState.mode = APP_MODE_COMPETITION_ARMED;
 #else
     g_appState.mode = APP_MODE_RUNNING;
 #endif
     g_appState.uptime_ms = 0U;
-#if FEATURE_ENABLE_MOTOR_DRIVER || FEATURE_ENABLE_INA219 || \
+#if FEATURE_ENABLE_CHASSIS || FEATURE_ENABLE_INA219 || \
     FEATURE_ENABLE_GRAYSCALE
     const drivers::DriverStatus config_status = ConfigStore_Load();
     const ConfigStoreStatus *config_store_status = ConfigStore_GetStatus();
@@ -912,7 +925,7 @@ void App_Init(void)
         LOG_ERROR("INA219 protection init failed");
         services::Fault_Set(services::FAULT_DRIVER_INIT);
     }
-#if FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_CHASSIS
     g_powerInhibitHandled = false;
 #endif
 #endif
@@ -921,13 +934,24 @@ void App_Init(void)
     App_LoraProtocolInit();
 #endif
 
-#if FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_CHASSIS
     g_chassisFeedbackFailureStreak = 0U;
     const drivers::DriverStatus chassis_status = Chassis_Init();
     if (chassis_status != drivers::DRIVER_OK) {
         LOG_ERROR("chassis init failed; motion inhibited");
         services::Fault_Set(services::FAULT_DRIVER_INIT);
     }
+#if FEATURE_ENABLE_LOCAL_MOTOR
+    /* Register control before lease refresh: after a scheduler stall the
+     * control watchdog must run before the lease can be renewed. */
+    if (services::Scheduler_AddTask("motor_ctl",
+                                    App_LocalMotorControlTask,
+                                    LOCAL_MOTOR_CONTROL_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
     if (services::Scheduler_AddTask("chassis",
                                     App_ChassisServiceTask,
                                     CHASSIS_SERVICE_PERIOD_MS,
@@ -947,7 +971,7 @@ void App_Init(void)
         services::Fault_Set(services::FAULT_UNKNOWN);
     }
 #endif
-#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
     Heading_Init();
     if (services::Scheduler_AddTask("heading",
                                     App_HeadingTask,
@@ -969,7 +993,7 @@ void App_Init(void)
 #if FEATURE_PROFILE_COMPETITION
     AppShell_DisableOledStreams();
 #endif
-#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
     app::LF_Init();
 #if FEATURE_ENABLE_IMU
     app::RoadEventController_Init();
@@ -1011,7 +1035,7 @@ void App_Init(void)
         services::Fault_Set(services::FAULT_UNKNOWN);
     }
 #endif
-#if FEATURE_ENABLE_BUTTONS && FEATURE_ENABLE_MOTOR_DRIVER && \
+#if FEATURE_ENABLE_BUTTONS && FEATURE_ENABLE_DIFFERENTIAL_CHASSIS && \
     FEATURE_ENABLE_BUTTON_CHASSIS_TEST
     if (services::Scheduler_AddTask("button_chassis",
                                     App_ButtonChassisTestTask,
@@ -1081,7 +1105,7 @@ void App_Run(void)
 
 #if FEATURE_ENABLE_INA219
     App_Ina219Run();
-#if FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_CHASSIS
     if (App_Ina219MotionInhibitRequested()) {
         if (!g_powerInhibitHandled) {
             g_powerInhibitHandled = true;
@@ -1099,14 +1123,16 @@ void App_Run(void)
 
     if (services::Fault_HasFault()) {
         g_appState.mode = APP_MODE_FAULT;
-#if FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_CHASSIS
         if (!g_faultStopHandled) {
             g_faultStopHandled = true;
+#if FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
             (void) ActionRunner_Cancel();
-#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+#endif
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
             (void) Heading_Stop();
 #endif
-#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
             (void) LF_Stop();
 #endif
             (void) Chassis_Stop();
@@ -1116,9 +1142,11 @@ void App_Run(void)
         return;
     }
 
+#if FEATURE_ENABLE_CHASSIS
     if (g_faultStopHandled) {
         g_faultStopHandled = false;
     }
+#endif
 
     if ((g_appState.mode == APP_MODE_COMPETITION_ARMED) &&
         ((g_competitionState.result == COMP_RESULT_DONE) ||
@@ -1129,7 +1157,8 @@ void App_Run(void)
         CompetitionSetResult(COMP_RESULT_NONE, drivers::DRIVER_OK);
     }
 
-#if FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_CHASSIS
+#if FEATURE_ENABLE_DIFFERENTIAL_CHASSIS
     switch (g_appState.mode) {
     case APP_MODE_COMPETITION_ARMED:
         SetChassisTaskEnabled(false);
@@ -1156,6 +1185,12 @@ void App_Run(void)
         break;
     }
 #else
+    /* A right-only motor bench is never an armed/running competition
+     * chassis. Keep the lease task enabled for explicit shell commands. */
+    g_appState.mode = APP_MODE_RUNNING;
+    SetChassisTaskEnabled(true);
+#endif
+#else
     g_appState.mode = APP_MODE_RUNNING;
 #endif
 }
@@ -1172,6 +1207,9 @@ const CompetitionState *App_CompetitionGetState(void)
 
 drivers::DriverStatus App_CompetitionSelect(uint8_t slot)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+    }
     if (slot >= SEQ_SLOT_COUNT) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
@@ -1192,6 +1230,9 @@ drivers::DriverStatus App_CompetitionSelect(uint8_t slot)
 
 drivers::DriverStatus App_CompetitionRefreshSelection(void)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+    }
     const drivers::DriverStatus status = CompetitionRefreshMetadata();
     if (status != drivers::DRIVER_OK) {
         CompetitionSetResult(COMP_RESULT_LOAD_ERROR, status);
@@ -1205,13 +1246,19 @@ drivers::DriverStatus App_CompetitionRefreshSelection(void)
 
 drivers::DriverStatus App_CompetitionArm(void)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+#if FEATURE_ENABLE_CHASSIS
+        (void) Chassis_Stop();
+#endif
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+    }
     if (g_appState.mode != APP_MODE_RUNNING) {
         return drivers::DRIVER_ERROR_BUSY;
     }
     if (services::Fault_HasFault()) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
-#if FEATURE_ENABLE_MOTOR_DRIVER
+#if FEATURE_ENABLE_CHASSIS
     (void) Chassis_Stop();
 #endif
     (void) ActionRunner_Cancel();
@@ -1224,6 +1271,12 @@ drivers::DriverStatus App_CompetitionArm(void)
 
 drivers::DriverStatus App_CompetitionStart(void)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+#if FEATURE_ENABLE_CHASSIS
+        (void) Chassis_Stop();
+#endif
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+    }
     if (g_appState.mode != APP_MODE_COMPETITION_ARMED) {
         return drivers::DRIVER_ERROR_BUSY;
     }
@@ -1262,6 +1315,13 @@ drivers::DriverStatus App_CompetitionStart(void)
 
 drivers::DriverStatus App_CompetitionStop(void)
 {
+    if (!FEATURE_ENABLE_DIFFERENTIAL_CHASSIS) {
+#if FEATURE_ENABLE_CHASSIS
+        return Chassis_Stop();
+#else
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+#endif
+    }
     if (g_appState.mode != APP_MODE_COMPETITION_RUNNING) {
         return drivers::DRIVER_ERROR_BUSY;
     }
