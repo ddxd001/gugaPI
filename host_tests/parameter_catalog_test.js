@@ -63,4 +63,37 @@ assert(/static const uint16_t kPayloadLength = 223U;/.test(storeSource),
 assert(/len=223/.test(parameterSource),
   'host simulator must report the v15 payload length');
 
+const current={};
+for(const name of context.PARAM_ORDER){
+  current[name]=context.PARAM_META[name].defaultValue;
+}
+// The supplied export uses 6000/6500. Importing it over this valid live pair
+// would fail if the JSON's release field were sent first.
+current.ina_uv_trip_mv=9800;
+current.ina_uv_release_mv=10500;
+const plan=context.paramPlanImport(current,
+  {ina_uv_release_mv:6500,ina_uv_trip_mv:6000},{});
+assert.strictEqual(plan.ok,true,plan.error);
+assert.deepStrictEqual(Array.from(plan.steps,item=>item.name),
+  ['ina_uv_trip_mv','ina_uv_release_mv'],
+  'JSON import must arrange coupled parameters in a firmware-safe order');
+let intermediate=Object.assign({},current);
+for(const step of plan.steps){
+  intermediate=context.paramCandidateWithValue(intermediate,step.name,step.value);
+  assert.strictEqual(context.paramCandidateError(intermediate,{}),'',
+    'every planned param set must satisfy ConfigStore validation');
+}
+assert.strictEqual(intermediate.ina_uv_trip_mv,6000);
+assert.strictEqual(intermediate.ina_uv_release_mv,6500);
+
+const invalidPlan=context.paramPlanImport(current,
+  {ina_uv_trip_mv:7000,ina_uv_release_mv:6500},{});
+assert.strictEqual(invalidPlan.ok,false,
+  'invalid final parameter combinations must be rejected before any write');
+
+const radiusPlan=context.paramPlanImport(current,{wheel_radius_um:33050},{});
+assert.strictEqual(radiusPlan.ok,true,radiusPlan.error);
+assert.strictEqual(radiusPlan.finalValues.wheel_radius_mm,33,
+  'import planner must model ConfigStore wheel-radius synchronization');
+
 console.log('parameter catalog ok: 97 parameters, ConfigStore v15 payload 223');

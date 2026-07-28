@@ -173,4 +173,24 @@ assert.strictEqual(core.findNearestSample(timedSamples,10),timedSamples[0]);
 assert.strictEqual(core.findNearestSample(timedSamples,1200),timedSamples[3]);
 assert.strictEqual(core.findNearestSample([],100),null);
 
+const rollingSamples=[
+  {hostMs:1000},{hostMs:5000},{hostMs:12000},{hostMs:15000}
+];
+const frozenTimeline=core.buildTimeline(rollingSamples,10000,15000);
+assert.strictEqual(frozenTimeline.start,5000);
+assert.strictEqual(frozenTimeline.end,15000);
+assert.strictEqual(frozenTimeline.span,10000,
+  'chart span must be the selected window from the first sample onward');
+assert.deepStrictEqual(frozenTimeline.samples,rollingSamples.slice(1));
+const stillFrozen=core.buildTimeline(rollingSamples,10000,15000);
+assert.deepStrictEqual(stillFrozen,frozenTimeline,
+  'wall clock changes must not move a stopped/no-data chart');
+assert.deepStrictEqual(core.trimTimelineSamples(rollingSamples,3000,15000),
+  rollingSamples.slice(2),
+  'rolling history must discard samples before the selected window');
+assert(!/if\(!\$\('dashboardView'\)\.hidden\)dashDrawAll\(\)/.test(dashboardSource),
+  'status timer must not continuously redraw and move a frozen chart');
+assert(/timelineEndMs=event\.hostMs/.test(dashboardSource),
+  'chart right edge must advance only when a telemetry sample arrives');
+
 console.log('dashboard core ok');

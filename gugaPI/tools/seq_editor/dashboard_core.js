@@ -316,6 +316,31 @@
       Math.abs(Number(after.hostMs)-targetTime)?before:after;
   }
 
+  function buildTimeline(samples,windowMs,endTime){
+    var span=Number(windowMs);
+    if(!Number.isFinite(span)||span<=0)span=1000;
+    var list=Array.isArray(samples)?samples:[];
+    var end=Number(endTime);
+    if(!Number.isFinite(end)){
+      end=list.length?Number(list[list.length-1].hostMs):0;
+    }
+    if(!Number.isFinite(end))end=0;
+    var start=end-span;
+    return{
+      start:start,
+      end:end,
+      span:span,
+      samples:list.filter(function(sample){
+        var time=Number(sample.hostMs);
+        return Number.isFinite(time)&&time>=start&&time<=end;
+      })
+    };
+  }
+
+  function trimTimelineSamples(samples,windowMs,endTime){
+    return buildTimeline(samples,windowMs,endTime).samples;
+  }
+
   function exportCsv(fields,samples){
     var rows=[['host_rx_iso'].concat(fields).map(csvEscape).join(',')];
     samples.forEach(function(sample){
@@ -337,6 +362,8 @@
     TelemetryParser:TelemetryParser,
     SerialRouter:SerialRouter,
     findNearestSample:findNearestSample,
+    buildTimeline:buildTimeline,
+    trimTimelineSamples:trimTimelineSamples,
     exportCsv:exportCsv,
     csvEscape:csvEscape
   };

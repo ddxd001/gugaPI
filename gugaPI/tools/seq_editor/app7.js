@@ -8,7 +8,7 @@ var dashState={
   samples:[],lastSample:null,lastSampleAt:0,recording:false,records:[],
   recordFields:[],recordGroup:null,
   renderPending:false,simTimer:null,simStart:0,simStopped:false,
-  activeGroup:null,pendingGroup:null,hoverX:null,hoverY:null,
+  activeGroup:null,pendingGroup:null,hoverX:null,hoverY:null,timelineEndMs:0,
   categoryOpen:{runtime:true,chassis:true,line:false,turn:false,imu:false,
     gray:false,system:false}
 };
@@ -220,10 +220,10 @@ function dashDrawChart(canvas,chart){
   var ctx=canvas.getContext('2d');
   var width=size.width,height=size.height,ratio=size.ratio;
   var left=55*ratio,right=20*ratio,top=19*ratio,bottom=31*ratio;
-  var now=Date.now(),windowMs=Number($('dashWindow').value)*1000;
-  var visible=dashState.samples.filter(function(sample){
-    return sample.hostMs>=now-windowMs;
-  });
+  var windowMs=Number($('dashWindow').value)*1000;
+  var timeline=DashboardCore.buildTimeline(
+    dashState.samples,windowMs,dashState.timelineEndMs||undefined);
+  var visible=timeline.samples;
   ctx.clearRect(0,0,width,height);
   ctx.fillStyle='#11151a';ctx.fillRect(0,0,width,height);
   ctx.font=(9*ratio)+'px Consolas,monospace';
@@ -246,16 +246,15 @@ function dashDrawChart(canvas,chart){
     ctx.fillStyle='#687482';ctx.textAlign='right';ctx.textBaseline='middle';
     ctx.fillText((max-(max-min)*grid/5).toFixed(Math.abs(max-min)<20?1:0),left-6*ratio,y);
   }
-  var firstTime=visible.length?visible[0].hostMs:now-windowMs;
-  var displaySpan=Math.min(windowMs,Math.max(2000,now-firstTime));
-  var displayStart=now-displaySpan;
+  var displaySpan=timeline.span;
+  var displayStart=timeline.start;
   for(var vertical=0;vertical<=6;vertical++){
     var gridX=left+(width-left-right)*vertical/6;
     ctx.beginPath();ctx.moveTo(gridX,top);ctx.lineTo(gridX,height-bottom);ctx.stroke();
   }
   ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#606c79';
   ctx.fillText('-'+(displaySpan/1000).toFixed(displaySpan<10000?1:0)+'s',left,height-bottom+6*ratio);
-  ctx.fillText('现在',width-right,height-bottom+5*ratio);
+  ctx.fillText('最新',width-right,height-bottom+5*ratio);
   $('dashVisibleRange').textContent='窗口 '+(displaySpan/1000).toFixed(1)+' 秒 · '+
     visible.length+' 个样本';
 
@@ -355,6 +354,7 @@ function dashResetPlot(){
   dashState.samples=[];
   dashState.lastSample=null;
   dashState.lastSampleAt=0;
+  dashState.timelineEndMs=0;
   dashState.hoverX=null;
   dashState.hoverY=null;
   $('dashChartTooltip').hidden=true;
@@ -376,12 +376,13 @@ function DashboardTelemetry_OnEvent(event){
   event.hostMs=Date.now();
   dashState.lastSample=event;
   dashState.lastSampleAt=event.hostMs;
+  dashState.timelineEndMs=event.hostMs;
   dashState.enabled=true;
   dashState.samples.push(event);
-  var oldest=event.hostMs-DASH_MAX_HISTORY_MS;
-  while(dashState.samples.length&&dashState.samples[0].hostMs<oldest){
-    dashState.samples.shift();
-  }
+  var windowMs=Math.min(DASH_MAX_HISTORY_MS,
+    Number($('dashWindow').value)*1000);
+  dashState.samples=DashboardCore.trimTimelineSamples(
+    dashState.samples,windowMs,dashState.timelineEndMs);
   if(dashState.recording){
     if(dashState.records.length>=DASH_MAX_RECORDS){
       dashState.recording=false;
@@ -586,7 +587,13 @@ $('dashPeriod').onchange=function(){
     dashStartGroup(dashState.activeGroup,false);
   }
 };
-$('dashWindow').onchange=dashDrawAll;
+$('dashWindow').onchange=function(){
+  if(dashState.timelineEndMs){
+    dashState.samples=DashboardCore.trimTimelineSamples(
+      dashState.samples,Number(this.value)*1000,dashState.timelineEndMs);
+  }
+  dashDrawAll();
+};
 $('btnDashRecord').onclick=dashToggleRecord;
 $('btnDashExport').onclick=dashExport;
 $('btnDashClear').onclick=function(){dashState.samples=[];dashDrawAll();dashToast('曲线已清空',false)};
@@ -604,7 +611,6 @@ $('dashMainChart').addEventListener('pointerleave',function(){
 window.addEventListener('resize',dashDrawAll);
 setInterval(function(){
   dashRenderStatus();
-  if(!$('dashboardView').hidden)dashDrawAll();
 },250);
 
 var dashboardPreviousSerialState=onSerialStateChange;

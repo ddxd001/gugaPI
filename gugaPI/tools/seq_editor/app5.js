@@ -128,6 +128,90 @@ addParamMeta('road_align_rpm','路口转弯基础速度','linefollow',30,1,300,'
 addParamMeta('road_turn_outer_max_rpm','路口外轮正转上限','linefollow',220,1,1000,'RPM','自动路口圆弧中外轮沿用基础速度加差速修正，并由该值封顶；增大内轮反转速度不会继续抬高外轮。',false);
 addParamMeta('road_turn_inner_reverse_max_rpm','路口内轮最大反转','linefollow',120,0,1000,'RPM','自动路口圆弧满转向时内轮允许达到的反转速度；数值越大转弯半径越小，0表示内轮最多降到停止。',false);
 
+function paramHasNumbers(values,names){
+  return names.every(function(name){return Number.isFinite(values[name])});
+}
+
+function paramCandidateWithValue(values,name,value){
+  var candidate=Object.assign({},values);
+  candidate[name]=value;
+  // Match ConfigStore_Set's paired legacy/precise wheel-radius update.
+  if(name==='wheel_radius_mm')candidate.wheel_radius_um=value*1000;
+  else if(name==='wheel_radius_um')candidate.wheel_radius_mm=Math.floor(value/1000);
+  return candidate;
+}
+
+function paramCandidateError(candidate,ranges){
+  ranges=ranges||{};
+  var names=Object.keys(candidate);
+  for(var index=0;index<names.length;index++){
+    var name=names[index],meta=PARAM_META[name],range=ranges[name]||meta;
+    if(!meta)continue;
+    if(!Number.isInteger(candidate[name])||candidate[name]<range.min||
+       candidate[name]>range.max)return name+' 超出范围';
+  }
+  function invalid(names,test,message){
+    return paramHasNumbers(candidate,names)&&test()?message:'';
+  }
+  var error=invalid(['speed_min_duty','speed_max_duty'],function(){return candidate.speed_min_duty>candidate.speed_max_duty},'速度环最小占空比不能大于最大占空比');
+  if(error)return error;
+  error=invalid(['heading_turn_min_rpm','heading_turn_max_rpm'],function(){return candidate.heading_turn_min_rpm>candidate.heading_turn_max_rpm},'转向最小轮速不能大于最大轮速');
+  if(error)return error;
+  error=invalid(['heading_lock_settle_mdeg','heading_lock_wake_mdeg'],function(){return candidate.heading_lock_settle_mdeg>=candidate.heading_lock_wake_mdeg},'锁向稳定角必须小于唤醒角');
+  if(error)return error;
+  error=invalid(['heading_lock_min_rpm','heading_lock_max_rpm'],function(){return candidate.heading_lock_min_rpm>candidate.heading_lock_max_rpm},'锁向最小轮速不能大于最大轮速');
+  if(error)return error;
+  error=invalid(['heading_lock_max_rpm','max_wheel_rpm'],function(){return candidate.heading_lock_max_rpm>candidate.max_wheel_rpm},'锁向最大轮速不能超过底盘最大轮速');
+  if(error)return error;
+  error=invalid(['wheel_radius_mm','wheel_radius_um'],function(){return candidate.wheel_radius_mm!==Math.floor(candidate.wheel_radius_um/1000)},'车轮半径毫米值与精确值不一致');
+  if(error)return error;
+  error=invalid(['distance_creep_rpm','max_wheel_rpm'],function(){return candidate.distance_creep_rpm>candidate.max_wheel_rpm},'终点逼近转速不能超过底盘最大轮速');
+  if(error)return error;
+  error=invalid(['distance_settle_rpm','distance_creep_rpm'],function(){return candidate.distance_settle_rpm>candidate.distance_creep_rpm},'停稳转速不能超过终点逼近转速');
+  if(error)return error;
+  error=invalid(['ina_uv_release_mv','ina_uv_trip_mv'],function(){return candidate.ina_uv_release_mv<=candidate.ina_uv_trip_mv},'欠压释放阈值必须高于触发阈值');
+  if(error)return error;
+  error=invalid(['ina_oc_release_ma','ina_oc_trip_ma'],function(){return candidate.ina_oc_release_ma>=candidate.ina_oc_trip_ma},'过流释放阈值必须低于触发阈值');
+  if(error)return error;
+  for(var gray=0;gray<8;gray++){
+    var white='gray_white_'+gray,black='gray_black_'+gray;
+    if(paramHasNumbers(candidate,[white,black])&&candidate[white]===candidate[black])return'灰度 '+gray+' 的黑白标定值不能相等';
+  }
+  error=invalid(['gray_threshold','gray_hysteresis'],function(){
+    var lower=Math.floor(candidate.gray_hysteresis/2),upper=Math.floor((candidate.gray_hysteresis+1)/2);
+    return candidate.gray_threshold<=lower||candidate.gray_threshold+upper>=1000;
+  },'灰度阈值与回差组合无效');
+  if(error)return error;
+  return invalid(['lf_lost_stop_ms','lf_lost_hold_ms'],function(){return candidate.lf_lost_stop_ms<candidate.lf_lost_hold_ms},'丢线停车时间不能小于保持时间');
+}
+
+function paramPlanImport(currentValues,targetValues,ranges){
+  var desired=Object.assign({},currentValues,targetValues);
+  var hasMm=Object.prototype.hasOwnProperty.call(targetValues,'wheel_radius_mm');
+  var hasUm=Object.prototype.hasOwnProperty.call(targetValues,'wheel_radius_um');
+  if(hasMm&&!hasUm)desired.wheel_radius_um=targetValues.wheel_radius_mm*1000;
+  if(hasUm&&!hasMm)desired.wheel_radius_mm=Math.floor(targetValues.wheel_radius_um/1000);
+  var finalError=paramCandidateError(desired,ranges);
+  if(finalError)return{ok:false,error:'文件中的参数组合无效：'+finalError,steps:[]};
+  var planned=Object.assign({},currentValues);
+  var pending=Object.keys(targetValues).filter(function(name){return planned[name]!==desired[name]});
+  var steps=[];
+  while(pending.length){
+    var selected=-1,next=null;
+    for(var index=0;index<pending.length;index++){
+      var name=pending[index],candidate=paramCandidateWithValue(planned,name,desired[name]);
+      if(!paramCandidateError(candidate,ranges)){selected=index;next=candidate;break}
+    }
+    if(selected<0)return{ok:false,steps:steps,error:'无法生成安全写入顺序，关联参数：'+pending.slice(0,6).join(', ')};
+    var selectedName=pending[selected];
+    steps.push({name:selectedName,value:desired[selectedName]});
+    planned=next;
+    pending=pending.filter(function(name){return planned[name]!==desired[name]});
+  }
+  var mismatch=Object.keys(desired).find(function(name){return planned[name]!==desired[name]});
+  return mismatch?{ok:false,steps:steps,error:'规划结果未达到目标参数：'+mismatch}:{ok:true,steps:steps,finalValues:planned};
+}
+
 var paramPageState={
   values:{},ranges:{},selected:null,group:'all',query:'',modifiedOnly:false,
   store:null,mode:'unknown',loaded:false,busy:false,connected:false,
@@ -467,22 +551,24 @@ async function paramImportFile(file){
   try{
     var payload=JSON.parse(await file.text());
     if(!payload||payload.format!=='gugapi-parameters'||payload.version!==1||!payload.parameters||Array.isArray(payload.parameters))throw new Error('不是受支持的 gugaPI 参数文件');
-    var changes=[],unknown=[],invalid=[];
+    var targetValues={},unknown=[],invalid=[];
     Object.keys(payload.parameters).forEach(function(name){
       var value=payload.parameters[name];
       if(!Object.prototype.hasOwnProperty.call(paramPageState.values,name)){unknown.push(name);return}
       var range=paramPageState.ranges[name];
       if(!Number.isInteger(value)||value<range.min||value>range.max){invalid.push(name);return}
-      if(value!==paramPageState.values[name])changes.push({name:name,value:value});
+      targetValues[name]=value;
     });
     if(invalid.length)throw new Error('存在 '+invalid.length+' 个非整数或越界参数：'+invalid.slice(0,5).join(', '));
-    if(!changes.length){paramToast('文件中没有需要修改的已知参数');return}
-    if(!window.confirm('导入差异预览\\n将修改：'+changes.length+' 项\\n未知并忽略：'+unknown.length+' 项\\n非法：0 项\\n\\n修改只写入 RAM，不自动保存。确认继续？'))return;
+    var plan=paramPlanImport(paramPageState.values,targetValues,paramPageState.ranges);
+    if(!plan.ok)throw new Error(plan.error);
+    if(!plan.steps.length){paramToast('文件中没有需要修改的已知参数');return}
+    if(!window.confirm('导入差异预览\\n将修改：'+plan.steps.length+' 项\\n未知并忽略：'+unknown.length+' 项\\n非法：0 项\\n\\n已自动安排关联参数的安全写入顺序。\\n修改只写入 RAM，不自动保存。确认继续？'))return;
     paramPageState.busy=true;paramUpdateControls();
     await paramRequireWritable();
     var applied=0,failed=null;
-    for(var i=0;i<changes.length;i++){
-      var item=changes[i],response=await send('param set '+item.name+' '+item.value,{timeoutMs:2800});
+    for(var i=0;i<plan.steps.length;i++){
+      var item=plan.steps[i],response=await send('param set '+item.name+' '+item.value,{timeoutMs:2800});
       if(!paramResponseOk(response,'param set')){failed=item.name;break}
       applied++;paramPageState.sessionChanged[item.name]=true;
       if(paramMeta(item.name).restart)paramPageState.restartPending=true;
@@ -549,16 +635,7 @@ function paramSimInit(){
   simPersistedValues=Object.assign({},simParamValues);
 }
 function paramSimValid(candidate){
-  if(candidate.speed_min_duty>candidate.speed_max_duty)return false;
-  if(candidate.heading_lock_settle_mdeg>=candidate.heading_lock_wake_mdeg)return false;
-  if(candidate.heading_lock_min_rpm>candidate.heading_lock_max_rpm)return false;
-  if(candidate.heading_lock_max_rpm>candidate.max_wheel_rpm)return false;
-  if(candidate.ina_uv_release_mv<=candidate.ina_uv_trip_mv)return false;
-  if(candidate.ina_oc_release_ma>=candidate.ina_oc_trip_ma)return false;
-  if(candidate.lf_lost_stop_ms<candidate.lf_lost_hold_ms)return false;
-  for(var i=0;i<8;i++)if(candidate['gray_white_'+i]===candidate['gray_black_'+i])return false;
-  var lower=Math.floor(candidate.gray_hysteresis/2),upper=Math.floor((candidate.gray_hysteresis+1)/2);
-  return candidate.gray_threshold>lower&&candidate.gray_threshold+upper<1000;
+  return !paramCandidateError(candidate);
 }
 function paramSimCommand(cmd){
   paramSimInit();
@@ -588,7 +665,7 @@ function paramSimCommand(cmd){
   if(cmd.startsWith('param set ')){
     var parts=cmd.split(/\s+/),name=parts[2],value=Number(parts[3]),meta=PARAM_META[name];
     if(!meta||!Number.isInteger(value)||value<meta.min||value>meta.max)return'param set: invalid-arg\r\n> ';
-    var candidate=Object.assign({},simParamValues);candidate[name]=value;
+    var candidate=paramCandidateWithValue(simParamValues,name,value);
     if(!paramSimValid(candidate))return'param set: invalid-arg\r\n> ';
     simParamValues=candidate;simParamDirty=true;return'param set: ok\r\n> ';
   }
