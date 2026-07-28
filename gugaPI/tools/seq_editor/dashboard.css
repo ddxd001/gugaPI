@@ -20,35 +20,46 @@
   min-height:52px;display:flex;align-items:center;gap:14px;padding:7px 12px;
   background:#252a31;border-bottom:1px solid #3b424c;flex:0 0 auto;
 }
-.dash-page-title{display:flex;flex-direction:column;min-width:185px}
-.dash-page-title strong{font:700 12px/1.2 Consolas,monospace;letter-spacing:.08em;color:#f0f2f5}
-.dash-page-title span{font-size:9px;color:var(--dash-muted);margin-top:3px}
+.dash-page-title{display:flex;flex-direction:column;min-width:190px}
+.dash-page-title strong{font-size:13px;line-height:1.2;font-weight:700;color:#f0f2f5}
+.dash-page-title span{font-size:10px;color:var(--dash-muted);margin-top:3px}
 .dash-live{display:flex;align-items:center;gap:8px;min-width:125px;padding-left:13px;border-left:1px solid var(--dash-border)}
 .dash-live>span:last-child{display:flex;flex-direction:column}
-.dash-live b{font-size:10px;color:#c5cbd3}
-.dash-live small{font:9px Consolas,monospace;color:var(--dash-dim);margin-top:2px}
+.dash-live b{font-size:11px;color:#c5cbd3}
+.dash-live small{font:10px Consolas,monospace;color:var(--dash-dim);margin-top:2px}
 #dashTelemetryDot{width:8px;height:8px;border-radius:50%;background:#5d6672}
 #dashTelemetryDot.live{background:var(--dash-green)}
 #dashTelemetryDot.stale{background:var(--dash-yellow)}
 .dash-control-group{display:flex;align-items:center;gap:6px}
-#dashboardToolbar label{display:flex;align-items:center;gap:5px;color:var(--dash-muted);font-size:10px}
+#dashboardToolbar label{display:flex;align-items:center;gap:5px;color:var(--dash-muted);font-size:11px}
 #dashboardToolbar select{
   height:27px;background:#1a1f25;color:#dce1e7;border:1px solid #414954;
-  border-radius:3px;padding:3px 7px;font-size:10px;
+  border-radius:3px;padding:3px 7px;font-size:11px;
 }
-#dashboardToolbar button{height:28px;border-radius:3px;padding:4px 9px;font-size:10px}
+#dashboardToolbar button{height:28px;border-radius:3px;padding:4px 9px;font-size:11px}
 .dash-spacer{flex:1}
-#btnDashEstop{height:32px;font-weight:800;letter-spacing:.08em;padding:5px 16px;border-radius:3px}
 #dashboardContent{
-  display:grid;grid-template-columns:190px minmax(480px,1fr) 300px;
+  display:grid;grid-template-columns:230px minmax(480px,1fr) 320px;
   flex:1;min-height:0;overflow:hidden;background:var(--dash-border);gap:1px;
 }
 #dashDataBrowser,#dashboardSensors,#dashPlotWorkspace{background:var(--dash-bg);min-width:0;min-height:0}
 #dashDataBrowser{display:flex;flex-direction:column;overflow:auto}
 .dash-section-title{padding:13px 12px 8px;border-bottom:1px solid var(--dash-border-soft)}
-.dash-section-title strong{display:block;font:700 9px Consolas,monospace;letter-spacing:.1em;color:#aeb6c1}
-.dash-section-title span{display:block;font-size:9px;color:var(--dash-dim);margin-top:4px}
-#dashGroupList{padding:6px 0;display:flex;flex-direction:column}
+.dash-section-title strong{display:block;font-size:11px;font-weight:700;color:#c6cdd6}
+.dash-section-title span{display:block;font-size:10px;color:var(--dash-dim);margin-top:4px}
+#dashGroupList{padding:4px 0 14px;display:flex;flex-direction:column}
+.dash-category{border-bottom:1px solid var(--dash-border-soft)}
+.dash-category-toggle{
+  display:grid;grid-template-columns:1fr auto 10px;align-items:center;width:100%;height:34px;
+  padding:0 10px;background:#191e24;border:0;border-radius:0;color:#aeb7c2;text-align:left;
+}
+.dash-category-toggle:hover{background:#20262d}
+.dash-category-toggle span{font-size:11px;font-weight:700}
+.dash-category-toggle small{font-size:9px;color:var(--dash-dim);font-weight:400}
+.dash-category-toggle i{width:6px;height:6px;margin-left:4px;border-right:1px solid #8994a1;border-bottom:1px solid #8994a1;transform:rotate(45deg) translateY(-2px)}
+.dash-category:not(.open) .dash-category-toggle i{transform:rotate(-45deg)}
+.dash-category:not(.open) .dash-category-items{display:none}
+.dash-category-items{display:flex;flex-direction:column}
 .dash-group-button{
   width:100%;height:43px;display:grid;grid-template-columns:4px 1fr auto;align-items:center;
   gap:9px;padding:0 11px 0 0;background:transparent;color:#bbc2cb;border:0;
@@ -61,8 +72,8 @@
 .dash-group-button.active .dash-group-accent{background:var(--dash-blue)}
 .dash-group-copy{display:flex;flex-direction:column;gap:3px}
 .dash-group-copy strong{font-size:11px;font-weight:600}
-.dash-group-copy small{font:8px Consolas,monospace;color:var(--dash-dim);text-transform:uppercase}
-.dash-group-count{font:9px Consolas,monospace;color:#7d8794}
+.dash-group-copy small{font-size:9px;color:var(--dash-dim)}
+.dash-group-count{font-size:9px;color:#7d8794;white-space:nowrap}
 #dashPlotWorkspace{display:flex;flex-direction:column;overflow:hidden}
 #dashPlotHeader{
   min-height:61px;display:flex;align-items:center;justify-content:space-between;gap:18px;
@@ -99,12 +110,14 @@
 .dash-detail-item:last-child{border-bottom:0}
 .dash-detail-head{display:flex;align-items:center;gap:7px}
 .dash-detail-dot{width:8px;height:8px;flex:0 0 auto}
-.dash-detail-head strong{font-size:11px;color:#dfe4e9}
-.dash-detail-head code{margin-left:auto;color:#788492;font:8px Consolas,monospace}
+.dash-detail-head strong{font-size:12px;color:#dfe4e9}
+.dash-detail-head code{margin-left:auto;color:#7ebfe1;font:9px Consolas,monospace}
 .dash-detail-value{display:flex;align-items:baseline;gap:5px;margin:9px 0 6px}
 .dash-detail-value strong{font:600 22px Consolas,monospace;color:#f0f2f4}
 .dash-detail-value span{font:9px Consolas,monospace;color:#8994a1}
-.dash-detail-item p{margin:0;color:#7c8794;font-size:9px;line-height:1.55}
+.dash-detail-meaning{display:inline-flex;margin:0 0 6px;padding:2px 6px;border-radius:3px;background:#263c4b;color:#83c9eb;font-size:10px}
+.dash-detail-meaning[hidden]{display:none}
+.dash-detail-item p{margin:0;color:#8793a1;font-size:10px;line-height:1.55}
 #dashToast{
   position:absolute;right:16px;bottom:16px;background:#292f37;border:1px solid #505965;
   border-radius:3px;padding:8px 12px;opacity:0;pointer-events:none;transition:opacity .18s;
@@ -115,7 +128,7 @@
   #dashboardToolbar{flex-wrap:wrap}
   .dash-control-group{order:3;width:100%}
   #dashboardContent{
-    display:grid;grid-template-columns:160px minmax(420px,1fr) 260px;
+    display:grid;grid-template-columns:190px minmax(420px,1fr) 270px;
     overflow:auto;
   }
   .dash-group-button{padding-right:7px}
@@ -125,5 +138,5 @@
   .dash-page-title{min-width:0}
   .dash-live{border:0;padding-left:0}
   .dash-control-group{flex-wrap:wrap}
-  #dashboardContent{grid-template-columns:145px minmax(360px,1fr) 235px}
+  #dashboardContent{grid-template-columns:175px minmax(360px,1fr) 250px}
 }

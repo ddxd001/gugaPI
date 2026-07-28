@@ -310,7 +310,7 @@ var SHELL_COMMAND_LIBRARY=[
   ShellCommand('telem','周期遥测输出','通信',
     '按指定周期输出FireWater/VOFA+兼容的CSV遥测行，支持全量兼容模式和仪表盘按组模式。','W',BOTH,[
       ShellForm('telem on [period_ms 50..5000]','启动旧版全字段遥测，可指定周期。','W'),
-      ShellForm('telem on <motor|heading|line|accel|gyro> [period_ms 50..5000]','只输出指定图表需要的字段。','W'),
+      ShellForm('telem on <profile> [period_ms 50..5000]','只输出实时仪表盘当前图表需要的字段；使用 telem 命令帮助查看完整 profile。','W'),
       ShellForm('telem off','停止周期遥测。','W'),
       ShellForm('telem status','查看遥测开关、数据组和周期。')
     ]),

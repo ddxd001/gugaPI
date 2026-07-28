@@ -11,6 +11,8 @@ const dashboardSource=fs.readFileSync(
   path.resolve(__dirname,'../gugaPI/tools/seq_editor/app7.js'),'utf8');
 const htmlSource=fs.readFileSync(
   path.resolve(__dirname,'../gugaPI/tools/seq_editor/index.html'),'utf8');
+const serverSource=fs.readFileSync(
+  path.resolve(__dirname,'../gugaPI/tools/seq_editor/server.ps1'),'utf8');
 const headerFunction=shellSource.match(
   /void TelemSendHeader\(void\)\s*\{([\s\S]*?)\n\}/);
 assert(headerFunction,'firmware telemetry header function is missing');
@@ -35,9 +37,35 @@ for(const [group,fields] of Object.entries(core.GROUP_FIELDS)){
   const expected='#'+fields.join(',');
   assert(firmwareHeaders.includes(expected),
     group+' firmware telemetry header must match dashboard group schema');
+  assert(shellSource.includes('"'+group+'"'),
+    group+' firmware telemetry profile parser is missing');
 }
-assert(/telem on <motor\|heading\|line\|accel\|gyro>/.test(shellSource),
+assert(/telem on <profile>/.test(shellSource),
   'firmware grouped telemetry usage is missing');
+assert(/TELEM_PROFILE_LINE[^_]/.test(shellSource),
+  'legacy combined line telemetry profile must remain available');
+
+const groupedFields=[];
+for(const fields of Object.values(core.GROUP_FIELDS)){
+  groupedFields.push(...fields.slice(1));
+}
+assert.deepStrictEqual([...new Set(groupedFields)].sort(),
+  core.DEFAULT_FIELDS.slice(1).sort(),
+  'on-demand groups must cover every full telemetry field exactly once');
+assert.strictEqual(groupedFields.length,new Set(groupedFields).size,
+  'a telemetry field must not be duplicated across dashboard charts');
+assert(core.CHARTS.length>=30,'complete diagnostic chart catalog is missing');
+assert.deepStrictEqual(core.CATEGORIES.map(item=>item.label),
+  ['运行','底盘','循迹与道路','转向过程','IMU','灰度传感器','系统健康']);
+for(const chart of core.CHARTS){
+  assert.deepStrictEqual(core.GROUP_FIELDS[chart.key],
+    ['t',...chart.series.map(item=>item.field)]);
+  assert(chart.title&&chart.subtitle&&chart.unit);
+  for(const item of chart.series){
+    assert(item.label&&item.unit&&item.description&&item.color,
+      chart.key+' metadata is incomplete for '+item.field);
+  }
+}
 
 const htmlIds=new Set([...htmlSource.matchAll(/\bid="([^"]+)"/g)]
   .map(match=>match[1]));
@@ -52,12 +80,28 @@ assert(/activeGroup:null/.test(dashboardSource),
   'dashboard must start without a selected telemetry group');
 assert(!/localStorage/.test(dashboardSource),
   'dashboard selection must not persist across application restarts');
+assert(/event\.fields\.join\(','\)!==sampleExpected\.join\(','\)/.test(dashboardSource),
+  'samples from a stale telemetry profile must be rejected');
 for(const group of Object.keys(core.GROUP_FIELDS)){
   assert(dashboardSource.includes("'telem on '+key+' '"),
     'dashboard must build grouped telemetry commands');
-  assert(dashboardSource.includes("key:'"+group+"'"),
-    'dashboard chart metadata is missing group '+group);
+  assert(core.CHARTS.some(chart=>chart.key===group),
+    'dashboard chart catalog is missing group '+group);
 }
+assert(!htmlSource.includes('STOP ALL'),
+  'dashboard must use the single global Chinese emergency stop control');
+for(const legacyEnglish of ['REALTIME INSPECTOR','DATA DETAILS',
+  'SELECT A CHART FROM THE LEFT','NO DATA SELECTED']){
+  assert(!htmlSource.includes(legacyEnglish)&&!dashboardSource.includes(legacyEnglish),
+    'dashboard still contains untranslated label '+legacyEnglish);
+}
+assert.strictEqual(core.describeValue('boolean',1),'是');
+assert.strictEqual(core.describeValue('appMode',3),'比赛待命');
+assert.strictEqual(core.describeValue('roadPaths',7),'左 / 前 / 右');
+assert(/text\/css; charset=utf-8/.test(serverSource),
+  'development server must return CSS with a browser-safe MIME type');
+assert(/application\/json; charset=utf-8/.test(serverSource));
+assert(/image\/svg\+xml/.test(serverSource));
 
 const parser=new core.TelemetryParser();
 let event=parser.parseLine('#t,mode,L_tgt','2026-07-28T00:00:00.000Z');

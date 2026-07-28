@@ -198,8 +198,8 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <div id="dashboardView" class="main" hidden>
 <div id="dashboardShell">
 <div id="dashboardToolbar">
-<div class="dash-page-title"><strong>REALTIME INSPECTOR</strong><span>底盘运行状态与传感器遥测</span></div>
-<div class="dash-live"><span id="dashTelemetryDot"></span><span><b id="dashTelemetryText">遥测未启动</b><small id="dashSampleCount">0 samples</small></span></div>
+<div class="dash-page-title"><strong>实时数据观察</strong><span>底盘运行状态与传感器按需遥测</span></div>
+<div class="dash-live"><span id="dashTelemetryDot"></span><span><b id="dashTelemetryText">遥测未启动</b><small id="dashSampleCount">0 个样本</small></span></div>
 <div class="dash-control-group">
 <label>采样周期
 <select id="dashPeriod">
@@ -217,22 +217,20 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <option value="60">60 s</option>
 </select>
 </label>
-<button id="btnDashTelemetry" type="button" disabled>停止展示</button>
+<button id="btnDashTelemetry" type="button" disabled>继续采集</button>
 <button id="btnDashRecord" type="button" disabled>开始记录</button>
 <button id="btnDashExport" type="button" disabled>导出 CSV</button>
 <button id="btnDashClear" type="button">清空曲线</button>
 </div>
-<span class="dash-spacer"></span>
-<button id="btnDashEstop" class="danger" type="button" disabled>STOP ALL</button>
 </div>
 <div id="dashboardContent">
 <aside id="dashDataBrowser">
-<div class="dash-section-title"><strong>CHARTS</strong><span>点击图表开始按需遥测</span></div>
+<div class="dash-section-title"><strong>数据图表</strong><span>点击图表开始按需遥测</span></div>
 <nav id="dashGroupList" aria-label="遥测数据组"></nav>
 </aside>
 <section id="dashPlotWorkspace">
 <header id="dashPlotHeader">
-<div><h2 id="dashChartTitle">未选择数据</h2><p id="dashChartSubtitle">SELECT A CHART FROM THE LEFT</p></div>
+<div><h2 id="dashChartTitle">未选择数据</h2><p id="dashChartSubtitle">请从左侧选择一张图表</p></div>
 </header>
 <div id="dashMainChartWrap">
 <canvas id="dashMainChart"></canvas>
@@ -245,7 +243,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 </section>
 <aside id="dashboardSensors">
 <article class="dash-inspector-panel">
-<header><strong>DATA DETAILS</strong><span id="dashDetailsTitle">未选择</span></header>
+<header><strong>数据详情</strong><span id="dashDetailsTitle">未选择</span></header>
 <div id="dashDataDetailsEmpty">从左侧选择一张图表后，这里将显示数据名称、单位、含义和实时数值。</div>
 <div id="dashDataDetails"></div>
 </article>

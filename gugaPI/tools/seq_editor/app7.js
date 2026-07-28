@@ -8,7 +8,9 @@ var dashState={
   samples:[],lastSample:null,lastSampleAt:0,recording:false,records:[],
   recordFields:[],recordGroup:null,
   renderPending:false,simTimer:null,simStart:0,simStopped:false,
-  activeGroup:null,pendingGroup:null,hoverX:null,hoverY:null
+  activeGroup:null,pendingGroup:null,hoverX:null,hoverY:null,
+  categoryOpen:{runtime:true,chassis:true,line:false,turn:false,imu:false,
+    gray:false,system:false}
 };
 
 function dashValue(sample,name,fallback){
@@ -27,15 +29,15 @@ function dashToast(message,bad){
 function dashSetTelemetryState(text,state){
   $('dashTelemetryText').textContent=text;
   $('dashTelemetryDot').className=state||'';
-  $('btnDashTelemetry').textContent='停止展示';
+  $('btnDashTelemetry').textContent=dashState.enabled?'停止采集':'继续采集';
 }
 
 function dashUpdateControls(){
-  $('btnDashTelemetry').disabled=!dashState.enabled||dashState.requesting;
+  $('btnDashTelemetry').disabled=!dashState.activeGroup||
+    !dashState.connected||dashState.requesting;
   $('dashPeriod').disabled=dashState.requesting;
   $('btnDashRecord').disabled=!dashState.connected||!dashState.enabled;
   $('btnDashExport').disabled=dashState.records.length===0;
-  $('btnDashEstop').disabled=!dashState.connected||dashState.requesting;
   $('btnDashRecord').textContent=dashState.recording?'停止记录':'开始记录';
 }
 
@@ -43,7 +45,7 @@ function dashRenderStatus(){
   var sample=dashState.lastSample;
   var age=dashState.lastSampleAt?Date.now()-dashState.lastSampleAt:Infinity;
   var liveLimit=Math.max(300,Number($('dashPeriod').value)*3);
-  $('dashSampleCount').textContent=dashState.samples.length+' samples';
+  $('dashSampleCount').textContent=dashState.samples.length+' 个样本';
   if(dashState.requesting){
     dashSetTelemetryState('正在切换数据…','stale');
   }else if(!dashState.activeGroup){
@@ -51,7 +53,7 @@ function dashRenderStatus(){
   }else if(!dashState.connected){
     dashSetTelemetryState('串口未连接','');
   }else if(!dashState.enabled){
-    dashSetTelemetryState(dashState.visible?'等待启动':'页面已暂停','');
+    dashSetTelemetryState(dashState.visible?'采集已停止':'页面已暂停','');
   }else if(age<=liveLimit){
     dashSetTelemetryState('实时 · '+Math.round(age)+' ms','live');
   }else{
@@ -64,6 +66,11 @@ function dashRenderStatus(){
 function dashFormat(value,digits){
   return value===null||value===undefined||!Number.isFinite(value)
     ?'--':Number(value).toFixed(digits);
+}
+
+function dashDigits(item,value){
+  if(item&&item.step)return 0;
+  return Math.abs(value||0)<100?1:0;
 }
 
 function dashScheduleRender(){
@@ -99,29 +106,8 @@ function dashDrawEmptyState(ctx,width,height,ratio,title,detail){
   ctx.restore();
 }
 
-var dashCharts=[
-  {key:'motor',title:'车轮转速',subtitle:'目标与实际转速',unit:'RPM',series:[
-    {field:'L_tgt',label:'左轮目标转速',unit:'RPM',description:'底盘控制器下发给左轮的目标转速。',color:'#55bfe9',dashed:true},
-    {field:'L_act',label:'左轮实际转速',unit:'RPM',description:'MotorDriver 周期反馈的左轮实测转速。',color:'#348ed1'},
-    {field:'R_tgt',label:'右轮目标转速',unit:'RPM',description:'底盘控制器下发给右轮的目标转速。',color:'#e4b657',dashed:true},
-    {field:'R_act',label:'右轮实际转速',unit:'RPM',description:'MotorDriver 周期反馈的右轮实测转速。',color:'#df8352'}]},
-  {key:'heading',title:'航向控制',subtitle:'目标 / 实际 / 误差',unit:'DEG',series:[
-    {field:'yaw_tgt',label:'目标航向角',unit:'deg',description:'航向控制器当前锁定或转向的目标角度。',color:'#55bfe9',dashed:true},
-    {field:'yaw',label:'实际航向角',unit:'deg',description:'IMU 积分得到的当前相对航向角。',color:'#55c68a'},
-    {field:'head_err',label:'航向误差',unit:'deg',description:'归一化后的目标角与实际角之差。',color:'#df6670'}]},
-  {key:'line',title:'循迹控制',subtitle:'位置误差与闭环修正',unit:'CONTROL',series:[
-    {field:'gray_pos',label:'灰度线位置',unit:'pos',description:'八路灰度插值得到的赛道中心位置，左正右负。',color:'#ae84c6'},
-    {field:'lf_err',label:'循迹位置误差',unit:'mpos',description:'循迹控制器使用的中心位置误差。',color:'#55bfe9'},
-    {field:'lf_corr',label:'循迹修正量',unit:'RPM',description:'循迹闭环输出的左右轮差速修正量。',color:'#e4b657'}]},
-  {key:'accel',title:'线加速度',subtitle:'IMU 三轴加速度',unit:'MG',series:[
-    {field:'acc_x_mg',label:'X 轴加速度',unit:'mg',description:'IMU X 轴去偏置后的线加速度。',color:'#df6670'},
-    {field:'acc_y_mg',label:'Y 轴加速度',unit:'mg',description:'IMU Y 轴去偏置后的线加速度。',color:'#55c68a'},
-    {field:'acc_z_mg',label:'Z 轴加速度',unit:'mg',description:'IMU Z 轴去偏置后的线加速度，静止时包含重力。',color:'#55bfe9'}]},
-  {key:'gyro',title:'角速度',subtitle:'IMU 三轴角速度',unit:'MDPS',series:[
-    {field:'gyro_x_mdps',label:'X 轴角速度',unit:'mdps',description:'IMU X 轴去偏置后的角速度。',color:'#df6670'},
-    {field:'gyro_y_mdps',label:'Y 轴角速度',unit:'mdps',description:'IMU Y 轴去偏置后的角速度。',color:'#55c68a'},
-    {field:'gyro_z_mdps',label:'Z 轴角速度',unit:'mdps',description:'IMU Z 轴去偏置后的角速度，用于航向积分。',color:'#55bfe9'}]}
-];
+var dashCategories=DashboardCore.CATEGORIES;
+var dashCharts=DashboardCore.CHARTS;
 
 function dashActiveChart(){
   return dashCharts.find(function(chart){return chart.key===dashState.activeGroup})||null;
@@ -143,22 +129,37 @@ async function dashSelectGroup(key){
 
 function dashBuildDataBrowser(){
   var active=dashActiveChart();
-  $('dashGroupList').innerHTML=dashCharts.map(function(chart){
-    return'<button class="dash-group-button'+
-      (active&&chart.key===active.key?' active':'')+
-      (chart.key===dashState.pendingGroup?' pending':'')+
-      '" type="button" data-group="'+chart.key+'"><span class="dash-group-accent"></span>'+
-      '<span class="dash-group-copy"><strong>'+chart.title+'</strong><small>'+
-      chart.subtitle+'</small></span><span class="dash-group-count">'+
-      chart.series.length+' CH</span></button>';
+  $('dashGroupList').innerHTML=dashCategories.map(function(category){
+    var charts=dashCharts.filter(function(item){return item.category===category.key});
+    var open=dashState.categoryOpen[category.key]!==false;
+    return'<section class="dash-category'+(open?' open':'')+'"><button '+
+      'class="dash-category-toggle" type="button" data-category="'+category.key+
+      '" aria-expanded="'+open+'"><span>'+category.label+'</span><small>'+charts.length+
+      ' 张图</small><i></i></button><div class="dash-category-items">'+
+      charts.map(function(chart){
+        return'<button class="dash-group-button'+
+          (active&&chart.key===active.key?' active':'')+
+          (chart.key===dashState.pendingGroup?' pending':'')+
+          '" type="button" data-group="'+chart.key+'"><span class="dash-group-accent"></span>'+
+          '<span class="dash-group-copy"><strong>'+chart.title+'</strong><small>'+
+          chart.subtitle+'</small></span><span class="dash-group-count">'+
+          chart.series.length+' 项</span></button>';
+      }).join('')+'</div></section>';
   }).join('');
+  $('dashGroupList').querySelectorAll('[data-category]').forEach(function(button){
+    button.onclick=function(){
+      var key=button.getAttribute('data-category');
+      dashState.categoryOpen[key]=dashState.categoryOpen[key]===false;
+      dashBuildDataBrowser();
+    };
+  });
   $('dashGroupList').querySelectorAll('[data-group]').forEach(function(button){
     button.onclick=function(){dashSelectGroup(button.getAttribute('data-group'))};
   });
 
   $('dashChartTitle').textContent=active?active.title:'未选择数据';
   $('dashChartSubtitle').textContent=active?
-    (active.subtitle+' · '+active.unit):'SELECT A CHART FROM THE LEFT';
+    (active.subtitle+' · '+active.unit):'请从左侧选择一张图表';
   $('dashDetailsTitle').textContent=active?active.title:'未选择';
   $('dashDataDetailsEmpty').hidden=!!active;
   $('dashDataDetails').innerHTML=active?active.series.map(function(item){
@@ -166,16 +167,28 @@ function dashBuildDataBrowser(){
       '<i class="dash-detail-dot" style="background:'+item.color+'"></i>'+
       '<strong>'+item.label+'</strong><code>'+item.field+'</code></div>'+
       '<div class="dash-detail-value"><strong data-value-field="'+item.field+
-      '">--</strong><span>'+item.unit+'</span></div><p>'+item.description+
+      '">--</strong><span>'+item.unit+'</span></div><div class="dash-detail-meaning" '+
+      'data-meaning-field="'+item.field+'"></div><p>'+item.description+
       '</p></div>';
   }).join(''):'';
   dashUpdateDetailValues(dashState.lastSample);
 }
 
 function dashUpdateDetailValues(sample){
+  var chart=dashActiveChart();
   document.querySelectorAll('#dashDataDetails [data-value-field]').forEach(function(element){
-    var value=dashValue(sample,element.getAttribute('data-value-field'),null);
-    element.textContent=dashFormat(value,Math.abs(value||0)<100?1:0);
+    var field=element.getAttribute('data-value-field');
+    var value=dashValue(sample,field,null);
+    var item=chart&&chart.series.find(function(entry){return entry.field===field});
+    element.textContent=dashFormat(value,dashDigits(item,value));
+  });
+  document.querySelectorAll('#dashDataDetails [data-meaning-field]').forEach(function(element){
+    var field=element.getAttribute('data-meaning-field');
+    var item=chart&&chart.series.find(function(entry){return entry.field===field});
+    var meaning=item?DashboardCore.describeValue(
+      item.enumType,dashValue(sample,field,null)):'';
+    element.textContent=meaning?('含义：'+meaning):'';
+    element.hidden=!meaning;
   });
 }
 
@@ -184,11 +197,12 @@ function dashRenderTooltip(sample,series,cssX,cssY){
   if(!sample){tooltip.hidden=true;return}
   var deviceTime=dashValue(sample,'t',null);
   tooltip.innerHTML='<div class="dash-tooltip-time">'+
-    (deviceTime===null?sample.hostTime:('DEVICE '+deviceTime+' ms'))+'</div>'+
+    (deviceTime===null?sample.hostTime:('设备时间 '+deviceTime+' ms'))+'</div>'+
     series.map(function(item){
       return'<div class="dash-tooltip-row"><span style="color:'+item.color+'">'+
         item.label+'</span><strong>'+dashFormat(
-          dashValue(sample,item.field,null),Math.abs(dashValue(sample,item.field,0))<100?1:0)+
+          dashValue(sample,item.field,null),dashDigits(
+            item,dashValue(sample,item.field,0)))+
         '</strong></div>';
     }).join('');
   tooltip.hidden=false;
@@ -241,9 +255,9 @@ function dashDrawChart(canvas,chart){
   }
   ctx.textAlign='center';ctx.textBaseline='top';ctx.fillStyle='#606c79';
   ctx.fillText('-'+(displaySpan/1000).toFixed(displaySpan<10000?1:0)+'s',left,height-bottom+6*ratio);
-  ctx.fillText('now',width-right,height-bottom+5*ratio);
-  $('dashVisibleRange').textContent='WINDOW '+(displaySpan/1000).toFixed(1)+' s · '+
-    visible.length+' SAMPLES';
+  ctx.fillText('现在',width-right,height-bottom+5*ratio);
+  $('dashVisibleRange').textContent='窗口 '+(displaySpan/1000).toFixed(1)+' 秒 · '+
+    visible.length+' 个样本';
 
   if(!visible.length){
     dashDrawEmptyState(ctx,width,height,ratio,'等待遥测数据','连接设备并开启遥测，或使用模拟模式');
@@ -273,7 +287,13 @@ function dashDrawChart(canvas,chart){
       if(sample.hostMs<displayStart)return;
       var x=left+(width-left-right)*(sample.hostMs-displayStart)/displaySpan;
       var y=top+(height-top-bottom)*(max-value)/(max-min);
-      if(!started){ctx.moveTo(x,y);started=true}else ctx.lineTo(x,y);
+      if(!started){
+        ctx.moveTo(x,y);started=true;
+      }else if(item.step&&lastPoint){
+        ctx.lineTo(x,lastPoint.y);ctx.lineTo(x,y);
+      }else{
+        ctx.lineTo(x,y);
+      }
       lastPoint={x:x,y:y};
     });
     ctx.stroke();
@@ -324,7 +344,7 @@ function dashDrawAll(){
         dashDrawEmptyState(ctx,size.width,size.height,size.ratio,
           '未选择数据','从左侧选择一张图表开始按需遥测');
       }
-      $('dashVisibleRange').textContent='NO DATA SELECTED';
+      $('dashVisibleRange').textContent='尚未选择数据';
       $('dashChartTooltip').hidden=true;
     }
   }
@@ -351,6 +371,8 @@ function DashboardTelemetry_OnEvent(event){
     return;
   }
   if(event.type!=='sample')return;
+  var sampleExpected=DashboardCore.GROUP_FIELDS[dashState.activeGroup]||[];
+  if(event.fields.join(',')!==sampleExpected.join(','))return;
   event.hostMs=Date.now();
   dashState.lastSample=event;
   dashState.lastSampleAt=event.hostMs;
@@ -411,7 +433,7 @@ async function dashStartGroup(key,clearHistory){
   }
 }
 
-async function dashStopStream(clearSelection){
+async function dashStopStream(resumeOnReturn){
   if(dashState.requesting)return;
   dashState.requesting=true;dashRenderStatus();
   try{
@@ -427,18 +449,18 @@ async function dashStopStream(clearSelection){
     dashState.enabled=false;
     dashState.recording=false;
     dashSimStop();
-    if(clearSelection){
-      dashState.activeGroup=null;
-      dashResetPlot();
-      dashBuildDataBrowser();
-    }
     dashState.requesting=false;
     dashRenderStatus();dashDrawAll();
-    if(!clearSelection&&dashState.visible&&dashState.connected&&
+    if(resumeOnReturn&&dashState.visible&&dashState.connected&&
        dashState.activeGroup&&!dashState.enabled){
       dashStartGroup(dashState.activeGroup,false);
     }
   }
+}
+
+function dashToggleStream(){
+  if(dashState.enabled)return dashStopStream(false);
+  if(dashState.activeGroup)return dashStartGroup(dashState.activeGroup,false);
 }
 
 function dashSimStart(group,period){
@@ -463,16 +485,39 @@ function dashSimFrame(){
   var fields=DashboardCore.GROUP_FIELDS[dashState.activeGroup];
   fields.forEach(function(field){values[field]=0});
   values.t=elapsed;
+  values.mode=1;values.step=Math.floor(t/3)%8;
+  values.comp_slot=7;values.comp_slot_valid=1;values.comp_count=12;
   values.L_tgt=dashState.simStopped?0:120;values.R_tgt=dashState.simStopped?0:115;
   values.L_act=dashState.simStopped?0:118+Math.sin(t*2)*3;
   values.R_act=dashState.simStopped?0:113+Math.cos(t*2)*3;
   values.yaw_tgt=45;values.yaw=45+Math.sin(t*.7)*2;values.head_err=45-values.yaw;
+  values.head_corr=values.head_err*8;
+  values.chassis_init=1;values.chassis_status=0;
+  values.feedback_status=0;values.feedback_valid=1;values.feedback_age_ms=12;
   values.gray_pos=Math.sin(t*1.3)*350;values.lf_err=-values.gray_pos;
   values.lf_corr=values.gray_pos*.16;
+  values.gray_strength=760+Math.sin(t)*45;values.gray_conf=880+Math.cos(t)*35;
+  values.gray_valid=1;values.gray_state=1;values.lf_weak=Math.floor(t/5);
+  values.lf_invalid=Math.floor(t/9);values.road_type=2;
+  values.road_event_seq=Math.floor(t/6);values.road_event_type=2;
+  values.road_paths=2;values.road_phase=0;values.road_ctrl_phase=0;
+  values.head_turn_phase=0;values.head_turn_rate_mdps=Math.sin(t)*1800;
+  values.head_turn_brake_mdeg=42000;values.head_turn_brake_ms=120;
+  values.head_turn_margin_mdeg=3000;values.head_turn_settle_mdps=2500;
+  values.head_turn_settle_rpm=35;
   values.acc_x_mg=Math.sin(t)*35;values.acc_y_mg=Math.cos(t*.8)*28;
   values.acc_z_mg=1000+Math.sin(t*2)*10;
   values.gyro_x_mdps=Math.sin(t*.9)*900;values.gyro_y_mdps=Math.cos(t)*700;
   values.gyro_z_mdps=Math.sin(t*.7)*12000;
+  values.pitch=Math.sin(t*.4)*3;values.roll=Math.cos(t*.45)*2;
+  values.imu_temp_cc=2860;values.imu_valid=1;values.imu_age_ms=8;
+  values.imu_error_count=0;values.gray_sample_valid=1;values.gray_age_ms=6;
+  values.gray_error_count=0;
+  for(var channel=0;channel<8;channel++){
+    values['gray'+channel]=900+channel*70+Math.sin(t*1.2+channel*.5)*120;
+  }
+  values.fault_code=0;values.fault_count=0;
+  values.tx_pending=18+Math.round(Math.abs(Math.sin(t))*12);values.tx_dropped=0;
   var row=fields.map(function(field){return values[field]}).join(',');
   serialRouter.push(row+'\n');
 }
@@ -487,7 +532,7 @@ function Dashboard_OnShow(){
 
 function Dashboard_OnHide(){
   dashState.visible=false;
-  if(dashState.enabled&&!dashState.requesting)dashStopStream(false);
+  if(dashState.enabled&&!dashState.requesting)dashStopStream(true);
 }
 
 function Dashboard_OnConnection(connected){
@@ -534,38 +579,8 @@ function dashExport(){
   setTimeout(function(){URL.revokeObjectURL(link.href)},0);
 }
 
-async function dashEstop(){
-  if(!dashState.connected||dashState.requesting)return;
-  dashState.requesting=true;$('btnDashEstop').textContent='停止中…';dashUpdateControls();
-  if(simMode)dashState.simStopped=true;
-  try{
-    var response=await send('estop',{timeoutMs:2500});
-    if(!simMode&&!/estop:\s*ok/i.test(response)){
-      throw new Error(response.trim()||'设备未确认');
-    }
-    if(dashState.activeGroup!=='motor'){
-      dashToast('软件全停命令已确认',false);
-      return;
-    }
-    var deadline=Date.now()+2000;
-    while(Date.now()<deadline){
-      var latest=dashState.lastSample;
-      if(latest&&dashValue(latest,'L_tgt',1)===0&&dashValue(latest,'R_tgt',1)===0){
-        dashToast('软件全停已确认：目标轮速为 0',false);
-        return;
-      }
-      await new Promise(function(resolve){setTimeout(resolve,80)});
-    }
-    dashToast('停止命令已发送，未在 2 秒内收到零目标确认',true);
-  }catch(error){
-    dashToast('软件全停失败：'+error.message,true);
-  }finally{
-    dashState.requesting=false;$('btnDashEstop').textContent='STOP ALL';dashUpdateControls();
-  }
-}
-
 dashBuildDataBrowser();
-$('btnDashTelemetry').onclick=function(){dashStopStream(true)};
+$('btnDashTelemetry').onclick=dashToggleStream;
 $('dashPeriod').onchange=function(){
   if(dashState.enabled&&dashState.activeGroup){
     dashStartGroup(dashState.activeGroup,false);
@@ -575,7 +590,6 @@ $('dashWindow').onchange=dashDrawAll;
 $('btnDashRecord').onclick=dashToggleRecord;
 $('btnDashExport').onclick=dashExport;
 $('btnDashClear').onclick=function(){dashState.samples=[];dashDrawAll();dashToast('曲线已清空',false)};
-$('btnDashEstop').onclick=dashEstop;
 $('dashMainChart').addEventListener('pointermove',function(event){
   var rect=$('dashMainChart').getBoundingClientRect();
   dashState.hoverX=event.clientX-rect.left;

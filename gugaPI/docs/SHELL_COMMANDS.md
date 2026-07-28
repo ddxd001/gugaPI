@@ -2233,11 +2233,27 @@ FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接�
 
 | profile | 输出字段 |
 | --- | --- |
+| `runtime` | `t,mode,step` |
+| `competition` | `t,comp_slot,comp_slot_valid,comp_count` |
 | `motor` | `t,L_tgt,L_act,R_tgt,R_act` |
 | `heading` | `t,yaw_tgt,yaw,head_err` |
-| `line` | `t,gray_pos,lf_err,lf_corr` |
+| `heading_output` | `t,head_corr` |
+| `chassis` / `feedback_state` / `feedback_age` | 底盘状态、电机反馈状态或反馈年龄 |
+| `line_position` / `line_output` | 线路位置误差或循迹修正量 |
+| `line_quality` / `line_state` / `line_faults` | 线路质量、状态或异常帧计数 |
+| `road_event` / `road_sequence` / `road_phase` | 道路事件、事件序号或处理阶段 |
+| `turn_phase` / `turn_rate` / `turn_angle` | 转向阶段、角速度或刹车角参数 |
+| `turn_timing` / `turn_speed` | 转向刹车时间或稳定轮速 |
 | `accel` | `t,acc_x_mg,acc_y_mg,acc_z_mg` |
 | `gyro` | `t,gyro_x_mdps,gyro_y_mdps,gyro_z_mdps` |
+| `attitude` / `imu_temperature` | 俯仰与横滚角，或 IMU 温度裸值 |
+| `imu_state` / `imu_age` | IMU 有效性与错误计数，或数据年龄 |
+| `gray_raw` / `gray_health` / `gray_age` | 八路原始值、健康状态或数据年龄 |
+| `fault` / `uart` | 系统故障，或调试串口队列与丢弃计数 |
+
+旧 `line` profile 继续输出 `t,gray_pos,lf_err,lf_corr`，用于兼容已经使用
+该组合格式的工具。实时仪表盘改用按量纲拆开的 `line_position` 与
+`line_output`。
 
 ```text
 telem on

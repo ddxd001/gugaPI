@@ -17,8 +17,11 @@ while ($listener.IsListening) {
         $ctx.Response.Headers['Pragma'] = 'no-cache'
         $ctx.Response.Headers['Expires'] = '0'
         $ctx.Response.ContentLength64 = $content.Length
-        if ($reqPath -match '\.js$') { $ctx.Response.ContentType = 'application/javascript' }
+        if ($reqPath -match '\.js$') { $ctx.Response.ContentType = 'application/javascript; charset=utf-8' }
         elseif ($reqPath -match '\.html$') { $ctx.Response.ContentType = 'text/html; charset=utf-8' }
+        elseif ($reqPath -match '\.css$') { $ctx.Response.ContentType = 'text/css; charset=utf-8' }
+        elseif ($reqPath -match '\.json$') { $ctx.Response.ContentType = 'application/json; charset=utf-8' }
+        elseif ($reqPath -match '\.svg$') { $ctx.Response.ContentType = 'image/svg+xml' }
         else { $ctx.Response.ContentType = 'application/octet-stream' }
         $ctx.Response.OutputStream.Write($content, 0, $content.Length)
     } else {
