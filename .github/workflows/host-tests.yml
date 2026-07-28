@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - master
-      - feature/chassis-control
+      - "feature/**"
 
 permissions:
   contents: read
