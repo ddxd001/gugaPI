@@ -476,7 +476,7 @@ lf losttimeout <ms>   # 兼容旧配置，当前不延迟停车
 
 - FireWater 协议（VOFA+ 兼容）周期输出 CSV 数据，支持实时画图。
 - 通道：`t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,err,corr`
-- `telem on [period_ms]` 开启（默认 100ms = 10Hz，范围 50..5000ms）
+- `telem on [period_ms]` 开启旧版全量输出；`telem on <motor|heading|line|accel|gyro> [period_ms]` 开启仪表盘按组输出（默认 100ms = 10Hz，范围 50..5000ms）
 - `telem off` 关闭，`telem status` 查看状态
 - TX 环形缓冲 > 3000 字节时自动丢帧，避免阻塞控制循环
 

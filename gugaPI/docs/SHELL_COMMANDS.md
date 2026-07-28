@@ -2224,14 +2224,30 @@ FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接�
 
 扩展只读取各应用模块已经缓存的状态，不在遥测任务中发起额外 I²C/SPI/UART 事务。上位机按表头名称解析；连接旧固件时，缺失字段显示为不可用。
 
-### `telem on [period_ms]`
+### `telem on [profile] [period_ms]`
 
 开启遥测输出。默认周期 100ms（10Hz），范围 `50..5000`ms。开启时先发送通道名行（`#` 开头），然后周期输出数据行。
+
+不指定 profile 时保持旧版全字段模式，兼容 VOFA+ 和现有 Python
+采集脚本。仪表盘使用按组模式，只发送当前折线图需要的字段：
+
+| profile | 输出字段 |
+| --- | --- |
+| `motor` | `t,L_tgt,L_act,R_tgt,R_act` |
+| `heading` | `t,yaw_tgt,yaw,head_err` |
+| `line` | `t,gray_pos,lf_err,lf_corr` |
+| `accel` | `t,acc_x_mg,acc_y_mg,acc_z_mg` |
+| `gyro` | `t,gyro_x_mdps,gyro_y_mdps,gyro_z_mdps` |
 
 ```text
 telem on
 telem on 200
+telem on motor
+telem on heading 100
 ```
+
+`telem status` 同时返回 `enabled`、`profile` 和 `period_ms`。复位后遥测
+保持关闭；上位机未选择图表时不会自动开启数据流。
 
 输出示例：
 
@@ -2272,6 +2288,7 @@ telem off
 
 ```text
 telem status
+telem enabled=1 profile=motor period_ms=100
 ```
 
 ## ADC 和 PWM 资源入口

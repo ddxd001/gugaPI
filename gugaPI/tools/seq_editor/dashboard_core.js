@@ -20,6 +20,13 @@
     'gray_sample_valid','gray_age_ms','gray_error_count','gray0','gray1','gray2',
     'gray3','gray4','gray5','gray6','gray7'
   ];
+  var GROUP_FIELDS={
+    motor:['t','L_tgt','L_act','R_tgt','R_act'],
+    heading:['t','yaw_tgt','yaw','head_err'],
+    line:['t','gray_pos','lf_err','lf_corr'],
+    accel:['t','acc_x_mg','acc_y_mg','acc_z_mg'],
+    gyro:['t','gyro_x_mdps','gyro_y_mdps','gyro_z_mdps']
+  };
 
   function TelemetryParser(){
     this.fields=[];
@@ -165,6 +172,7 @@
 
   return{
     DEFAULT_FIELDS:DEFAULT_FIELDS,
+    GROUP_FIELDS:GROUP_FIELDS,
     TelemetryParser:TelemetryParser,
     SerialRouter:SerialRouter,
     findNearestSample:findNearestSample,

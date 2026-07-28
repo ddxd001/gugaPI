@@ -14,10 +14,30 @@ const htmlSource=fs.readFileSync(
 const headerFunction=shellSource.match(
   /void TelemSendHeader\(void\)\s*\{([\s\S]*?)\n\}/);
 assert(headerFunction,'firmware telemetry header function is missing');
-const headerText=[...headerFunction[1].matchAll(/"([^"]*)"/g)]
-  .map(match=>match[1]).join('').replace(/\\n$/,'');
-assert.deepStrictEqual(headerText.replace(/^#/,'').split(','),core.DEFAULT_FIELDS,
-  'dashboard schema must match the firmware telemetry header');
+const headerTokens=[...headerFunction[1].matchAll(/"([^"]*)"/g)]
+  .map(match=>match[1]);
+const firmwareHeaders=[];
+let joinedHeader='';
+for(const token of headerTokens){
+  if(token.startsWith('#'))joinedHeader=token;
+  else if(joinedHeader)joinedHeader+=token;
+  if(joinedHeader.endsWith('\\n')){
+    firmwareHeaders.push(joinedHeader.replace(/\\n$/,''));
+    joinedHeader='';
+  }
+}
+const fullHeader=firmwareHeaders.find(header=>
+  header.startsWith('#t,mode,step,'));
+assert(fullHeader,'full compatibility telemetry header is missing');
+assert.deepStrictEqual(fullHeader.slice(1).split(','),core.DEFAULT_FIELDS,
+  'full dashboard schema must match the firmware telemetry header');
+for(const [group,fields] of Object.entries(core.GROUP_FIELDS)){
+  const expected='#'+fields.join(',');
+  assert(firmwareHeaders.includes(expected),
+    group+' firmware telemetry header must match dashboard group schema');
+}
+assert(/telem on <motor\|heading\|line\|accel\|gyro>/.test(shellSource),
+  'firmware grouped telemetry usage is missing');
 
 const htmlIds=new Set([...htmlSource.matchAll(/\bid="([^"]+)"/g)]
   .map(match=>match[1]));
@@ -28,6 +48,16 @@ assert(htmlSource.indexOf('dashboard_core.js')<htmlSource.indexOf('app1.js'),
   'telemetry router must load before app1.js');
 assert(htmlSource.indexOf('app7.js')>htmlSource.indexOf('app4.js'),
   'dashboard UI must load after shared tab and terminal code');
+assert(/activeGroup:null/.test(dashboardSource),
+  'dashboard must start without a selected telemetry group');
+assert(!/localStorage/.test(dashboardSource),
+  'dashboard selection must not persist across application restarts');
+for(const group of Object.keys(core.GROUP_FIELDS)){
+  assert(dashboardSource.includes("'telem on '+key+' '"),
+    'dashboard must build grouped telemetry commands');
+  assert(dashboardSource.includes("key:'"+group+"'"),
+    'dashboard chart metadata is missing group '+group);
+}
 
 const parser=new core.TelemetryParser();
 let event=parser.parseLine('#t,mode,L_tgt','2026-07-28T00:00:00.000Z');

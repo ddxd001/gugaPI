@@ -64,6 +64,7 @@ function switchTab(name){
   $('tabCommands').classList.toggle('active',commands);
   if(terminal&&!$('termInput').disabled)$('termInput').focus();
   if(dashboard&&typeof Dashboard_OnShow==='function')Dashboard_OnShow();
+  if(!dashboard&&typeof Dashboard_OnHide==='function')Dashboard_OnHide();
   if(parameters&&typeof ParamPage_OnShow==='function')ParamPage_OnShow();
   if(!parameters&&typeof ParamPage_OnHide==='function')ParamPage_OnHide();
   if(commands&&typeof CommandLibrary_OnShow==='function')CommandLibrary_OnShow();

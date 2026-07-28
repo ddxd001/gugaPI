@@ -156,6 +156,15 @@ services::SchedulerTaskId g_telemTaskId = 0U;
 uint32_t g_telemPeriodMs = 100U;
 uint32_t g_telemLastUpdateMs = 0U;
 bool g_telemHeaderSent = false;
+enum TelemProfile {
+    TELEM_PROFILE_FULL = 0,
+    TELEM_PROFILE_MOTOR,
+    TELEM_PROFILE_HEADING,
+    TELEM_PROFILE_LINE,
+    TELEM_PROFILE_ACCEL,
+    TELEM_PROFILE_GYRO
+};
+TelemProfile g_telemProfile = TELEM_PROFILE_FULL;
 
 bool StrEqual(const char *left, const char *right)
 {
@@ -8580,8 +8589,67 @@ void SeqCommand(int argc, const char * const argv[])
 
 /* ===== FireWater telemetry (VOFA+ protocol) ===== */
 
+const char *TelemProfileText(TelemProfile profile)
+{
+    switch (profile) {
+        case TELEM_PROFILE_MOTOR: return "motor";
+        case TELEM_PROFILE_HEADING: return "heading";
+        case TELEM_PROFILE_LINE: return "line";
+        case TELEM_PROFILE_ACCEL: return "accel";
+        case TELEM_PROFILE_GYRO: return "gyro";
+        case TELEM_PROFILE_FULL:
+        default: return "full";
+    }
+}
+
+bool ParseTelemProfile(const char *text, TelemProfile *profile)
+{
+    if ((text == 0) || (profile == 0)) {
+        return false;
+    }
+    if (StrEqual(text, "motor")) {
+        *profile = TELEM_PROFILE_MOTOR;
+    } else if (StrEqual(text, "heading")) {
+        *profile = TELEM_PROFILE_HEADING;
+    } else if (StrEqual(text, "line")) {
+        *profile = TELEM_PROFILE_LINE;
+    } else if (StrEqual(text, "accel")) {
+        *profile = TELEM_PROFILE_ACCEL;
+    } else if (StrEqual(text, "gyro")) {
+        *profile = TELEM_PROFILE_GYRO;
+    } else {
+        return false;
+    }
+    return true;
+}
+
 void TelemSendHeader(void)
 {
+    switch (g_telemProfile) {
+        case TELEM_PROFILE_MOTOR:
+            services::DebugUart_WriteString(
+                "#t,L_tgt,L_act,R_tgt,R_act\n");
+            return;
+        case TELEM_PROFILE_HEADING:
+            services::DebugUart_WriteString(
+                "#t,yaw_tgt,yaw,head_err\n");
+            return;
+        case TELEM_PROFILE_LINE:
+            services::DebugUart_WriteString(
+                "#t,gray_pos,lf_err,lf_corr\n");
+            return;
+        case TELEM_PROFILE_ACCEL:
+            services::DebugUart_WriteString(
+                "#t,acc_x_mg,acc_y_mg,acc_z_mg\n");
+            return;
+        case TELEM_PROFILE_GYRO:
+            services::DebugUart_WriteString(
+                "#t,gyro_x_mdps,gyro_y_mdps,gyro_z_mdps\n");
+            return;
+        case TELEM_PROFILE_FULL:
+        default:
+            break;
+    }
     services::DebugUart_WriteString(
         "#t,mode,step,L_tgt,L_act,R_tgt,R_act,yaw_tgt,yaw,head_err,"
         "head_corr,gray_pos,gray_strength,gray_conf,gray_valid,"
@@ -8600,8 +8668,58 @@ void TelemSendHeader(void)
         "gray6,gray7\n");
 }
 
+void TelemSendSelectedData(void)
+{
+    const uint32_t now = services::Time_Millis();
+    services::Shell_WriteUInt32(now);
+
+    if (g_telemProfile == TELEM_PROFILE_MOTOR) {
+        const app::ChassisState *state = app::Chassis_GetState();
+        services::Shell_WriteString(",");
+        WriteInt32(state->left.target_rpm);
+        services::Shell_WriteString(",");
+        WriteInt32(state->left.actual_rpm);
+        services::Shell_WriteString(",");
+        WriteInt32(state->right.target_rpm);
+        services::Shell_WriteString(",");
+        WriteInt32(state->right.actual_rpm);
+    } else if (g_telemProfile == TELEM_PROFILE_HEADING) {
+        const app::HeadingState *heading = app::Heading_GetState();
+        const app::AppImuData *imu = app::App_ImuGetData();
+        services::Shell_WriteString(",");
+        WriteFixedMilli(heading->target_yaw_mdeg);
+        services::Shell_WriteString(",");
+        WriteFixedMilli((imu != 0) ? imu->yaw_mdeg : 0);
+        services::Shell_WriteString(",");
+        WriteFixedMilli(heading->error_mdeg);
+    } else if (g_telemProfile == TELEM_PROFILE_LINE) {
+        const app::AppGrayscaleData *gray = app::App_GrayscaleGetData();
+        const app::LFState *line = app::LF_GetState();
+        services::Shell_WriteString(",");
+        WriteInt32((gray != 0) ? gray->line_position : 0);
+        services::Shell_WriteString(",");
+        WriteInt32((line != 0) ? line->error_mpos : 0);
+        services::Shell_WriteString(",");
+        WriteInt32((line != 0) ? line->correction_rpm : 0);
+    } else {
+        const app::AppImuData *imu = app::App_ImuGetData();
+        const int32_t *values = (g_telemProfile == TELEM_PROFILE_ACCEL)
+            ? ((imu != 0) ? imu->accel_mg : 0)
+            : ((imu != 0) ? imu->gyro_mdps : 0);
+        for (uint32_t axis = 0U; axis < 3U; axis++) {
+            services::Shell_WriteString(",");
+            WriteInt32((values != 0) ? values[axis] : 0);
+        }
+    }
+    services::Shell_WriteString("\n");
+}
+
 void TelemSendData(void)
 {
+    if (g_telemProfile != TELEM_PROFILE_FULL) {
+        TelemSendSelectedData();
+        return;
+    }
     const uint32_t now = services::Time_Millis();
     const app::AppState *app = app::App_GetState();
     const app::ChassisState *cs = app::Chassis_GetState();
@@ -8851,6 +8969,9 @@ void PrintTelemUsage(void)
 {
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  telem on [period_ms 50..5000]");
+    services::Shell_WriteLine(
+        "  telem on <motor|heading|line|accel|gyro> "
+        "[period_ms 50..5000]");
     services::Shell_WriteLine("  telem off");
     services::Shell_WriteLine("  telem status");
 }
@@ -8863,18 +8984,35 @@ void TelemCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "on")) {
+        TelemProfile profile = TELEM_PROFILE_FULL;
+        uint32_t period = g_telemPeriodMs;
+        if ((argc < 2) || (argc > 4)) {
+            PrintTelemUsage();
+            return;
+        }
         if (argc == 3) {
-            uint32_t period = 0U;
-            if ((!ParseUint32(argv[2], 5000U, &period)) ||
+            if (!ParseTelemProfile(argv[2], &profile)) {
+                if ((!ParseUint32(argv[2], 5000U, &period)) ||
+                    (period < 50U)) {
+                    PrintTelemUsage();
+                    return;
+                }
+            }
+        } else if (argc == 4) {
+            if ((!ParseTelemProfile(argv[2], &profile)) ||
+                (!ParseUint32(argv[3], 5000U, &period)) ||
                 (period < 50U)) {
                 PrintTelemUsage();
                 return;
             }
-            g_telemPeriodMs = period;
         }
+        g_telemProfile = profile;
+        g_telemPeriodMs = period;
         const drivers::DriverStatus status = TelemSetEnabled(true);
         services::Shell_WriteString("telem: ");
         services::Shell_WriteString(DriverStatusText(status));
+        services::Shell_WriteString(" profile=");
+        services::Shell_WriteString(TelemProfileText(g_telemProfile));
         services::Shell_WriteString(" period_ms=");
         services::Shell_WriteUInt32(g_telemPeriodMs);
         services::Shell_WriteString("\r\n");
@@ -8898,6 +9036,8 @@ void TelemCommand(int argc, const char * const argv[])
         }
         services::Shell_WriteString("telem enabled=");
         services::Shell_WriteUInt32(g_telemEnabled ? 1U : 0U);
+        services::Shell_WriteString(" profile=");
+        services::Shell_WriteString(TelemProfileText(g_telemProfile));
         services::Shell_WriteString(" period_ms=");
         services::Shell_WriteUInt32(g_telemPeriodMs);
         services::Shell_WriteString("\r\n");
