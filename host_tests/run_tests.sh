@@ -37,6 +37,12 @@ build_and_run grayscale_processing \
 build_and_run infrared_line_protocol \
     host_tests/infrared_line_protocol_test.cpp \
     gugaPI/drivers/infrared_line/infrared_line_protocol.cpp
+build_and_run infrared_line_dma_cursor \
+    host_tests/infrared_line_dma_cursor_test.cpp
+build_and_run infrared_calibration \
+    host_tests/infrared_calibration_test.cpp \
+    gugaPI/app/app_infrared_sensor.cpp \
+    gugaPI/drivers/infrared_line/infrared_line_protocol.cpp
 build_and_run grayscale_road \
     host_tests/grayscale_road_test.cpp \
     gugaPI/app/grayscale_road.cpp

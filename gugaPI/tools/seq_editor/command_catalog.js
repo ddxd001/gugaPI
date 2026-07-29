@@ -7,7 +7,7 @@
  * when the user enables "显示未启用命令".
  */
 var SHELL_CATALOG_META={
-  sourceRevision:'2026-07-28',
+  sourceRevision:'2026-07-30',
   activeProfile:'development',
   activeProfileLabel:'开发配置',
   riskLabels:{R:'只读',W:'会改变状态',M:'可能运动'}
@@ -128,6 +128,11 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('oled on|off','打开或关闭面板显示。','W')
     ]),
 
+  ShellCommand('timer','OLED大字计时器','显示',
+    '以M:SS.t格式占满128×32 OLED显示正向计时，采用异步DMA局部窗口刷新。','W',BOTH,[
+      ShellForm('timer start|stop|resume|reset|hide|status','从零开始、停止冻结、继续、清零、释放屏幕或查看计时状态。','W')
+    ],'显示范围为0:00.0到9:59.9；达到上限后自动停止。计时器不会修改参数或FRAM。'),
+
   ShellCommand('gy931','GY931姿态模块诊断','传感器',
     '软件I²C通信、角度读取、算法选择和OLED页面。当前配置关闭FEATURE_ENABLE_GY931。','W',OFF,[
       ShellForm('gy931 status','查看地址、就绪和通信状态。'),
@@ -193,9 +198,9 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('irsensor calib capture <white|black|center|left|right>','采集指定标定位置的64个正确帧。','W'),
       ShellForm('irsensor status','查看帧新鲜度、线路、全黑、超时和标定状态。'),
       ShellForm('irsensor raw','读取模块偏差、标准化位置、全黑标志与三路ADC裸值。'),
-      ShellForm('irsensor stats','查看有效率、CRC、帧头、接收超时、分类UART硬件错误、丢弃字节和帧周期统计。'),
-      ShellForm('irsensor diag','查看UART上电/使能、PA0电平、中断次数、FIFO字节与轮询兜底字节。'),
-      ShellForm('irsensor clear','清零解析与UART通信统计。','W'),
+      ShellForm('irsensor stats','查看有效率、CRC、语义错误、通信健康状态、循环DMA积压/覆盖和控制延迟。'),
+      ShellForm('irsensor diag','查看UART上电/使能、PA1/RX电平、128字节循环DMA位置、积压和全局DMA故障。'),
+      ShellForm('irsensor clear','只清零解析、UART、DMA和延迟统计，不中断接收且不修改标定或FRAM。','W'),
       ShellForm('irsensor calib begin','开始新的五步标定会话。','W'),
       ShellForm('irsensor calib capture white|black|center|left|right','采集指定位置的64个CRC正确帧。','W'),
       ShellForm('irsensor calib status','查看每一步进度、稳健平均值和最近状态。'),

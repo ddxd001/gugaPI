@@ -70,6 +70,9 @@ void CompetitionSyscfgInitPower(void)
 #if FEATURE_ENABLE_LORA
     DL_UART_Main_reset(LORA_UART_INST);
 #endif
+#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
+    DL_UART_Main_reset(INFRARED_UART_INST);
+#endif
 #if FEATURE_ENABLE_IMU
     DL_SPI_reset(IMU_SPI_INST);
 #endif
@@ -95,6 +98,9 @@ void CompetitionSyscfgInitPower(void)
 #endif
 #if FEATURE_ENABLE_LORA
     DL_UART_Main_enablePower(LORA_UART_INST);
+#endif
+#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
+    DL_UART_Main_enablePower(INFRARED_UART_INST);
 #endif
 #if FEATURE_ENABLE_IMU
     DL_SPI_enablePower(IMU_SPI_INST);
@@ -170,6 +176,13 @@ void CompetitionSyscfgInitGpio(void)
                                          GPIO_LORA_UART_IOMUX_TX_FUNC);
     DL_GPIO_initPeripheralInputFunction(GPIO_LORA_UART_IOMUX_RX,
                                         GPIO_LORA_UART_IOMUX_RX_FUNC);
+#endif
+
+#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
+    DL_GPIO_initPeripheralOutputFunction(GPIO_INFRARED_UART_IOMUX_TX,
+                                         GPIO_INFRARED_UART_IOMUX_TX_FUNC);
+    DL_GPIO_initPeripheralInputFunction(GPIO_INFRARED_UART_IOMUX_RX,
+                                        GPIO_INFRARED_UART_IOMUX_RX_FUNC);
 #endif
 
 #if FEATURE_ENABLE_IMU
@@ -304,7 +317,8 @@ extern "C" void SYSCFG_DL_init(void)
 #if FEATURE_ENABLE_DEBUG_UART
     SYSCFG_DL_DEBUG_UART_init();
 #endif
-#if FEATURE_ENABLE_DEBUG_UART || FEATURE_ENABLE_OLED
+#if FEATURE_ENABLE_DEBUG_UART || FEATURE_ENABLE_OLED || \
+    FEATURE_ENABLE_INFRARED_LINE_SENSOR
     SYSCFG_DL_DMA_init();
 #endif
 #if FEATURE_ENABLE_MOTOR_DRIVER

@@ -55,7 +55,8 @@ for(const field of core.DEFAULT_FIELDS.slice(1)){
 }
 for(const field of ['ir_offset_raw','ir_position_mpos','ir_all_black','ir_adc1',
   'ir_adc2','ir_adc3','ir_valid','ir_age_ms','ir_period_ms','ir_crc_errors',
-  'ir_dropped']){
+  'ir_dropped','ir_comm','ir_dma_lag','ir_dma_max_lag','ir_dma_overwrites',
+  'ir_dma_faults','ir_latency_us','ir_latency_max_us']){
   assert(groupedFields.includes(field),'IR profile field is missing: '+field);
 }
 assert.strictEqual(groupedFields.length,new Set(groupedFields).size,

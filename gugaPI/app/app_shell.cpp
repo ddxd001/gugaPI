@@ -452,6 +452,36 @@ void InfraredSensorCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(valid_permille);
         services::Shell_WriteString(" crc_error_permille=");
         services::Shell_WriteUInt32(crc_error_permille);
+        services::Shell_WriteString(" payload_errors=");
+        services::Shell_WriteUInt32(data->parser_stats.payload_errors);
+        services::Shell_WriteString(" resync_bytes=");
+        services::Shell_WriteUInt32(data->parser_stats.resync_bytes);
+        services::Shell_WriteString(" dma_wraps=");
+        services::Shell_WriteUInt32(data->dma_wrap_count);
+        services::Shell_WriteString(" dma_produced=");
+        services::Shell_WriteUInt32(data->dma_produced_count);
+        services::Shell_WriteString(" dma_consumed=");
+        services::Shell_WriteUInt32(data->dma_consumed_count);
+        services::Shell_WriteString(" dma_lag=");
+        services::Shell_WriteUInt32(data->dma_current_lag);
+        services::Shell_WriteString(" dma_max_lag=");
+        services::Shell_WriteUInt32(data->dma_maximum_lag);
+        services::Shell_WriteString(" dma_overwrites=");
+        services::Shell_WriteUInt32(data->dma_overwrite_count);
+        services::Shell_WriteString(" dma_faults=");
+        services::Shell_WriteUInt32(data->dma_fault_count);
+        services::Shell_WriteString(" comm=");
+        services::Shell_WriteString(
+            App_InfraredCommStateText(data->communication_state));
+        services::Shell_WriteString(" error_streak=");
+        services::Shell_WriteUInt32(data->error_streak);
+        services::Shell_WriteString(" age_ms=");
+        services::Shell_WriteUInt32(data->frame.sequence != 0U
+            ? static_cast<uint32_t>(now - data->frame.received_ms) : 0U);
+        services::Shell_WriteString(" latency_us=");
+        services::Shell_WriteUInt32(data->control_latency_us);
+        services::Shell_WriteString(" latency_max_us=");
+        services::Shell_WriteUInt32(data->maximum_control_latency_us);
         services::Shell_WriteString("\r\n");
         return;
     }
@@ -477,6 +507,39 @@ void InfraredSensorCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" polled_bytes=");
         services::Shell_WriteUInt32(
             board::Board_InfraredSensorGetPolledByteCount());
+        services::Shell_WriteString(" dma_enabled=");
+        services::Shell_WriteUInt32(
+            board::Board_InfraredSensorIsDmaEnabled() ? 1U : 0U);
+        services::Shell_WriteString(" dma_blocks=");
+        services::Shell_WriteUInt32(
+            board::Board_InfraredSensorGetDmaBlockCount());
+        services::Shell_WriteString(" dma_bytes=");
+        services::Shell_WriteUInt32(
+            board::Board_InfraredSensorGetDmaByteCount());
+        services::Shell_WriteString(" dma_overwrites=");
+        services::Shell_WriteUInt32(
+            board::Board_InfraredSensorGetDmaOverwriteCount());
+        services::Shell_WriteString(" dma_buffer=");
+        services::Shell_WriteUInt32(
+            board::Board_InfraredSensorGetDmaBufferSize());
+        services::Shell_WriteString(" dma_remaining=");
+        services::Shell_WriteUInt32(
+            board::Board_InfraredSensorGetDmaRemaining());
+        services::Shell_WriteString(" dma_produced=");
+        services::Shell_WriteUInt32(
+            board::Board_InfraredSensorGetDmaProducedCount());
+        services::Shell_WriteString(" dma_consumed=");
+        services::Shell_WriteUInt32(
+            board::Board_InfraredSensorGetDmaConsumedCount());
+        services::Shell_WriteString(" dma_lag=");
+        services::Shell_WriteUInt32(
+            board::Board_InfraredSensorGetDmaCurrentLag());
+        services::Shell_WriteString(" dma_max_lag=");
+        services::Shell_WriteUInt32(
+            board::Board_InfraredSensorGetDmaMaximumLag());
+        services::Shell_WriteString(" dma_faults=");
+        services::Shell_WriteUInt32(
+            board::Board_InfraredSensorGetDmaFaultCount());
         services::Shell_WriteString("\r\n");
         return;
     }
@@ -9444,7 +9507,9 @@ void TelemSendHeader(void)
             services::DebugUart_WriteString(
                 "#t,ir_offset_raw,ir_position_mpos,ir_all_black,"
                 "ir_adc1,ir_adc2,ir_adc3,ir_valid,ir_age_ms,"
-                "ir_period_ms,ir_crc_errors,ir_dropped\n");
+                "ir_period_ms,ir_crc_errors,ir_dropped,ir_comm,"
+                "ir_dma_lag,ir_dma_max_lag,ir_dma_overwrites,"
+                "ir_dma_faults,ir_latency_us,ir_latency_max_us\n");
             return;
         case TELEM_PROFILE_FAULT:
             services::DebugUart_WriteString("#t,fault_code,fault_count\n");
@@ -9657,7 +9722,8 @@ void TelemSendSelectedData(void)
                     ? infrared->frame.adc[channel] : 0U);
             }
             TelemWriteUInt32(((infrared != 0) && infrared->valid) ? 1U : 0U);
-            TelemWriteUInt32(((infrared != 0) && infrared->valid)
+            TelemWriteUInt32(((infrared != 0) &&
+                              (infrared->frame.sequence != 0U))
                 ? static_cast<uint32_t>(now - infrared->frame.received_ms)
                 : 0U);
             TelemWriteUInt32((infrared != 0)
@@ -9666,6 +9732,20 @@ void TelemSendSelectedData(void)
                 ? infrared->parser_stats.crc_errors : 0U);
             TelemWriteUInt32((infrared != 0)
                 ? infrared->uart_dropped_count : 0U);
+            TelemWriteUInt32((infrared != 0)
+                ? static_cast<uint32_t>(infrared->communication_state) : 0U);
+            TelemWriteUInt32((infrared != 0)
+                ? infrared->dma_current_lag : 0U);
+            TelemWriteUInt32((infrared != 0)
+                ? infrared->dma_maximum_lag : 0U);
+            TelemWriteUInt32((infrared != 0)
+                ? infrared->dma_overwrite_count : 0U);
+            TelemWriteUInt32((infrared != 0)
+                ? infrared->dma_fault_count : 0U);
+            TelemWriteUInt32((infrared != 0)
+                ? infrared->control_latency_us : 0U);
+            TelemWriteUInt32((infrared != 0)
+                ? infrared->maximum_control_latency_us : 0U);
             break;
         case TELEM_PROFILE_FAULT:
             TelemWriteUInt32(static_cast<uint32_t>(services::Fault_Get()));

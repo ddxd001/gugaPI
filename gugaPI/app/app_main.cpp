@@ -156,6 +156,28 @@ void App_LineFollowTask(void)
 }
 #endif
 
+#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
+void App_InfraredLineTask(void)
+{
+    app::App_InfraredSensorUpdate();
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+    /* IR3 frames are already decoded in this foreground task. Let an active
+     * line follower consume the newly published sequence immediately instead
+     * of waiting for the independent 2 ms safety/control task. LF_Update()
+     * ignores duplicate sequence numbers, so the regular task remains the
+     * watchdog path without issuing a second wheel command. */
+    const app::LFState *linefollow = app::LF_GetState();
+    const app::AppInfraredSensorData *infrared =
+        app::App_InfraredSensorGetData();
+    if ((app::LineSensor_GetSource() == app::LINE_SENSOR_IR3) &&
+        (linefollow->mode == app::LF_FOLLOW) &&
+        (infrared->frame.sequence != linefollow->last_sequence)) {
+        app::LF_Update();
+    }
+#endif
+}
+#endif
+
 #if FEATURE_ENABLE_STATUS_LED && FEATURE_ENABLE_LED_TEST
 const uint32_t STATUS_LED_ON_TIME_MS = 500U;
 const uint32_t STATUS_LED_OFF_TIME_MS = 500U;
@@ -1017,6 +1039,13 @@ void App_Init(void)
     AppShell_DisableOledStreams();
 #if FEATURE_ENABLE_INFRARED_LINE_SENSOR
     app::App_InfraredSensorInit();
+    if (services::Scheduler_AddTask("infrared_line",
+                                    App_InfraredLineTask,
+                                    1U,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
 #endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
     app::LineSensor_Init();
@@ -1047,15 +1076,6 @@ void App_Init(void)
     if (services::Scheduler_AddTask("grayscale",
                                     App_GrayscaleUpdate,
                                     GRAYSCALE_PERIOD_MS,
-                                    0U,
-                                    0) != services::SCHEDULER_OK) {
-        services::Fault_Set(services::FAULT_UNKNOWN);
-    }
-#endif
-#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
-    if (services::Scheduler_AddTask("infrared_line",
-                                    App_InfraredSensorUpdate,
-                                    1U,
                                     0U,
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);

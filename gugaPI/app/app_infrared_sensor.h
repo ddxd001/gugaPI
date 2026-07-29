@@ -18,6 +18,13 @@ enum InfraredCalibrationStep : uint8_t {
     IR_CAL_STEP_RIGHT
 };
 
+enum AppInfraredCommState : uint8_t {
+    IR_COMM_STARTING = 0U,
+    IR_COMM_HEALTHY,
+    IR_COMM_DEGRADED,
+    IR_COMM_FAULT
+};
+
 struct AppInfraredSensorData {
     drivers::InfraredLineFrame frame;
     drivers::InfraredLineParserStats parser_stats;
@@ -39,6 +46,18 @@ struct AppInfraredSensorData {
     uint32_t framing_error_count;
     uint32_t parity_error_count;
     uint32_t noise_error_count;
+    uint32_t dma_wrap_count;
+    uint32_t dma_produced_count;
+    uint32_t dma_consumed_count;
+    uint32_t dma_current_lag;
+    uint32_t dma_maximum_lag;
+    uint32_t dma_overwrite_count;
+    uint32_t dma_fault_count;
+    uint32_t control_latency_us;
+    uint32_t maximum_control_latency_us;
+    uint8_t error_streak;
+    uint8_t recovery_streak;
+    AppInfraredCommState communication_state;
     drivers::DriverStatus last_status;
 };
 
@@ -65,6 +84,8 @@ void App_InfraredSensorUpdate(void);
 const AppInfraredSensorData *App_InfraredSensorGetData(void);
 bool App_InfraredSensorIsFresh(uint32_t now_ms);
 void App_InfraredSensorClearStats(void);
+void App_InfraredSensorRecordControlLatency(uint32_t frame_sequence);
+const char *App_InfraredCommStateText(AppInfraredCommState state);
 drivers::DriverStatus App_InfraredCalibrationBegin(void);
 drivers::DriverStatus App_InfraredCalibrationCapture(
     InfraredCalibrationStep step);

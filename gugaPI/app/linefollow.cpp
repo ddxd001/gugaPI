@@ -1,6 +1,7 @@
 #include "app/linefollow.h"
 
 #include "app/app_grayscale.h"
+#include "app/app_infrared_sensor.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
 #include "app/line_sensor.h"
@@ -37,6 +38,10 @@ drivers::DriverStatus ApplyWheelCommand(int32_t base_rpm,
     const int32_t left = base_rpm - correction_rpm;
     const int32_t right = base_rpm + correction_rpm;
     const drivers::DriverStatus status = Chassis_SetWheelRpm(left, right);
+    if (LineSensor_GetSource() == LINE_SENSOR_IR3) {
+        App_InfraredSensorRecordControlLatency(
+            LineSensor_GetSnapshot()->sequence);
+    }
     g_state.last_status = status;
     if (status != drivers::DRIVER_OK) {
         SafetyStop(services::FAULT_NONE);
@@ -382,7 +387,11 @@ void LF_Update(void)
 
     const LineSensorSnapshot *data = LineSensor_GetSnapshot();
     if (!IsSensorFresh(data)) {
-        SafetyStop(services::FAULT_SENSOR_LOST);
+        /* IR transport health is recoverable and already retained in its
+         * diagnostics. Stop motion, but do not latch the global vehicle fault
+         * for a transient disconnect; the operator must restart LF manually. */
+        SafetyStop((data != 0) && (data->source == LINE_SENSOR_IR3)
+            ? services::FAULT_NONE : services::FAULT_SENSOR_LOST);
         return;
     }
     if (data->sequence == g_state.last_sequence) {

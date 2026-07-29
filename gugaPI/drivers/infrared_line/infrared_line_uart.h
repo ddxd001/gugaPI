@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "drivers/common/driver_status.h"
+#include "drivers/infrared_line/infrared_line_dma_cursor.h"
 #include "ti_msp_dl_config.h"
 
 namespace drivers {
@@ -12,15 +13,19 @@ namespace drivers {
 struct InfraredLineUartConfig {
     UART_Regs *uart;
     IRQn_Type irq;
-    uint8_t *rx_buffer;
-    uint16_t rx_buffer_size;
+    DMA_Regs *dma;
+    uint8_t dma_channel;
+    uint8_t *dma_buffer;
+    uint16_t dma_buffer_size;
 };
 
 struct InfraredLineUartContext {
     const InfraredLineUartConfig *config;
-    volatile uint16_t rx_head;
-    volatile uint16_t rx_tail;
-    volatile uint32_t rx_dropped_count;
+    InfraredLineDmaCursor cursor;
+    uint64_t cycle_base;
+    uint64_t stats_base_producer;
+    volatile uint32_t cycle_wrap_generation;
+    volatile uint32_t dma_wrap_count;
     volatile uint32_t uart_error_count;
     volatile uint32_t rx_timeout_count;
     volatile uint32_t overrun_error_count;
@@ -28,9 +33,9 @@ struct InfraredLineUartContext {
     volatile uint32_t parity_error_count;
     volatile uint32_t noise_error_count;
     volatile uint32_t irq_count;
-    volatile uint32_t fifo_byte_count;
     volatile uint32_t polled_byte_count;
-    bool initialized;
+    volatile uint32_t dma_fault_count;
+    volatile bool initialized;
 };
 
 DriverStatus InfraredLineUart_Init(InfraredLineUartContext *context,
@@ -38,8 +43,17 @@ DriverStatus InfraredLineUart_Init(InfraredLineUartContext *context,
 bool InfraredLineUart_ReadByte(InfraredLineUartContext *context,
                                uint8_t *data);
 void InfraredLineUart_ServiceRx(InfraredLineUartContext *context);
-void InfraredLineUart_Clear(InfraredLineUartContext *context);
+void InfraredLineUart_ClearStats(InfraredLineUartContext *context);
 void InfraredLineUart_IrqHandler(InfraredLineUartContext *context);
+void InfraredLineUart_HandleDmaFault(InfraredLineUartContext *context);
+uint64_t InfraredLineUart_GetProducedCount(
+    const InfraredLineUartContext *context);
+uint64_t InfraredLineUart_GetConsumedCount(
+    const InfraredLineUartContext *context);
+uint32_t InfraredLineUart_GetCurrentLag(
+    const InfraredLineUartContext *context);
+uint16_t InfraredLineUart_GetDmaRemaining(
+    const InfraredLineUartContext *context);
 
 } /* namespace drivers */
 

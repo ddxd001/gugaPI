@@ -157,7 +157,14 @@
       s('ir_age_ms','数据年龄','ms','距离最近一帧有效数据的时间。'),
       s('ir_period_ms','实测帧周期','ms','根据有效帧间隔自动估算的发送周期。'),
       s('ir_crc_errors','CRC 错误累计','次','Modbus CRC16 校验失败的累计帧数。',{step:true}),
-      s('ir_dropped','接收丢弃累计','字节','UART 环形缓冲区满时丢弃的字节数。',{step:true})]),
+      s('ir_dropped','接收丢弃累计','字节','DMA 循环缓冲被覆盖时丢弃的字节数。',{step:true}),
+      s('ir_comm','通信状态','状态码','0 启动中、1 正常、2 降级、3 故障；保留裸状态码用于诊断。',{step:true}),
+      s('ir_dma_lag','DMA 当前积压','字节','DMA 已接收但前台尚未消费的字节数。'),
+      s('ir_dma_max_lag','DMA 最大积压','字节','本次统计周期观察到的最大接收积压。'),
+      s('ir_dma_overwrites','DMA 覆盖累计','次','前台超过 128 字节未消费导致循环缓冲覆盖的次数。',{step:true}),
+      s('ir_dma_faults','DMA 故障累计','次','DMA 地址或数据错误触发接收链路重建的次数。',{step:true}),
+      s('ir_latency_us','控制延迟','us','最近有效帧完成解包到循迹轮速目标下发的时间。'),
+      s('ir_latency_max_us','最大控制延迟','us','本次统计周期观察到的最大控制延迟。')]),
 
     chart('system','fault','系统故障','故障码与累计次数','状态/次',[
       s('fault_code','当前故障码','状态码','系统当前锁存的 FaultCode。',{step:true}),

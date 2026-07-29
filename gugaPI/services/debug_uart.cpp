@@ -4,6 +4,7 @@
 
 #include "config/debug_config.h"
 #include "config/feature_config.h"
+#include "services/dma_fault.h"
 #include "ti_msp_dl_config.h"
 
 namespace services {
@@ -35,6 +36,11 @@ static volatile bool g_txDmaActive = false;
 static volatile uint16_t g_txDmaLength = 0U;
 static volatile uint32_t g_txDmaBlockCount = 0U;
 static volatile uint32_t g_txDmaErrorCount = 0U;
+static const uint8_t kMaximumDmaFaultHandlers = 4U;
+static DmaFaultHandler g_dmaFaultHandlers[kMaximumDmaFaultHandlers] = {};
+static uint8_t g_dmaFaultHandlerCount = 0U;
+static volatile uint32_t g_dmaFaultCount = 0U;
+static bool g_dmaFaultIrqInitialized = false;
 
 static_assert(DEBUG_UART_TX_BUFFER_SIZE > 1U,
               "Debug UART TX ring must hold at least one byte");
@@ -156,12 +162,69 @@ void PushRxByteFromIsr(uint8_t data)
 
 } /* namespace */
 
+bool DmaFault_RegisterHandler(DmaFaultHandler handler)
+{
+    if (handler == 0) {
+        return false;
+    }
+    for (uint8_t i = 0U; i < g_dmaFaultHandlerCount; i++) {
+        if (g_dmaFaultHandlers[i] == handler) {
+            return true;
+        }
+    }
+    if (g_dmaFaultHandlerCount >= kMaximumDmaFaultHandlers) {
+        return false;
+    }
+    g_dmaFaultHandlers[g_dmaFaultHandlerCount++] = handler;
+    if (!g_dmaFaultIrqInitialized) {
+        NVIC_DisableIRQ(DMA_INT_IRQn);
+        DL_DMA_clearInterruptStatus(
+            DMA, DL_DMA_INTERRUPT_ADDR_ERROR | DL_DMA_INTERRUPT_DATA_ERROR);
+        DL_DMA_enableInterrupt(
+            DMA, DL_DMA_INTERRUPT_ADDR_ERROR | DL_DMA_INTERRUPT_DATA_ERROR);
+        NVIC_SetPriority(DMA_INT_IRQn, 0U);
+        NVIC_ClearPendingIRQ(DMA_INT_IRQn);
+        g_dmaFaultIrqInitialized = true;
+        NVIC_EnableIRQ(DMA_INT_IRQn);
+    }
+    return true;
+}
+
+uint32_t DmaFault_GetCount(void)
+{
+    return g_dmaFaultCount;
+}
+
+void DmaFault_IrqHandler(void)
+{
+    bool fault = false;
+    while (true) {
+        const DL_DMA_EVENT_IIDX pending = DL_DMA_getPendingInterrupt(DMA);
+        if (pending == DL_DMA_EVENT_IIDX_ADDR_ERROR) {
+            DL_DMA_clearInterruptStatus(DMA, DL_DMA_INTERRUPT_ADDR_ERROR);
+            fault = true;
+        } else if (pending == DL_DMA_EVENT_IIDX_DATA_ERROR) {
+            DL_DMA_clearInterruptStatus(DMA, DL_DMA_INTERRUPT_DATA_ERROR);
+            fault = true;
+        } else {
+            break;
+        }
+    }
+    if (!fault) {
+        return;
+    }
+    if (g_dmaFaultCount != UINT32_MAX) {
+        g_dmaFaultCount++;
+    }
+    for (uint8_t i = 0U; i < g_dmaFaultHandlerCount; i++) {
+        g_dmaFaultHandlers[i]();
+    }
+}
+
 void DebugUart_Init(void)
 {
 #if FEATURE_ENABLE_DEBUG_UART
     NVIC_DisableIRQ(DEBUG_UART_INST_INT_IRQN);
-    NVIC_DisableIRQ(DMA_INT_IRQn);
-
     g_rxHead = 0U;
     g_rxTail = 0U;
     g_rxDroppedCount = 0U;
@@ -178,17 +241,10 @@ void DebugUart_Init(void)
     DL_UART_Main_clearInterruptStatus(DEBUG_UART_INST,
                                       DL_UART_MAIN_INTERRUPT_RX |
                                       DL_UART_MAIN_INTERRUPT_DMA_DONE_TX);
-    DL_DMA_clearInterruptStatus(DMA,
-                                DL_DMA_INTERRUPT_ADDR_ERROR |
-                                DL_DMA_INTERRUPT_DATA_ERROR);
-    DL_DMA_enableInterrupt(DMA,
-                           DL_DMA_INTERRUPT_ADDR_ERROR |
-                           DL_DMA_INTERRUPT_DATA_ERROR);
     NVIC_ClearPendingIRQ(DEBUG_UART_INST_INT_IRQN);
-    NVIC_ClearPendingIRQ(DMA_INT_IRQn);
 
     g_debugUartReady = true;
-    NVIC_EnableIRQ(DMA_INT_IRQn);
+    (void) DmaFault_RegisterHandler(DebugUart_HandleDmaFault);
     NVIC_EnableIRQ(DEBUG_UART_INST_INT_IRQN);
 #else
     g_debugUartReady = false;
@@ -422,23 +478,10 @@ void DebugUart_IrqHandler(void)
 #endif
 }
 
-void DebugUart_DmaIrqHandler(void)
+void DebugUart_HandleDmaFault(void)
 {
 #if FEATURE_ENABLE_DEBUG_UART
-    switch (DL_DMA_getPendingInterrupt(DMA)) {
-    case DL_DMA_EVENT_IIDX_ADDR_ERROR:
-        DL_DMA_clearInterruptStatus(DMA, DL_DMA_INTERRUPT_ADDR_ERROR);
-        RecoverTxDmaError();
-        break;
-
-    case DL_DMA_EVENT_IIDX_DATA_ERROR:
-        DL_DMA_clearInterruptStatus(DMA, DL_DMA_INTERRUPT_DATA_ERROR);
-        RecoverTxDmaError();
-        break;
-
-    default:
-        break;
-    }
+    RecoverTxDmaError();
 #endif
 }
 
@@ -451,5 +494,5 @@ extern "C" void DEBUG_UART_INST_IRQHandler(void)
 
 extern "C" void DMA_IRQHandler(void)
 {
-    services::DebugUart_DmaIrqHandler();
+    services::DmaFault_IrqHandler();
 }

@@ -22,7 +22,7 @@ bool Feed(drivers::InfraredLineParser *parser,
     bool received = false;
     for (uint8_t i = 0U; i < length; i++) {
         received = drivers::InfraredLineParser_FeedByte(
-            parser, data[i], now, out) || received;
+            parser, data[i], now, now * 1000U, out) || received;
     }
     return received;
 }
@@ -53,8 +53,8 @@ int main(void)
 
     uint8_t second[INFRARED_LINE_FRAME_SIZE] = {
         0x20U, 0x03U, 0x0AU, 0x2AU, 0x00U,
-        0x00U, 0x00U, 0x34U, 0x12U, 0x78U,
-        0x56U, 0xBCU, 0x9AU, 0U, 0U
+        0x00U, 0x00U, 0x34U, 0x03U, 0x78U,
+        0x05U, 0xBCU, 0x0AU, 0U, 0U
     };
     AppendCrc(second);
     const uint8_t noise[] = {0x00U, 0x20U, 0x04U, 0x20U};
@@ -75,6 +75,31 @@ int main(void)
     assert(frame.sequence == 3U);
     assert(parser.stats.valid_frames == 3U);
     assert(parser.stats.header_errors >= 2U);
+
+    /* A lone 0x20 in corrupted payload is not enough to retain a false
+     * header. The following valid frame must still decode exactly once. */
+    bad[4] = 0x20U;
+    AppendCrc(bad);
+    bad[14] ^= 0x80U;
+    assert(!Feed(&parser, bad, INFRARED_LINE_FRAME_SIZE, 40U, &frame));
+    assert(Feed(&parser, second, INFRARED_LINE_FRAME_SIZE, 41U, &frame));
+    assert(frame.sequence == 4U);
+
+    uint8_t semantic[INFRARED_LINE_FRAME_SIZE];
+    for (uint8_t i = 0U; i < INFRARED_LINE_FRAME_SIZE; i++) {
+        semantic[i] = second[i];
+    }
+    semantic[5] = 2U;
+    semantic[6] = 0U;
+    AppendCrc(semantic);
+    assert(!Feed(&parser, semantic, INFRARED_LINE_FRAME_SIZE, 50U, &frame));
+    assert(parser.stats.payload_errors == 1U);
+
+    const uint32_t sequence_before_clear = frame.sequence;
+    InfraredLineParser_ClearStats(&parser);
+    assert(parser.stats.valid_frames == 0U);
+    assert(Feed(&parser, second, INFRARED_LINE_FRAME_SIZE, 60U, &frame));
+    assert(frame.sequence == sequence_before_clear + 1U);
 
     puts("infrared line protocol ok");
     return 0;
