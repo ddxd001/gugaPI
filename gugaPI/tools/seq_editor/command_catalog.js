@@ -128,11 +128,6 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('oled on|off','打开或关闭面板显示。','W')
     ]),
 
-  ShellCommand('timer','OLED大字计时器','显示',
-    '以M:SS.t格式占满128×32 OLED显示正向计时，采用异步DMA局部窗口刷新。','W',BOTH,[
-      ShellForm('timer start|stop|resume|reset|hide|status','从零开始、停止冻结、继续、清零、释放屏幕或查看计时状态。','W')
-    ],'显示范围为0:00.0到9:59.9；达到上限后自动停止。计时器不会修改参数或FRAM。'),
-
   ShellCommand('gy931','GY931姿态模块诊断','传感器',
     '软件I²C通信、角度读取、算法选择和OLED页面。当前配置关闭FEATURE_ENABLE_GY931。','W',OFF,[
       ShellForm('gy931 status','查看地址、就绪和通信状态。'),
