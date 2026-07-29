@@ -10,7 +10,7 @@ var dashState={
   renderPending:false,simTimer:null,simStart:0,simStopped:false,
   activeGroup:null,pendingGroup:null,hoverX:null,hoverY:null,timelineEndMs:0,
   categoryOpen:{runtime:true,chassis:true,line:false,turn:false,imu:false,
-    gray:false,system:false}
+    gray:false,infrared:false,system:false}
 };
 
 function dashValue(sample,name,fallback){
@@ -576,6 +576,14 @@ function dashSimFrame(){
   for(var channel=0;channel<8;channel++){
     values['gray'+channel]=900+channel*70+Math.sin(t*1.2+channel*.5)*120;
   }
+  values.ir_offset_raw=Math.round(Math.sin(t*1.6)*420);
+  values.ir_position_mpos=Math.round(values.ir_offset_raw*3000/600);
+  values.ir_all_black=(Math.floor(t)%12===10)?1:0;
+  values.ir_adc1=1250+Math.round((1+Math.sin(t*1.4))*900);
+  values.ir_adc2=1350+Math.round((1+Math.sin(t*1.4+1.8))*850);
+  values.ir_adc3=1200+Math.round((1+Math.sin(t*1.4+3.6))*920);
+  values.ir_valid=1;values.ir_age_ms=2;values.ir_period_ms=10;
+  values.ir_crc_errors=Math.floor(t/45);values.ir_dropped=0;
   values.fault_code=0;values.fault_count=0;
   values.tx_pending=18+Math.round(Math.abs(Math.sin(t))*12);values.tx_dropped=0;
   var row=fields.map(function(field){return values[field]}).join(',');

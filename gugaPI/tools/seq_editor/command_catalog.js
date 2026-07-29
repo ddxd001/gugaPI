@@ -180,6 +180,28 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('gray oled on [period_ms 50..5000]|off|status|once','控制灰度OLED页面。','W')
     ],'calib commit 会更新ConfigStore RAM参数；需要param save才会写入FRAM。'),
 
+  ShellCommand('linesensor','选择真实线路传感器','传感器',
+    '在八路 ADC 灰度传感器与三路串口红外传感器之间切换统一循迹数据来源。','W',BOTH,[
+      ShellForm('linesensor status','查看当前来源、RAM配置来源、有效性、标定状态和道路能力。'),
+      ShellForm('linesensor source adc8|ir3','切换真实线路传感器来源，只修改RAM并标记参数未保存。','W')
+    ],'运行中禁止切换。ir3 只支持基础循迹和全黑检测，不支持自动路口；只有 param save 才写入FRAM。'),
+
+  ShellCommand('irsensor','三路串口红外传感器','传感器',
+    '诊断 PA1/UART0 RX 上的真实三路红外模块，并执行五步低延迟循迹标定。','W',BOTH,[
+      ShellForm('irsensor status|raw|stats|diag|clear','读取状态、裸数据、底层诊断或统计，或清零通信统计。','W'),
+      ShellForm('irsensor calib begin|status|commit|cancel','开始、查看、提交或取消五步标定。','W'),
+      ShellForm('irsensor calib capture <white|black|center|left|right>','采集指定标定位置的64个正确帧。','W'),
+      ShellForm('irsensor status','查看帧新鲜度、线路、全黑、超时和标定状态。'),
+      ShellForm('irsensor raw','读取模块偏差、标准化位置、全黑标志与三路ADC裸值。'),
+      ShellForm('irsensor stats','查看有效帧、CRC、帧头、UART、丢弃字节和帧周期统计。'),
+      ShellForm('irsensor diag','查看UART上电/使能、PA0电平、中断次数、FIFO字节与轮询兜底字节。'),
+      ShellForm('irsensor clear','清零解析与UART通信统计。','W'),
+      ShellForm('irsensor calib begin','开始新的五步标定会话。','W'),
+      ShellForm('irsensor calib capture white|black|center|left|right','采集指定位置的64个CRC正确帧。','W'),
+      ShellForm('irsensor calib status','查看每一步进度、稳健平均值和最近状态。'),
+      ShellForm('irsensor calib commit|cancel','校验并提交到RAM，或取消本次标定。','W')
+    ],'传感器是真实硬件；上位机“模拟连接”只用于离线界面测试。commit 后仍需 param save 才会写入FRAM。'),
+
   ShellCommand('lora','LoRa串口与帧协议','通信',
     '诊断LoRa串口透传和带CRC/ACK的帧协议，仅开发配置启用。','W',DEV,[
       ShellForm('lora status','查看串口和协议统计。'),
@@ -272,8 +294,8 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('run clear|validate|start|cancel|status|dump','清空、校验、启动、取消、查看状态或导出 RAM 动作序列；另支持 validate competition。','M')
     ],'start可能产生运动；建议先run dump核对每一步和跳转目标。'),
 
-  ShellCommand('lf','灰度循迹控制','运动',
-    '启动/停止循迹并查看或调整比例、微分、限幅及丢线参数。','M',BOTH,[
+  ShellCommand('lf','线路循迹控制','运动',
+    '使用当前真实线路传感器启动/停止循迹；八路ADC与三路红外分别保存控制增益。','M',BOTH,[
       ShellForm('lf status','查看循迹误差、修正量和丢线计数。'),
       ShellForm('lf cal','执行兼容标定入口。','W'),
       ShellForm('lf start <rpm> <ms>','以指定基础RPM运行限定时间的循迹。','M'),

@@ -76,6 +76,7 @@ struct LFState {
  * Fault/stale/sensor anomaly stops immediately. Lost, multiple, or wide line
  * geometry stops after six consecutive complete frames, without search. */
 void LF_Init(void);
+void LF_ReloadConfig(void);
 drivers::DriverStatus LF_CalibrateStart(void);
 drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms);
 drivers::DriverStatus LF_Stop(void);

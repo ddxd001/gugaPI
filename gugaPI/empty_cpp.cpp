@@ -295,6 +295,9 @@ extern "C" void SYSCFG_DL_init(void)
 #if FEATURE_ENABLE_LORA
     SYSCFG_DL_LORA_UART_init();
 #endif
+#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
+    SYSCFG_DL_INFRARED_UART_init();
+#endif
 #if FEATURE_ENABLE_IMU
     SYSCFG_DL_IMU_SPI_init();
 #endif

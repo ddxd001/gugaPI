@@ -2,6 +2,7 @@
 
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
+#include "app/app_infrared_sensor.h"
 #include "app/app_jyme02_can.h"
 #include "app/app_lora.h"
 #include "app/app_shell.h"
@@ -10,6 +11,7 @@
 #include "app/config_store.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
+#include "app/line_sensor.h"
 #include "app/mode_switch_chord.h"
 #include "app/road_event_controller.h"
 #include "app/seq_store.h"
@@ -137,15 +139,18 @@ void App_ActionTask(void)
 #endif
 
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
-/* Wake at 10 ms so a completed 8-channel frame is consumed promptly.
- * LF_Update ignores duplicate sequence numbers, so this does not create
- * redundant MotorDriver writes when no new frame is available. */
-const uint32_t LINEFOLLOW_PERIOD_MS = 10U;
+/* The real UART sensor publishes a complete frame in about 1.30 ms. Polling
+ * the unified sequence at 2 ms keeps last-byte-to-wheel-command latency below
+ * 5 ms without running PID or chassis code inside the UART ISR. Duplicate
+ * sequence numbers remain no-ops for the slower 8-channel ADC source. */
+const uint32_t LINEFOLLOW_PERIOD_MS = 2U;
 
 void App_LineFollowTask(void)
 {
 #if FEATURE_ENABLE_IMU
-    app::RoadEventController_Update();
+    if (app::LineSensor_IsRoadCapable()) {
+        app::RoadEventController_Update();
+    }
 #endif
     app::LF_Update();
 }
@@ -1010,7 +1015,11 @@ void App_Init(void)
 #endif
     CompetitionSelectInitialSlot();
     AppShell_DisableOledStreams();
+#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
+    app::App_InfraredSensorInit();
+#endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+    app::LineSensor_Init();
     app::LF_Init();
 #if FEATURE_ENABLE_IMU
     app::RoadEventController_Init();
@@ -1038,6 +1047,15 @@ void App_Init(void)
     if (services::Scheduler_AddTask("grayscale",
                                     App_GrayscaleUpdate,
                                     GRAYSCALE_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
+#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
+    if (services::Scheduler_AddTask("infrared_line",
+                                    App_InfraredSensorUpdate,
+                                    1U,
                                     0U,
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);

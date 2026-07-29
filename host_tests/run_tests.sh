@@ -28,12 +28,15 @@ build_and_run() {
     "${build_dir}/${name}"
 }
 
-build_and_run config_store_v15 \
+build_and_run config_store_v16 \
     host_tests/config_store_v13_test.cpp \
     gugaPI/app/config_store.cpp
 build_and_run grayscale_processing \
     host_tests/grayscale_processing_test.cpp \
     gugaPI/drivers/grayscale/grayscale_processing.cpp
+build_and_run infrared_line_protocol \
+    host_tests/infrared_line_protocol_test.cpp \
+    gugaPI/drivers/infrared_line/infrared_line_protocol.cpp
 build_and_run grayscale_road \
     host_tests/grayscale_road_test.cpp \
     gugaPI/app/grayscale_road.cpp

@@ -181,6 +181,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 </style>
 <link rel="stylesheet" href="dashboard.css?v=20260728-three-columns">
 <link rel="stylesheet" href="help.css?v=20260729-help-v2">
+<link rel="stylesheet" href="line_sensor.css?v=20260729-ir3-v1">
 </head>
 <body>
 <header>
@@ -194,6 +195,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <div class="tabbar">
 <button class="tab active" id="tabEditor" type="button">序列编辑器</button>
 <button class="tab" id="tabDashboard" type="button">实时仪表盘</button>
+<button class="tab" id="tabLineSensor" type="button">线路传感器</button>
 <button class="tab" id="tabTerminal" type="button">串口终端</button>
 <button class="tab" id="tabParameters" type="button">参数</button>
 <button class="tab" id="tabCommands" type="button">命令库</button>
@@ -255,6 +257,50 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 </div>
 </div>
 <div id="dashToast" role="status" aria-live="polite"></div>
+</div>
+<div id="lineSensorView" class="main" hidden>
+<div id="lineSensorShell">
+<div id="lineSensorToolbar">
+<div><strong>线路传感器</strong><span>两个真实设备 · 独立循迹参数 · 显式保存到 FRAM</span></div>
+<span id="lineSensorConnection">未连接</span>
+<button id="btnLineSensorRefresh" type="button" disabled>立即刷新</button>
+</div>
+<div id="lineSensorLayout">
+<aside class="line-sensor-pane">
+<div class="line-sensor-heading">真实设备</div>
+<button class="line-source-card" type="button" data-source="adc8"><b>八路 ADC 灰度传感器</b><small>完整道路与路口识别</small><span></span></button>
+<button class="line-source-card" type="button" data-source="ir3"><b>三路串口红外传感器</b><small>PA1 RX / PA0 TX · UART0 · 115200 8N1</small><span></span></button>
+<div class="line-source-summary"><p>当前使用：<b id="lineActiveSource">--</b></p><p>FRAM 默认：<b id="lineFramSource">--</b></p><p>RAM 状态：<b id="lineDirtyState">--</b></p></div>
+<button id="btnLineApply" class="primary" type="button" disabled>应用到 RAM</button>
+<button id="btnLineSave" type="button" disabled>保存为 FRAM 默认</button>
+<p class="line-sensor-note">切换要求循迹、道路控制、序列和比赛均已停止。应用到 RAM 不会写 FRAM；只有“保存为 FRAM 默认”或 <code>param save</code> 才会持久化。</p>
+</aside>
+<section class="line-sensor-pane line-calibration">
+<header><div><b>三路红外五步标定</b><small>每一步自动采集 64 个 CRC 正确帧</small></div><span id="lineCalState">未开始</span></header>
+<div class="line-cal-steps">
+<button type="button" data-cal-step="white"><i>1</i><span><b>白底</b><small>三路传感器全部放在白色底面</small></span><em>等待</em></button>
+<button type="button" data-cal-step="black"><i>2</i><span><b>全黑</b><small>三路传感器全部放在黑线上</small></span><em>等待</em></button>
+<button type="button" data-cal-step="center"><i>3</i><span><b>线路居中</b><small>黑线位于传感器中心</small></span><em>等待</em></button>
+<button type="button" data-cal-step="left"><i>4</i><span><b>线路最左</b><small>放到仍可稳定识别的最左位置</small></span><em>等待</em></button>
+<button type="button" data-cal-step="right"><i>5</i><span><b>线路最右</b><small>放到仍可稳定识别的最右位置</small></span><em>等待</em></button>
+</div>
+<div class="line-cal-actions"><button id="btnLineCalBegin" type="button" disabled>开始新标定</button><button id="btnLineCalCommit" class="primary" type="button" disabled>提交到 RAM</button><button id="btnLineCalCancel" type="button" disabled>取消</button></div>
+<div id="lineCalNotice">未完成有效标定时可以查看裸数据，但固件会禁止启动红外循迹。</div>
+</section>
+<aside class="line-sensor-pane line-live">
+<header><b>实时裸数据</b><span id="lineLiveStatus">无数据</span></header>
+<div class="line-live-grid">
+<div><span>模块偏差</span><b id="lineRawOffset">--</b><code>offset_raw</code></div><div><span>标准位置</span><b id="linePosition">--</b><code>position_mpos</code></div>
+<div><span>全黑</span><b id="lineAllBlack">--</b><code>all_black</code></div><div><span>数据年龄</span><b id="lineAge">--</b><code>age_ms</code></div>
+<div><span>左路 ADC</span><b id="lineAdc1">--</b><code>adc1</code></div><div><span>中路 ADC</span><b id="lineAdc2">--</b><code>adc2</code></div><div><span>右路 ADC</span><b id="lineAdc3">--</b><code>adc3</code></div><div><span>实测帧周期</span><b id="linePeriod">--</b><code>average_ms</code></div>
+</div>
+<div class="line-stat-list"><p><span>有效帧</span><b id="lineFrames">--</b></p><p><span>CRC 错误</span><b id="lineCrcErrors">--</b></p><p><span>帧头错误</span><b id="lineHeaderErrors">--</b></p><p><span>UART 错误</span><b id="lineUartErrors">--</b></p><p><span>缓冲区丢弃</span><b id="lineDropped">--</b></p></div>
+<button id="btnLineClearStats" type="button" disabled>清零通信统计</button>
+<p class="line-sensor-note">三路串口红外是真实传感器，不支持自动路口。顶部显示“模拟设备”时，仅表示上位机离线模拟连接。</p>
+</aside>
+</div>
+<div id="lineSensorToast" role="status" aria-live="polite"></div>
+</div>
 </div>
 <div id="editorView" class="main">
 <div class="seq-shell">
@@ -375,5 +421,6 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <script src="app6.js?v=20260728-shell-library"></script>
 <script src="app7.js?v=20260728-grouped"></script>
 <script src="app8.js?v=20260729-help-v2"></script>
+<script src="app9.js?v=20260729-ir3-v1"></script>
 </body>
 </html>

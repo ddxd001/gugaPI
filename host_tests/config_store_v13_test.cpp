@@ -94,12 +94,34 @@ int main(void)
     assert(ConfigStore_Set("road_align_rpm", 45) ==
            drivers::DRIVER_OK);
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 15U);
-    assert(ReadU16(&g_fram[6]) == 223U);
+    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[6]) == 243U);
+    assert(ConfigStore_Get()->line_sensor_source == LINE_SENSOR_SOURCE_IR3);
+    assert(ConfigStore_Get()->infrared_position_span_raw == 0U);
+
+    /* A v15 image retains every commissioned parameter and receives only
+     * safe, uncalibrated defaults for the newly appended real sensor. */
+    static const uint16_t kHeaderLength = 8U;
+    static const uint16_t kV15PayloadLength = 223U;
+    WriteU16(&g_fram[4], 15U);
+    WriteU16(&g_fram[6], kV15PayloadLength);
+    WriteU32(&g_fram[kHeaderLength + kV15PayloadLength],
+             Crc32(g_fram, kHeaderLength + kV15PayloadLength));
+    ConfigStore_ResetDefaults();
+    assert(ConfigStore_Load() == drivers::DRIVER_OK);
+    const ConfigStoreParams *params = ConfigStore_Get();
+    assert(params->heading_kp == 4321);
+    assert(params->road_align_distance_mm == 20U);
+    assert(params->road_align_rpm == 45U);
+    assert(params->line_sensor_source == LINE_SENSOR_SOURCE_IR3);
+    assert(params->infrared_position_span_raw == 0U);
+    assert(ConfigStore_GetStatus()->dirty);
+    assert(ConfigStore_Save() == drivers::DRIVER_OK);
+    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[6]) == 243U);
 
     /* A v14 image retains alignment settings and receives new asymmetric
      * turn defaults without changing any prior field offset. */
-    static const uint16_t kHeaderLength = 8U;
     static const uint16_t kV14PayloadLength = 219U;
     static const uint16_t kV13PayloadLength = 215U;
     WriteU16(&g_fram[4], 14U);
@@ -109,7 +131,7 @@ int main(void)
 
     ConfigStore_ResetDefaults();
     assert(ConfigStore_Load() == drivers::DRIVER_OK);
-    const ConfigStoreParams *params = ConfigStore_Get();
+    params = ConfigStore_Get();
     assert(params->heading_kp == 4321);
     assert(params->road_align_distance_mm == 20U);
     assert(params->road_align_rpm == 45U);
@@ -119,8 +141,8 @@ int main(void)
     assert(ConfigStore_GetStatus()->stored_length == kV14PayloadLength);
 
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 15U);
-    assert(ReadU16(&g_fram[6]) == 223U);
+    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[6]) == 243U);
     assert(!ConfigStore_GetStatus()->dirty);
 
     /* Convert the freshly encoded prefix into a valid historical v13 image. */
@@ -146,8 +168,8 @@ int main(void)
     assert(ConfigStore_GetStatus()->stored_length == kV13PayloadLength);
 
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 15U);
-    assert(ReadU16(&g_fram[6]) == 223U);
+    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[6]) == 243U);
     assert(!ConfigStore_GetStatus()->dirty);
 
     assert(ConfigStore_Set("heading_lock_settle_mdeg", 2500) ==
@@ -174,6 +196,12 @@ int main(void)
            drivers::DRIVER_ERROR_INVALID_ARG);
     assert(ConfigStore_Set("road_turn_inner_reverse_max_rpm", 1001) ==
            drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("line_sensor_source", 2) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_SetInfraredCalibration(0U, 100U, 2000U, 200U) ==
+           drivers::DRIVER_OK);
+    assert(ConfigStore_Set("ir_lf_kp", 4200) == drivers::DRIVER_OK);
+    assert(ConfigStore_Set("ir_lf_kd", 700) == drivers::DRIVER_OK);
 
     assert(ConfigStore_Set("heading_lock_kp", 1750) == drivers::DRIVER_OK);
     assert(ConfigStore_Set("heading_lock_kd", 300) == drivers::DRIVER_OK);
@@ -197,8 +225,13 @@ int main(void)
     assert(params->road_align_rpm == 80U);
     assert(params->road_turn_outer_max_rpm == 210U);
     assert(params->road_turn_inner_reverse_max_rpm == 140U);
+    assert(params->infrared_position_span_raw == 100U);
+    assert(params->infrared_adc_threshold == 2000U);
+    assert(params->infrared_adc_hysteresis == 200U);
+    assert(params->infrared_linefollow_kp == 4200);
+    assert(params->infrared_linefollow_kd == 700);
     assert(!ConfigStore_GetStatus()->dirty);
 
-    puts("config store v15 migration ok");
+    puts("config store v16 migration ok");
     return 0;
 }

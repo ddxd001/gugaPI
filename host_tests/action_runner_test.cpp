@@ -10,6 +10,7 @@
 #include "app/chassis.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
+#include "app/line_sensor.h"
 #include "app/road_event_controller.h"
 #include "app/seq_store.h"
 #include "board/board_button.h"
@@ -33,6 +34,7 @@ app::ChassisState g_chassis = {};
 app::HeadingState g_heading = {};
 app::LFState g_lf = {};
 app::AppGrayscaleData g_gray = {};
+app::LineSensorSnapshot g_line_sensor = {};
 app::AppImuData g_imu = {};
 app::AppState g_app = {};
 app::RoadControlState g_road = {};
@@ -67,6 +69,11 @@ void Reset()
     g_gray.processed_valid = true;
     g_gray.position_valid = true;
     g_gray.last_update_ms = g_now;
+    g_line_sensor = app::LineSensorSnapshot();
+    g_line_sensor.source = app::LINE_SENSOR_ADC8;
+    g_line_sensor.valid = true;
+    g_line_sensor.fresh = true;
+    g_line_sensor.calibrated = true;
     g_imu = app::AppImuData();
     g_imu.valid = true;
     g_imu.last_update_ms = g_now;
@@ -151,6 +158,15 @@ bool Fault_HasFault(void) { return g_fault; }
 namespace app {
 const AppState *App_GetState(void) { return &g_app; }
 const AppGrayscaleData *App_GrayscaleGetData(void) { return &g_gray; }
+const LineSensorSnapshot *LineSensor_GetSnapshot(void)
+{
+    g_line_sensor.line_detected = g_line;
+    g_line_sensor.position_valid = g_line;
+    g_line_sensor.road_event_sequence = g_gray.road_event_sequence;
+    g_line_sensor.road_event_type = g_gray.road_event_type;
+    g_line_sensor.road_event_paths = g_gray.road_event_paths;
+    return &g_line_sensor;
+}
 const AppImuData *App_ImuGetData(void) { return &g_imu; }
 const ChassisState *Chassis_GetState(void) { return &g_chassis; }
 drivers::DriverStatus Chassis_Stop(void)

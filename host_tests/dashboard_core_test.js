@@ -49,14 +49,20 @@ const groupedFields=[];
 for(const fields of Object.values(core.GROUP_FIELDS)){
   groupedFields.push(...fields.slice(1));
 }
-assert.deepStrictEqual([...new Set(groupedFields)].sort(),
-  core.DEFAULT_FIELDS.slice(1).sort(),
-  'on-demand groups must cover every full telemetry field exactly once');
+for(const field of core.DEFAULT_FIELDS.slice(1)){
+  assert.strictEqual(groupedFields.filter(item=>item===field).length,1,
+    'legacy telemetry field must appear in exactly one on-demand chart: '+field);
+}
+for(const field of ['ir_offset_raw','ir_position_mpos','ir_all_black','ir_adc1',
+  'ir_adc2','ir_adc3','ir_valid','ir_age_ms','ir_period_ms','ir_crc_errors',
+  'ir_dropped']){
+  assert(groupedFields.includes(field),'IR profile field is missing: '+field);
+}
 assert.strictEqual(groupedFields.length,new Set(groupedFields).size,
   'a telemetry field must not be duplicated across dashboard charts');
 assert(core.CHARTS.length>=30,'complete diagnostic chart catalog is missing');
 assert.deepStrictEqual(core.CATEGORIES.map(item=>item.label),
-  ['运行','底盘','循迹与道路','转向过程','IMU','灰度传感器','系统健康']);
+  ['运行','底盘','循迹与道路','转向过程','IMU','灰度传感器','三路串口红外','系统健康']);
 for(const chart of core.CHARTS){
   assert.deepStrictEqual(core.GROUP_FIELDS[chart.key],
     ['t',...chart.series.map(item=>item.field)]);
