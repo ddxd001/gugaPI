@@ -8,6 +8,7 @@
 #include "app/app_imu.h"
 #include "app/app_main.h"
 #include "app/chassis.h"
+#include "app/dm_g6220_controller.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
 #include "app/line_sensor.h"
@@ -40,6 +41,9 @@ app::AppState g_app = {};
 app::RoadControlState g_road = {};
 uint32_t g_road_start_calls = 0U;
 uint32_t g_road_cancel_calls = 0U;
+app::DmG6220ControlState g_dm = {};
+uint32_t g_dm_emergency_disable_calls = 0U;
+uint32_t g_dm_stop_speed_calls = 0U;
 
 void Reset()
 {
@@ -82,6 +86,12 @@ void Reset()
     g_road.route_result = app::ROAD_ROUTE_RESULT_IDLE;
     g_road_start_calls = 0U;
     g_road_cancel_calls = 0U;
+    g_dm = app::DmG6220ControlState();
+    g_dm.initialized = true;
+    g_dm.mode = app::DM_CONTROL_READY;
+    g_dm.operation_result = app::DM_OPERATION_IDLE;
+    g_dm_emergency_disable_calls = 0U;
+    g_dm_stop_speed_calls = 0U;
     app::ActionRunner_Init();
 }
 
@@ -245,6 +255,49 @@ const RoadControlState *RoadEventController_GetState(void)
 {
     return &g_road;
 }
+drivers::DriverStatus DmG6220Controller_StartPosition(
+    DmG6220PositionFrame frame,
+    int32_t target_mrad,
+    int32_t max_velocity_mrad_s,
+    uint32_t timeout_ms)
+{
+    (void) frame;
+    g_dm.mode = DM_CONTROL_POSITION;
+    g_dm.operation_result = DM_OPERATION_RUNNING;
+    g_dm.target_position_mrad = target_mrad;
+    g_dm.reference_velocity_mrad_s = max_velocity_mrad_s;
+    g_dm.operation_timeout_ms = timeout_ms;
+    return drivers::DRIVER_OK;
+}
+drivers::DriverStatus DmG6220Controller_StartSpeed(int32_t velocity_mrad_s)
+{
+    g_dm.mode = DM_CONTROL_SPEED;
+    g_dm.operation_result = DM_OPERATION_RUNNING;
+    g_dm.target_velocity_mrad_s = velocity_mrad_s;
+    return drivers::DRIVER_OK;
+}
+drivers::DriverStatus DmG6220Controller_StopSpeedAndHold(void)
+{
+    g_dm_stop_speed_calls++;
+    g_dm.mode = DM_CONTROL_SPEED_STOPPING;
+    g_dm.operation_result = DM_OPERATION_RUNNING;
+    return drivers::DRIVER_OK;
+}
+drivers::DriverStatus DmG6220Controller_Disable(void)
+{
+    g_dm.mode = DM_CONTROL_DISABLING;
+    g_dm.operation_result = DM_OPERATION_RUNNING;
+    return drivers::DRIVER_OK;
+}
+void DmG6220Controller_EmergencyDisable(void)
+{
+    g_dm_emergency_disable_calls++;
+    g_dm.mode = DM_CONTROL_DISABLING;
+}
+const DmG6220ControlState *DmG6220Controller_GetState(void)
+{
+    return &g_dm;
+}
 } /* namespace app */
 
 namespace board {
@@ -394,6 +447,27 @@ int main()
            drivers::DRIVER_ERROR_INVALID_ARG);
     assert(ActionRunner_AddRoadNav(
         ROAD_ROUTE_STRAIGHT, 80, 75, 0U, 0U) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ActionRunner_AddDmPosition(
+        false, 12501, 200, 5000, 0U, 0U) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ActionRunner_AddDmPosition(
+        true, 100, 20001, 5000, 0U, 0U) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ActionRunner_AddDmPosition(
+        true, 100, 200, 75, 0U, 0U) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ActionRunner_AddInstr(
+        ACT_OP_DM_SPEED, 0, 1000, ACT_COND_IMMEDIATE, 0U, 0U) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ActionRunner_AddInstr(
+        ACT_OP_DM_SPEED, 20001, 1000, ACT_COND_IMMEDIATE, 0U, 0U) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ActionRunner_AddInstr(
+        ACT_OP_DM_SPEED, 200, 75, ACT_COND_IMMEDIATE, 0U, 0U) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ActionRunner_AddInstr(
+        ACT_OP_DM_DISABLE, 1, 0, ACT_COND_IMMEDIATE, 0U, 0U) ==
            drivers::DRIVER_ERROR_INVALID_ARG);
     assert(ActionRunner_AddInstr(ACT_OP_WAIT, 0, 10, ACT_COND_TIMEOUT,
                                  4U, ACT_NEXT) == drivers::DRIVER_OK);
@@ -562,6 +636,64 @@ int main()
     ActionRunner_Update();
     assert(ActionRunner_GetState()->result == ACT_RUN_FAULT);
     assert(ActionRunner_GetState()->failure_reason == ACT_FAIL_FAULT);
+
+    /* DM positioning remains in hold across ordinary successors. Sequence
+     * completion, cancellation and implicit termination always request the
+     * repeated emergency-disable path. */
+    Reset();
+    assert(ActionRunner_AddDmPosition(
+        true, 87, 201, 5000, 1U, ACT_NEXT) == drivers::DRIVER_OK);
+    assert(ActionRunner_AddInstr(ACT_OP_WAIT, 0, 100,
+                                 ACT_COND_TIMEOUT, 2U,
+                                 ACT_NEXT) == drivers::DRIVER_OK);
+    AddEnd();
+    assert(ActionRunner_Start() == drivers::DRIVER_OK);
+    ActionRunner_Update();
+    assert(g_dm.mode == DM_CONTROL_POSITION);
+    assert(g_dm.target_position_mrad == 87);
+    assert(g_dm.operation_timeout_ms == 5000U);
+    g_dm.mode = DM_CONTROL_HOLD;
+    g_dm.operation_result = DM_OPERATION_SUCCESS;
+    ActionRunner_Update();
+    assert(ActionRunner_GetState()->current == 1U);
+    assert(g_dm_emergency_disable_calls == 0U);
+    ActionRunner_Update();
+    g_now += 100U;
+    ActionRunner_Update();
+    assert(g_dm_emergency_disable_calls == 0U);
+    ActionRunner_Update();
+    assert(ActionRunner_GetState()->result == ACT_RUN_SUCCESS);
+    assert(g_dm_emergency_disable_calls == 1U);
+
+    Reset();
+    assert(ActionRunner_AddDmPosition(
+        false, 1000, 200, 5000, 1U, 1U) == drivers::DRIVER_OK);
+    AddEnd();
+    assert(ActionRunner_Start() == drivers::DRIVER_OK);
+    ActionRunner_Update();
+    g_dm.mode = DM_CONTROL_HOLD;
+    g_dm.operation_result = DM_OPERATION_TARGET_TIMEOUT;
+    ActionRunner_Update();
+    assert(ActionRunner_GetState()->current == 1U);
+    assert(ActionRunner_GetState()->failure_reason ==
+           ACT_FAIL_INSTR_TIMEOUT);
+
+    Reset();
+    assert(ActionRunner_AddInstr(
+        ACT_OP_DM_SPEED, -200, 1000, ACT_COND_IMMEDIATE,
+        1U, ACT_NEXT) == drivers::DRIVER_OK);
+    AddEnd();
+    assert(ActionRunner_Start() == drivers::DRIVER_OK);
+    ActionRunner_Update();
+    g_now += 1000U;
+    ActionRunner_Update();
+    assert(g_dm_stop_speed_calls == 1U);
+    g_dm.mode = DM_CONTROL_HOLD;
+    g_dm.operation_result = DM_OPERATION_SUCCESS;
+    ActionRunner_Update();
+    assert(ActionRunner_GetState()->current == 1U);
+    assert(ActionRunner_Cancel() == drivers::DRIVER_OK);
+    assert(g_dm_emergency_disable_calls == 1U);
 
     /* Counted loop executes its body exactly N times; done is success. */
     Reset();
@@ -823,6 +955,45 @@ int main()
     assert(ActionRunner_GetState()->instrs[0].condition_value ==
            ROAD_ROUTE_UTURN_RIGHT_PIVOT);
 
+    /* Opcodes 20..22 keep the existing 14-byte SeqStore v2 record,
+     * including dm_position's timeout in condition_value. */
+    assert(ActionRunner_Clear() == drivers::DRIVER_OK);
+    assert(ActionRunner_AddDmPosition(
+        true, 0, 20000, 5000, 1U, ACT_NEXT) == drivers::DRIVER_OK);
+    assert(ActionRunner_Clear() == drivers::DRIVER_OK);
+    assert(ActionRunner_AddDmPosition(
+        true, 0, 20001, 5000, 1U, ACT_NEXT) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ActionRunner_AddInstr(
+        ACT_OP_DM_SPEED, 20000, 1000, ACT_COND_IMMEDIATE,
+        1U, ACT_NEXT) == drivers::DRIVER_OK);
+    assert(ActionRunner_Clear() == drivers::DRIVER_OK);
+    assert(ActionRunner_AddInstr(
+        ACT_OP_DM_SPEED, 20001, 1000, ACT_COND_IMMEDIATE,
+        1U, ACT_NEXT) == drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ActionRunner_Clear() == drivers::DRIVER_OK);
+    assert(ActionRunner_AddDmPosition(
+        true, -87, 201, 5000, 1U, ACT_NEXT) == drivers::DRIVER_OK);
+    assert(ActionRunner_AddInstr(
+        ACT_OP_DM_SPEED, 200, 1000, ACT_COND_IMMEDIATE,
+        2U, ACT_NEXT) == drivers::DRIVER_OK);
+    assert(ActionRunner_AddInstr(
+        ACT_OP_DM_DISABLE, 0, 0, ACT_COND_IMMEDIATE,
+        3U, ACT_NEXT) == drivers::DRIVER_OK);
+    AddEnd();
+    assert(SeqStore_Save(5U) == drivers::DRIVER_OK);
+    assert(ActionRunner_Clear() == drivers::DRIVER_OK);
+    assert(SeqStore_Load(5U) == drivers::DRIVER_OK);
+    assert(ActionRunner_GetState()->count == 4U);
+    assert(ActionRunner_GetState()->instrs[0].op == ACT_OP_DM_POSITION);
+    assert(ActionRunner_GetState()->instrs[0].param1 == -87);
+    assert(ActionRunner_GetState()->instrs[0].param2 == 201);
+    assert(ActionRunner_GetState()->instrs[0].until ==
+           ACT_COND_DM_RELATIVE);
+    assert(ActionRunner_GetState()->instrs[0].condition_value == 5000);
+    assert(ActionRunner_GetState()->instrs[1].op == ACT_OP_DM_SPEED);
+    assert(ActionRunner_GetState()->instrs[2].op == ACT_OP_DM_DISABLE);
+
     /* Existing v1 slots migrate in place without changing their behavior. */
     Reset();
     PrepareLegacyV1Slot7();
@@ -832,7 +1003,7 @@ int main()
     assert(ActionRunner_GetState()->count == 1U);
     assert(ActionRunner_GetState()->instrs[0].op == ACT_OP_END);
 
-    printf("action runner ok: 300s guard, counted/nested loops, generic "
-           "conditions, competition validation, SeqStore v1/v2\n");
+    printf("action runner ok: 300s guard, DM-G6220, counted/nested loops, "
+           "generic conditions, competition validation, SeqStore v1/v2\n");
     return 0;
 }

@@ -5,11 +5,13 @@
 #include "app/app_infrared_sensor.h"
 #include "app/app_jyme02_can.h"
 #include "app/app_large_timer.h"
+#include "app/app_can_bus.h"
 #include "app/app_lora.h"
 #include "app/app_shell.h"
 #include "app/action.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
+#include "app/dm_g6220_controller.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
 #include "app/line_sensor.h"
@@ -297,7 +299,7 @@ const uint32_t CAN_WATCH_PERIOD_MS = 10U;
 
 void App_CanReceiveTask(void)
 {
-    app::AppJyme02Can_Update();
+    app::AppCanBus_Update();
     app::AppShell_CanWatchUpdate();
 }
 #endif
@@ -448,6 +450,10 @@ const char *FaultCodeText(services::FaultCode code)
         return "SENSOR LOST";
     case services::FAULT_UART_OVERFLOW:
         return "UART OVERFLOW";
+    case services::FAULT_DM_TIMEOUT:
+        return "DM TIMEOUT";
+    case services::FAULT_DM_MOTOR:
+        return "DM FAULT";
     case services::FAULT_UNKNOWN:
         return "UNKNOWN";
     case services::FAULT_NONE:
@@ -1142,7 +1148,7 @@ void App_Init(void)
 #endif
 
 #if FEATURE_ENABLE_CAN
-    app::AppJyme02Can_Init();
+    app::AppCanBus_Init();
     if (services::Scheduler_AddTask("can_rx",
                                     App_CanReceiveTask,
                                     CAN_WATCH_PERIOD_MS,
@@ -1212,6 +1218,9 @@ void App_Run(void)
 
     if (services::Fault_HasFault()) {
         g_appState.mode = APP_MODE_FAULT;
+#if FEATURE_ENABLE_DM_G6220_CAN
+        DmG6220Controller_EmergencyDisable();
+#endif
 #if FEATURE_ENABLE_MOTOR_DRIVER
         if (!g_faultStopHandled) {
             g_faultStopHandled = true;
@@ -1329,6 +1338,9 @@ drivers::DriverStatus App_CompetitionArm(void)
     SetChassisTaskEnabled(false);
 #endif
     (void) ActionRunner_Cancel();
+#if FEATURE_ENABLE_DM_G6220_CAN
+    DmG6220Controller_EmergencyDisable();
+#endif
     CompetitionSelectInitialSlot();
     AppShell_DisableOledStreams();
     CompetitionClearButtonEvents();
@@ -1451,6 +1463,9 @@ drivers::DriverStatus App_EmergencyStop(void)
 #if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
     record_error(ActionRunner_Cancel());
     record_error(Heading_Stop());
+#endif
+#if FEATURE_ENABLE_DM_G6220_CAN
+    DmG6220Controller_EmergencyDisable();
 #endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
     record_error(LF_Stop());

@@ -13,6 +13,7 @@ var PARAM_GROUPS=[
   {id:'gy931',section:'姿态与航向',label:'GY931 零点'},
   {id:'imu',section:'姿态与航向',label:'IMU 偏置'},
   {id:'heading',section:'姿态与航向',label:'航向控制'},
+  {id:'dm',section:'执行器',label:'达妙电机'},
   {id:'power',section:'保护',label:'电源保护'},
   {id:'gray_cal',section:'灰度与循迹',label:'灰度标定'},
   {id:'gray_proc',section:'灰度与循迹',label:'灰度判定'},
@@ -138,6 +139,16 @@ addParamMeta('ir_lf_kp','红外循迹 Kp','infrared',3800,0,1000000,'scaled','�
 addParamMeta('ir_lf_kd','红外循迹 Kd','infrared',600,0,1000000,'scaled','仅在三路串口红外为当前来源时使用的微分增益，不覆盖八路 ADC 的 lf_kd。',false);
 addParamMeta('ir_lf_maxcorr','红外最大差速修正','infrared',30,0,500,'RPM','三路串口红外循迹允许施加的最大左右轮差速修正。',false);
 addParamMeta('ir_lf_slew_permille_s','红外修正变化率','infrared',25000,1,65535,'permille/s','三路串口红外循迹修正量变化速度；数值越大响应越快。',false);
+addParamMeta('dm_position_kp_milli','达妙定位 Kp','dm',4000,0,10000,'milli','MIT 定位比例增益，4000 表示 4.000。',false);
+addParamMeta('dm_position_kd_milli','达妙定位 Kd','dm',400,0,2000,'milli','MIT 定位微分增益，400 表示 0.400。',false);
+addParamMeta('dm_speed_kd_milli','达妙定速 Kd','dm',500,0,2000,'milli','MIT 定速阻尼增益，500 表示 0.500。',false);
+addParamMeta('dm_max_velocity_mrad_s','达妙最大轨迹速度','dm',2000,0,20000,'mrad/s','定位轨迹与定速动作允许的最大角速度；0 会禁止新的运动命令。',false);
+addParamMeta('dm_max_tracking_error_mrad','达妙最大跟随误差','dm',250,1,250,'mrad','参考位置相对反馈位置的最大超前量。',false);
+addParamMeta('dm_speed_slew_mrad_s2','达妙速度斜率','dm',2000,1,10000,'mrad/s²','定速启动和停止时的速度变化率。',false);
+addParamMeta('dm_position_tolerance_mrad','达妙位置容差','dm',10,1,100,'mrad','定位完成所需的位置误差阈值。',false);
+addParamMeta('dm_velocity_tolerance_mrad_s','达妙速度容差','dm',80,1,500,'mrad/s','定位和停止完成所需的速度阈值；DM-G6220 反馈约以 22 mrad/s 量化，80 可容纳零速附近的 55～77 mrad/s 抖动。',false);
+addParamMeta('dm_settle_ms','达妙稳定时间','dm',200,50,1000,'ms','位置和速度持续满足容差后才判定完成。',false);
+addParamMeta('dm_feedback_timeout_ms','达妙反馈超时','dm',100,50,500,'ms','活动控制期间反馈超过该时间触发全局 DM TIMEOUT。',false);
 
 function paramHasNumbers(values,names){
   return names.every(function(name){return Number.isFinite(values[name])});
@@ -652,7 +663,7 @@ function paramSimCommand(cmd){
   paramSimInit();
   if(cmd==='comp status')return'comp mode=dev-running slot=0 valid=1 any_valid=1 count=5 step=0 result=none last=ok\r\n> ';
   if(cmd==='reset'){simParamValues=Object.assign({},simPersistedValues);simParamDirty=false;return'resetting...\r\n> '}
-  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' version=16 len=243 crc=0x5C758F1C load=ok save=ok\r\n> ';
+  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' version=17 len=243 crc=0x5C758F1C load=ok save=ok\r\n> ';
   if(cmd==='param export'||cmd.startsWith('param export ')){
     var exportParts=cmd.split(/\s+/),start=exportParts.length>=3?Number(exportParts[2]):0;
     var requested=exportParts.length>=4?Number(exportParts[3]):PARAM_EXPORT_BATCH_SIZE;

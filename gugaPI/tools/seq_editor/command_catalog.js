@@ -296,6 +296,9 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('run add drive_if|follow_if <rpm> <source> <cmp> <value>','后续填写超时、稳定时间和跳转，运动期间持续判断通用条件。','W'),
       ShellForm('run add loop <count> 0 immediate <body_index> <done_index>','追加计数循环；循环体返回本节点，完成出口连接后续动作。','W'),
       ShellForm('run add road_nav <route> <rpm> <timeout_ms> <onsuccess> <onfailure>','循迹通过下一个路口；route 支持左/直/右及左右圆弧或原地掉头。','M'),
+      ShellForm('run add dm_position absolute|relative <target_mrad> <max_mrad_s> <timeout_ms> <onsuccess> <onfailure>','追加达妙绝对或相对定位动作。','M'),
+      ShellForm('run add dm_speed <velocity_mrad_s> <duration_ms> <onsuccess> <onfailure>','追加达妙定速动作，到时减速并保持。','M'),
+      ShellForm('run add dm_disable <onsuccess> <onfailure>','追加达妙失能动作。','W'),
       ShellForm('run clear|validate|start|cancel|status|dump','清空、校验、启动、取消、查看状态或导出 RAM 动作序列；另支持 validate competition。','M')
     ],'start可能产生运动；建议先run dump核对每一步和跳转目标。'),
 
@@ -378,13 +381,16 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('can clear|cancel|recover','清空统计、取消待发送帧或尝试恢复CAN控制器。','W')
     ],'recover只表示控制器重新进入正常模式；仍需确认终端电阻、CANH/CANL和TEC/REC。'),
 
-  ShellCommand('jyme02','JY-ME02 CAN编码器','传感器',
-    '查看JY-ME02角度、角速度、圈数、温度和新鲜度，或读取寄存器并调整固件解析参数。','W',BOTH,[
-      ShellForm('jyme02 status','查看解析器地址、采样时间、数据新鲜度、计数和最新测量。'),
-      ShellForm('jyme02 readreg <hex_reg>','通过CAN请求读取指定8位寄存器。','W'),
-      ShellForm('jyme02 regs','查看最近一次寄存器响应中的三个16位值。'),
-      ShellForm('jyme02 address <hex_id>       (parser only)','只修改固件解析器接受的11位CAN标识，不写传感器。','W'),
-      ShellForm('jyme02 sampletime <100us>     (parser only)','只修改固件解析器换算角速度所用的采样时间，范围1..65535，单位100 us。','W'),
-      ShellForm('jyme02 clear','清空解析数据、原始诊断队列和统计。','W')
-    ],'address和sampletime都不会写入JY-ME02；修改传感器配置需按其协议另行执行并重新验证总线。')
+  ShellCommand('dm','DM-G6220 CAN电机','执行器',
+    '调试单台ID 0x01的DM-G6220 MIT控制器；除status外仅允许在dev-running模式执行。','M',BOTH,[
+      ShellForm('dm status','查看在线状态、反馈年龄、位置、速度、扭矩、温度、电机状态码和控制阶段。'),
+      ShellForm('dm probe','发送零增益MIT探测帧，不自动使能。','W'),
+      ShellForm('dm enable','在当前位置安全使能并保持。','M'),
+      ShellForm('dm position absolute|relative <target_mrad> <max_velocity_mrad_s> <timeout_ms>','执行绝对或相对定位。','M'),
+      ShellForm('dm speed <velocity_mrad_s>','按2 rad/s²默认斜坡进入定速。','M'),
+      ShellForm('dm hold','收回参考到当前反馈位置并保持。','M'),
+      ShellForm('dm disable','停止周期控制并重复发送失能。','M'),
+      ShellForm('dm clear','只清除电机故障，不清除系统锁存故障。','W'),
+      ShellForm('dm zero confirm','仅在已失能、反馈新鲜、低速且系统无故障时写零点。','M')
+    ],'零点写入具有持久影响；必须空载确认机械位置后执行。')
 ];

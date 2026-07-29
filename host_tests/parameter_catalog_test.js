@@ -20,7 +20,7 @@ const descriptorNames=[...storeSource.matchAll(
   /\{\s*"([a-zA-Z0-9_]+)"\s*,\s*PARAM_(?:U8|U16|U32|I32)\s*,/g
 )].map(match=>match[1]);
 
-assert.strictEqual(descriptorNames.length,106,
+assert.strictEqual(descriptorNames.length,116,
   'firmware parameter count changed; audit the host metadata');
 assert.strictEqual(new Set(descriptorNames).size,descriptorNames.length,
   'firmware parameter descriptors contain duplicates');
@@ -45,6 +45,26 @@ for(const [name,expected] of Object.entries(v15Parameters)){
   }
 }
 
+const v16Parameters={
+  dm_position_kp_milli:{defaultValue:4000,min:0,max:10000},
+  dm_position_kd_milli:{defaultValue:400,min:0,max:2000},
+  dm_speed_kd_milli:{defaultValue:500,min:0,max:2000},
+  dm_max_velocity_mrad_s:{defaultValue:2000,min:0,max:20000},
+  dm_max_tracking_error_mrad:{defaultValue:250,min:1,max:250},
+  dm_speed_slew_mrad_s2:{defaultValue:2000,min:1,max:10000},
+  dm_position_tolerance_mrad:{defaultValue:10,min:1,max:100},
+  dm_velocity_tolerance_mrad_s:{defaultValue:80,min:1,max:500},
+  dm_settle_ms:{defaultValue:200,min:50,max:1000},
+  dm_feedback_timeout_ms:{defaultValue:100,min:50,max:500}
+};
+for(const [name,expected] of Object.entries(v16Parameters)){
+  assert(context.PARAM_META[name],name+' is missing from the host parameter tree');
+  for(const [field,value] of Object.entries(expected)){
+    assert.strictEqual(context.PARAM_META[name][field],value,
+      name+' '+field+' must match firmware v16');
+  }
+}
+
 const grayWhite=[3253,3217,3189,3316,3151,3011,2802,3188];
 const grayBlack=[1010,934,737,2010,1548,1347,753,1362];
 for(let index=0;index<8;index++){
@@ -56,12 +76,12 @@ for(let index=0;index<8;index++){
 assert.strictEqual(context.PARAM_META.gray_track_mask.defaultValue,0x7E,
   'host default grayscale tracking mask must match firmware migration');
 
-assert(/static const uint16_t kVersion = 16U;/.test(storeSource),
+assert(/static const uint16_t kVersion = 17U;/.test(storeSource),
   'firmware ConfigStore version changed');
 assert(/static const uint16_t kPayloadLength = 243U;/.test(storeSource),
   'firmware ConfigStore payload length changed');
-assert(/version=16 len=243/.test(parameterSource),
-  'host simulator must report the v16 payload length');
+assert(/version=17 len=243/.test(parameterSource),
+  'host simulator must report the v17 main payload length');
 
 const current={};
 for(const name of context.PARAM_ORDER){
@@ -96,4 +116,4 @@ assert.strictEqual(radiusPlan.ok,true,radiusPlan.error);
 assert.strictEqual(radiusPlan.finalValues.wheel_radius_mm,33,
   'import planner must model ConfigStore wheel-radius synchronization');
 
-console.log('parameter catalog ok: 106 parameters, ConfigStore v16 payload 243');
+console.log('parameter catalog ok: 116 parameters, ConfigStore v17 main payload 243');

@@ -127,9 +127,9 @@ struct ConfigStoreParams {
     uint16_t road_turn_outer_max_rpm;
     uint16_t road_turn_inner_reverse_max_rpm;
 
-    /* Real line-sensor selection and infrared tuning (v16). Appended so all
-     * v1-v15 offsets remain unchanged. A zero span/threshold means that the
-     * infrared sensor has not completed its five-step calibration. */
+    /* Real line-sensor selection and infrared tuning. These fields are kept
+     * in the CRC-protected infrared extension record because the main v16
+     * payload uses its final 20 bytes for DM-G6220 parameters. */
     uint8_t line_sensor_source;
     uint8_t infrared_position_invert;
     uint16_t infrared_position_span_raw;
@@ -139,6 +139,19 @@ struct ConfigStoreParams {
     int32_t infrared_linefollow_kd;
     uint16_t infrared_linefollow_max_correction_rpm;
     uint16_t infrared_linefollow_correction_slew_permille_per_second;
+
+    /* DM-G6220 MIT controller (v16). Integer units avoid floating point in
+     * the 100 Hz control path. */
+    uint16_t dm_position_kp_milli;
+    uint16_t dm_position_kd_milli;
+    uint16_t dm_speed_kd_milli;
+    uint16_t dm_max_velocity_mrad_s;
+    uint16_t dm_max_tracking_error_mrad;
+    uint16_t dm_speed_slew_mrad_s2;
+    uint16_t dm_position_tolerance_mrad;
+    uint16_t dm_velocity_tolerance_mrad_s;
+    uint16_t dm_settle_ms;
+    uint16_t dm_feedback_timeout_ms;
 };
 
 enum ConfigStoreLoadOutcome : uint8_t {
