@@ -660,6 +660,33 @@ oled off
 oled on
 ```
 
+## OLED大字计时器
+
+大字计时器使用整个128×32屏幕显示 `M:SS.t`，例如 `3:20.1`。显示范围
+为 `0:00.0` 到 `9:59.9`，达到上限后自动停止。计时只读取系统毫秒时基，
+不新增高频调度任务；OLED仅在十分之一秒数字变化时，通过DMA刷新发生变化
+的列窗口。计时器不修改参数或FRAM。
+
+```text
+timer start
+timer stop
+timer resume
+timer reset
+timer status
+timer hide
+```
+
+- `start`：从 `0:00.0` 重新开始并占用OLED。
+- `stop`：停止计时，保留冻结的大字画面。
+- `resume`：从冻结值继续。
+- `reset`：清零；若正在运行则从零继续。
+- `status`：输出 `visible`、`running`、`elapsed_ms`、`display`、饱和状态、
+  实际帧缓冲更新次数和最近显示状态。
+- `hide`：停止并释放OLED，同时清屏。
+
+故障页面优先级高于大字计时器。计时器可以在比赛已布防或运行时启动；
+启用期间它优先于普通比赛状态页，执行 `timer hide` 后比赛页会自动恢复。
+
 ## IMU / 磁力计 SPI
 
 ICM-45686 和 LIS3MDLTR 共用 `IMU_SPI`，由 GPIO 手动控制片选：

@@ -11,6 +11,7 @@
 #include "app/app_jyme02_can.h"
 #include "app/battery_monitor.h"
 #include "app/app_lora.h"
+#include "app/app_large_timer.h"
 #include "app/action.h"
 #include "app/config_store.h"
 #include "app/heading.h"
@@ -221,7 +222,8 @@ bool CompetitionOwnsOled(void)
 {
     const AppMode mode = App_GetState()->mode;
     return (mode == APP_MODE_COMPETITION_ARMED) ||
-           (mode == APP_MODE_COMPETITION_RUNNING);
+           (mode == APP_MODE_COMPETITION_RUNNING) ||
+           App_LargeTimerOwnsDisplay();
 }
 
 uint8_t CountTextCells(const char *text, uint8_t max_cells)
@@ -950,6 +952,12 @@ void PrintOledUsage(void)
     services::Shell_WriteLine("  oled text <row 0..3> <col 0..20> <ascii...>");
     services::Shell_WriteLine("  oled invert on|off");
     services::Shell_WriteLine("  oled on|off");
+}
+
+void PrintLargeTimerUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  timer start|stop|resume|reset|hide|status");
 }
 #endif
 
@@ -3476,6 +3484,62 @@ void OledCommand(int argc, const char * const argv[])
     }
 
     PrintOledUsage();
+}
+
+void LargeTimerCommand(int argc, const char * const argv[])
+{
+    if (argc != 2) {
+        PrintLargeTimerUsage();
+        return;
+    }
+    if (StrEqual(argv[1], "status")) {
+        const AppLargeTimerState *state = App_LargeTimerGetState();
+        const uint16_t tenths = static_cast<uint16_t>(
+            state->elapsed_ms / 100U);
+        const uint8_t minutes = static_cast<uint8_t>(tenths / 600U);
+        const uint8_t seconds = static_cast<uint8_t>((tenths / 10U) % 60U);
+        services::Shell_WriteString("timer visible=");
+        services::Shell_WriteUInt32(state->visible ? 1U : 0U);
+        services::Shell_WriteString(" running=");
+        services::Shell_WriteUInt32(state->running ? 1U : 0U);
+        services::Shell_WriteString(" elapsed_ms=");
+        services::Shell_WriteUInt32(state->elapsed_ms);
+        services::Shell_WriteString(" display=");
+        services::Shell_WriteUInt32(minutes);
+        services::Shell_WriteString(":");
+        if (seconds < 10U) {
+            services::Shell_WriteString("0");
+        }
+        services::Shell_WriteUInt32(seconds);
+        services::Shell_WriteString(".");
+        services::Shell_WriteUInt32(tenths % 10U);
+        services::Shell_WriteString(" saturated=");
+        services::Shell_WriteUInt32(state->saturated ? 1U : 0U);
+        services::Shell_WriteString(" updates=");
+        services::Shell_WriteUInt32(state->display_updates);
+        services::Shell_WriteString(" status=");
+        services::Shell_WriteString(DriverStatusText(
+            state->last_display_status));
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    drivers::DriverStatus status = drivers::DRIVER_ERROR_INVALID_ARG;
+    if (StrEqual(argv[1], "start")) {
+        status = App_LargeTimerStart();
+    } else if (StrEqual(argv[1], "stop")) {
+        status = App_LargeTimerStop();
+    } else if (StrEqual(argv[1], "resume")) {
+        status = App_LargeTimerResume();
+    } else if (StrEqual(argv[1], "reset")) {
+        status = App_LargeTimerReset();
+    } else if (StrEqual(argv[1], "hide")) {
+        status = App_LargeTimerHide();
+    } else {
+        PrintLargeTimerUsage();
+        return;
+    }
+    WriteStatusLine("timer: ", status);
 }
 #endif
 
@@ -10191,6 +10255,10 @@ void AppShell_RegisterCommands(void)
         "oled",
         "OLED: status|init|clear|fill|test|invert|on|off",
         OledCommand);
+    (void) services::Shell_RegisterCommand(
+        "timer",
+        "Large OLED timer: start|stop|resume|reset|hide|status",
+        LargeTimerCommand);
 #endif
 #if FEATURE_ENABLE_GY931
     (void) services::Shell_RegisterCommand(
