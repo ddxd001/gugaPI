@@ -28,9 +28,18 @@ build_and_run() {
     "${build_dir}/${name}"
 }
 
-build_and_run config_store_v15 \
+build_and_run config_store_v16 \
     host_tests/config_store_v13_test.cpp \
     gugaPI/app/config_store.cpp
+build_and_run dm_g6220_protocol \
+    host_tests/dm_g6220_protocol_test.cpp \
+    gugaPI/drivers/dm_g6220/dm_g6220.cpp
+build_and_run dm_g6220_controller \
+    host_tests/dm_g6220_controller_test.cpp \
+    gugaPI/app/dm_g6220_controller.cpp \
+    gugaPI/drivers/dm_g6220/dm_g6220.cpp
+build_and_run app_can_bus \
+    host_tests/app_can_bus_test.cpp
 build_and_run grayscale_processing \
     host_tests/grayscale_processing_test.cpp \
     gugaPI/drivers/grayscale/grayscale_processing.cpp

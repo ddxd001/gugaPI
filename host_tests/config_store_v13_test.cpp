@@ -82,26 +82,58 @@ drivers::DriverStatus Board_FramWrite(uint16_t address,
 int main(void)
 {
     using namespace app;
+    static const uint16_t kHeaderLength = 8U;
+    static const uint16_t kV16PayloadLength = 243U;
+    static const uint16_t kV15PayloadLength = 223U;
+    static const uint16_t kV14PayloadLength = 219U;
+    static const uint16_t kV13PayloadLength = 215U;
 
     ConfigStore_ResetDefaults();
     assert(ConfigStore_Get()->road_align_distance_mm == 0U);
     assert(ConfigStore_Get()->road_align_rpm == 30U);
     assert(ConfigStore_Get()->road_turn_outer_max_rpm == 220U);
     assert(ConfigStore_Get()->road_turn_inner_reverse_max_rpm == 120U);
+    assert(ConfigStore_Get()->dm_position_kp_milli == 4000U);
+    assert(ConfigStore_Get()->dm_feedback_timeout_ms == 100U);
     assert(ConfigStore_Set("heading_kp", 4321) == drivers::DRIVER_OK);
     assert(ConfigStore_Set("road_align_distance_mm", 20) ==
            drivers::DRIVER_OK);
     assert(ConfigStore_Set("road_align_rpm", 45) ==
            drivers::DRIVER_OK);
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 15U);
-    assert(ReadU16(&g_fram[6]) == 223U);
+    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[6]) == kV16PayloadLength);
+    assert(kHeaderLength + kV16PayloadLength + 4U < 0x0100U);
+
+    /* A v15 image keeps every existing setting and receives the appended
+     * DM-G6220 defaults, then becomes dirty until saved as v16. */
+    WriteU16(&g_fram[4], 15U);
+    WriteU16(&g_fram[6], kV15PayloadLength);
+    WriteU32(&g_fram[kHeaderLength + kV15PayloadLength],
+             Crc32(g_fram, kHeaderLength + kV15PayloadLength));
+    ConfigStore_ResetDefaults();
+    assert(ConfigStore_Load() == drivers::DRIVER_OK);
+    const ConfigStoreParams *params = ConfigStore_Get();
+    assert(params->heading_kp == 4321);
+    assert(params->road_align_distance_mm == 20U);
+    assert(params->road_align_rpm == 45U);
+    assert(params->dm_position_kp_milli == 4000U);
+    assert(params->dm_position_kd_milli == 400U);
+    assert(params->dm_speed_kd_milli == 500U);
+    assert(params->dm_max_velocity_mrad_s == 2000U);
+    assert(params->dm_max_tracking_error_mrad == 250U);
+    assert(params->dm_speed_slew_mrad_s2 == 2000U);
+    assert(params->dm_position_tolerance_mrad == 10U);
+    assert(params->dm_velocity_tolerance_mrad_s == 80U);
+    assert(params->dm_settle_ms == 200U);
+    assert(params->dm_feedback_timeout_ms == 100U);
+    assert(ConfigStore_GetStatus()->dirty);
+    assert(ConfigStore_Save() == drivers::DRIVER_OK);
+    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[6]) == kV16PayloadLength);
 
     /* A v14 image retains alignment settings and receives new asymmetric
      * turn defaults without changing any prior field offset. */
-    static const uint16_t kHeaderLength = 8U;
-    static const uint16_t kV14PayloadLength = 219U;
-    static const uint16_t kV13PayloadLength = 215U;
     WriteU16(&g_fram[4], 14U);
     WriteU16(&g_fram[6], kV14PayloadLength);
     WriteU32(&g_fram[kHeaderLength + kV14PayloadLength],
@@ -109,7 +141,7 @@ int main(void)
 
     ConfigStore_ResetDefaults();
     assert(ConfigStore_Load() == drivers::DRIVER_OK);
-    const ConfigStoreParams *params = ConfigStore_Get();
+    params = ConfigStore_Get();
     assert(params->heading_kp == 4321);
     assert(params->road_align_distance_mm == 20U);
     assert(params->road_align_rpm == 45U);
@@ -119,8 +151,8 @@ int main(void)
     assert(ConfigStore_GetStatus()->stored_length == kV14PayloadLength);
 
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 15U);
-    assert(ReadU16(&g_fram[6]) == 223U);
+    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[6]) == kV16PayloadLength);
     assert(!ConfigStore_GetStatus()->dirty);
 
     /* Convert the freshly encoded prefix into a valid historical v13 image. */
@@ -146,8 +178,8 @@ int main(void)
     assert(ConfigStore_GetStatus()->stored_length == kV13PayloadLength);
 
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 15U);
-    assert(ReadU16(&g_fram[6]) == 223U);
+    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[6]) == kV16PayloadLength);
     assert(!ConfigStore_GetStatus()->dirty);
 
     assert(ConfigStore_Set("heading_lock_settle_mdeg", 2500) ==
@@ -174,6 +206,16 @@ int main(void)
            drivers::DRIVER_ERROR_INVALID_ARG);
     assert(ConfigStore_Set("road_turn_inner_reverse_max_rpm", 1001) ==
            drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("dm_max_velocity_mrad_s", 20001) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("dm_max_velocity_mrad_s", 20000) ==
+           drivers::DRIVER_OK);
+    assert(ConfigStore_Set("dm_max_velocity_mrad_s", 0) ==
+           drivers::DRIVER_OK);
+    assert(ConfigStore_Set("dm_max_tracking_error_mrad", 251) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("dm_feedback_timeout_ms", 49) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
 
     assert(ConfigStore_Set("heading_lock_kp", 1750) == drivers::DRIVER_OK);
     assert(ConfigStore_Set("heading_lock_kd", 300) == drivers::DRIVER_OK);
@@ -184,6 +226,10 @@ int main(void)
     assert(ConfigStore_Set("road_turn_outer_max_rpm", 210) ==
            drivers::DRIVER_OK);
     assert(ConfigStore_Set("road_turn_inner_reverse_max_rpm", 140) ==
+           drivers::DRIVER_OK);
+    assert(ConfigStore_Set("dm_position_kp_milli", 4500) ==
+           drivers::DRIVER_OK);
+    assert(ConfigStore_Set("dm_feedback_timeout_ms", 120) ==
            drivers::DRIVER_OK);
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
     ConfigStore_ResetDefaults();
@@ -197,8 +243,10 @@ int main(void)
     assert(params->road_align_rpm == 80U);
     assert(params->road_turn_outer_max_rpm == 210U);
     assert(params->road_turn_inner_reverse_max_rpm == 140U);
+    assert(params->dm_position_kp_milli == 4500U);
+    assert(params->dm_feedback_timeout_ms == 120U);
     assert(!ConfigStore_GetStatus()->dirty);
 
-    puts("config store v15 migration ok");
+    puts("config store v16 migration ok");
     return 0;
 }

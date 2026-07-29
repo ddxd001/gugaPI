@@ -11,7 +11,9 @@ namespace {
 
 static const uint16_t kFramAddress = 0x0000U;
 static const uint32_t kMagic = 0x47504643U; /* "CFPG" little-endian */
-static const uint16_t kVersion = 15U;
+static const uint16_t kVersion = 16U;
+static const uint16_t kV15Version = 15U;
+static const uint16_t kV15PayloadLength = 223U;
 static const uint16_t kV14Version = 14U;
 static const uint16_t kV14PayloadLength = 219U;
 static const uint16_t kV13Version = 13U;
@@ -42,9 +44,10 @@ static const uint16_t kV2PayloadLength = 68U; /* v2 layout length (motor_invert 
 /* v11 keeps the v10 binary layout and migrates the former default four-channel
  * grayscale tracking mask. v12 appends predictive TURN fields, v13 appends
  * stationary heading-lock fields, v14 appends corner alignment distance and
- * speed, and v15 appends asymmetric road-turn wheel limits;
+ * speed, v15 appends asymmetric road-turn wheel limits, and v16 appends
+ * the bounded DM-G6220 MIT control parameters;
  * every older field keeps its binary offset. */
-static const uint16_t kPayloadLength = 223U;
+static const uint16_t kPayloadLength = 243U;
 static const uint16_t kHeaderLength = 8U;
 static const uint16_t kCrcLength = 4U;
 static const uint16_t kImageLength =
@@ -188,6 +191,26 @@ static const ParamDescriptor kParamDescriptors[] = {
       PARAM_OFFSET(road_turn_outer_max_rpm), 1, 1000 },
     { "road_turn_inner_reverse_max_rpm", PARAM_U16,
       PARAM_OFFSET(road_turn_inner_reverse_max_rpm), 0, 1000 },
+    { "dm_position_kp_milli", PARAM_U16,
+      PARAM_OFFSET(dm_position_kp_milli), 0, 10000 },
+    { "dm_position_kd_milli", PARAM_U16,
+      PARAM_OFFSET(dm_position_kd_milli), 0, 2000 },
+    { "dm_speed_kd_milli", PARAM_U16,
+      PARAM_OFFSET(dm_speed_kd_milli), 0, 2000 },
+    { "dm_max_velocity_mrad_s", PARAM_U16,
+      PARAM_OFFSET(dm_max_velocity_mrad_s), 0, 20000 },
+    { "dm_max_tracking_error_mrad", PARAM_U16,
+      PARAM_OFFSET(dm_max_tracking_error_mrad), 1, 250 },
+    { "dm_speed_slew_mrad_s2", PARAM_U16,
+      PARAM_OFFSET(dm_speed_slew_mrad_s2), 1, 10000 },
+    { "dm_position_tolerance_mrad", PARAM_U16,
+      PARAM_OFFSET(dm_position_tolerance_mrad), 1, 100 },
+    { "dm_velocity_tolerance_mrad_s", PARAM_U16,
+      PARAM_OFFSET(dm_velocity_tolerance_mrad_s), 1, 500 },
+    { "dm_settle_ms", PARAM_U16,
+      PARAM_OFFSET(dm_settle_ms), 50, 1000 },
+    { "dm_feedback_timeout_ms", PARAM_U16,
+      PARAM_OFFSET(dm_feedback_timeout_ms), 50, 500 },
     { "distance_speed_mode", PARAM_U8,
       PARAM_OFFSET(distance_speed_mode),
       DISTANCE_SPEED_MODE_LEGACY, DISTANCE_SPEED_MODE_TRAPEZOID },
@@ -418,6 +441,16 @@ void SetDefaults(ConfigStoreParams *params)
     params->road_align_rpm = 30U;
     params->road_turn_outer_max_rpm = 220U;
     params->road_turn_inner_reverse_max_rpm = 120U;
+    params->dm_position_kp_milli = 4000U;
+    params->dm_position_kd_milli = 400U;
+    params->dm_speed_kd_milli = 500U;
+    params->dm_max_velocity_mrad_s = 2000U;
+    params->dm_max_tracking_error_mrad = 250U;
+    params->dm_speed_slew_mrad_s2 = 2000U;
+    params->dm_position_tolerance_mrad = 10U;
+    params->dm_velocity_tolerance_mrad_s = 80U;
+    params->dm_settle_ms = 200U;
+    params->dm_feedback_timeout_ms = 100U;
 
     /* MotorDriver closes its speed loop every 10 ms. These conservative
      * endpoint values model end-to-end command/feedback delay and mechanical
@@ -623,7 +656,17 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     cursor = AppendU16(cursor, params.road_align_distance_mm);
     cursor = AppendU16(cursor, params.road_align_rpm);
     cursor = AppendU16(cursor, params.road_turn_outer_max_rpm);
-    (void) AppendU16(cursor, params.road_turn_inner_reverse_max_rpm);
+    cursor = AppendU16(cursor, params.road_turn_inner_reverse_max_rpm);
+    cursor = AppendU16(cursor, params.dm_position_kp_milli);
+    cursor = AppendU16(cursor, params.dm_position_kd_milli);
+    cursor = AppendU16(cursor, params.dm_speed_kd_milli);
+    cursor = AppendU16(cursor, params.dm_max_velocity_mrad_s);
+    cursor = AppendU16(cursor, params.dm_max_tracking_error_mrad);
+    cursor = AppendU16(cursor, params.dm_speed_slew_mrad_s2);
+    cursor = AppendU16(cursor, params.dm_position_tolerance_mrad);
+    cursor = AppendU16(cursor, params.dm_velocity_tolerance_mrad_s);
+    cursor = AppendU16(cursor, params.dm_settle_ms);
+    (void) AppendU16(cursor, params.dm_feedback_timeout_ms);
 }
 
 void DecodePayload(const uint8_t *payload,
@@ -792,11 +835,26 @@ void DecodePayload(const uint8_t *payload,
         cursor = ReadU16Field(cursor, &params->road_align_distance_mm);
         cursor = ReadU16Field(cursor, &params->road_align_rpm);
     }
-    if (payload_length >= kPayloadLength) {
+    if (payload_length >= kV15PayloadLength) {
         cursor = ReadU16Field(cursor, &params->road_turn_outer_max_rpm);
-        (void) ReadU16Field(
+        cursor = ReadU16Field(
             cursor,
             &params->road_turn_inner_reverse_max_rpm);
+    }
+    if (payload_length >= kPayloadLength) {
+        cursor = ReadU16Field(cursor, &params->dm_position_kp_milli);
+        cursor = ReadU16Field(cursor, &params->dm_position_kd_milli);
+        cursor = ReadU16Field(cursor, &params->dm_speed_kd_milli);
+        cursor = ReadU16Field(cursor, &params->dm_max_velocity_mrad_s);
+        cursor = ReadU16Field(
+            cursor, &params->dm_max_tracking_error_mrad);
+        cursor = ReadU16Field(cursor, &params->dm_speed_slew_mrad_s2);
+        cursor = ReadU16Field(
+            cursor, &params->dm_position_tolerance_mrad);
+        cursor = ReadU16Field(
+            cursor, &params->dm_velocity_tolerance_mrad_s);
+        cursor = ReadU16Field(cursor, &params->dm_settle_ms);
+        (void) ReadU16Field(cursor, &params->dm_feedback_timeout_ms);
     }
     (void) cursor;
 }
@@ -943,6 +1001,8 @@ drivers::DriverStatus ConfigStore_Load(void)
 
     const bool current_layout =
         (version == kVersion) && (length == kPayloadLength);
+    const bool v15_layout =
+        (version == kV15Version) && (length == kV15PayloadLength);
     const bool v14_layout =
         (version == kV14Version) && (length == kV14PayloadLength);
     const bool v13_layout =
@@ -971,7 +1031,7 @@ drivers::DriverStatus ConfigStore_Load(void)
         (version == kLegacyVersion) && (length == kLegacyPayloadLength);
     const bool legacy_v2 = (version == 2U) && (length == kV2PayloadLength);
     const bool legacy_layout =
-        v14_layout || v13_layout || v12_layout || v11_layout || v10_layout || v9_layout || v8_layout || v7_layout || v6_layout ||
+        v15_layout || v14_layout || v13_layout || v12_layout || v11_layout || v10_layout || v9_layout || v8_layout || v7_layout || v6_layout ||
         v5_layout || v4_layout || v3_layout || legacy_v1 || legacy_v2;
 
     if ((magic != kMagic) ||

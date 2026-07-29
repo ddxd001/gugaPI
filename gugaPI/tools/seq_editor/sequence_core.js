@@ -172,6 +172,15 @@ var ACTIONS={
   road_nav:{op:19,name:'循迹通过路口',group:'电赛复合动作',color:'#32b8a0',
     help:'从当前黑线循迹到下一个路口，按指定方向通过并重新捕获黑线。',
     defaults:{direction:'straight',uturnMode:'arc',rpm:80,timeoutMs:15000}},
+  dm_position:{op:20,name:'达妙定位',group:'达妙电机',color:'#d08b5b',
+    help:'以参考轨迹驱动 DM-G6220 到绝对或相对角度，完成后保持目标位置。',
+    defaults:{frame:'relative',angleDeg:0,maxVelocityDegS:11.5,timeoutMs:5000}},
+  dm_speed:{op:21,name:'达妙定速',group:'达妙电机',color:'#c46e8f',
+    help:'按指定角速度运行一段时间，然后斜坡减速并保持停止位置。',
+    defaults:{velocityDegS:11.5,durationMs:1000}},
+  dm_disable:{op:22,name:'达妙失能',group:'达妙电机',color:'#8c788d',
+    help:'显式释放 DM-G6220；序列结束、取消、急停和故障也会自动失能。',
+    defaults:{}},
   stop:{op:5,name:'停车',group:'流程控制',color:'#df647c',
     help:'停止底盘、航向和循迹控制，然后继续。',defaults:{}},
   end:{op:7,name:'结束',group:'流程控制',color:'#697081',
@@ -195,7 +204,7 @@ var OP_TYPES={
   1:'drive',2:'turn',3:'follow',4:'wait',5:'stop',7:'end',8:'drive_mm',
   9:'led_on',10:'led_off',11:'led_toggle',12:'buzzer_on',
   13:'buzzer_off',14:'buzzer_toggle',15:'condition',16:'drive',17:'follow',
-  18:'loop',19:'road_nav'
+  18:'loop',19:'road_nav',20:'dm_position',21:'dm_speed',22:'dm_disable'
 };
 
 function clone(v){return JSON.parse(JSON.stringify(v))}
@@ -431,6 +440,28 @@ function validateParams(n,maxRpm,issues,options){
         '整体超时应为 50～30000 ms，步进 50 ms',
         n.id,'timeoutMs');
     }
+  }else if(t==='dm_position'){
+    if(p.frame!=='absolute'&&p.frame!=='relative'){
+      addIssue(issues,'error','dm_frame','定位方式必须为绝对或相对',
+        n.id,'frame');
+    }
+    range('angleDeg',-716.2,716.2,'目标角度',false);
+    range('maxVelocityDegS',0.1,1145.9,'轨迹速度',false);
+    var dmPositionTimeout=Number(p.timeoutMs);
+    if(!Number.isInteger(dmPositionTimeout)||dmPositionTimeout<50||
+       dmPositionTimeout>30000||dmPositionTimeout%50!==0){
+      addIssue(issues,'error','dm_position_timeout',
+        '定位超时应为 50～30000 ms，步进 50 ms',n.id,'timeoutMs');
+    }
+  }else if(t==='dm_speed'){
+    range('velocityDegS',-1145.9,1145.9,'角速度',true);
+    var dmDuration=Number(p.durationMs);
+    if(!Number.isInteger(dmDuration)||dmDuration<50||
+       dmDuration>30000||dmDuration%50!==0){
+      addIssue(issues,'error','dm_speed_duration',
+        '定速持续时间应为 50～30000 ms，步进 50 ms',
+        n.id,'durationMs');
+    }
   }else if(t.indexOf('led_')===0){
     var target=Number(p.target);
     if([0,2,3].indexOf(target)<0)addIssue(issues,'error','target',
@@ -574,10 +605,12 @@ function validate(project,options){
   var sum=0;
   actions.forEach(function(n){
     var p2=n.params||{};
-    if(['drive','turn','follow','wait','condition','road_nav']
+    if(['drive','turn','follow','wait','condition','road_nav',
+        'dm_position','dm_speed']
        .indexOf(n.type)>=0){
       if(n.type!=='condition'||p2.mode==='wait'){
-        sum+=Math.max(0,Number(p2.timeoutMs)||0);
+        sum+=Math.max(0,Number(
+          n.type==='dm_speed'?p2.durationMs:p2.timeoutMs)||0);
       }
     }
   });
@@ -620,6 +653,16 @@ function rawFor(n){
     r.p1=+p.rpm;r.p2=+p.timeoutMs;r.until=5;
     r.conditionValue=route?route.code:-1;
     r.route=routeValue;
+  }else if(type==='dm_position'){
+    r.p1=Math.round(Number(p.angleDeg)*Math.PI*1000/180);
+    r.p2=Math.round(Number(p.maxVelocityDegS)*Math.PI*1000/180);
+    r.until=p.frame==='relative'?8:7;
+    r.conditionValue=+p.timeoutMs;
+    r.frame=p.frame;
+  }else if(type==='dm_speed'){
+    r.p1=Math.round(Number(p.velocityDegS)*Math.PI*1000/180);
+    r.p2=+p.durationMs;
+    r.until=5;
   }else if(type.indexOf('led_')===0){
     r.p1=+p.target||0;r.p2=type==='led_off'?0:(+p.durationMs||0);
   }else if(type==='buzzer_on'||type==='buzzer_toggle'){
@@ -684,6 +727,20 @@ function paramsFromRaw(type,r){
       uturnMode:pivot?'pivot':'arc',
       rpm:r.p1,
       timeoutMs:r.p2
+    };
+  }
+  if(type==='dm_position'){
+    return{
+      frame:Number(r.until)===8?'relative':'absolute',
+      angleDeg:Number((Number(r.p1)*180/(Math.PI*1000)).toFixed(3)),
+      maxVelocityDegS:Number((Number(r.p2)*180/(Math.PI*1000)).toFixed(3)),
+      timeoutMs:Number(r.conditionValue)
+    };
+  }
+  if(type==='dm_speed'){
+    return{
+      velocityDegS:Number((Number(r.p1)*180/(Math.PI*1000)).toFixed(3)),
+      durationMs:Number(r.p2)
     };
   }
   if(type.indexOf('led_')===0){

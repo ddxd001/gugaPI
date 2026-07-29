@@ -97,9 +97,36 @@ Firmware behavior:
 | Nominal bit rate | 250 kbit/s |
 | Accepted RX frames | Standard and extended data frames |
 | Rejected RX frames | Remote and CAN FD frames |
-| Startup state | TCAN3413 Normal, no automatic transmission |
+| Startup state | TCAN3413 Normal; DM-G6220 startup safety sequence, no automatic enable |
 | Hardware RX FIFO | 16 frames |
 | Software RX queue | 32 frames |
+
+### DM-G6220 Connection And Firmware Policy
+
+The current CAN build is dedicated to one DM-G6220 in MIT mode. JY-ME02
+support remains in the source tree but is disabled in both development and
+competition feature profiles.
+
+| Item | Value / Requirement |
+| --- | --- |
+| Motor CAN ID | `0x01` |
+| Master ID | `0x00` |
+| CAN mode | Classic CAN, 250 kbit/s |
+| Motor control mode | MIT |
+| Feedback frame | Standard ID `0x000`, DLC 8, byte 0 motor ID `0x01` |
+| Termination | About 60 ohm CANH-CANL across the complete unpowered bus |
+| Internal motor communication timeout | Set the upper-computer `CAN Timeout` field to `2000`; at 50 us/count this is 100 ms |
+| Firmware startup | Wait 1 s, clear fault x3, disable x3, then keep sending a zero-gain MIT probe every 50 ms while disabled |
+| Automatic enable | Never; only an explicit debug command or sequence action may enable |
+| Motion start | If idle feedback is stale, probe first and resume the request only after fresh feedback arrives |
+| Global feedback fault | An explicit motion request that cannot probe the motor within 500 ms, or active control with feedback older than 100 ms, reports `DM TIMEOUT` and requests disable |
+| Global motor fault | Motor state code 8..14 reports `DM FAULT` and requests disable |
+
+Connect only CANH, CANL and a common signal ground between gugaPI and the
+motor communication interface. Power the motor from a suitable current-limited
+supply according to the motor manual; do not power it from the gugaPI 3.3 V
+rail. During first bring-up, fix the motor housing, leave the shaft unloaded
+and keep the emergency stop accessible.
 
 ## Power And Ground
 

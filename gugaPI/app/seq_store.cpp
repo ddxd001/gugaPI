@@ -480,6 +480,14 @@ drivers::DriverStatus SeqStore_Load(uint8_t slot)
                 instr.param2,
                 instr.on_success,
                 instr.on_timeout);
+        } else if (instr.op == ACT_OP_DM_POSITION) {
+            add_status = ActionRunner_AddDmPosition(
+                instr.until == ACT_COND_DM_RELATIVE,
+                instr.param1,
+                instr.param2,
+                instr.condition_value,
+                instr.on_success,
+                instr.on_timeout);
         } else {
             add_status = ActionRunner_AddInstr(
                 instr.op, instr.param1, instr.param2, instr.until,
