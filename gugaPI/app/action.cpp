@@ -4,6 +4,7 @@
 #include "app/app_imu.h"
 #include "app/app_main.h"
 #include "app/chassis.h"
+#include "app/dm_g6220_controller.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
 #include "app/road_event_controller.h"
@@ -21,6 +22,7 @@ namespace {
 static const uint8_t kMaxInstrs = 64U;
 static const uint32_t kSequenceTimeoutMs = 300000U; /* whole-sequence cap */
 static const int32_t kMaxLoopCount = 1000;
+static const int32_t kDmMaxVelocityMradS = 20000;
 static const uint32_t kSensorMaxAgeMs = 200U;
 static const uint32_t kChassisFeedbackMaxAgeMs = 100U;
 static const uint16_t kConditionTickMs = 50U;
@@ -372,6 +374,9 @@ void FinishSequence(void)
     g_state.failure_reason = ACT_FAIL_NONE;
     g_state.failure_index = ACT_NEXT;
     StopAll();
+#if FEATURE_ENABLE_DM_G6220_CAN
+    DmG6220Controller_EmergencyDisable();
+#endif
     StopSequenceOutputs();
     ResetConditionRuntime();
     ResetLoopRuntime();
@@ -386,6 +391,9 @@ void AbortSequence(void)
         g_state.result = ACT_RUN_ABORTED;
     }
     StopAll();
+#if FEATURE_ENABLE_DM_G6220_CAN
+    DmG6220Controller_EmergencyDisable();
+#endif
     StopSequenceOutputs();
     ResetConditionRuntime();
     ResetLoopRuntime();
@@ -697,6 +705,31 @@ bool StartOp(const Instr *instr)
         return (Heading_DistanceStart(instr->param1,
                                       instr->param2,
                                       0U) == drivers::DRIVER_OK);
+    case ACT_OP_DM_POSITION:
+#if FEATURE_ENABLE_DM_G6220_CAN
+        return DmG6220Controller_StartPosition(
+                   (instr->until == ACT_COND_DM_RELATIVE) ?
+                       DM_POSITION_RELATIVE : DM_POSITION_ABSOLUTE,
+                   instr->param1,
+                   instr->param2,
+                   static_cast<uint32_t>(instr->condition_value)) ==
+               drivers::DRIVER_OK;
+#else
+        return false;
+#endif
+    case ACT_OP_DM_SPEED:
+#if FEATURE_ENABLE_DM_G6220_CAN
+        return DmG6220Controller_StartSpeed(instr->param1) ==
+               drivers::DRIVER_OK;
+#else
+        return false;
+#endif
+    case ACT_OP_DM_DISABLE:
+#if FEATURE_ENABLE_DM_G6220_CAN
+        return DmG6220Controller_Disable() == drivers::DRIVER_OK;
+#else
+        return false;
+#endif
     case ACT_OP_WAIT:
         return true;
     case ACT_OP_STOP:
@@ -767,6 +800,66 @@ InstrResult EvalInstr(const Instr *instr, uint32_t now)
         return EvalCond(ACT_COND_DISTANCE_REACHED)
             ? INSTR_SUCCESS
             : INSTR_RUNNING;
+    }
+    if (instr->op == ACT_OP_DM_POSITION) {
+#if FEATURE_ENABLE_DM_G6220_CAN
+        const DmG6220OperationResult result =
+            DmG6220Controller_GetState()->operation_result;
+        if (result == DM_OPERATION_RUNNING) {
+            return INSTR_RUNNING;
+        }
+        if (result == DM_OPERATION_SUCCESS) {
+            return INSTR_SUCCESS;
+        }
+        if (result == DM_OPERATION_TARGET_TIMEOUT) {
+            return INSTR_TIMEOUT;
+        }
+        return INSTR_FAULT;
+#else
+        return INSTR_FAULT;
+#endif
+    }
+    if (instr->op == ACT_OP_DM_SPEED) {
+#if FEATURE_ENABLE_DM_G6220_CAN
+        const uint32_t elapsed = now - g_state.instr_start_ms;
+        if (elapsed < static_cast<uint32_t>(instr->param2)) {
+            return INSTR_RUNNING;
+        }
+        const DmG6220ControlState *state =
+            DmG6220Controller_GetState();
+        if (state->mode == DM_CONTROL_SPEED) {
+            if (DmG6220Controller_StopSpeedAndHold() !=
+                drivers::DRIVER_OK) {
+                return INSTR_FAULT;
+            }
+            return INSTR_RUNNING;
+        }
+        if (state->operation_result == DM_OPERATION_RUNNING) {
+            return INSTR_RUNNING;
+        }
+        if (state->operation_result == DM_OPERATION_SUCCESS) {
+            return INSTR_SUCCESS;
+        }
+        if (state->operation_result == DM_OPERATION_STOP_TIMEOUT) {
+            return INSTR_TIMEOUT;
+        }
+        return INSTR_FAULT;
+#else
+        return INSTR_FAULT;
+#endif
+    }
+    if (instr->op == ACT_OP_DM_DISABLE) {
+#if FEATURE_ENABLE_DM_G6220_CAN
+        const DmG6220OperationResult result =
+            DmG6220Controller_GetState()->operation_result;
+        if (result == DM_OPERATION_RUNNING) {
+            return INSTR_RUNNING;
+        }
+        return (result == DM_OPERATION_SUCCESS) ?
+            INSTR_SUCCESS : INSTR_FAULT;
+#else
+        return INSTR_FAULT;
+#endif
     }
 
     const uint32_t elapsed = now - g_state.instr_start_ms;
@@ -901,14 +994,14 @@ bool ValidateInstr(const Instr *instr,
     const int32_t max_rpm = static_cast<int32_t>(
         Chassis_GetState()->config.max_wheel_rpm);
     if ((instr->op <= ACT_OP_NONE) ||
-        (instr->op > ACT_OP_ROAD_NAV)) {
+        (instr->op > ACT_OP_DM_DISABLE)) {
         SetValidationError(result, index, ACT_VALID_FIELD_OP,
                            ACT_VALID_UNKNOWN_OP);
         return false;
     }
     if ((!ActionCondition_IsCompareOp(instr->op)) &&
         ((instr->until < ACT_COND_TIMEOUT) ||
-         (instr->until > ACT_COND_DISTANCE_REACHED))) {
+         (instr->until > ACT_COND_DM_RELATIVE))) {
         SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
                            ACT_VALID_WRONG_CONDITION);
         return false;
@@ -1084,6 +1177,64 @@ bool ValidateInstr(const Instr *instr,
              static_cast<int32_t>(ROAD_ROUTE_COUNT))) {
             SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
                                ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+    } else if (instr->op == ACT_OP_DM_POSITION) {
+        if ((instr->param1 < -drivers::DM_G6220_POSITION_LIMIT_MRAD) ||
+            (instr->param1 > drivers::DM_G6220_POSITION_LIMIT_MRAD)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if ((instr->param2 <= 0) ||
+            (instr->param2 > kDmMaxVelocityMradS)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if ((instr->until != ACT_COND_DM_ABSOLUTE) &&
+            (instr->until != ACT_COND_DM_RELATIVE)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+        if ((instr->condition_value < 50) ||
+            (instr->condition_value > 30000) ||
+            ((instr->condition_value % 50) != 0)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+    } else if (instr->op == ACT_OP_DM_SPEED) {
+        if ((instr->param1 == 0) ||
+            (instr->param1 < -kDmMaxVelocityMradS) ||
+            (instr->param1 > kDmMaxVelocityMradS)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if ((instr->param2 < 50) || (instr->param2 > 30000) ||
+            ((instr->param2 % 50) != 0)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if ((instr->until != ACT_COND_IMMEDIATE) ||
+            (instr->condition_value != 0)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+    } else if (instr->op == ACT_OP_DM_DISABLE) {
+        if ((instr->param1 != 0) || (instr->param2 != 0)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_MUST_BE_ZERO);
+            return false;
+        }
+        if ((instr->until != ACT_COND_IMMEDIATE) ||
+            (instr->condition_value != 0)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
             return false;
         }
     } else if (led_op || buzzer_op) {
@@ -1318,6 +1469,40 @@ drivers::DriverStatus ActionRunner_AddRoadNav(
         timeout_ms,
         ACT_COND_IMMEDIATE,
         route,
+        on_success,
+        on_failure
+    };
+    ActionValidationResult validation = {
+        true, 0U, ACT_VALID_FIELD_NONE, ACT_VALID_OK
+    };
+    if (!ValidateInstr(&candidate, g_state.count, &validation)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    g_state.instrs[g_state.count] = candidate;
+    g_state.count++;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus ActionRunner_AddDmPosition(
+    bool relative,
+    int32_t target_mrad,
+    int32_t max_velocity_mrad_s,
+    int32_t timeout_ms,
+    uint8_t on_success,
+    uint8_t on_failure)
+{
+    if (g_state.running) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    if (g_state.count >= kMaxInstrs) {
+        return drivers::DRIVER_ERROR;
+    }
+    Instr candidate = {
+        ACT_OP_DM_POSITION,
+        target_mrad,
+        max_velocity_mrad_s,
+        relative ? ACT_COND_DM_RELATIVE : ACT_COND_DM_ABSOLUTE,
+        timeout_ms,
         on_success,
         on_failure
     };

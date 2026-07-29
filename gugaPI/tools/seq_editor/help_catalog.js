@@ -138,7 +138,7 @@ var ARTICLES=[
       {title:'结构与版本',body:[
         '不可达节点需要从开始节点建立路径，或从画布删除。',
         '无循环序列静态最长时间超过 300 秒时应缩短等待/超时；含循环序列运行中仍会在 300 秒终止。',
-        '旧固件拒绝 op18/op19 时升级固件，不能通过修改 JSON 绕过固件校验。'
+        '旧固件拒绝 op18-op22 时升级固件，不能通过修改 JSON 绕过固件校验。'
       ]}
     ]),
   Article('faq-device','troubleshooting','车辆不动、突然停车或传感器失效',
@@ -315,6 +315,57 @@ var ACTION_GUIDES={
     ]},
     tips:['连续 road_nav 可保留循迹交接；转入普通动作或结束前会安全停车。',
       '滚动掉头需要单独验证场地空间，首次必须低速架空轮胎。'],
+    risk:'motion'
+  },
+  dm_position:{
+    purpose:'让单台 DM-G6220 按限速参考轨迹到达绝对或相对角度，并在成功后保持目标位置。',
+    parameters:['定位方式：相对当前位置或相对电机绝对零位。',
+      '目标角度：界面使用度，编译后使用 mrad，最终目标必须位于 ±12.5 rad。',
+      '轨迹速度：最大 1145.9°/s（20000 mrad/s）；安全超时为 50..30000 ms。'],
+    success:'位置误差、速度和稳定时间同时满足配置后走“完成”出口，并继续保持目标。',
+    failure:'定位自身超时会收回参考位置、保持当前位置并走红色出口；反馈丢失或电机错误属于全局故障。',
+    example:{title:'相对转动 5°，失败时默认终止',paths:[
+      DemoFlow('定位成功',[
+        DemoNode('system_start'),DemoNode('dm_position','相对 5° · ≤11.5°/s'),
+        DemoNode('wait','500 ms'),DemoNode('dm_disable','释放电机'),
+        DemoNode('end')
+      ],['success','success','success','success']),
+      DemoFlow('定位超时',[
+        DemoNode('dm_position','相对 5° · ≤11.5°/s')
+      ],[],'红色端口留空时终止序列并重复发送失能。')
+    ]},
+    tips:['第一次运动应空载、固定电机外壳并限流供电。',
+      '机械机构安装后必须另行收紧软限位，不能继续直接使用协议全范围。'],
+    risk:'motion'
+  },
+  dm_speed:{
+    purpose:'让 DM-G6220 按斜坡到达指定角速度，持续一段时间后减速到零并保持停止位置。',
+    parameters:['目标角速度：输入框最大可填 ±1145.9°/s（±20000 mrad/s），不能为 0；实际速度还受全局参数 dm_max_velocity_mrad_s 限制。',
+      '持续时间：50..30000 ms，步进 50 ms。'],
+    success:'持续时间结束并完成斜坡减速后走“完成”出口，同时保持停止位置。',
+    failure:'启动失败或停止阶段超时走红色出口；反馈丢失、电机状态码 8..14 或 CAN bus-off 触发全局故障。',
+    example:{title:'正转 2 秒后保持并释放',paths:[
+      DemoFlow('正常路径',[
+        DemoNode('system_start'),DemoNode('dm_speed','11.5°/s · 2000 ms'),
+        DemoNode('wait','500 ms'),DemoNode('dm_disable','释放电机'),
+        DemoNode('end')
+      ],['success','success','success','success'])
+    ]},
+    tips:['定速动作结束并不立即失能，而是保持停止位置；需要自由转动时连接“达妙失能”。'],
+    risk:'motion'
+  },
+  dm_disable:{
+    purpose:'显式停止达妙周期控制并重复发送失能命令，让电机轴退出主动保持。',
+    parameters:['该动作没有可调控制参数。'],
+    success:'失能命令序列发送完成后走“完成”出口。',
+    failure:'CAN 发送异常时走红色出口；序列终止仍会执行失能安全兜底。',
+    example:{title:'动作完成后释放电机',paths:[
+      DemoFlow('正常路径',[
+        DemoNode('dm_position','相对 5° · ≤11.5°/s'),
+        DemoNode('dm_disable','释放电机'),DemoNode('end')
+      ],['success','success'])
+    ]},
+    tips:['序列结束、取消、隐式终止、急停、故障和模式切换都会自动失能；该节点用于在序列中提前释放。'],
     risk:'motion'
   },
   stop:{

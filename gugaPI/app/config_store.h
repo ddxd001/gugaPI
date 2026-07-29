@@ -124,6 +124,19 @@ struct ConfigStoreParams {
      * may reverse independently. */
     uint16_t road_turn_outer_max_rpm;
     uint16_t road_turn_inner_reverse_max_rpm;
+
+    /* DM-G6220 MIT controller (v16). Integer units avoid floating point in
+     * the 100 Hz control path. */
+    uint16_t dm_position_kp_milli;
+    uint16_t dm_position_kd_milli;
+    uint16_t dm_speed_kd_milli;
+    uint16_t dm_max_velocity_mrad_s;
+    uint16_t dm_max_tracking_error_mrad;
+    uint16_t dm_speed_slew_mrad_s2;
+    uint16_t dm_position_tolerance_mrad;
+    uint16_t dm_velocity_tolerance_mrad_s;
+    uint16_t dm_settle_ms;
+    uint16_t dm_feedback_timeout_ms;
 };
 
 enum ConfigStoreLoadOutcome : uint8_t {

@@ -34,7 +34,10 @@ enum ActionOp {
     ACT_OP_DRIVE_IF = 16,  /* heading hold until generic comparison */
     ACT_OP_FOLLOW_IF = 17, /* line follow until generic comparison */
     ACT_OP_LOOP = 18,      /* counted loop: success=body, timeout=done */
-    ACT_OP_ROAD_NAV = 19   /* follow through next junction by fixed route */
+    ACT_OP_ROAD_NAV = 19,  /* follow through next junction by fixed route */
+    ACT_OP_DM_POSITION = 20,
+    ACT_OP_DM_SPEED = 21,
+    ACT_OP_DM_DISABLE = 22
 };
 
 enum ActionCond {
@@ -44,7 +47,9 @@ enum ActionCond {
     ACT_COND_LINE_LOST,         /* grayscale lost the line */
     ACT_COND_BUTTON,            /* button 1 pressed */
     ACT_COND_IMMEDIATE,         /* always true (instant) */
-    ACT_COND_DISTANCE_REACHED   /* encoder distance mode returned to idle */
+    ACT_COND_DISTANCE_REACHED,  /* encoder distance mode returned to idle */
+    ACT_COND_DM_ABSOLUTE,
+    ACT_COND_DM_RELATIVE
 };
 
 /* Generic comparison sources. Values fit in the upper five bits of the
@@ -206,6 +211,13 @@ drivers::DriverStatus ActionRunner_AddInstr(ActionOp op,
 drivers::DriverStatus ActionRunner_AddRoadNav(
     int32_t route,
     int32_t rpm,
+    int32_t timeout_ms,
+    uint8_t on_success,
+    uint8_t on_failure);
+drivers::DriverStatus ActionRunner_AddDmPosition(
+    bool relative,
+    int32_t target_mrad,
+    int32_t max_velocity_mrad_s,
     int32_t timeout_ms,
     uint8_t on_success,
     uint8_t on_failure);

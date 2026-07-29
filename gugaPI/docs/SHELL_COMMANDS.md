@@ -47,11 +47,15 @@ txstat
 CAN1 使用 `PC26/CANTX`、`PC27/CANRX`，并通过 `PC25` 控制
 TCAN3413 的 `STB`。总线固定为经典 CAN、250 kbit/s；支持 11 位和
 29 位数据帧，单帧最多 8 字节，不支持远程帧和 CAN FD。固件不会自动
-发送测试帧。
+发送通用测试帧；启用 DM-G6220 功能时，上电 1 秒后会执行三次清故障、
+三次失能，并在失能待机期间每 50 ms 发送零增益 MIT 探测，但不会自动
+使能电机。JY-ME02 功能已屏蔽。
 
 ### `can status`
 
 显示收发器模式、接收队列、收发计数器以及 CAN 控制器错误状态。
+`app_queue/overwrite` 表示 32 帧诊断缓存写满后，为保留最新报文而覆盖
+最旧副本的累计次数；它不表示 DM 协议解析或硬件 FIFO 丢帧。
 
 ```text
 can status
@@ -79,11 +83,13 @@ can send ext 1ABCDE 00 FF
 ```
 
 若上一帧仍在等待发送，命令会返回 `busy`，不会阻塞主循环。
+DM-G6220 周期控制或特殊命令占用发送缓冲时，原始 `can send` 被拒绝。
 
 ### `can read [count]`
 
-从软件接收队列读取并打印最多 `count` 帧；默认读取 1 帧，范围为
-1–32。
+从软件诊断缓存读取并打印最多 `count` 帧；默认读取 1 帧，范围为
+1–32。缓存始终保留最近 32 帧；写满后覆盖最旧帧并增加
+`app_queue/overwrite`。
 
 ```text
 can read
@@ -112,6 +118,38 @@ can clear
 can cancel
 can recover
 ```
+
+## DM-G6220 CAN 电机
+
+当前仅支持一台电机：CAN ID `0x01`、反馈 Master ID `0x00`、MIT 模式。
+协议量程为位置 `±12500 mrad`、速度 `±45000 mrad/s`、扭矩
+`±10000 mN·m`；运行控制限速可配置为 `0..20000 mrad/s`，默认仍为
+`2000 mrad/s`，其中 0 禁止新的运动命令。控制器以 100 Hz
+非阻塞发送。电机上位机的 `CAN Timeout` 字段单位为 50 us，必须设置为
+`2000` 才是 100 ms；设置为 `100` 只有约 5 ms，会在 10 ms 控制周期下
+立即报告状态 `0xD`。失能待机时通过零增益帧保持反馈新鲜；运动请求遇到过期反馈
+会先自动探测，500 ms 内仍无反馈才触发全局 `DM TIMEOUT`。活动控制期间
+反馈超过 100 ms 仍立即触发 `DM TIMEOUT`；状态码 `8..14` 触发全局
+`DM FAULT`，两种故障都会重复发送失能。
+
+```text
+dm status
+dm probe
+dm enable
+dm position absolute|relative <target_mrad> <max_velocity_mrad_s> <timeout_ms>
+dm speed <velocity_mrad_s>
+dm hold
+dm disable
+dm clear
+dm zero confirm
+```
+
+除 `dm status` 外，手动命令只允许在 `dev-running` 调试模式执行。
+`dm enable` 读取新鲜反馈并保持当前位置；定位使用限速参考轨迹，且参考
+位置不会领先反馈超过 250 mrad。`dm speed` 使用速度斜坡；`dm hold`
+收回到当前反馈位置。`dm clear` 只清电机故障，不清系统锁存故障。
+`dm zero confirm` 仅允许在失能、反馈新鲜、速度绝对值不超过
+50 mrad/s 且系统无故障时执行，零点写入具有持久影响。
 
 ## LED
 
@@ -1863,7 +1901,7 @@ run add <op> <param1> <param2> <until> <onsuccess> <ontimeout>
 
 | 参数 | 含义 |
 | --- | --- |
-| `op` | 操作码：`drive` / `drive_mm` / `turn` / `follow` / `road_nav` / `wait` / `stop` / `branch` / `loop` / `end` / `led_on` / `led_off` / `led_toggle` / `buzzer_on` / `buzzer_off` / `buzzer_toggle` |
+| `op` | 操作码：`drive` / `drive_mm` / `turn` / `follow` / `road_nav` / `dm_position` / `dm_speed` / `dm_disable` / `wait` / `stop` / `branch` / `loop` / `end` / `led_on` / `led_off` / `led_toggle` / `buzzer_on` / `buzzer_off` / `buzzer_toggle` |
 | `param1` | DRIVE/FOLLOW: 基础RPM；TURN: 相对角度；DRIVE_MM: 有符号毫米；LOOP: 循环次数 |
 | `param2` | 一般为超时/持续时间ms；DRIVE_MM为最大RPM；LOOP固定为0 |
 | `until` | 完成条件：`timeout` / `heading_reached` / `distance_reached` / `line_detected` / `line_lost` / `button` / `immediate` |
@@ -1883,6 +1921,9 @@ run add <op> <param1> <param2> <until> <onsuccess> <ontimeout>
 | `branch` | p1/p2 固定为 0，成功走 onsuccess，失败走 ontimeout | `line_detected` / `line_lost` / `button` / `immediate` / `timeout` |
 | `loop` | 计数循环；p1 为 `1..1000`，p2 为 0；onsuccess 是循环体入口，ontimeout 是循环完成出口，二者必须是显式有效索引 | `immediate` |
 | `road_nav` | 正向循迹通过下一个路口；路线、速度和整体超时使用下述专用格式 | `immediate` |
+| `dm_position` | DM-G6220 绝对/相对定位，完成后保持目标 | `absolute` / `relative` |
+| `dm_speed` | DM-G6220 定速运行指定时间，到时减速并保持停止位置 | `immediate` |
+| `dm_disable` | 显式停止周期控制并释放 DM-G6220 | `immediate` |
 | `end` | 序列完成（成功） | `immediate` |
 | `led_on/off/toggle` | LED2/LED3 输出；p1=0（两灯）、2 或 3；p2=0 或自动关闭 50..30000 ms | `immediate` |
 | `buzzer_on/off/toggle` | 有源蜂鸣器输出；p1=0；p2=0 或自动关闭 50..30000 ms | `immediate` |
@@ -1941,6 +1982,21 @@ run add road_nav <route> <rpm> <timeout_ms> <onsuccess> <onfailure>
 `min(节点RPM, road_align_rpm)` 锁向前探捕线。任一阶段取消、急停、故障、
 MotorDriver失联或传感器过期都会停车。连续 `road_nav` 以及中间的循环节点可以
 无停车续接，其他后继动作、失败出口和 `end` 都会先停车。
+
+达妙动作使用专用语义格式：
+
+```text
+run add dm_position absolute|relative <target_mrad> <max_mrad_s> <timeout_ms> <onsuccess> <onfailure>
+run add dm_speed <velocity_mrad_s> <duration_ms> <onsuccess> <onfailure>
+run add dm_disable <onsuccess> <onfailure>
+```
+
+`dm_position` 的最终绝对目标必须位于 `±12500 mrad`，最大轨迹速度为
+`20000 mrad/s`，超时为 `50..30000 ms` 且按 50 ms 步进。定位自身超时
+属于局部失败：控制器保持当前位置并走红色出口。`dm_speed` 速度范围
+`-20000..20000 mrad/s` 且不能为 0，持续时间结束后斜坡减速并保持。
+定位或定速成功后的保持会跨普通后续节点继续；`dm_disable`、序列结束、
+取消、隐式终止、急停、系统故障和比赛/调试模式切换都会失能电机。
 
 通用条件使用语义化参数，不使用上表中的 `p1/p2/until`：
 
@@ -2059,7 +2115,7 @@ FRAM 序列表当前为 SeqStore v2：每槽最多 64 条、每条 14 字节、�
 
 ## 参数管理
 
-参数持久化系统。所有底盘几何、速度环、位置环、距离速度规划、IMU 偏置、航向闭环、电源保护和灰度循迹参数统一存储在 FRAM 中（地址 0x0000，magic "CFPG"，CRC32 校验）。当前版本 v15，payload 223 字节，兼容加载 v1-v14 历史布局。v14配置加载时保留全部旧值，并为新增`road_turn_outer_max_rpm`和`road_turn_inner_reverse_max_rpm`填充默认值220 RPM和120 RPM；迁移后配置标记为dirty，保存后升级为v15。v13及更早配置仍按原有规则补齐路口对齐和静止锁向参数。V9及更早配置自动使用新的循迹斜率默认值25000；v10及更早的旧版默认灰度掩码 `0x3C` 自动迁移为 `0x7E`，其它自定义掩码保持不变。
+参数持久化系统。所有底盘几何、速度环、位置环、距离速度规划、IMU 偏置、航向闭环、电源保护、灰度循迹和达妙控制参数统一存储在 FRAM 中（地址 0x0000，magic "CFPG"，CRC32 校验）。当前版本 v16，payload 243 字节，完整镜像 255 字节，不越过 `0x0100` 的 SeqStore 起始地址。兼容加载 v1-v15 历史布局；v15 及更早配置会补入达妙默认参数并标记 dirty，保存后升级为 v16。更早版本的路口、静止锁向、循迹斜率和灰度掩码迁移规则保持不变。
 
 ### `param status`
 

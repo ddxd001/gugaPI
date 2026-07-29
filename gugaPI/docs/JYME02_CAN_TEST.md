@@ -1,5 +1,10 @@
 # JY-ME02-CAN Driver and Bench Test
 
+> Historical test document. JY-ME02 is currently disabled in both feature
+> profiles because the CAN bus is dedicated to one DM-G6220. Its source is
+> retained for possible future multi-protocol dispatch, but its initialization
+> and Shell commands are not registered in the current firmware.
+
 ## Scope
 
 The first integration is intentionally read-only. Firmware receives and
@@ -149,6 +154,7 @@ Acceptance:
 - `measurement_count` continues increasing;
 - scheduler and motor watchdog behavior remain normal.
 
-The application diagnostic queue may report drops when it is not periodically
-read. This does not mean the sensor parser dropped frames; use the hardware
-CAN counters and JY-ME02 measurement count to judge receive health.
+The application diagnostic queue retains the latest 32 frames and may report
+old-frame overwrites when it is not periodically read. This does not mean the
+sensor parser dropped frames; use the hardware CAN counters and JY-ME02
+measurement count to judge receive health.

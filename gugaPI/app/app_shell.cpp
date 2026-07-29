@@ -3,11 +3,13 @@
 #include <stdint.h>
 
 #include "app/app_main.h"
+#include "app/app_can_bus.h"
 #include "app/chassis.h"
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
 #include "app/app_ina219.h"
 #include "app/app_jyme02_can.h"
+#include "app/dm_g6220_controller.h"
 #include "app/battery_monitor.h"
 #include "app/app_lora.h"
 #include "app/action.h"
@@ -1977,12 +1979,10 @@ void WriteCanStatus(void)
     services::Shell_WriteUInt32(status.rx_dropped_count);
     services::Shell_WriteString("/");
     services::Shell_WriteUInt32(status.rx_fifo_lost_count);
-#if FEATURE_ENABLE_JYME02_CAN
-    services::Shell_WriteString(" app_queue/drop=");
-    services::Shell_WriteUInt32(AppJyme02Can_GetRawAvailable());
+    services::Shell_WriteString(" app_queue/overwrite=");
+    services::Shell_WriteUInt32(AppCanBus_GetRawAvailable());
     services::Shell_WriteString("/");
-    services::Shell_WriteUInt32(AppJyme02Can_GetRawDropped());
-#endif
+    services::Shell_WriteUInt32(AppCanBus_GetRawDropped());
     services::Shell_WriteString(" tx_req/done/cancel=");
     services::Shell_WriteUInt32(status.tx_request_count);
     services::Shell_WriteString("/");
@@ -2038,6 +2038,14 @@ void CanCommand(int argc, const char * const argv[])
 
     if (StrEqual(argv[1], "send") &&
         (argc >= 4) && (argc <= 12)) {
+#if FEATURE_ENABLE_DM_G6220_CAN
+        if ((App_GetState()->mode != APP_MODE_RUNNING) ||
+            DmG6220Controller_IsTxReserved()) {
+            services::Shell_WriteLine(
+                "can send: busy (DM control owns CAN TX)");
+            return;
+        }
+#endif
         drivers::CanFrame frame = {};
         if (StrEqual(argv[2], "std")) {
             frame.extended = false;
@@ -2077,7 +2085,7 @@ void CanCommand(int argc, const char * const argv[])
         }
         uint32_t read_count = 0U;
         drivers::CanFrame frame = {};
-        while ((read_count < count) && AppJyme02Can_ReadRaw(&frame)) {
+        while ((read_count < count) && AppCanBus_ReadRaw(&frame)) {
             WriteCanFrame(frame);
             read_count++;
         }
@@ -2102,7 +2110,7 @@ void CanCommand(int argc, const char * const argv[])
     }
 
     if (StrEqual(argv[1], "clear") && (argc == 2)) {
-        AppJyme02Can_Clear();
+        AppCanBus_Clear();
         WriteStatusLine("can clear: ", board::Board_CanClear());
         return;
     }
@@ -2117,6 +2125,164 @@ void CanCommand(int argc, const char * const argv[])
 
     PrintCanUsage();
 }
+
+#if FEATURE_ENABLE_DM_G6220_CAN
+void PrintDmUsage(void)
+{
+    services::Shell_WriteLine("usage:");
+    services::Shell_WriteLine("  dm status");
+    services::Shell_WriteLine("  dm probe");
+    services::Shell_WriteLine("  dm enable");
+    services::Shell_WriteLine(
+        "  dm position absolute|relative <target_mrad> <max_velocity_mrad_s> <timeout_ms>");
+    services::Shell_WriteLine("  dm speed <velocity_mrad_s>");
+    services::Shell_WriteLine("  dm hold");
+    services::Shell_WriteLine("  dm disable");
+    services::Shell_WriteLine("  dm clear");
+    services::Shell_WriteLine("  dm zero confirm");
+}
+
+bool DmManualCommandAllowed(void)
+{
+    if (App_GetState()->mode != APP_MODE_RUNNING) {
+        services::Shell_WriteLine(
+            "dm: manual commands require dev-running mode");
+        return false;
+    }
+    return true;
+}
+
+void WriteDmStatus(void)
+{
+    const DmG6220ControlState *state = DmG6220Controller_GetState();
+    const drivers::DmG6220Feedback *feedback =
+        DmG6220Controller_GetFeedback();
+    const uint32_t now_ms = services::Time_Millis();
+    services::Shell_WriteString("dm mode=");
+    services::Shell_WriteString(DmG6220Controller_ModeText(state->mode));
+    services::Shell_WriteString(" result=");
+    services::Shell_WriteUInt32(
+        static_cast<uint32_t>(state->operation_result));
+    services::Shell_WriteString(" enabled=");
+    services::Shell_WriteUInt32(state->enabled ? 1U : 0U);
+    services::Shell_WriteString(" online=");
+    services::Shell_WriteUInt32((feedback != 0) && feedback->valid ? 1U : 0U);
+    services::Shell_WriteString(" fresh=");
+    services::Shell_WriteUInt32(
+        DmG6220Controller_IsFeedbackFresh(now_ms) ? 1U : 0U);
+    services::Shell_WriteString(" state=");
+    services::Shell_WriteUInt32(
+        (feedback != 0) ? feedback->state : 0U);
+    services::Shell_WriteString(" p_mrad=");
+    WriteInt32((feedback != 0) ? feedback->position_mrad : 0);
+    services::Shell_WriteString(" v_mrad_s=");
+    WriteInt32((feedback != 0) ? feedback->velocity_mrad_s : 0);
+    services::Shell_WriteString(" torque_mNm=");
+    WriteInt32((feedback != 0) ? feedback->torque_mnm : 0);
+    services::Shell_WriteString(" temp_mos/coil=");
+    services::Shell_WriteUInt32(
+        (feedback != 0) ? feedback->mos_temperature_c : 0U);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(
+        (feedback != 0) ? feedback->coil_temperature_c : 0U);
+    services::Shell_WriteString(" age_ms=");
+    services::Shell_WriteUInt32(
+        ((feedback != 0) && feedback->valid) ?
+            static_cast<uint32_t>(now_ms - feedback->last_update_ms) :
+            0xFFFFFFFFU);
+    services::Shell_WriteString(" ref=");
+    WriteInt32(state->reference_position_mrad);
+    services::Shell_WriteString(" target=");
+    WriteInt32(state->target_position_mrad);
+    services::Shell_WriteString(" tx/busy/error=");
+    services::Shell_WriteUInt32(state->tx_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(state->tx_busy_count);
+    services::Shell_WriteString("/");
+    services::Shell_WriteUInt32(state->tx_error_count);
+    services::Shell_WriteString(" status=");
+    services::Shell_WriteString(DriverStatusText(state->last_status));
+    services::Shell_WriteString("\r\n");
+}
+
+void DmCommand(int argc, const char * const argv[])
+{
+    if ((argc == 2) && StrEqual(argv[1], "status")) {
+        WriteDmStatus();
+        return;
+    }
+    if ((argc < 2) || !DmManualCommandAllowed()) {
+        PrintDmUsage();
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "probe")) {
+        WriteStatusLine("dm probe: ", DmG6220Controller_Probe());
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "enable")) {
+        WriteStatusLine("dm enable: ", DmG6220Controller_EnableHold());
+        return;
+    }
+    if ((argc == 6) && StrEqual(argv[1], "position")) {
+        DmG6220PositionFrame frame = DM_POSITION_ABSOLUTE;
+        if (StrEqual(argv[2], "relative")) {
+            frame = DM_POSITION_RELATIVE;
+        } else if (!StrEqual(argv[2], "absolute")) {
+            PrintDmUsage();
+            return;
+        }
+        int32_t target_mrad = 0;
+        int32_t max_velocity_mrad_s = 0;
+        uint32_t timeout_ms = 0U;
+        if ((!ParseInt32(argv[3],
+                         -drivers::DM_G6220_POSITION_LIMIT_MRAD,
+                         drivers::DM_G6220_POSITION_LIMIT_MRAD,
+                         &target_mrad)) ||
+            (!ParseInt32(argv[4], 1, 20000, &max_velocity_mrad_s)) ||
+            (!ParseUint32(argv[5], 30000U, &timeout_ms)) ||
+            (timeout_ms < 50U)) {
+            PrintDmUsage();
+            return;
+        }
+        WriteStatusLine(
+            "dm position: ",
+            DmG6220Controller_StartPosition(frame,
+                                            target_mrad,
+                                            max_velocity_mrad_s,
+                                            timeout_ms));
+        return;
+    }
+    if ((argc == 3) && StrEqual(argv[1], "speed")) {
+        int32_t velocity_mrad_s = 0;
+        if ((!ParseInt32(argv[2], -20000, 20000, &velocity_mrad_s)) ||
+            (velocity_mrad_s == 0)) {
+            PrintDmUsage();
+            return;
+        }
+        WriteStatusLine("dm speed: ",
+                        DmG6220Controller_StartSpeed(velocity_mrad_s));
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "hold")) {
+        WriteStatusLine("dm hold: ", DmG6220Controller_HoldCurrent());
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "disable")) {
+        WriteStatusLine("dm disable: ", DmG6220Controller_Disable());
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "clear")) {
+        WriteStatusLine("dm clear: ", DmG6220Controller_ClearError());
+        return;
+    }
+    if ((argc == 3) && StrEqual(argv[1], "zero") &&
+        StrEqual(argv[2], "confirm")) {
+        WriteStatusLine("dm zero: ", DmG6220Controller_SetZero());
+        return;
+    }
+    PrintDmUsage();
+}
+#endif
 
 #if FEATURE_ENABLE_JYME02_CAN
 void PrintJyme02Usage(void)
@@ -6081,6 +6247,8 @@ void PrintRunUsage(void)
     services::Shell_WriteLine(
         "    op: drive|drive_mm|turn|follow|wait|stop|branch|loop|road_nav|end");
     services::Shell_WriteLine(
+        "        dm_position|dm_speed|dm_disable");
+    services::Shell_WriteLine(
         "        led_on|led_off|led_toggle|buzzer_on|buzzer_off|buzzer_toggle");
     services::Shell_WriteLine(
         "  run add condition <source> <cmp> <value> <instant|wait>");
@@ -6098,6 +6266,12 @@ void PrintRunUsage(void)
         "    route: left|straight|right|uturn_left_arc|uturn_right_arc");
     services::Shell_WriteLine(
         "           uturn_left_pivot|uturn_right_pivot");
+    services::Shell_WriteLine(
+        "  run add dm_position absolute|relative <target_mrad> <max_mrad_s> <timeout_ms> <onsuccess> <onfailure>");
+    services::Shell_WriteLine(
+        "  run add dm_speed <velocity_mrad_s> <duration_ms> <onsuccess> <onfailure>");
+    services::Shell_WriteLine(
+        "  run add dm_disable <onsuccess> <onfailure>");
     services::Shell_WriteLine(
         "    until: timeout|heading_reached|distance_reached|line_detected|line_lost|button|immediate");
     services::Shell_WriteLine(
@@ -6132,6 +6306,9 @@ bool ParseActionOp(const char *t, app::ActionOp *op)
     if (StrEqual(t, "follow_if")) { *op = app::ACT_OP_FOLLOW_IF; return true; }
     if (StrEqual(t, "loop")) { *op = app::ACT_OP_LOOP; return true; }
     if (StrEqual(t, "road_nav")) { *op = app::ACT_OP_ROAD_NAV; return true; }
+    if (StrEqual(t, "dm_position")) { *op = app::ACT_OP_DM_POSITION; return true; }
+    if (StrEqual(t, "dm_speed")) { *op = app::ACT_OP_DM_SPEED; return true; }
+    if (StrEqual(t, "dm_disable")) { *op = app::ACT_OP_DM_DISABLE; return true; }
     return false;
 }
 
@@ -6200,6 +6377,8 @@ bool ParseActionCond(const char *t, app::ActionCond *c)
     if (StrEqual(t, "button")) { *c = app::ACT_COND_BUTTON; return true; }
     if (StrEqual(t, "immediate")) { *c = app::ACT_COND_IMMEDIATE; return true; }
     if (StrEqual(t, "distance_reached")) { *c = app::ACT_COND_DISTANCE_REACHED; return true; }
+    if (StrEqual(t, "absolute")) { *c = app::ACT_COND_DM_ABSOLUTE; return true; }
+    if (StrEqual(t, "relative")) { *c = app::ACT_COND_DM_RELATIVE; return true; }
     return false;
 }
 
@@ -6239,6 +6418,9 @@ const char *OpText(app::ActionOp op)
     case app::ACT_OP_FOLLOW_IF: return "follow_if";
     case app::ACT_OP_LOOP: return "loop";
     case app::ACT_OP_ROAD_NAV: return "road_nav";
+    case app::ACT_OP_DM_POSITION: return "dm_position";
+    case app::ACT_OP_DM_SPEED: return "dm_speed";
+    case app::ACT_OP_DM_DISABLE: return "dm_disable";
     default: return "none";
     }
 }
@@ -6253,6 +6435,8 @@ const char *CondText(app::ActionCond c)
     case app::ACT_COND_BUTTON: return "button";
     case app::ACT_COND_IMMEDIATE: return "immediate";
     case app::ACT_COND_DISTANCE_REACHED: return "distance_reached";
+    case app::ACT_COND_DM_ABSOLUTE: return "absolute";
+    case app::ACT_COND_DM_RELATIVE: return "relative";
     default: return "?";
     }
 }
@@ -6312,6 +6496,40 @@ void WriteActionInstr(const app::Instr &instr, bool include_index,
         services::Shell_WriteString(" ");
         WriteInt32(instr.param2);
         services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(instr.on_success);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(instr.on_timeout);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+    if (instr.op == app::ACT_OP_DM_POSITION) {
+        services::Shell_WriteString(
+            (instr.until == app::ACT_COND_DM_RELATIVE) ?
+                "relative " : "absolute ");
+        WriteInt32(instr.param1);
+        services::Shell_WriteString(" ");
+        WriteInt32(instr.param2);
+        services::Shell_WriteString(" ");
+        WriteInt32(instr.condition_value);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(instr.on_success);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(instr.on_timeout);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+    if (instr.op == app::ACT_OP_DM_SPEED) {
+        WriteInt32(instr.param1);
+        services::Shell_WriteString(" ");
+        WriteInt32(instr.param2);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(instr.on_success);
+        services::Shell_WriteString(" ");
+        services::Shell_WriteUInt32(instr.on_timeout);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+    if (instr.op == app::ACT_OP_DM_DISABLE) {
         services::Shell_WriteUInt32(instr.on_success);
         services::Shell_WriteString(" ");
         services::Shell_WriteUInt32(instr.on_timeout);
@@ -6594,6 +6812,91 @@ void RunCommand(int argc, const char * const argv[])
                 "run add: ",
                 app::ActionRunner_AddCompareInstr(
                     op, rpm, &condition, ons, ont));
+            return;
+        }
+        if ((argc >= 3) && StrEqual(argv[2], "dm_position")) {
+            if (argc != 9) {
+                PrintRunUsage();
+                return;
+            }
+            bool relative = false;
+            if (StrEqual(argv[3], "relative")) {
+                relative = true;
+            } else if (!StrEqual(argv[3], "absolute")) {
+                PrintRunUsage();
+                return;
+            }
+            int32_t target_mrad = 0;
+            int32_t max_velocity_mrad_s = 0;
+            int32_t timeout_ms = 0;
+            uint8_t ons = 0U;
+            uint8_t onf = 0U;
+            if ((!ParseInt32(argv[4],
+                             -drivers::DM_G6220_POSITION_LIMIT_MRAD,
+                             drivers::DM_G6220_POSITION_LIMIT_MRAD,
+                             &target_mrad)) ||
+                (!ParseInt32(argv[5], 1, 20000,
+                             &max_velocity_mrad_s)) ||
+                (!ParseInt32(argv[6], 50, 30000, &timeout_ms)) ||
+                ((timeout_ms % 50) != 0) ||
+                (!ParseTarget(argv[7], &ons)) ||
+                (!ParseTarget(argv[8], &onf))) {
+                PrintRunUsage();
+                return;
+            }
+            WriteStatusLine(
+                "run add: ",
+                app::ActionRunner_AddDmPosition(relative,
+                                                target_mrad,
+                                                max_velocity_mrad_s,
+                                                timeout_ms,
+                                                ons,
+                                                onf));
+            return;
+        }
+        if ((argc >= 3) && StrEqual(argv[2], "dm_speed")) {
+            int32_t velocity_mrad_s = 0;
+            int32_t duration_ms = 0;
+            uint8_t ons = 0U;
+            uint8_t onf = 0U;
+            if ((argc != 7) ||
+                (!ParseInt32(argv[3], -20000, 20000,
+                             &velocity_mrad_s)) ||
+                (velocity_mrad_s == 0) ||
+                (!ParseInt32(argv[4], 50, 30000, &duration_ms)) ||
+                ((duration_ms % 50) != 0) ||
+                (!ParseTarget(argv[5], &ons)) ||
+                (!ParseTarget(argv[6], &onf))) {
+                PrintRunUsage();
+                return;
+            }
+            WriteStatusLine(
+                "run add: ",
+                app::ActionRunner_AddInstr(app::ACT_OP_DM_SPEED,
+                                           velocity_mrad_s,
+                                           duration_ms,
+                                           app::ACT_COND_IMMEDIATE,
+                                           ons,
+                                           onf));
+            return;
+        }
+        if ((argc >= 3) && StrEqual(argv[2], "dm_disable")) {
+            uint8_t ons = 0U;
+            uint8_t onf = 0U;
+            if ((argc != 5) ||
+                (!ParseTarget(argv[3], &ons)) ||
+                (!ParseTarget(argv[4], &onf))) {
+                PrintRunUsage();
+                return;
+            }
+            WriteStatusLine(
+                "run add: ",
+                app::ActionRunner_AddInstr(app::ACT_OP_DM_DISABLE,
+                                           0,
+                                           0,
+                                           app::ACT_COND_IMMEDIATE,
+                                           ons,
+                                           onf));
             return;
         }
         if ((argc >= 3) && StrEqual(argv[2], "road_nav")) {
@@ -8621,7 +8924,7 @@ void AppShell_CanWatchUpdate(void)
      * monopolize the main loop or overflow the debug UART TX queue. */
     drivers::CanFrame frame = {};
     for (uint8_t count = 0U; count < 4U; count++) {
-        if (!AppJyme02Can_ReadRaw(&frame)) {
+        if (!AppCanBus_ReadRaw(&frame)) {
             break;
         }
         WriteCanFrame(frame);
@@ -9794,11 +10097,11 @@ void AppShell_RegisterCommands(void)
         "can",
         "CANFD1 classic CAN diagnostics: status|mode|send|read|watch",
         CanCommand);
-#if FEATURE_ENABLE_JYME02_CAN
+#if FEATURE_ENABLE_DM_G6220_CAN
     (void) services::Shell_RegisterCommand(
-        "jyme02",
-        "JY-ME02-CAN encoder: status|readreg|regs|address|sampletime",
-        JYME02Command);
+        "dm",
+        "DM-G6220: status|probe|enable|position|speed|hold|disable|clear|zero",
+        DmCommand);
 #endif
 #endif
 #if FEATURE_ENABLE_MOTOR_DRIVER

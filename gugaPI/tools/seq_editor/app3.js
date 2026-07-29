@@ -107,6 +107,27 @@ function seqProperties(n){
     h+=seqField('整体超时','timeoutMs','number',{
       min:50,max:30000,step:50,unit:'ms'
     },'覆盖寻找路口、转向和重新捕线的全过程。');
+  }else if(n.type==='dm_position'){
+    h+=seqField('定位方式','frame','select',[
+      {value:'relative',label:'相对当前位置'},
+      {value:'absolute',label:'电机绝对零位'}
+    ],'相对和绝对目标最终都必须位于协议软限位 ±12.5 rad 内。');
+    h+=seqField('目标角度','angleDeg','number',{
+      min:-716.2,max:716.2,step:0.1,unit:'°'
+    },'正负方向按达妙电机坐标系定义。');
+    h+=seqField('轨迹最大速度','maxVelocityDegS','number',{
+      min:0,max:1145.9,step:0.1,unit:'°/s'
+    },'控制器同时限制参考位置不超过反馈位置 ±0.25 rad。');
+    h+=seqField('安全超时','timeoutMs','number',{
+      min:50,max:30000,step:50,unit:'ms'
+    },'局部超时后保持当前位置并走红色端口。');
+  }else if(n.type==='dm_speed'){
+    h+=seqField('目标角速度（最大 ±1145.9°/s）','velocityDegS','number',{
+      min:-1145.9,max:1145.9,step:0.1,unit:'°/s'
+    },'可填范围 -1145.9～1145.9°/s（±20000 mrad/s），不能为 0；实际速度还受全局参数 dm_max_velocity_mrad_s 限制。');
+    h+=seqField('持续时间','durationMs','number',{
+      min:50,max:30000,step:50,unit:'ms'
+    },'到时后斜坡减速并保持停止位置。');
   }else if(n.type.indexOf('led_')===0){
     h+=seqField('LED 目标','target','select',[
       {value:0,label:'LED2 + LED3'},{value:2,label:'仅 LED2'},
@@ -135,6 +156,10 @@ function seqRawCanonical(x){
     return[19,Number(x.conditionValue),Number(x.p1),Number(x.p2),
       Number(x.ons),Number(x.ont)].join('|');
   }
+  if(Number(x.op)===20){
+    return[20,Number(x.p1),Number(x.p2),Number(x.until),
+      Number(x.conditionValue),Number(x.ons),Number(x.ont)].join('|');
+  }
   return[Number(x.op),Number(x.p1),Number(x.p2),Number(x.until),
     Number(x.ons),Number(x.ont)].join('|');
 }
@@ -147,7 +172,7 @@ function seqParseRunDump(text){
   var lines=String(text).split(/\r?\n/),out=[];
   lines.forEach(function(line){
     var p=line.trim().split(/\s+/);
-    if(p.length>=7&&/^\d+$/.test(p[0])){
+    if(p.length>=4&&/^\d+$/.test(p[0])){
       var raw=parseRawInstruction(p,true);
       if(raw)out.push(raw);
     }
@@ -190,6 +215,16 @@ function seqCommandForRaw(x){
   if(x.op===19){
     return'run add road_nav '+x.route+' '+x.p1+' '+x.p2+' '+ons+' '+ont;
   }
+  if(x.op===20){
+    return'run add dm_position '+(x.frame||COND[x.until])+' '+x.p1+' '+
+      x.p2+' '+x.conditionValue+' '+ons+' '+ont;
+  }
+  if(x.op===21){
+    return'run add dm_speed '+x.p1+' '+x.p2+' '+ons+' '+ont;
+  }
+  if(x.op===22){
+    return'run add dm_disable '+ons+' '+ont;
+  }
   return'run add '+OP[x.op]+' '+x.p1+' '+x.p2+' '+COND[x.until]+' '+
     ons+' '+ont;
 }
@@ -226,11 +261,17 @@ async function seqUploadOnce(instrs,operationEpoch,competition){
 async function seqUpload(instrs,operationEpoch,competition){
   await seqEnsureQuietShell();
   seqAssertOperationActive(operationEpoch);
-  if(instrs.some(function(x){return Number(x.op)===19})){
+  if(instrs.some(function(x){return Number(x.op)>=19})){
     var roadHelp=await send('run',{timeoutMs:2200});
     seqAssertOperationActive(operationEpoch);
-    if(!/\broad_nav\b/.test(String(roadHelp))){
+    if(instrs.some(function(x){return Number(x.op)===19})&&
+       !/\broad_nav\b/.test(String(roadHelp))){
       throw new Error('当前固件不支持“循迹通过路口”（操作码 19）；'+
+        '旧固件会拒绝该序列，请先升级固件');
+    }
+    if(instrs.some(function(x){return Number(x.op)>=20&&Number(x.op)<=22})&&
+       !/\bdm_position\b/.test(String(roadHelp))){
+      throw new Error('当前固件不支持达妙序列动作（操作码 20～22）；'+
         '旧固件会拒绝该序列，请先升级固件');
     }
   }
