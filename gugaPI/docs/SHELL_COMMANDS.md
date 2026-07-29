@@ -1776,9 +1776,10 @@ lf losttimeout 1000
 `right_corner`、`left_branch`、`right_branch`、`t`和`cross`。事件只在进入路口时
 生成一次；恢复连续6帧居中直线后才允许生成下一事件。
 
-路口几何与动作策略分离。当前只有左右直角弯具有可选自动动作；左右分支和十字默认
+路口几何与动作策略分离。全局自动模式仍只处理左右直角弯；左右分支和十字默认
 保持直行，T字无前路默认停车。分类器确认无前路角点期间，循迹保持直行直到事件发布，
-避免先触发6帧无效停车再导致弯道接管失败。预留的动作序列策略尚未在本版本启用。
+避免先触发6帧无效停车再导致弯道接管失败。动作序列还可以用 `road_nav` 对“下一个
+路口”提出一次显式路线请求；该请求临时优先于全局自动策略，结束后不修改全局模式。
 
 ### `road status|event|clear`
 
@@ -1788,7 +1789,7 @@ road event
 road clear
 ```
 
-- `status`：显示控制模式、控制阶段、检测器阶段、当前类型、已观察路径、对齐距离、
+- `status`：显示控制模式、控制阶段、显式路线、路线结果、检测器阶段、当前类型、已观察路径、对齐距离、
   连续处理速度上限、当前有符号基础RPM、移动捕线有效帧数，以及最后策略。
 - `event`：显示最近一次事件的序号、类型、路径位、置信度以及进入/峰值/离开掩码。
 - `clear`：清除Shell可见的最近事件，并将控制器消费位置同步到当前事件。
@@ -1806,6 +1807,11 @@ road mode corner
 `left_corner`和`right_corner`依次执行可选编码器定距对齐、相对90°滚动圆弧转向、移动
 黑线重捕获和无停车恢复循迹。`road auto on|off`分别是`corner`和`detect`的简写；在自动弯道
 正在执行时关闭自动模式会立即停止航向及循迹控制。
+
+显式路线请求启动时会忽略已有路口事件。如果检测器仍处于上一事件的 `latched`
+阶段，则保持循迹并等待重新进入 `normal` 后再对下一个路口布防。左转、右转和掉头
+在 `observing` 阶段对应侧向路径连续确认后立即接管；最终确认目标方向不存在时停车，
+结果为 `route_unavailable`，不会自动改走其他方向。直行在确认前方路径后完成。
 
 ### `road align show|set`、`road turn show|set`
 
@@ -1845,7 +1851,7 @@ road turn set 90 -90 20 40 800
 
 条件驱动的指令表解释器，通过 `run add` 逐条构建指令序列，`run start` 启动。50 ms 周期任务 `ActionRunner_Update` 执行当前指令，满足完成条件后跳转到 `on_success` / `on_timeout` 目标。
 
-安全机制：故障 → 中止序列并停车；整序列超时 60 s → 中止；指令启动失败 → 走 `on_timeout` 路径；每条指令完成后调用 `StopAll` 清除运动状态。
+安全机制：故障 → 中止序列并停车；整序列超时 300 s → 中止；指令启动失败 → 走 `on_timeout` 路径；通用条件数据无效或过期 → 立即走失败路径。单个动作或条件等待的超时上限仍为 30 s。普通运动指令完成后调用 `StopAll` 清除运动状态；成功的 `road_nav` 可把已恢复的循迹状态无停车交给下一个 `road_nav`，并允许穿过计数循环节点，离开这条交接链时仍先安全停车。
 
 ### 指令格式
 
@@ -1857,9 +1863,9 @@ run add <op> <param1> <param2> <until> <onsuccess> <ontimeout>
 
 | 参数 | 含义 |
 | --- | --- |
-| `op` | 操作码：`drive` / `drive_mm` / `turn` / `follow` / `wait` / `stop` / `branch` / `end` / `led_on` / `led_off` / `led_toggle` / `buzzer_on` / `buzzer_off` / `buzzer_toggle` |
-| `param1` | DRIVE/FOLLOW: 基础RPM；TURN: 相对角度；DRIVE_MM: 有符号毫米 |
-| `param2` | 一般为超时/持续时间ms；DRIVE_MM为最大RPM |
+| `op` | 操作码：`drive` / `drive_mm` / `turn` / `follow` / `road_nav` / `wait` / `stop` / `branch` / `loop` / `end` / `led_on` / `led_off` / `led_toggle` / `buzzer_on` / `buzzer_off` / `buzzer_toggle` |
+| `param1` | DRIVE/FOLLOW: 基础RPM；TURN: 相对角度；DRIVE_MM: 有符号毫米；LOOP: 循环次数 |
+| `param2` | 一般为超时/持续时间ms；DRIVE_MM为最大RPM；LOOP固定为0 |
 | `until` | 完成条件：`timeout` / `heading_reached` / `distance_reached` / `line_detected` / `line_lost` / `button` / `immediate` |
 | `onsuccess` | 成功跳转目标：`next`（下一条）或索引 `0..63` |
 | `ontimeout` | 超时跳转目标：`abort`（中止序列）或索引 `0..63` |
@@ -1875,9 +1881,14 @@ run add <op> <param1> <param2> <until> <onsuccess> <ontimeout>
 | `wait` | 等待（p1 固定为 0，p2 为 `0..30000 ms`） | `timeout` / `line_detected` / `line_lost` / `button` |
 | `stop` | 立即停车 | `immediate` |
 | `branch` | p1/p2 固定为 0，成功走 onsuccess，失败走 ontimeout | `line_detected` / `line_lost` / `button` / `immediate` / `timeout` |
+| `loop` | 计数循环；p1 为 `1..1000`，p2 为 0；onsuccess 是循环体入口，ontimeout 是循环完成出口，二者必须是显式有效索引 | `immediate` |
+| `road_nav` | 正向循迹通过下一个路口；路线、速度和整体超时使用下述专用格式 | `immediate` |
 | `end` | 序列完成（成功） | `immediate` |
 | `led_on/off/toggle` | LED2/LED3 输出；p1=0（两灯）、2 或 3；p2=0 或自动关闭 50..30000 ms | `immediate` |
 | `buzzer_on/off/toggle` | 有源蜂鸣器输出；p1=0；p2=0 或自动关闭 50..30000 ms | `immediate` |
+| `condition` | 通用条件立即分流或停车等待 | 通用比较器 |
+| `drive_if` | 航向保持直行，同时持续判断通用条件 | 通用比较器 |
+| `follow_if` | 循迹，同时持续判断通用条件 | 通用比较器 |
 
 LED1 保留给比赛状态指示。输出动作执行后立即进入下一条，自动关闭计时在后台运行；
 如需暂停序列，应显式加入 `wait`。序列正常结束、取消、故障、总超时或动作启动失败时，
@@ -1900,6 +1911,74 @@ run add buzzer_on 0 200  immediate        next abort
 run add end    0   0     immediate        next abort
 ```
 
+循环固定使用以下格式：
+
+```text
+run add loop <count> 0 immediate <body_index> <done_index>
+```
+
+首次到达循环节点时进入循环体并记为第 1 次；循环体的正常路径必须回到
+该循环节点。完成第 N 次后走 `done_index`，两个出口都属于正常成功路径。
+次数 1 表示循环体执行一次，0 不表示无限循环。多个循环和嵌套循环使用
+各自独立计数；取消、完成、故障或整序列超时时计数全部清零。
+
+循迹通过路口使用专用语义格式：
+
+```text
+run add road_nav <route> <rpm> <timeout_ms> <onsuccess> <onfailure>
+```
+
+`route` 为 `left`、`straight`、`right`、`uturn_left_arc`、
+`uturn_right_arc`、`uturn_left_pivot` 或 `uturn_right_pivot`。`rpm`
+范围为 `1..max_wheel_rpm`，仅支持正向循迹；`timeout_ms` 范围
+`50..30000`，且必须是 50 ms 的倍数，覆盖寻找路口、转向和重新捕线全过程。
+成功后保持 `LF_FOLLOW`；路线不存在时失败原因为 `route_unavailable`，移动或
+原地捕线超时为 `route_reacquire_failed`。动作整体超时仍报告
+`instruction_timeout`，启动失败仍报告 `start_failed`，故障报告 `fault`。
+
+左右转执行“循迹→编码器前探→滚动圆弧→末段提前捕线→连续2帧确认→恢复循迹”。
+圆弧掉头使用固定 `+180°/-180°`；原地掉头在前探后停车原地转向，再以
+`min(节点RPM, road_align_rpm)` 锁向前探捕线。任一阶段取消、急停、故障、
+MotorDriver失联或传感器过期都会停车。连续 `road_nav` 以及中间的循环节点可以
+无停车续接，其他后继动作、失败出口和 `end` 都会先停车。
+
+通用条件使用语义化参数，不使用上表中的 `p1/p2/until`：
+
+```text
+run add condition <source> <cmp> <value> <instant|wait> <timeout_ms> <stable_ms> <onsuccess> <ontimeout>
+run add drive_if <rpm> <source> <cmp> <value> <timeout_ms> <stable_ms> <onsuccess> <ontimeout>
+run add follow_if <rpm> <source> <cmp> <value> <timeout_ms> <stable_ms> <onsuccess> <ontimeout>
+```
+
+比较器为 `eq`、`ne`、`lt`、`le`、`gt`、`ge`、`contains` 或
+`not_contains`。`contains` 仅用于 `road_event_paths` 位掩码。条件每
+50 ms 采样一次，`timeout_ms` 和 `stable_ms` 因而必须是 50 ms 的倍数。
+`instant` 模式要求这两个时间均为 0；`wait`、`drive_if` 和 `follow_if`
+要求 `timeout_ms=50..30000`。
+
+数据源：
+
+- 按键：`button1_level/pressed`、`button2_level/pressed`、`button3_level/pressed`
+- 灰度/道路：`line_detected`、`line_position`、`line_confidence`、`road_type`、`road_event_type`、`road_event_paths`
+- IMU：`imu_valid`、`imu_yaw`、`imu_pitch`、`imu_roll`、`imu_gyro_z`
+- 底盘：`feedback_valid`、`left_rpm`、`right_rpm`、`left_distance`、`right_distance`、`average_distance`、`chassis_initialized`
+- 控制状态：`heading_mode`、`linefollow_mode`、`app_mode`
+- 测试常量：`constant`
+
+距离单位为 mm，并以进入当前指令时的编码器值为零点。按下事件只允许
+`stable_ms=0`，进入等待或运动指令前已经积压的事件会被丢弃。灰度/IMU
+数据超过 200 ms、底盘反馈超过 100 ms，或对应传感器无效时，不再等待
+超时而是立即走 `ontimeout`。
+
+示例：
+
+```text
+run add condition button1_pressed eq 1 wait 5000 0 next abort
+run add condition imu_yaw ge 90000 instant 0 0 4 7
+run add drive_if 80 average_distance ge 500 10000 100 next abort
+run add follow_if 70 road_event_type eq 5 15000 0 next abort
+```
+
 ### `run clear`
 
 清空指令表（序列运行中时拒绝）。
@@ -1916,12 +1995,16 @@ run clear
 run start
 ```
 
-### `run validate`
+### `run validate [competition]`
 
 使用与 `run add`、`run start`、`seq save` 相同的校验器检查完整 RAM 指令表。成功时返回指令数；失败时返回首个错误指令、字段和原因。
+追加 `competition` 时还会执行比赛安全规则。Button2 在比赛运行中始终是
+停止键，因此引用 `button2_level` 或 `button2_pressed` 的序列只允许 RAM
+试运行，不能通过比赛校验，也不能保存到 FRAM 或由比赛模式启动。
 
 ```text
 run validate ok count=5
+run validate competition
 run validate error index=2 field=on_timeout reason=bad_target
 ```
 
@@ -1962,13 +2045,17 @@ run dump
 ```text
 seq 5
 0 drive 80 5000 timeout 255 255
-1 turn 90 8000 heading_reached 255 255
-2 follow 80 30000 line_lost 255 255
+1 condition button1_pressed eq 1 wait 5000 0 255 255
+2 drive_if 80 average_distance ge 500 10000 100 255 255
 3 stop 0 0 immediate 255 255
 4 end 0 0 immediate 255 255
 ```
 
 `255` = `ACT_NEXT`（onsuccess=下一条，ontimeout=中止）。
+
+FRAM 序列表当前为 SeqStore v2：每槽最多 64 条、每条 14 字节、共 8 个
+槽位。固件启动时会把 v1 的 10 字节指令自动迁移到 v2；迁移带有持久化
+进度和暂存区，掉电重启后会继续，不要求用户先清空已有比赛序列。
 
 ## 参数管理
 
@@ -2102,15 +2189,17 @@ param reset
 
 ## 比赛模式
 
-比赛模式状态机：`ARMED`（安全静止并选择任务）→ `RUNNING`（序列执行中）→ `ARMED`。在比赛配置（`FEATURE_PROFILE_COMPETITION=1`）下上电自动进入 ARMED；开发配置下可用 `comp arm` 手动进入。
+比赛模式状态机：`ARMED`（安全静止并选择任务）→ `RUNNING`（序列执行中）→ `ARMED`。无论使用开发还是比赛 feature profile，上电都默认进入 ARMED；feature profile 只决定编译进固件的外设和诊断能力。
 
-ARMED 下按键 1/3 在槽位 0..7 间向左/向右循环，按键 2 短按加载并启动当前槽位。RUNNING 下按键 2 短按取消任务并停车；按键 1 保留给 ActionRunner 的 `button` 条件。OLED 显示当前槽位、有效性、步数、运行进度和结束结果，FAULT 界面始终具有最高优先级。
+ARMED 下按键 1/3 在槽位 0..7 间向左/向右循环，按键 2 短按加载并启动当前槽位。RUNNING 下按键 2 短按取消任务并停车；未形成组合键时，按键 1/3 仍可供 ActionRunner 按键条件使用。OLED 显示当前槽位、有效性、步数、运行进度和结束结果，FAULT 界面始终具有最高优先级。
 
-LED 指示：ARMED 慢闪（1Hz）、RUNNING 常亮、FAULT 快闪（5Hz）；蜂鸣器保持关闭。
+同时按住按键 1 和按键 3，两个消抖电平连续重叠 1 秒后，在比赛模式和 `dev-running` 调试模式之间切换；触发后必须松开两键才能再次切换。两键一旦确认同时按下，B1/B3 事件即由系统组合键接管，并立即取消当前比赛或调试运动、停止所有控制器。若在比赛运行中未保持满 1 秒就松开，车辆仍保持停车并返回 ARMED，不会恢复原序列。FAULT 下组合键无效，必须先排除故障并复位。
+
+LED 指示：ARMED 慢闪（1Hz）、比赛 RUNNING 常亮、FAULT 快闪（5Hz）、`dev-running` 熄灭；蜂鸣器保持关闭。切到调试模式只改变运行态，不会恢复被 competition profile 编译关闭的诊断功能或外设。
 
 ### `comp arm`
 
-从开发模式进入比赛武装状态。取消现有 ActionRunner、停止底盘、禁用 chassis 任务、关闭传感器 OLED 周期页面，并选择最低编号的有效序列槽。仅在 `dev-running` 模式下可用。
+从 `dev-running` 进入比赛武装状态，作为 B1+B3 组合键之外的 Shell 备用入口。取消现有 ActionRunner、停止底盘、禁用 chassis 任务、关闭传感器 OLED 周期页面，并选择最低编号的有效序列槽。仅在 `dev-running` 模式下可用。
 
 ```text
 comp arm

@@ -17,7 +17,10 @@
  * at a fully occupied 115200-baud link. */
 #define DEBUG_UART_TX_DMA_BLOCK_SIZE     (256U)
 #define DEBUG_SHELL_LINE_BUFFER_SIZE     (96U)
-#define DEBUG_SHELL_MAX_ARGS             (8U)
+/* Generic sequence conditions use 11 tokens and a full 8-byte CAN frame
+ * uses 12. Keep headroom for future semantic commands; each extra entry is
+ * only one pointer in ExecuteLine's temporary stack array. */
+#define DEBUG_SHELL_MAX_ARGS             (16U)
 /* Development profile currently registers 25 top-level commands. Keep spare
  * slots so adding a command cannot silently hide the commands registered last. */
 #define DEBUG_SHELL_MAX_COMMANDS         (32U)

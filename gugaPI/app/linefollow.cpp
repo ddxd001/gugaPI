@@ -305,6 +305,24 @@ drivers::DriverStatus LF_Stop(void)
     return status;
 }
 
+drivers::DriverStatus LF_ContinueForMotionHandoff(
+    int32_t base_rpm,
+    uint32_t duration_ms)
+{
+    if ((g_state.mode != LF_FOLLOW) || (base_rpm <= 0)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    if (services::Fault_HasFault()) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    g_state.base_rpm = base_rpm;
+    g_state.follow_start_ms = services::Time_Millis();
+    g_state.follow_duration_ms = duration_ms;
+    g_state.last_status = drivers::DRIVER_OK;
+    return drivers::DRIVER_OK;
+}
+
 drivers::DriverStatus LF_ReleaseForMotionHandoff(void)
 {
     if (g_state.mode != LF_FOLLOW) {

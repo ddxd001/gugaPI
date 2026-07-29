@@ -394,19 +394,68 @@ function DashboardTelemetry_OnEvent(event){
   dashScheduleRender();
 }
 
+function dashDelay(ms){
+  return new Promise(function(resolve){setTimeout(resolve,ms)});
+}
+
+function dashTelemStatusMatches(response,key,period,enabled){
+  var text=String(response||'');
+  return text.indexOf('telem enabled='+(enabled?'1':'0'))>=0&&
+    (!enabled||(text.indexOf('profile='+key)>=0&&
+      text.indexOf('period_ms='+period)>=0));
+}
+
+async function dashConfirmTelemetryStopped(){
+  var lastResponse='';
+  for(var attempt=0;attempt<2;attempt++){
+    lastResponse=await send('telem off',{timeoutMs:1800});
+    if(/telem off:\s*ok/i.test(lastResponse))return true;
+    var status=await send('telem status',{timeoutMs:1800});
+    if(dashTelemStatusMatches(status,'',0,false))return true;
+    lastResponse=status||lastResponse;
+    await dashDelay(60);
+  }
+  throw new Error(lastResponse.trim()||'设备未确认遥测已停止');
+}
+
+async function dashActivateTelemetryProfile(key,period){
+  var command='telem on '+key+' '+period;
+  var lastResponse='';
+  for(var attempt=0;attempt<2;attempt++){
+    lastResponse=await send(command,{timeoutMs:2500});
+    if(/telem:\s*ok/i.test(lastResponse)&&
+       lastResponse.indexOf('profile='+key)>=0&&
+       lastResponse.indexOf('period_ms='+period)>=0){
+      return true;
+    }
+    var status=await send('telem status',{timeoutMs:1800});
+    if(dashTelemStatusMatches(status,key,period,true))return true;
+    lastResponse=status||lastResponse;
+    if(attempt===0){
+      await dashConfirmTelemetryStopped();
+      await dashDelay(60);
+    }
+  }
+  throw new Error(lastResponse.trim()||'设备未确认新的图表数据');
+}
+
 async function dashStartGroup(key,clearHistory){
   if(!dashState.connected||dashState.requesting)return false;
   var previousGroup=dashState.activeGroup;
   var previousEnabled=dashState.enabled;
+  var requestedPeriod=Number($('dashPeriod').value);
+  var oldStreamStopped=false;
   dashState.pendingGroup=key;
   dashState.requesting=true;
   dashBuildDataBrowser();dashRenderStatus();
   try{
-    var command='telem on '+key+' '+$('dashPeriod').value;
-    var response=await send(command,{timeoutMs:2500});
-    if(!simMode&&(!/telem:\s*ok/i.test(response)||
-       response.indexOf('profile='+key)<0)){
-      throw new Error(response.trim()||'设备未确认');
+    if(!simMode){
+      if(previousEnabled){
+        await dashConfirmTelemetryStopped();
+        oldStreamStopped=true;
+        await dashDelay(40);
+      }
+      await dashActivateTelemetryProfile(key,requestedPeriod);
     }
     if(dashState.recording){
       dashState.recording=false;
@@ -424,7 +473,16 @@ async function dashStartGroup(key,clearHistory){
     return true;
   }catch(error){
     dashState.activeGroup=previousGroup;
-    dashState.enabled=previousEnabled;
+    dashState.enabled=previousEnabled&&!oldStreamStopped;
+    if(!simMode&&oldStreamStopped&&previousEnabled&&previousGroup){
+      try{
+        await dashActivateTelemetryProfile(previousGroup,requestedPeriod);
+        dashState.enabled=true;
+      }catch(restoreError){
+        dashState.enabled=false;
+        error=new Error(error.message+'；原图表恢复失败：'+restoreError.message);
+      }
+    }
     dashToast('图表切换失败：'+error.message,true);
     return false;
   }finally{
@@ -436,20 +494,21 @@ async function dashStartGroup(key,clearHistory){
 
 async function dashStopStream(resumeOnReturn){
   if(dashState.requesting)return;
+  var stopped=!dashState.connected||simMode||!dashState.enabled;
   dashState.requesting=true;dashRenderStatus();
   try{
     if(dashState.connected&&!simMode&&dashState.enabled){
-      var response=await send('telem off',{timeoutMs:1200});
-      if(!/telem off:\s*ok/i.test(response)){
-        throw new Error(response.trim()||'设备未确认');
-      }
+      await dashConfirmTelemetryStopped();
+      stopped=true;
     }
   }catch(error){
     dashToast('停止遥测失败：'+error.message,true);
   }finally{
-    dashState.enabled=false;
-    dashState.recording=false;
-    dashSimStop();
+    dashState.enabled=!stopped&&dashState.enabled;
+    if(stopped){
+      dashState.recording=false;
+      dashSimStop();
+    }
     dashState.requesting=false;
     dashRenderStatus();dashDrawAll();
     if(resumeOnReturn&&dashState.visible&&dashState.connected&&

@@ -13,6 +13,10 @@ namespace app {
 
 static const uint8_t SEQ_SLOT_COUNT = 8U;
 
+/* Validate/create the layout and resume an interrupted v1->v2 migration.
+ * Call once during App_Init before competition metadata is scanned. */
+drivers::DriverStatus SeqStore_Init(void);
+
 struct SeqSlotInfo {
     bool valid;
     uint8_t count;

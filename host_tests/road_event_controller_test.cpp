@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "app/app_grayscale.h"
+#include "app/chassis.h"
 #include "app/config_store.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
@@ -19,8 +20,10 @@ app::AppGrayscaleData g_gray = {};
 app::ConfigStoreParams g_params = {};
 app::LFState g_lf = {};
 app::HeadingState g_heading = {};
+app::ChassisState g_chassis = {};
 uint32_t g_lf_stop_calls = 0U;
 uint32_t g_heading_stop_calls = 0U;
+uint32_t g_chassis_stop_calls = 0U;
 uint32_t g_lf_release_calls = 0U;
 uint32_t g_heading_release_calls = 0U;
 uint32_t g_lf_start_calls = 0U;
@@ -28,6 +31,9 @@ uint32_t g_arc_turn_calls = 0U;
 int32_t g_last_turn_deg = 0;
 int32_t g_last_arc_base_rpm = 0;
 uint32_t g_distance_calls = 0U;
+uint32_t g_pivot_turn_calls = 0U;
+uint32_t g_hold_calls = 0U;
+uint32_t g_hold_release_calls = 0U;
 int32_t g_last_distance_mm = 0;
 int32_t g_last_distance_rpm = 0;
 int32_t g_last_initial_rpm = 0;
@@ -39,10 +45,13 @@ void ResetHarness(int32_t align_mm, uint16_t road_rpm)
     g_gray = {};
     g_lf = {};
     g_heading = {};
+    g_chassis = {};
+    g_chassis.config.max_wheel_rpm = 1000U;
     g_heading.mode = app::HEADING_IDLE;
     g_heading.last_status = drivers::DRIVER_OK;
     g_lf_stop_calls = 0U;
     g_heading_stop_calls = 0U;
+    g_chassis_stop_calls = 0U;
     g_lf_release_calls = 0U;
     g_heading_release_calls = 0U;
     g_lf_start_calls = 0U;
@@ -50,6 +59,9 @@ void ResetHarness(int32_t align_mm, uint16_t road_rpm)
     g_last_turn_deg = 0;
     g_last_arc_base_rpm = 0;
     g_distance_calls = 0U;
+    g_pivot_turn_calls = 0U;
+    g_hold_calls = 0U;
+    g_hold_release_calls = 0U;
     g_last_distance_mm = 0;
     g_last_distance_rpm = 0;
     g_last_initial_rpm = 0;
@@ -177,6 +189,18 @@ drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms)
     return drivers::DRIVER_OK;
 }
 
+drivers::DriverStatus LF_ContinueForMotionHandoff(
+    int32_t base_rpm,
+    uint32_t duration_ms)
+{
+    if (g_lf.mode != LF_FOLLOW) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    g_lf.base_rpm = base_rpm;
+    g_lf.follow_duration_ms = duration_ms;
+    return drivers::DRIVER_OK;
+}
+
 const HeadingState *Heading_GetState(void)
 {
     return &g_heading;
@@ -186,6 +210,25 @@ drivers::DriverStatus Heading_Stop(void)
 {
     g_heading_stop_calls++;
     g_heading.mode = HEADING_IDLE;
+    g_heading.last_status = drivers::DRIVER_OK;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus Heading_TurnStart(int32_t delta_deg)
+{
+    g_pivot_turn_calls++;
+    g_last_turn_deg = delta_deg;
+    g_heading.mode = HEADING_TURN;
+    g_heading.last_status = drivers::DRIVER_OK;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus Heading_HoldStart(int32_t base_rpm)
+{
+    g_hold_calls++;
+    g_heading.base_rpm = base_rpm;
+    g_heading.mode = HEADING_HOLD;
+    g_heading.last_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 }
 
@@ -224,6 +267,27 @@ drivers::DriverStatus Heading_ReleaseForMotionHandoff(void)
     }
     g_heading_release_calls++;
     g_heading.mode = HEADING_IDLE;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus Heading_HoldReleaseForMotionHandoff(void)
+{
+    if (g_heading.mode != HEADING_HOLD) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    g_hold_release_calls++;
+    g_heading.mode = HEADING_IDLE;
+    return drivers::DRIVER_OK;
+}
+
+const ChassisState *Chassis_GetState(void)
+{
+    return &g_chassis;
+}
+
+drivers::DriverStatus Chassis_Stop(void)
+{
+    g_chassis_stop_calls++;
     return drivers::DRIVER_OK;
 }
 
@@ -378,6 +442,178 @@ int main(void)
            drivers::DRIVER_ERROR_NOT_INITIALIZED);
     assert(g_lf_stop_calls == 1U);
     assert(g_heading_stop_calls == 1U);
+
+    /* Explicit requests ignore a previously latched event, re-arm only after
+     * NORMAL, and straight completion keeps LF_FOLLOW active. */
+    ResetHarness(0, 30U);
+    PrepareFollow(0U, 40);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_LATCHED;
+    g_gray.road_event_sequence = 20U;
+    assert(RoadEventController_StartRoute(
+        ROAD_ROUTE_STRAIGHT, 80, 15000U) == drivers::DRIVER_OK);
+    assert(RoadEventController_GetState()->phase ==
+           ROAD_CONTROL_PHASE_ARMING);
+    RoadEventController_Update();
+    assert(RoadEventController_GetState()->phase ==
+           ROAD_CONTROL_PHASE_ARMING);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_NORMAL;
+    RoadEventController_Update();
+    assert(RoadEventController_GetState()->phase ==
+           ROAD_CONTROL_PHASE_FOLLOWING);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_LATCHED;
+    g_gray.road_event_sequence = 21U;
+    g_gray.road_event_type = GRAYSCALE_ROAD_CROSS;
+    g_gray.road_observed_paths =
+        GRAYSCALE_ROAD_PATH_LEFT |
+        GRAYSCALE_ROAD_PATH_FORWARD |
+        GRAYSCALE_ROAD_PATH_RIGHT;
+    RoadEventController_Update();
+    assert(RoadEventController_GetState()->route_result ==
+           ROAD_ROUTE_RESULT_SUCCESS);
+    assert(g_lf.mode == LF_FOLLOW);
+    assert(g_lf.base_rpm == 80);
+    assert(g_lf_stop_calls == 0U);
+
+    /* A missing requested exit is a stopped, explicit unavailable result. */
+    ResetHarness(0, 30U);
+    PrepareFollow(0U, 40);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_NORMAL;
+    assert(RoadEventController_StartRoute(
+        ROAD_ROUTE_LEFT, 70, 15000U) == drivers::DRIVER_OK);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_LATCHED;
+    g_gray.road_event_sequence = 31U;
+    g_gray.road_event_type = GRAYSCALE_ROAD_STRAIGHT;
+    g_gray.road_observed_paths = GRAYSCALE_ROAD_PATH_FORWARD;
+    RoadEventController_Update();
+    assert(RoadEventController_GetState()->route_result ==
+           ROAD_ROUTE_RESULT_UNAVAILABLE);
+    assert(RoadEventController_GetState()->phase ==
+           ROAD_CONTROL_PHASE_STOPPED);
+    assert(g_chassis_stop_calls != 0U);
+
+    struct RouteStartCase {
+        RoadRoute route;
+        uint8_t path;
+        int32_t angle;
+        RoadControlPhase phase;
+    } route_cases[] = {
+        { ROAD_ROUTE_LEFT, GRAYSCALE_ROAD_PATH_LEFT, 90,
+          ROAD_CONTROL_PHASE_TURNING },
+        { ROAD_ROUTE_RIGHT, GRAYSCALE_ROAD_PATH_RIGHT, -90,
+          ROAD_CONTROL_PHASE_TURNING },
+        { ROAD_ROUTE_UTURN_LEFT_ARC, GRAYSCALE_ROAD_PATH_LEFT, 180,
+          ROAD_CONTROL_PHASE_TURNING },
+        { ROAD_ROUTE_UTURN_RIGHT_ARC, GRAYSCALE_ROAD_PATH_RIGHT, -180,
+          ROAD_CONTROL_PHASE_TURNING },
+        { ROAD_ROUTE_UTURN_LEFT_PIVOT, GRAYSCALE_ROAD_PATH_LEFT, 180,
+          ROAD_CONTROL_PHASE_PIVOT_TURNING },
+        { ROAD_ROUTE_UTURN_RIGHT_PIVOT, GRAYSCALE_ROAD_PATH_RIGHT, -180,
+          ROAD_CONTROL_PHASE_PIVOT_TURNING }
+    };
+    for (uint32_t i = 0U;
+         i < sizeof(route_cases) / sizeof(route_cases[0]);
+         i++) {
+        ResetHarness(0, 30U);
+        PrepareFollow(0U, 40);
+        g_gray.road_phase = GRAYSCALE_ROAD_PHASE_NORMAL;
+        assert(RoadEventController_StartRoute(
+            route_cases[i].route, 80, 15000U) ==
+               drivers::DRIVER_OK);
+        g_gray.road_phase = GRAYSCALE_ROAD_PHASE_OBSERVING;
+        g_gray.road_observed_paths = route_cases[i].path;
+        RoadEventController_Update();
+        assert(g_last_turn_deg == route_cases[i].angle);
+        assert(RoadEventController_GetState()->phase ==
+               route_cases[i].phase);
+    }
+
+    /* Confirmed side evidence takes control during OBSERVING. Arc U-turns use
+     * a fixed signed 180-degree target. */
+    ResetHarness(0, 30U);
+    PrepareFollow(0U, 40);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_NORMAL;
+    assert(RoadEventController_StartRoute(
+        ROAD_ROUTE_UTURN_LEFT_ARC, 90, 15000U) == drivers::DRIVER_OK);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_OBSERVING;
+    g_gray.road_observed_paths = GRAYSCALE_ROAD_PATH_LEFT;
+    RoadEventController_Update();
+    assert(g_arc_turn_calls == 1U);
+    assert(g_last_turn_deg == 180);
+    assert(RoadEventController_GetState()->phase ==
+           ROAD_CONTROL_PHASE_TURNING);
+
+    /* Pivot U-turn: stop, rotate, heading-hold creep, then two fresh tracking
+     * frames hand motion directly back to line following. */
+    ResetHarness(0, 30U);
+    PrepareFollow(0U, 40);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_NORMAL;
+    assert(RoadEventController_StartRoute(
+        ROAD_ROUTE_UTURN_RIGHT_PIVOT, 80, 15000U) ==
+           drivers::DRIVER_OK);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_OBSERVING;
+    g_gray.road_observed_paths = GRAYSCALE_ROAD_PATH_RIGHT;
+    RoadEventController_Update();
+    assert(g_pivot_turn_calls == 1U);
+    assert(g_last_turn_deg == -180);
+    assert(RoadEventController_GetState()->phase ==
+           ROAD_CONTROL_PHASE_PIVOT_TURNING);
+    g_heading.mode = HEADING_IDLE;
+    g_heading.last_status = drivers::DRIVER_OK;
+    RoadEventController_Update();
+    assert(g_hold_calls == 1U);
+    assert(g_heading.base_rpm == 30);
+    PublishTrackingFrame(100U, true);
+    RoadEventController_Update();
+    PublishTrackingFrame(101U, true);
+    RoadEventController_Update();
+    assert(g_hold_release_calls == 1U);
+    assert(RoadEventController_GetState()->route_result ==
+           ROAD_ROUTE_RESULT_SUCCESS);
+    assert(g_lf.mode == LF_FOLLOW);
+    assert(g_lf.base_rpm == 80);
+
+    /* Explicit arc reacquisition timeout has a route-specific result. */
+    ResetHarness(0, 30U);
+    PrepareFollow(0U, 40);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_NORMAL;
+    assert(RoadEventController_StartRoute(
+        ROAD_ROUTE_LEFT, 80, 15000U) == drivers::DRIVER_OK);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_OBSERVING;
+    g_gray.road_observed_paths = GRAYSCALE_ROAD_PATH_LEFT;
+    RoadEventController_Update();
+    g_heading.at_target = true;
+    PublishTrackingFrame(200U, false);
+    RoadEventController_Update();
+    g_now_ms = 800U;
+    RoadEventController_Update();
+    assert(RoadEventController_GetState()->route_result ==
+           ROAD_ROUTE_RESULT_REACQUIRE_FAILED);
+
+    ResetHarness(0, 30U);
+    PrepareFollow(0U, 40);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_NORMAL;
+    assert(RoadEventController_StartRoute(
+        ROAD_ROUTE_RIGHT, 80, 15000U) == drivers::DRIVER_OK);
+    assert(RoadEventController_Cancel() == drivers::DRIVER_OK);
+    assert(RoadEventController_GetState()->route_result ==
+           ROAD_ROUTE_RESULT_CANCELLED);
+
+    ResetHarness(0, 30U);
+    PrepareFollow(0U, 40);
+    g_gray.road_phase = GRAYSCALE_ROAD_PHASE_NORMAL;
+    assert(RoadEventController_StartRoute(
+        ROAD_ROUTE_RIGHT, 80, 100U) == drivers::DRIVER_OK);
+    g_now_ms = 100U;
+    RoadEventController_Update();
+    assert(RoadEventController_GetState()->route_result ==
+           ROAD_ROUTE_RESULT_TIMEOUT);
+
+    assert(RoadEventController_StartRoute(
+        ROAD_ROUTE_COUNT, 80, 15000U) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(RoadEventController_StartRoute(
+        ROAD_ROUTE_LEFT, 80, 75U) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
 
     assert(RoadEventController_SetAlignConfig(301, 30U) ==
            drivers::DRIVER_ERROR_INVALID_ARG);

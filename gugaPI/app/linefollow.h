@@ -79,6 +79,12 @@ void LF_Init(void);
 drivers::DriverStatus LF_CalibrateStart(void);
 drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms);
 drivers::DriverStatus LF_Stop(void);
+/* Retarget an already-running follower without issuing a stop command. This is
+ * used when two road-navigation actions hand motion ownership directly from
+ * one node to the next. */
+drivers::DriverStatus LF_ContinueForMotionHandoff(
+    int32_t base_rpm,
+    uint32_t duration_ms);
 /* Transfer motion ownership without writing a zero-speed command. The caller
  * must immediately start another closed-loop motion and stop on failure. */
 drivers::DriverStatus LF_ReleaseForMotionHandoff(void);

@@ -46,6 +46,8 @@ build_and_run imu_bias_estimator \
     gugaPI/app/imu_bias_estimator.cpp
 build_and_run linefollow_road_handoff \
     host_tests/linefollow_road_handoff_test.cpp
+build_and_run mode_switch_chord \
+    host_tests/mode_switch_chord_test.cpp
 build_and_run road_event_controller \
     host_tests/road_event_controller_test.cpp \
     gugaPI/app/road_event_controller.cpp
@@ -65,6 +67,9 @@ echo "[host-test] parameter_catalog"
 
 echo "[host-test] sequence_core"
 "${node_bin}" host_tests/sequence_core_test.js
+
+echo "[host-test] help_catalog"
+"${node_bin}" host_tests/help_catalog_test.js
 
 echo "[host-test] dashboard_core"
 "${node_bin}" host_tests/dashboard_core_test.js

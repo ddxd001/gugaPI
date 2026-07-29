@@ -29,7 +29,12 @@ enum ActionOp {
     ACT_OP_LED_TOGGLE = 11,
     ACT_OP_BUZZER_ON = 12, /* p1=0; p2=auto-off ms */
     ACT_OP_BUZZER_OFF = 13,
-    ACT_OP_BUZZER_TOGGLE = 14
+    ACT_OP_BUZZER_TOGGLE = 14,
+    ACT_OP_CONDITION = 15, /* generic immediate/wait comparison */
+    ACT_OP_DRIVE_IF = 16,  /* heading hold until generic comparison */
+    ACT_OP_FOLLOW_IF = 17, /* line follow until generic comparison */
+    ACT_OP_LOOP = 18,      /* counted loop: success=body, timeout=done */
+    ACT_OP_ROAD_NAV = 19   /* follow through next junction by fixed route */
 };
 
 enum ActionCond {
@@ -42,6 +47,65 @@ enum ActionCond {
     ACT_COND_DISTANCE_REACHED   /* encoder distance mode returned to idle */
 };
 
+/* Generic comparison sources. Values fit in the upper five bits of the
+ * persisted condition spec; the lower three bits hold ActionCompareOp. */
+enum ActionConditionSource : uint8_t {
+    ACT_SOURCE_CONSTANT = 0U,
+    ACT_SOURCE_BUTTON1_LEVEL,
+    ACT_SOURCE_BUTTON1_PRESSED,
+    ACT_SOURCE_BUTTON2_LEVEL,
+    ACT_SOURCE_BUTTON2_PRESSED,
+    ACT_SOURCE_BUTTON3_LEVEL,
+    ACT_SOURCE_BUTTON3_PRESSED,
+    ACT_SOURCE_LINE_DETECTED,
+    ACT_SOURCE_LINE_POSITION_MPOS,
+    ACT_SOURCE_LINE_CONFIDENCE,
+    ACT_SOURCE_ROAD_TYPE,
+    ACT_SOURCE_ROAD_EVENT_TYPE,
+    ACT_SOURCE_ROAD_EVENT_PATHS,
+    ACT_SOURCE_IMU_VALID,
+    ACT_SOURCE_IMU_YAW_MDEG,
+    ACT_SOURCE_IMU_PITCH_MDEG,
+    ACT_SOURCE_IMU_ROLL_MDEG,
+    ACT_SOURCE_IMU_GYRO_Z_MDPS,
+    ACT_SOURCE_CHASSIS_FEEDBACK_VALID,
+    ACT_SOURCE_LEFT_ACTUAL_RPM,
+    ACT_SOURCE_RIGHT_ACTUAL_RPM,
+    ACT_SOURCE_LEFT_DISTANCE_MM,
+    ACT_SOURCE_RIGHT_DISTANCE_MM,
+    ACT_SOURCE_AVERAGE_DISTANCE_MM,
+    ACT_SOURCE_CHASSIS_INITIALIZED,
+    ACT_SOURCE_HEADING_MODE,
+    ACT_SOURCE_LINEFOLLOW_MODE,
+    ACT_SOURCE_APP_MODE,
+    ACT_SOURCE_COUNT
+};
+
+enum ActionCompareOp : uint8_t {
+    ACT_COMPARE_EQ = 0U,
+    ACT_COMPARE_NE,
+    ACT_COMPARE_LT,
+    ACT_COMPARE_LE,
+    ACT_COMPARE_GT,
+    ACT_COMPARE_GE,
+    ACT_COMPARE_CONTAINS,
+    ACT_COMPARE_NOT_CONTAINS
+};
+
+enum ActionConditionMode : uint8_t {
+    ACT_CONDITION_IMMEDIATE = 0U,
+    ACT_CONDITION_WAIT
+};
+
+struct ActionConditionConfig {
+    ActionConditionSource source;
+    ActionCompareOp compare;
+    int32_t value;
+    ActionConditionMode mode;
+    uint16_t timeout_ms;
+    uint16_t stable_ms;
+};
+
 /* on_success / on_timeout target. ACT_NEXT in on_success = next instruction;
  * ACT_NEXT in on_timeout = abort (fail). A real index 0..count-1 = goto. */
 static const uint8_t ACT_NEXT = 0xFFU;
@@ -51,6 +115,7 @@ struct Instr {
     int32_t param1;       /* motion parameter or LED target */
     int32_t param2;       /* timeout/duration, max rpm, or auto-off ms */
     ActionCond until;     /* success condition */
+    int32_t condition_value; /* generic comparison threshold; otherwise 0 */
     uint8_t on_success;   /* ACT_NEXT or index */
     uint8_t on_timeout;   /* ACT_NEXT(=abort) or index */
 };
@@ -73,7 +138,12 @@ enum ActionFailureReason {
     ACT_FAIL_SEQUENCE_TIMEOUT,
     ACT_FAIL_FAULT,
     ACT_FAIL_CANCELLED,
-    ACT_FAIL_INVALID
+    ACT_FAIL_INVALID,
+    ACT_FAIL_CONDITION_FALSE,
+    ACT_FAIL_CONDITION_TIMEOUT,
+    ACT_FAIL_CONDITION_UNAVAILABLE,
+    ACT_FAIL_ROUTE_UNAVAILABLE,
+    ACT_FAIL_ROUTE_REACQUIRE_FAILED
 };
 
 enum ActionValidationField {
@@ -133,11 +203,31 @@ drivers::DriverStatus ActionRunner_AddInstr(ActionOp op,
                                             ActionCond until,
                                             uint8_t on_success,
                                             uint8_t on_timeout);
+drivers::DriverStatus ActionRunner_AddRoadNav(
+    int32_t route,
+    int32_t rpm,
+    int32_t timeout_ms,
+    uint8_t on_success,
+    uint8_t on_failure);
+drivers::DriverStatus ActionRunner_AddCompareInstr(
+    ActionOp op,
+    int32_t param1,
+    const ActionConditionConfig *condition,
+    uint8_t on_success,
+    uint8_t on_failure);
 drivers::DriverStatus ActionRunner_Validate(ActionValidationResult *result);
+drivers::DriverStatus ActionRunner_ValidateCompetition(
+    ActionValidationResult *result);
 drivers::DriverStatus ActionRunner_Start(void);
 drivers::DriverStatus ActionRunner_Cancel(void);
 void ActionRunner_Update(void);
 const ActionRunnerState *ActionRunner_GetState(void);
+
+bool ActionCondition_IsCompareOp(ActionOp op);
+bool ActionCondition_Decode(const Instr *instr,
+                            ActionConditionConfig *condition);
+const char *ActionCondition_SourceText(ActionConditionSource source);
+const char *ActionCondition_CompareText(ActionCompareOp compare);
 
 } /* namespace app */
 

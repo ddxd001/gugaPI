@@ -10,6 +10,7 @@
 #include "app/config_store.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
+#include "app/mode_switch_chord.h"
 #include "app/road_event_controller.h"
 #include "app/seq_store.h"
 #include "board/board.h"
@@ -381,8 +382,15 @@ void App_ButtonChassisTestTask(void)
 }
 #endif
 
-#if FEATURE_ENABLE_STATUS_LED || FEATURE_ENABLE_BUZZER || FEATURE_ENABLE_OLED
+#if FEATURE_ENABLE_BUTTONS || FEATURE_ENABLE_STATUS_LED || \
+    FEATURE_ENABLE_BUZZER || FEATURE_ENABLE_OLED
 const uint32_t COMP_STATUS_PERIOD_MS = 10U;
+#if FEATURE_ENABLE_BUTTONS
+const uint32_t MODE_SWITCH_CHORD_HOLD_MS = 1000U;
+static app::ModeSwitchChordState g_modeSwitchChord = {
+    false, false, 0U
+};
+#endif
 #if FEATURE_ENABLE_OLED
 const uint32_t FAULT_OLED_REFRESH_PERIOD_MS = 500U;
 const uint32_t COMP_OLED_MIN_REFRESH_MS = 100U;
@@ -684,12 +692,52 @@ void App_CompetitionOledUpdate(uint32_t now, app::AppMode mode)
 void App_CompetitionStatusTask(void)
 {
     const uint32_t now = services::Time_Millis();
-    const app::AppMode mode = app::App_GetState()->mode;
+    app::AppMode mode = app::App_GetState()->mode;
 
-    /* ARMED: B1/B3 select all slots, B2 starts. Drain B1 pressed events
-     * here so a selection press cannot later satisfy an ActionRunner button
-     * condition. RUNNING deliberately leaves B1 untouched for ActionRunner. */
+    /* B1+B3 is a system chord and takes priority while active. Otherwise,
+     * ARMED uses B1/B3 for slot selection and B2 to start. RUNNING leaves
+     * individual B1/B3 events available to ActionRunner. */
 #if FEATURE_ENABLE_BUTTONS
+    if (mode == app::APP_MODE_FAULT) {
+        app::ModeSwitchChord_Reset(&g_modeSwitchChord);
+    } else {
+        const bool chord_was_active =
+            app::ModeSwitchChord_IsActive(&g_modeSwitchChord);
+        const app::ModeSwitchChordEvent chord_event =
+            app::ModeSwitchChord_Update(
+                &g_modeSwitchChord,
+                board::Board_ButtonIsPressed(board::BOARD_BUTTON_1),
+                board::Board_ButtonIsPressed(board::BOARD_BUTTON_3),
+                now,
+                MODE_SWITCH_CHORD_HOLD_MS);
+
+        if (chord_was_active ||
+            app::ModeSwitchChord_IsActive(&g_modeSwitchChord) ||
+            (chord_event != app::MODE_SWITCH_CHORD_NONE)) {
+            (void) board::Board_ButtonTakeEvents(
+                board::BOARD_BUTTON_1, drivers::BUTTON_EVENT_ALL);
+            (void) board::Board_ButtonTakeEvents(
+                board::BOARD_BUTTON_3, drivers::BUTTON_EVENT_ALL);
+        }
+
+        if ((chord_event == app::MODE_SWITCH_CHORD_STARTED) &&
+            ((mode == app::APP_MODE_COMPETITION_RUNNING) ||
+             (mode == app::APP_MODE_RUNNING))) {
+            (void) app::App_EmergencyStop();
+            mode = app::App_GetState()->mode;
+        }
+
+        if (chord_event == app::MODE_SWITCH_CHORD_TRIGGERED) {
+            mode = app::App_GetState()->mode;
+            if (mode == app::APP_MODE_COMPETITION_ARMED) {
+                (void) app::App_DebugModeEnter();
+            } else if (mode == app::APP_MODE_RUNNING) {
+                (void) app::App_CompetitionArm();
+            }
+            mode = app::App_GetState()->mode;
+        }
+    }
+
     if (mode == app::APP_MODE_COMPETITION_ARMED) {
         const uint32_t select_mask =
             drivers::BUTTON_EVENT_PRESSED |
@@ -747,6 +795,8 @@ void App_CompetitionStatusTask(void)
         }
     } else if (mode == app::APP_MODE_COMPETITION_RUNNING) {
         (void) board::Board_StatusLedOn();
+    } else {
+        (void) board::Board_StatusLedOff();
     }
 #endif
 
@@ -765,11 +815,7 @@ void App_CompetitionStatusTask(void)
 namespace app {
 
 static AppState g_appState = {
-#if FEATURE_PROFILE_COMPETITION
     APP_MODE_COMPETITION_ARMED,
-#else
-    APP_MODE_RUNNING,
-#endif
     0U
 };
 
@@ -886,12 +932,11 @@ void App_Init(void)
     }
 #endif
 
-#if FEATURE_PROFILE_COMPETITION
     g_appState.mode = APP_MODE_COMPETITION_ARMED;
-#else
-    g_appState.mode = APP_MODE_RUNNING;
-#endif
     g_appState.uptime_ms = 0U;
+#if FEATURE_ENABLE_BUTTONS
+    ModeSwitchChord_Reset(&g_modeSwitchChord);
+#endif
 #if FEATURE_ENABLE_MOTOR_DRIVER || FEATURE_ENABLE_INA219 || \
     FEATURE_ENABLE_GRAYSCALE
     const drivers::DriverStatus config_status = ConfigStore_Load();
@@ -957,18 +1002,14 @@ void App_Init(void)
         services::Fault_Set(services::FAULT_UNKNOWN);
     }
     ActionRunner_Init();
-    if (services::Scheduler_AddTask("action",
-                                    App_ActionTask,
-                                    ACTION_PERIOD_MS,
-                                    0U,
-                                    0) != services::SCHEDULER_OK) {
-        services::Fault_Set(services::FAULT_UNKNOWN);
+#endif
+#if FEATURE_ENABLE_FRAM && FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+    if (SeqStore_Init() != drivers::DRIVER_OK) {
+        LOG_WARN("sequence store unavailable or migration incomplete");
     }
 #endif
     CompetitionSelectInitialSlot();
-#if FEATURE_PROFILE_COMPETITION
     AppShell_DisableOledStreams();
-#endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
     app::LF_Init();
 #if FEATURE_ENABLE_IMU
@@ -1064,7 +1105,8 @@ void App_Init(void)
     }
 #endif
 
-#if FEATURE_ENABLE_STATUS_LED || FEATURE_ENABLE_BUZZER || FEATURE_ENABLE_OLED
+#if FEATURE_ENABLE_BUTTONS || FEATURE_ENABLE_STATUS_LED || \
+    FEATURE_ENABLE_BUZZER || FEATURE_ENABLE_OLED
     if (services::Scheduler_AddTask("comp_status",
                                     App_CompetitionStatusTask,
                                     COMP_STATUS_PERIOD_MS,
@@ -1072,6 +1114,22 @@ void App_Init(void)
                                     0) != services::SCHEDULER_OK) {
         services::Fault_Set(services::FAULT_UNKNOWN);
     }
+#endif
+#if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
+    /* Register after button/competition handling so the B1+B3 system chord
+     * can consume its events before ActionRunner evaluates button sources. */
+    if (services::Scheduler_AddTask("action",
+                                    App_ActionTask,
+                                    ACTION_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
+
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    (void) Chassis_Stop();
+    SetChassisTaskEnabled(false);
 #endif
 }
 
@@ -1218,12 +1276,47 @@ drivers::DriverStatus App_CompetitionArm(void)
     }
 #if FEATURE_ENABLE_MOTOR_DRIVER
     (void) Chassis_Stop();
+    SetChassisTaskEnabled(false);
 #endif
     (void) ActionRunner_Cancel();
     CompetitionSelectInitialSlot();
     AppShell_DisableOledStreams();
     CompetitionClearButtonEvents();
     g_appState.mode = APP_MODE_COMPETITION_ARMED;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus App_DebugModeEnter(void)
+{
+    if (g_appState.mode != APP_MODE_COMPETITION_ARMED) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    if (services::Fault_HasFault()) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    const drivers::DriverStatus stop_status = App_EmergencyStop();
+    if (stop_status != drivers::DRIVER_OK) {
+        return stop_status;
+    }
+    if (services::Fault_HasFault()) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+
+    CompetitionClearButtonEvents();
+#if FEATURE_ENABLE_OLED
+    (void) board::Board_OledClear();
+    g_compOledLastMode = APP_MODE_IDLE;
+#endif
+#if FEATURE_ENABLE_STATUS_LED
+    if (board::Board_StatusLedIsReady()) {
+        (void) board::Board_StatusLedOff();
+    }
+#endif
+#if FEATURE_ENABLE_MOTOR_DRIVER
+    SetChassisTaskEnabled(true);
+#endif
+    g_appState.mode = APP_MODE_RUNNING;
     return drivers::DRIVER_OK;
 }
 
@@ -1255,8 +1348,19 @@ drivers::DriverStatus App_CompetitionStart(void)
         return load_status;
     }
 
+    ActionValidationResult validation;
+    const drivers::DriverStatus validation_status =
+        ActionRunner_ValidateCompetition(&validation);
+    if (validation_status != drivers::DRIVER_OK) {
+        CompetitionSetResult(COMP_RESULT_LOAD_ERROR, validation_status);
+        return validation_status;
+    }
+
     const drivers::DriverStatus status = ActionRunner_Start();
     if (status == drivers::DRIVER_OK) {
+#if FEATURE_ENABLE_MOTOR_DRIVER
+        SetChassisTaskEnabled(true);
+#endif
         CompetitionSetResult(COMP_RESULT_NONE, drivers::DRIVER_OK);
         g_appState.mode = APP_MODE_COMPETITION_RUNNING;
     } else {
@@ -1272,6 +1376,7 @@ drivers::DriverStatus App_CompetitionStop(void)
     }
     (void) ActionRunner_Cancel();
     (void) Chassis_Stop();
+    SetChassisTaskEnabled(false);
     CompetitionSetResult(COMP_RESULT_STOPPED, drivers::DRIVER_OK);
     CompetitionClearButtonEvents();
     g_appState.mode = APP_MODE_COMPETITION_ARMED;
