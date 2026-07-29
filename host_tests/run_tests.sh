@@ -67,6 +67,9 @@ build_and_run action_runner \
 build_and_run oled_framebuffer \
     host_tests/oled_framebuffer_test.cpp \
     gugaPI/drivers/oled/oled_ssd1306.cpp
+build_and_run large_timer \
+    host_tests/large_timer_test.cpp \
+    gugaPI/app/app_large_timer.cpp
 
 echo "[host-test] shell_command_catalog"
 "${node_bin}" host_tests/shell_command_catalog_test.js

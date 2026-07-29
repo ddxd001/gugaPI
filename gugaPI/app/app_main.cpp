@@ -4,6 +4,7 @@
 #include "app/app_imu.h"
 #include "app/app_infrared_sensor.h"
 #include "app/app_jyme02_can.h"
+#include "app/app_large_timer.h"
 #include "app/app_lora.h"
 #include "app/app_shell.h"
 #include "app/action.h"
@@ -830,6 +831,11 @@ void App_CompetitionStatusTask(void)
 #if FEATURE_ENABLE_OLED
     if (mode == app::APP_MODE_FAULT) {
         App_FaultOledUpdate(now);
+    } else if (app::App_LargeTimerOwnsDisplay()) {
+        /* The independently controlled large timer may be used while a
+         * competition sequence is running. Invalidate the cached page so it
+         * is redrawn immediately after the timer releases the OLED. */
+        g_compOledLastSlot = 0xFFU;
     } else {
         g_faultOledCode = services::FAULT_NONE;
         App_CompetitionOledUpdate(now, mode);
@@ -957,6 +963,9 @@ void App_Init(void)
     if (board::Board_BuzzerIsReady()) {
         (void) board::Board_BuzzerOff();
     }
+#endif
+#if FEATURE_ENABLE_OLED
+    App_LargeTimerInit();
 #endif
 
     g_appState.mode = APP_MODE_COMPETITION_ARMED;
@@ -1178,6 +1187,9 @@ void App_Run(void)
 #if FEATURE_ENABLE_OLED
     /* Progress the OLED DMA state machine before other shared-I2C clients. */
     (void) board::Board_OledService();
+    /* The large timer only updates the framebuffer when a displayed tenth
+     * changes. Scheduler_Run has already serviced every control task. */
+    App_LargeTimerUpdate();
 #endif
 
 #if FEATURE_ENABLE_INA219
