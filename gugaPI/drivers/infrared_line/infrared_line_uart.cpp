@@ -13,13 +13,45 @@ uint32_t RxClearMask(void)
            DL_UART_MAIN_INTERRUPT_NOISE_ERROR;
 }
 
-uint32_t ErrorMask(void)
+uint32_t RxStatusMask(void)
 {
     return DL_UART_MAIN_INTERRUPT_RX_TIMEOUT_ERROR |
            DL_UART_MAIN_INTERRUPT_OVERRUN_ERROR |
            DL_UART_MAIN_INTERRUPT_FRAMING_ERROR |
            DL_UART_MAIN_INTERRUPT_PARITY_ERROR |
            DL_UART_MAIN_INTERRUPT_NOISE_ERROR;
+}
+
+void IncrementSaturated(volatile uint32_t *value)
+{
+    if (*value != UINT32_MAX) {
+        (*value)++;
+    }
+}
+
+void RecordRxStatus(InfraredLineUartContext *context, uint32_t status)
+{
+    if ((status & DL_UART_MAIN_INTERRUPT_RX_TIMEOUT_ERROR) != 0U) {
+        /* RX timeout reports an idle gap after received data. It is useful
+         * for diagnostics but is not a malformed UART character. */
+        IncrementSaturated(&context->rx_timeout_count);
+    }
+    if ((status & DL_UART_MAIN_INTERRUPT_OVERRUN_ERROR) != 0U) {
+        IncrementSaturated(&context->overrun_error_count);
+        IncrementSaturated(&context->uart_error_count);
+    }
+    if ((status & DL_UART_MAIN_INTERRUPT_FRAMING_ERROR) != 0U) {
+        IncrementSaturated(&context->framing_error_count);
+        IncrementSaturated(&context->uart_error_count);
+    }
+    if ((status & DL_UART_MAIN_INTERRUPT_PARITY_ERROR) != 0U) {
+        IncrementSaturated(&context->parity_error_count);
+        IncrementSaturated(&context->uart_error_count);
+    }
+    if ((status & DL_UART_MAIN_INTERRUPT_NOISE_ERROR) != 0U) {
+        IncrementSaturated(&context->noise_error_count);
+        IncrementSaturated(&context->uart_error_count);
+    }
 }
 
 uint16_t NextIndex(const InfraredLineUartConfig *config, uint16_t index)
@@ -68,6 +100,11 @@ DriverStatus InfraredLineUart_Init(InfraredLineUartContext *context,
     context->rx_tail = 0U;
     context->rx_dropped_count = 0U;
     context->uart_error_count = 0U;
+    context->rx_timeout_count = 0U;
+    context->overrun_error_count = 0U;
+    context->framing_error_count = 0U;
+    context->parity_error_count = 0U;
+    context->noise_error_count = 0U;
     context->irq_count = 0U;
     context->fifo_byte_count = 0U;
     context->polled_byte_count = 0U;
@@ -100,10 +137,8 @@ void InfraredLineUart_ServiceRx(InfraredLineUartContext *context)
      * and exposes that fact through polled_byte_count for bench diagnosis. */
     NVIC_DisableIRQ(context->config->irq);
     const uint32_t raw_status = DL_UART_Main_getRawInterruptStatus(
-        context->config->uart, ErrorMask());
-    if (raw_status != 0U) {
-        context->uart_error_count++;
-    }
+        context->config->uart, RxStatusMask());
+    RecordRxStatus(context, raw_status);
     DrainRxFifo(context, true);
     DL_UART_Main_clearInterruptStatus(context->config->uart, RxClearMask());
     NVIC_ClearPendingIRQ(context->config->irq);
@@ -116,13 +151,22 @@ void InfraredLineUart_Clear(InfraredLineUartContext *context)
         return;
     }
     NVIC_DisableIRQ(context->config->irq);
+    while (!DL_UART_Main_isRXFIFOEmpty(context->config->uart)) {
+        (void) DL_UART_Main_receiveData(context->config->uart);
+    }
     context->rx_head = 0U;
     context->rx_tail = 0U;
     context->rx_dropped_count = 0U;
     context->uart_error_count = 0U;
+    context->rx_timeout_count = 0U;
+    context->overrun_error_count = 0U;
+    context->framing_error_count = 0U;
+    context->parity_error_count = 0U;
+    context->noise_error_count = 0U;
     context->irq_count = 0U;
     context->fifo_byte_count = 0U;
     context->polled_byte_count = 0U;
+    DL_UART_Main_clearInterruptStatus(context->config->uart, RxClearMask());
     NVIC_ClearPendingIRQ(context->config->irq);
     NVIC_EnableIRQ(context->config->irq);
 }
@@ -134,10 +178,8 @@ void InfraredLineUart_IrqHandler(InfraredLineUartContext *context)
     }
     context->irq_count++;
     const uint32_t raw_status = DL_UART_Main_getRawInterruptStatus(
-        context->config->uart, ErrorMask());
-    if (raw_status != 0U) {
-        context->uart_error_count++;
-    }
+        context->config->uart, RxStatusMask());
+    RecordRxStatus(context, raw_status);
     DrainRxFifo(context, false);
     DL_UART_Main_clearInterruptStatus(context->config->uart, RxClearMask());
 }

@@ -411,6 +411,17 @@ void InfraredSensorCommand(int argc, const char * const argv[])
         return;
     }
     if ((argc == 2) && StrEqual(argv[1], "stats")) {
+        const uint64_t candidate_frames =
+            static_cast<uint64_t>(data->parser_stats.valid_frames) +
+            data->parser_stats.crc_errors;
+        const uint32_t valid_permille = (candidate_frames == 0U) ? 0U :
+            static_cast<uint32_t>(
+                (static_cast<uint64_t>(data->parser_stats.valid_frames) *
+                 1000U) / candidate_frames);
+        const uint32_t crc_error_permille = (candidate_frames == 0U) ? 0U :
+            static_cast<uint32_t>(
+                (static_cast<uint64_t>(data->parser_stats.crc_errors) *
+                 1000U) / candidate_frames);
         services::Shell_WriteString("irsensor stats bytes=");
         services::Shell_WriteUInt32(data->parser_stats.bytes_received);
         services::Shell_WriteString(" frames=");
@@ -421,12 +432,26 @@ void InfraredSensorCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(data->parser_stats.crc_errors);
         services::Shell_WriteString(" uart_errors=");
         services::Shell_WriteUInt32(data->uart_error_count);
+        services::Shell_WriteString(" rx_timeouts=");
+        services::Shell_WriteUInt32(data->rx_timeout_count);
+        services::Shell_WriteString(" overrun_errors=");
+        services::Shell_WriteUInt32(data->overrun_error_count);
+        services::Shell_WriteString(" framing_errors=");
+        services::Shell_WriteUInt32(data->framing_error_count);
+        services::Shell_WriteString(" parity_errors=");
+        services::Shell_WriteUInt32(data->parity_error_count);
+        services::Shell_WriteString(" noise_errors=");
+        services::Shell_WriteUInt32(data->noise_error_count);
         services::Shell_WriteString(" dropped=");
         services::Shell_WriteUInt32(data->uart_dropped_count);
         services::Shell_WriteString(" period_ms=");
         services::Shell_WriteUInt32(data->parser_stats.last_period_ms);
         services::Shell_WriteString(" average_ms=");
         services::Shell_WriteUInt32(data->parser_stats.average_period_ms);
+        services::Shell_WriteString(" valid_permille=");
+        services::Shell_WriteUInt32(valid_permille);
+        services::Shell_WriteString(" crc_error_permille=");
+        services::Shell_WriteUInt32(crc_error_permille);
         services::Shell_WriteString("\r\n");
         return;
     }

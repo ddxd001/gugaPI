@@ -34,6 +34,11 @@ struct AppInfraredSensorData {
     uint32_t white_since_ms;
     uint32_t uart_dropped_count;
     uint32_t uart_error_count;
+    uint32_t rx_timeout_count;
+    uint32_t overrun_error_count;
+    uint32_t framing_error_count;
+    uint32_t parity_error_count;
+    uint32_t noise_error_count;
     drivers::DriverStatus last_status;
 };
 

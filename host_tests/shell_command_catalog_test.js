@@ -7,6 +7,10 @@ const vm=require('vm');
 
 const root=path.resolve(__dirname,'..');
 const shellSource=fs.readFileSync(path.join(root,'gugaPI/app/app_shell.cpp'),'utf8');
+const infraredUartSource=fs.readFileSync(
+  path.join(root,'gugaPI/drivers/infrared_line/infrared_line_uart.cpp'),'utf8');
+const infraredAppSource=fs.readFileSync(
+  path.join(root,'gugaPI/app/app_infrared_sensor.cpp'),'utf8');
 const debugConfigSource=fs.readFileSync(
   path.join(root,'gugaPI/config/debug_config.h'),'utf8');
 const catalogSource=fs.readFileSync(
@@ -39,6 +43,24 @@ const maxArgsMatch=debugConfigSource.match(
 assert(maxArgsMatch,'DEBUG_SHELL_MAX_ARGS must remain a numeric constant');
 assert(Number(maxArgsMatch[1])>=12,
   'Shell argv capacity must cover condition and full CAN commands');
+
+assert(infraredUartSource.includes(
+  'IncrementSaturated(&context->rx_timeout_count);'),
+  'normal UART receive timeout must have its own diagnostic counter');
+assert(!/RX_TIMEOUT_ERROR[^}]+uart_error_count/s.test(infraredUartSource),
+  'normal UART receive timeout must not increment the hardware error total');
+assert(infraredAppSource.includes(
+  '(overrun_errors > g_data.overrun_error_count)'),
+  'hardware FIFO overrun must invalidate the current transport snapshot');
+assert(!infraredAppSource.includes(
+  '(uart_errors > g_data.uart_error_count)'),
+  'a generic UART statistic must not invalidate every received snapshot');
+for(const field of ['rx_timeouts','overrun_errors','framing_errors',
+                    'parity_errors','noise_errors','valid_permille',
+                    'crc_error_permille']){
+  assert(shellSource.includes('" '+field+'="'),
+    'irsensor stats is missing '+field);
+}
 
 for(const entry of catalog){
   assert(/[\u3400-\u9fff]/.test(entry.title+entry.summary),

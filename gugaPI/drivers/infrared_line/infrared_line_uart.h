@@ -22,6 +22,11 @@ struct InfraredLineUartContext {
     volatile uint16_t rx_tail;
     volatile uint32_t rx_dropped_count;
     volatile uint32_t uart_error_count;
+    volatile uint32_t rx_timeout_count;
+    volatile uint32_t overrun_error_count;
+    volatile uint32_t framing_error_count;
+    volatile uint32_t parity_error_count;
+    volatile uint32_t noise_error_count;
     volatile uint32_t irq_count;
     volatile uint32_t fifo_byte_count;
     volatile uint32_t polled_byte_count;

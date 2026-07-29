@@ -193,7 +193,7 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('irsensor calib capture <white|black|center|left|right>','采集指定标定位置的64个正确帧。','W'),
       ShellForm('irsensor status','查看帧新鲜度、线路、全黑、超时和标定状态。'),
       ShellForm('irsensor raw','读取模块偏差、标准化位置、全黑标志与三路ADC裸值。'),
-      ShellForm('irsensor stats','查看有效帧、CRC、帧头、UART、丢弃字节和帧周期统计。'),
+      ShellForm('irsensor stats','查看有效率、CRC、帧头、接收超时、分类UART硬件错误、丢弃字节和帧周期统计。'),
       ShellForm('irsensor diag','查看UART上电/使能、PA0电平、中断次数、FIFO字节与轮询兜底字节。'),
       ShellForm('irsensor clear','清零解析与UART通信统计。','W'),
       ShellForm('irsensor calib begin','开始新的五步标定会话。','W'),

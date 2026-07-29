@@ -24,6 +24,11 @@ drivers::InfraredLineUartContext g_context = {
     0U,
     0U,
     0U,
+    0U,
+    0U,
+    0U,
+    0U,
+    0U,
     false
 };
 
@@ -69,6 +74,31 @@ uint32_t Board_InfraredSensorGetDroppedCount(void)
 uint32_t Board_InfraredSensorGetUartErrorCount(void)
 {
     return g_context.uart_error_count;
+}
+
+uint32_t Board_InfraredSensorGetRxTimeoutCount(void)
+{
+    return g_context.rx_timeout_count;
+}
+
+uint32_t Board_InfraredSensorGetOverrunErrorCount(void)
+{
+    return g_context.overrun_error_count;
+}
+
+uint32_t Board_InfraredSensorGetFramingErrorCount(void)
+{
+    return g_context.framing_error_count;
+}
+
+uint32_t Board_InfraredSensorGetParityErrorCount(void)
+{
+    return g_context.parity_error_count;
+}
+
+uint32_t Board_InfraredSensorGetNoiseErrorCount(void)
+{
+    return g_context.noise_error_count;
 }
 
 uint32_t Board_InfraredSensorGetIrqCount(void)

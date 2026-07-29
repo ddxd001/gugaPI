@@ -273,9 +273,11 @@ void App_InfraredSensorUpdate(void)
     const uint32_t dropped = board::Board_InfraredSensorGetDroppedCount();
     const uint32_t uart_errors =
         board::Board_InfraredSensorGetUartErrorCount();
+    const uint32_t overrun_errors =
+        board::Board_InfraredSensorGetOverrunErrorCount();
     const bool transport_fault =
         (dropped > g_data.uart_dropped_count) ||
-        (uart_errors > g_data.uart_error_count);
+        (overrun_errors > g_data.overrun_error_count);
     if (g_parser.stats.valid_frames != g_previousValidFrames) {
         g_consecutiveCrcFailures = 0U;
     } else if (g_parser.stats.crc_errors > g_previousCrcErrors) {
@@ -298,6 +300,15 @@ void App_InfraredSensorUpdate(void)
     g_previousCrcErrors = g_parser.stats.crc_errors;
     g_data.uart_dropped_count = dropped;
     g_data.uart_error_count = uart_errors;
+    g_data.rx_timeout_count =
+        board::Board_InfraredSensorGetRxTimeoutCount();
+    g_data.overrun_error_count = overrun_errors;
+    g_data.framing_error_count =
+        board::Board_InfraredSensorGetFramingErrorCount();
+    g_data.parity_error_count =
+        board::Board_InfraredSensorGetParityErrorCount();
+    g_data.noise_error_count =
+        board::Board_InfraredSensorGetNoiseErrorCount();
     g_data.stale_timeout_ms = StaleTimeoutMs();
 }
 
@@ -319,6 +330,11 @@ void App_InfraredSensorClearStats(void)
     g_data.parser_stats = {};
     g_data.uart_dropped_count = 0U;
     g_data.uart_error_count = 0U;
+    g_data.rx_timeout_count = 0U;
+    g_data.overrun_error_count = 0U;
+    g_data.framing_error_count = 0U;
+    g_data.parity_error_count = 0U;
+    g_data.noise_error_count = 0U;
     g_previousValidFrames = 0U;
     g_previousCrcErrors = 0U;
     g_consecutiveCrcFailures = 0U;
