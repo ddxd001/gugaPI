@@ -281,6 +281,7 @@ FRAM configuration:
 | Bus speed | 400 kHz | `SENSOR_I2C_BUS_SPEED_HZ` |
 | 7-bit address | 0x50 | `BOARD_FRAM_I2C_ADDRESS` |
 | Address pins | A2/A1/A0 hardware-dependent | Update address if strapped differently |
+| Infrared config extension | 0x1FD0..0x1FEF | 32-byte CRC-protected record; does not overlap SeqStore migration data |
 | Self-test address | 0x1FF0 | `BOARD_FRAM_SELF_TEST_ADDRESS` |
 
 ## OLED I2C Interface

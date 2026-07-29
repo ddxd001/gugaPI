@@ -24,7 +24,7 @@ bool DebugUart_IsTxDmaActive(void);
 uint32_t DebugUart_GetTxDmaBlockCount(void);
 uint32_t DebugUart_GetTxDmaErrorCount(void);
 void DebugUart_IrqHandler(void);
-void DebugUart_DmaIrqHandler(void);
+void DebugUart_HandleDmaFault(void);
 
 } /* namespace services */
 

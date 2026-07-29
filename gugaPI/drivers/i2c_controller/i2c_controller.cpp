@@ -661,6 +661,27 @@ void I2cController_AsyncWriteHandleInterrupt(
     }
 }
 
+void I2cController_AsyncWriteHandleDmaFault(
+    const I2cControllerConfig *config,
+    const I2cControllerDmaTxConfig *dma_config)
+{
+    if ((!I2cController_IsConfigValid(config)) ||
+        (!IsDmaConfigValid(dma_config))) {
+        return;
+    }
+    AsyncWriteState *state = FindAsyncState(config->i2c);
+    if ((state == 0) || (!state->active) ||
+        (state->dma != dma_config->dma) ||
+        (state->channel_id != dma_config->channel_id)) {
+        return;
+    }
+    /* DMA faults are global and do not identify the channel. End any active
+     * asynchronous write without waiting in interrupt context. The OLED
+     * service restores its dirty pages when it observes this result. */
+    CompleteAsync(state, DRIVER_ERROR);
+    ResetTransfer(config->i2c);
+}
+
 bool I2cController_IsBusBusy(const I2cControllerConfig *config)
 {
     return I2cController_IsConfigValid(config) &&

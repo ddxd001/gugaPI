@@ -17,7 +17,8 @@ var PARAM_GROUPS=[
   {id:'power',section:'保护',label:'电源保护'},
   {id:'gray_cal',section:'灰度与循迹',label:'灰度标定'},
   {id:'gray_proc',section:'灰度与循迹',label:'灰度判定'},
-  {id:'linefollow',section:'灰度与循迹',label:'循迹控制'},
+  {id:'linefollow',section:'灰度与循迹',label:'八路 ADC 循迹'},
+  {id:'infrared',section:'灰度与循迹',label:'三路串口红外'},
   {id:'other',section:'其他',label:'未分类参数'}
 ];
 
@@ -129,6 +130,15 @@ addParamMeta('road_align_rpm','路口转弯基础速度','linefollow',30,1,300,'
 addParamMeta('road_turn_outer_max_rpm','路口外轮正转上限','linefollow',220,1,1000,'RPM','自动路口圆弧中外轮沿用基础速度加差速修正，并由该值封顶；增大内轮反转速度不会继续抬高外轮。',false);
 addParamMeta('road_turn_inner_reverse_max_rpm','路口内轮最大反转','linefollow',120,0,1000,'RPM','自动路口圆弧满转向时内轮允许达到的反转速度；数值越大转弯半径越小，0表示内轮最多降到停止。',false);
 
+addParamMeta('line_sensor_source','默认线路传感器','infrared',1,0,1,'enum','FRAM 中保存的真实线路传感器来源：0 为八路 ADC，1 为三路串口红外。运行时请在线路传感器页面切换；仅执行 param save 才会持久化。',false);
+addParamMeta('ir_position_invert','红外偏差方向反转','infrared',0,0,1,'bool','由五步标定自动确定。1 表示把模块回传的偏差取反后用于循迹。',false,'bool');
+addParamMeta('ir_position_span_raw','红外偏差满量程','infrared',0,0,32767,'raw','五步标定得到的原始偏差有效半量程；为 0 表示尚未完成标定，禁止启动红外循迹。',false);
+addParamMeta('ir_adc_threshold','红外黑白阈值','infrared',0,0,4095,'ADC','三路 ADC 共用的黑白边界，由白底和全黑样本自动计算。',false);
+addParamMeta('ir_adc_hysteresis','红外判定滞回','infrared',0,0,1000,'ADC','三路 ADC 线路判定的滞回宽度，由有效黑白区间自动计算。',false);
+addParamMeta('ir_lf_kp','红外循迹 Kp','infrared',3800,0,1000000,'scaled','仅在三路串口红外为当前来源时使用的比例增益，不覆盖八路 ADC 的 lf_kp。',false);
+addParamMeta('ir_lf_kd','红外循迹 Kd','infrared',600,0,1000000,'scaled','仅在三路串口红外为当前来源时使用的微分增益，不覆盖八路 ADC 的 lf_kd。',false);
+addParamMeta('ir_lf_maxcorr','红外最大差速修正','infrared',30,0,500,'RPM','三路串口红外循迹允许施加的最大左右轮差速修正。',false);
+addParamMeta('ir_lf_slew_permille_s','红外修正变化率','infrared',25000,1,65535,'permille/s','三路串口红外循迹修正量变化速度；数值越大响应越快。',false);
 addParamMeta('dm_position_kp_milli','达妙定位 Kp','dm',4000,0,10000,'milli','MIT 定位比例增益，4000 表示 4.000。',false);
 addParamMeta('dm_position_kd_milli','达妙定位 Kd','dm',400,0,2000,'milli','MIT 定位微分增益，400 表示 0.400。',false);
 addParamMeta('dm_speed_kd_milli','达妙定速 Kd','dm',500,0,2000,'milli','MIT 定速阻尼增益，500 表示 0.500。',false);
@@ -653,7 +663,7 @@ function paramSimCommand(cmd){
   paramSimInit();
   if(cmd==='comp status')return'comp mode=dev-running slot=0 valid=1 any_valid=1 count=5 step=0 result=none last=ok\r\n> ';
   if(cmd==='reset'){simParamValues=Object.assign({},simPersistedValues);simParamDirty=false;return'resetting...\r\n> '}
-  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=243 crc=0x5C758F1C load=ok save=ok\r\n> ';
+  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' version=17 len=243 crc=0x5C758F1C load=ok save=ok\r\n> ';
   if(cmd==='param export'||cmd.startsWith('param export ')){
     var exportParts=cmd.split(/\s+/),start=exportParts.length>=3?Number(exportParts[2]):0;
     var requested=exportParts.length>=4?Number(exportParts[3]):PARAM_EXPORT_BATCH_SIZE;

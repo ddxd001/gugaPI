@@ -16,10 +16,13 @@ drivers::DriverStatus Board_OledTestPattern(void);
 drivers::DriverStatus Board_OledWriteText(uint8_t row,
                                           uint8_t col,
                                           const char *text);
+drivers::DriverStatus Board_OledWriteBuffer(const uint8_t *buffer,
+                                            uint16_t length);
 drivers::DriverStatus Board_OledSetDisplayOn(bool on);
 drivers::DriverStatus Board_OledSetInvert(bool invert);
 drivers::DriverStatus Board_OledService(void);
 void Board_OledHandleI2cInterrupt(void);
+void Board_OledHandleDmaFault(void);
 bool Board_OledHasPendingFlush(void);
 drivers::DriverStatus Board_OledGetBusStatus(uint32_t *controller_status,
                                              bool *scl_high,

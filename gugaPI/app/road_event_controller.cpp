@@ -5,6 +5,7 @@
 #include "app/config_store.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
+#include "app/line_sensor.h"
 #include "services/fault.h"
 #include "services/time.h"
 
@@ -570,6 +571,10 @@ drivers::DriverStatus RoadEventController_SetMode(RoadControlMode mode)
         (mode != ROAD_CONTROL_AUTO_CORNERS)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
+    if ((mode == ROAD_CONTROL_AUTO_CORNERS) &&
+        (!LineSensor_IsRoadCapable())) {
+        return drivers::DRIVER_ERROR_UNSUPPORTED;
+    }
     if (g_state.route_active ||
         ((g_state.phase != ROAD_CONTROL_PHASE_IDLE) &&
          (g_state.phase != ROAD_CONTROL_PHASE_STOPPED))) {
@@ -642,6 +647,11 @@ drivers::DriverStatus RoadEventController_StartRoute(
     int32_t rpm,
     uint32_t timeout_ms)
 {
+    if (!LineSensor_IsRoadCapable()) {
+        g_state.last_status = drivers::DRIVER_ERROR_UNSUPPORTED;
+        g_state.route_result = ROAD_ROUTE_RESULT_UNAVAILABLE;
+        return g_state.last_status;
+    }
     const ChassisState *chassis = Chassis_GetState();
     if ((route >= ROAD_ROUTE_COUNT) || (rpm <= 0) ||
         (chassis == 0) ||

@@ -11,6 +11,8 @@ namespace app {
 static const uint8_t CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT = 8U;
 static const uint8_t DISTANCE_SPEED_MODE_LEGACY = 0U;
 static const uint8_t DISTANCE_SPEED_MODE_TRAPEZOID = 1U;
+static const uint8_t LINE_SENSOR_SOURCE_ADC8 = 0U;
+static const uint8_t LINE_SENSOR_SOURCE_IR3 = 1U;
 
 struct ConfigStoreParams {
     uint32_t left_counts_per_rev;
@@ -125,6 +127,19 @@ struct ConfigStoreParams {
     uint16_t road_turn_outer_max_rpm;
     uint16_t road_turn_inner_reverse_max_rpm;
 
+    /* Real line-sensor selection and infrared tuning. These fields are kept
+     * in the CRC-protected infrared extension record because the main v16
+     * payload uses its final 20 bytes for DM-G6220 parameters. */
+    uint8_t line_sensor_source;
+    uint8_t infrared_position_invert;
+    uint16_t infrared_position_span_raw;
+    uint16_t infrared_adc_threshold;
+    uint16_t infrared_adc_hysteresis;
+    int32_t infrared_linefollow_kp;
+    int32_t infrared_linefollow_kd;
+    uint16_t infrared_linefollow_max_correction_rpm;
+    uint16_t infrared_linefollow_correction_slew_permille_per_second;
+
     /* DM-G6220 MIT controller (v16). Integer units avoid floating point in
      * the 100 Hz control path. */
     uint16_t dm_position_kp_milli;
@@ -175,6 +190,11 @@ drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
     uint16_t position_floor,
     uint16_t min_line_strength,
     uint8_t track_mask);
+drivers::DriverStatus ConfigStore_SetInfraredCalibration(
+    uint8_t invert,
+    uint16_t span_raw,
+    uint16_t adc_threshold,
+    uint16_t adc_hysteresis);
 bool ConfigStore_GetValue(const char *name,
                           int32_t *value,
                           int32_t *min_value,

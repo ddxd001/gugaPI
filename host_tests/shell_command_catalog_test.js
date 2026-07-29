@@ -7,6 +7,10 @@ const vm=require('vm');
 
 const root=path.resolve(__dirname,'..');
 const shellSource=fs.readFileSync(path.join(root,'gugaPI/app/app_shell.cpp'),'utf8');
+const infraredUartSource=fs.readFileSync(
+  path.join(root,'gugaPI/drivers/infrared_line/infrared_line_uart.cpp'),'utf8');
+const infraredAppSource=fs.readFileSync(
+  path.join(root,'gugaPI/app/app_infrared_sensor.cpp'),'utf8');
 const debugConfigSource=fs.readFileSync(
   path.join(root,'gugaPI/config/debug_config.h'),'utf8');
 const catalogSource=fs.readFileSync(
@@ -30,7 +34,7 @@ assert.deepStrictEqual(
   'catalog top-level names must match firmware registrations plus built-in help');
 
 const active=catalog.filter(entry=>entry.profiles.includes(meta.activeProfile));
-assert.strictEqual(active.length,27,'development profile top-level command count changed');
+assert.strictEqual(active.length,30,'development profile top-level command count changed');
 assert(!catalogNames.has('adc')&&!catalogNames.has('pwm'),
   'unregistered adc/pwm placeholders must not return to the catalog');
 
@@ -39,6 +43,25 @@ const maxArgsMatch=debugConfigSource.match(
 assert(maxArgsMatch,'DEBUG_SHELL_MAX_ARGS must remain a numeric constant');
 assert(Number(maxArgsMatch[1])>=12,
   'Shell argv capacity must cover condition and full CAN commands');
+
+assert(infraredUartSource.includes(
+  'IncrementSaturated(&context->rx_timeout_count);'),
+  'normal UART receive timeout must have its own diagnostic counter');
+assert(!/RX_TIMEOUT_ERROR[^}]+uart_error_count/s.test(infraredUartSource),
+  'normal UART receive timeout must not increment the hardware error total');
+assert(infraredAppSource.includes('RecordCommunicationErrors(uart_delta)'),
+  'isolated UART errors must feed the recoverable communication state');
+assert(infraredAppSource.includes('(dma_overwrites > g_previousDmaOverwrites)')&&
+       infraredAppSource.includes('(dma_faults > g_previousDmaFaults)'),
+  'DMA overwrite and global DMA faults must immediately fault transport');
+assert(infraredAppSource.includes('g_data.error_streak >= 3U'),
+  'transport must stop after three consecutive invalid events');
+for(const field of ['rx_timeouts','overrun_errors','framing_errors',
+                    'parity_errors','noise_errors','valid_permille',
+                    'crc_error_permille']){
+  assert(shellSource.includes('" '+field+'="'),
+    'irsensor stats is missing '+field);
+}
 
 for(const entry of catalog){
   assert(/[\u3400-\u9fff]/.test(entry.title+entry.summary),

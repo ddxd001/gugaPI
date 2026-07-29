@@ -240,6 +240,21 @@ uint8_t PageMask(uint8_t first_page, uint8_t last_page)
     return mask;
 }
 
+void MarkDirty(OledSsd1306Context *ctx,
+               uint8_t page,
+               uint8_t first_column,
+               uint8_t last_column)
+{
+    ctx->dirty_pages = static_cast<uint8_t>(
+        ctx->dirty_pages | (1U << page));
+    if (first_column < ctx->dirty_first_column) {
+        ctx->dirty_first_column = first_column;
+    }
+    if (last_column > ctx->dirty_last_column) {
+        ctx->dirty_last_column = last_column;
+    }
+}
+
 void MarkChangedPages(OledSsd1306Context *ctx,
                       const uint8_t *buffer,
                       uint16_t length)
@@ -249,22 +264,34 @@ void MarkChangedPages(OledSsd1306Context *ctx,
     for (uint8_t page = 0U; page < pages; page++) {
         const uint16_t start = static_cast<uint16_t>(page * width);
         bool changed = false;
+        uint8_t first_column = ctx->config->width;
+        uint8_t last_column = 0U;
         for (uint16_t i = 0U; i < width; i++) {
             if ((start + i < length) &&
                 (ctx->framebuffer[start + i] != buffer[start + i])) {
                 changed = true;
-                break;
+                if (i < first_column) {
+                    first_column = static_cast<uint8_t>(i);
+                }
+                last_column = static_cast<uint8_t>(i);
             }
         }
         if (changed) {
-            ctx->dirty_pages = static_cast<uint8_t>(
-                ctx->dirty_pages | (1U << page));
+            MarkDirty(ctx, page, first_column, last_column);
         }
     }
 }
 
 void RestoreActivePages(OledSsd1306Context *ctx)
 {
+    if ((ctx->dirty_pages == 0U) ||
+        (ctx->active_first_column < ctx->dirty_first_column)) {
+        ctx->dirty_first_column = ctx->active_first_column;
+    }
+    if ((ctx->dirty_pages == 0U) ||
+        (ctx->active_last_column > ctx->dirty_last_column)) {
+        ctx->dirty_last_column = ctx->active_last_column;
+    }
     ctx->dirty_pages = static_cast<uint8_t>(ctx->dirty_pages |
                                              ctx->active_pages);
     ctx->active_pages = 0U;
@@ -288,26 +315,34 @@ void PrepareActiveFlush(OledSsd1306Context *ctx)
 
     ctx->active_first_page = first_page;
     ctx->active_last_page = last_page;
+    ctx->active_first_column = ctx->dirty_first_column;
+    ctx->active_last_column = ctx->dirty_last_column;
     ctx->active_pages = PageMask(first_page, last_page);
+    const uint16_t column_count = static_cast<uint16_t>(
+        ctx->active_last_column - ctx->active_first_column + 1U);
     ctx->active_data_length = static_cast<uint16_t>(
-        (last_page - first_page + 1U) * ctx->config->width + 1U);
+        (last_page - first_page + 1U) * column_count + 1U);
 
     ctx->command_buffer[0] = kCommandControlByte;
     ctx->command_buffer[1] = 0x20U;
     ctx->command_buffer[2] = 0x00U;
     ctx->command_buffer[3] = 0x21U;
-    ctx->command_buffer[4] = 0x00U;
-    ctx->command_buffer[5] = static_cast<uint8_t>(ctx->config->width - 1U);
+    ctx->command_buffer[4] = ctx->active_first_column;
+    ctx->command_buffer[5] = ctx->active_last_column;
     ctx->command_buffer[6] = 0x22U;
     ctx->command_buffer[7] = first_page;
     ctx->command_buffer[8] = last_page;
 
     ctx->dma_buffer[0] = kDataControlByte;
-    const uint16_t offset = static_cast<uint16_t>(
-        first_page * ctx->config->width);
-    CopyBytes(&ctx->dma_buffer[1],
-              &ctx->framebuffer[offset],
-              static_cast<uint16_t>(ctx->active_data_length - 1U));
+    uint16_t destination = 1U;
+    for (uint8_t page = first_page; page <= last_page; page++) {
+        const uint16_t offset = static_cast<uint16_t>(
+            page * ctx->config->width + ctx->active_first_column);
+        CopyBytes(&ctx->dma_buffer[destination],
+                  &ctx->framebuffer[offset],
+                  column_count);
+        destination = static_cast<uint16_t>(destination + column_count);
+    }
 }
 
 DriverStatus StartAsyncBlock(OledSsd1306Context *ctx,
@@ -333,9 +368,13 @@ DriverStatus OledSsd1306_Init(OledSsd1306Context *ctx,
     ctx->initialized = false;
     ctx->flush_phase = OLED_FLUSH_IDLE;
     ctx->dirty_pages = 0U;
+    ctx->dirty_first_column = config->width;
+    ctx->dirty_last_column = 0U;
     ctx->active_pages = 0U;
     ctx->active_first_page = 0U;
     ctx->active_last_page = 0U;
+    ctx->active_first_column = 0U;
+    ctx->active_last_column = 0U;
     ctx->active_data_length = 0U;
     ctx->last_flush_status = DRIVER_OK;
     FillBytes(ctx->framebuffer, OLED_SSD1306_FRAME_BYTES, 0U);
@@ -411,15 +450,20 @@ DriverStatus OledSsd1306_Fill(OledSsd1306Context *ctx, uint8_t pattern)
         const uint16_t start = static_cast<uint16_t>(
             page * ctx->config->width);
         bool changed = false;
+        uint8_t first_column = ctx->config->width;
+        uint8_t last_column = 0U;
         for (uint16_t i = 0U; i < ctx->config->width; i++) {
             if (ctx->framebuffer[start + i] != pattern) {
                 ctx->framebuffer[start + i] = pattern;
                 changed = true;
+                if (i < first_column) {
+                    first_column = static_cast<uint8_t>(i);
+                }
+                last_column = static_cast<uint8_t>(i);
             }
         }
         if (changed) {
-            ctx->dirty_pages = static_cast<uint8_t>(
-                ctx->dirty_pages | (1U << page));
+            MarkDirty(ctx, page, first_column, last_column);
         }
     }
     return DRIVER_OK;
@@ -433,6 +477,8 @@ DriverStatus OledSsd1306_DrawChecker(OledSsd1306Context *ctx)
 
     for (uint8_t page = 0U; page < PageCount(ctx->config); page++) {
         bool changed = false;
+        uint8_t first_column = ctx->config->width;
+        uint8_t last_column = 0U;
         for (uint16_t column = 0U; column < ctx->config->width; column++) {
             const uint8_t value =
                 ((((column / 8U) + page) & 1U) != 0U) ? 0xAAU : 0x55U;
@@ -441,11 +487,14 @@ DriverStatus OledSsd1306_DrawChecker(OledSsd1306Context *ctx)
             if (ctx->framebuffer[index] != value) {
                 ctx->framebuffer[index] = value;
                 changed = true;
+                if (column < first_column) {
+                    first_column = static_cast<uint8_t>(column);
+                }
+                last_column = static_cast<uint8_t>(column);
             }
         }
         if (changed) {
-            ctx->dirty_pages = static_cast<uint8_t>(
-                ctx->dirty_pages | (1U << page));
+            MarkDirty(ctx, page, first_column, last_column);
         }
     }
     return DRIVER_OK;
@@ -494,6 +543,8 @@ DriverStatus OledSsd1306_DrawString(OledSsd1306Context *ctx,
     uint16_t remaining = static_cast<uint16_t>(
         ctx->config->width - framebuffer_col);
     bool changed = false;
+    uint8_t first_changed_column = ctx->config->width;
+    uint8_t last_changed_column = 0U;
 
     while ((*text != '\0') && (remaining >= kTextCharWidth)) {
         const uint8_t *glyph = FontGlyph(*text);
@@ -503,6 +554,11 @@ DriverStatus OledSsd1306_DrawString(OledSsd1306Context *ctx,
             if (ctx->framebuffer[index] != glyph[i]) {
                 ctx->framebuffer[index] = glyph[i];
                 changed = true;
+                if (framebuffer_col < first_changed_column) {
+                    first_changed_column = static_cast<uint8_t>(
+                        framebuffer_col);
+                }
+                last_changed_column = static_cast<uint8_t>(framebuffer_col);
             }
             framebuffer_col++;
         }
@@ -511,6 +567,10 @@ DriverStatus OledSsd1306_DrawString(OledSsd1306Context *ctx,
         if (ctx->framebuffer[spacer_index] != 0U) {
             ctx->framebuffer[spacer_index] = 0U;
             changed = true;
+            if (framebuffer_col < first_changed_column) {
+                first_changed_column = static_cast<uint8_t>(framebuffer_col);
+            }
+            last_changed_column = static_cast<uint8_t>(framebuffer_col);
         }
         framebuffer_col++;
 
@@ -518,8 +578,7 @@ DriverStatus OledSsd1306_DrawString(OledSsd1306Context *ctx,
         remaining = static_cast<uint16_t>(remaining - kTextCharWidth);
     }
     if (changed) {
-        ctx->dirty_pages = static_cast<uint8_t>(
-            ctx->dirty_pages | (1U << row));
+        MarkDirty(ctx, row, first_changed_column, last_changed_column);
     }
     return DRIVER_OK;
 }
@@ -566,7 +625,9 @@ DriverStatus OledSsd1306_Service(OledSsd1306Context *ctx)
         }
 
         ctx->dirty_pages = static_cast<uint8_t>(ctx->dirty_pages &
-                                                ~ctx->active_pages);
+                                                 ~ctx->active_pages);
+        ctx->dirty_first_column = ctx->config->width;
+        ctx->dirty_last_column = 0U;
         ctx->flush_phase = OLED_FLUSH_WINDOW;
         ctx->last_flush_status = DRIVER_ERROR_BUSY;
         return DRIVER_ERROR_BUSY;
@@ -607,6 +668,14 @@ void OledSsd1306_HandleI2cInterrupt(OledSsd1306Context *ctx)
 {
     if (IsContextReady(ctx)) {
         I2cController_AsyncWriteHandleInterrupt(ctx->config->bus);
+    }
+}
+
+void OledSsd1306_HandleDmaFault(OledSsd1306Context *ctx)
+{
+    if (IsContextReady(ctx)) {
+        I2cController_AsyncWriteHandleDmaFault(ctx->config->bus,
+                                               ctx->config->dma_tx);
     }
 }
 

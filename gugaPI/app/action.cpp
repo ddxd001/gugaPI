@@ -7,6 +7,7 @@
 #include "app/dm_g6220_controller.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
+#include "app/line_sensor.h"
 #include "app/road_event_controller.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
@@ -168,10 +169,9 @@ int32_t EncoderDeltaToMillimeters(int32_t delta_counts,
                                 denominator);
 }
 
-bool IsGrayscaleFresh(const AppGrayscaleData *data, uint32_t now)
+bool IsLineSensorFresh(const LineSensorSnapshot *data)
 {
-    return (data != 0) && data->valid && data->processed_valid &&
-           ((now - data->last_update_ms) <= kSensorMaxAgeMs);
+    return (data != 0) && data->valid && data->fresh;
 }
 
 bool IsImuFresh(const AppImuData *data, uint32_t now)
@@ -453,7 +453,7 @@ bool ReadConditionValue(const ActionConditionConfig &condition,
         return false;
     }
     const uint32_t now = services::Time_Millis();
-    const AppGrayscaleData *gray = App_GrayscaleGetData();
+    const LineSensorSnapshot *line_sensor = LineSensor_GetSnapshot();
     const AppImuData *imu = App_ImuGetData();
     const ChassisState *chassis = Chassis_GetState();
 
@@ -484,47 +484,51 @@ bool ReadConditionValue(const ActionConditionConfig &condition,
         return true;
     }
     case ACT_SOURCE_LINE_DETECTED:
-        if (!IsGrayscaleFresh(gray, now)) {
+        if (!IsLineSensorFresh(line_sensor)) {
             return false;
         }
         *value = LF_IsLineDetected() ? 1 : 0;
         return true;
     case ACT_SOURCE_LINE_POSITION_MPOS:
-        if (!IsGrayscaleFresh(gray, now) || !gray->position_valid) {
+        if (!IsLineSensorFresh(line_sensor) ||
+            !line_sensor->position_valid) {
             return false;
         }
-        *value = gray->line_position;
+        *value = line_sensor->line_position;
         return true;
     case ACT_SOURCE_LINE_CONFIDENCE:
-        if (!IsGrayscaleFresh(gray, now)) {
+        if (!IsLineSensorFresh(line_sensor)) {
             return false;
         }
-        *value = gray->position_confidence;
+        *value = line_sensor->position_confidence;
         return true;
     case ACT_SOURCE_ROAD_TYPE:
-        if (!IsGrayscaleFresh(gray, now)) {
+        if (!IsLineSensorFresh(line_sensor) ||
+            !line_sensor->road_capable) {
             return false;
         }
-        *value = static_cast<int32_t>(gray->road_type);
+        *value = static_cast<int32_t>(line_sensor->road_type);
         return true;
     case ACT_SOURCE_ROAD_EVENT_TYPE:
-        if (!IsGrayscaleFresh(gray, now)) {
+        if (!IsLineSensorFresh(line_sensor) ||
+            !line_sensor->road_capable) {
             return false;
         }
         *value = (wait_for_new_event &&
-                  (gray->road_event_sequence ==
+                  (line_sensor->road_event_sequence ==
                    g_conditionRuntime.start_road_event_sequence)) ?
             static_cast<int32_t>(GRAYSCALE_ROAD_UNKNOWN) :
-            static_cast<int32_t>(gray->road_event_type);
+            static_cast<int32_t>(line_sensor->road_event_type);
         return true;
     case ACT_SOURCE_ROAD_EVENT_PATHS:
-        if (!IsGrayscaleFresh(gray, now)) {
+        if (!IsLineSensorFresh(line_sensor) ||
+            !line_sensor->road_capable) {
             return false;
         }
         *value = (wait_for_new_event &&
-                  (gray->road_event_sequence ==
+                  (line_sensor->road_event_sequence ==
                    g_conditionRuntime.start_road_event_sequence)) ?
-            0 : static_cast<int32_t>(gray->road_event_paths);
+            0 : static_cast<int32_t>(line_sensor->road_event_paths);
         return true;
     case ACT_SOURCE_IMU_VALID:
         *value = IsImuFresh(imu, now) ? 1 : 0;
@@ -617,10 +621,10 @@ void PrepareCondition(const Instr *instr)
         g_conditionRuntime.start_right_count =
             chassis->right.encoder_count;
     }
-    const AppGrayscaleData *gray = App_GrayscaleGetData();
-    if (gray != 0) {
+    const LineSensorSnapshot *line_sensor = LineSensor_GetSnapshot();
+    if ((line_sensor != 0) && line_sensor->road_capable) {
         g_conditionRuntime.start_road_event_sequence =
-            gray->road_event_sequence;
+            line_sensor->road_event_sequence;
     }
     const bool waits = (instr->op != ACT_OP_CONDITION) ||
                        (condition.mode == ACT_CONDITION_WAIT);

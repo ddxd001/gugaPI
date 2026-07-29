@@ -86,6 +86,9 @@ DriverStatus I2cController_AsyncWritePoll(
     const I2cControllerDmaTxConfig *dma_config);
 void I2cController_AsyncWriteHandleInterrupt(
     const I2cControllerConfig *config);
+void I2cController_AsyncWriteHandleDmaFault(
+    const I2cControllerConfig *config,
+    const I2cControllerDmaTxConfig *dma_config);
 bool I2cController_IsBusBusy(const I2cControllerConfig *config);
 
 } /* namespace drivers */

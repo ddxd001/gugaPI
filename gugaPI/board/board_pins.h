@@ -73,6 +73,16 @@
 #define BOARD_LORA_RX_BUFFER_SIZE       (256U)
 #define BOARD_LORA_TX_TIMEOUT_ITERATIONS (100000U)
 
+/* Three-channel infrared line sensor: 3.3 V TTL stream on UART0. PA1/RX
+ * receives the 15-byte Modbus-style response; PA0/TX is reserved for a future
+ * request mode and remains idle high in the current streaming protocol. */
+#define BOARD_INFRARED_SENSOR_UART_INST      INFRARED_UART_INST
+#define BOARD_INFRARED_SENSOR_UART_IRQN      INFRARED_UART_INST_INT_IRQN
+#define BOARD_INFRARED_SENSOR_BAUDRATE       (115200U)
+#define BOARD_INFRARED_SENSOR_DMA_INST       DMA
+#define BOARD_INFRARED_SENSOR_DMA_CHANNEL    INFRARED_UART_DMA_RX_CHAN_ID
+#define BOARD_INFRARED_SENSOR_DMA_BUFFER_SIZE (128U)
+
 /* TCAN3413 on CANFD1: PC26/TX -> TXD, PC27/RX <- RXD, PC25 -> STB. */
 #define BOARD_CAN_INST                   CAN_BUS_INST
 #define BOARD_CAN_IRQN                   CAN_BUS_INST_INT_IRQN

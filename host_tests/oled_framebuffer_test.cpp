@@ -102,6 +102,12 @@ DriverStatus I2cController_AsyncWritePoll(
 
 void I2cController_AsyncWriteHandleInterrupt(const I2cControllerConfig *) {}
 
+void I2cController_AsyncWriteHandleDmaFault(
+    const I2cControllerConfig *, const I2cControllerDmaTxConfig *)
+{
+    g_nextPollStatus = DRIVER_ERROR;
+}
+
 }  // namespace drivers
 
 int main()
@@ -127,7 +133,9 @@ int main()
            drivers::DRIVER_OK);
     CompleteTransfer(&ctx);
     assert(g_asyncTransfers.size() == 2U);
-    assert(g_asyncTransfers[1].bytes.size() == 129U);
+    assert(g_asyncTransfers[0].bytes[4] == 0U);
+    assert(g_asyncTransfers[0].bytes[5] == 9U);
+    assert(g_asyncTransfers[1].bytes.size() == 11U);
     assert(g_asyncTransfers[1].bytes[0] == 0x40U);
     assert(ctx.dirty_pages == 0x01U);
 
@@ -147,8 +155,10 @@ int main()
            drivers::DRIVER_ERROR_BUSY);
     assert(g_asyncTransfers[0].bytes[7] == 0U);
     assert(g_asyncTransfers[0].bytes[8] == 2U);
+    assert(g_asyncTransfers[0].bytes[4] == 0U);
+    assert(g_asyncTransfers[0].bytes[5] == 9U);
     CompleteTransfer(&ctx);
-    assert(g_asyncTransfers[1].bytes.size() == 385U);
+    assert(g_asyncTransfers[1].bytes.size() == 31U);
 
     /* A failed command transfer restores the captured pages for retry. */
     assert(drivers::OledSsd1306_DrawString(&ctx, 3U, 0U, "ERR") ==
@@ -159,6 +169,13 @@ int main()
     assert(drivers::OledSsd1306_Service(&ctx) ==
            drivers::DRIVER_ERROR_TIMEOUT);
     assert((ctx.dirty_pages & 0x08U) != 0U);
+    assert(ctx.flush_phase == drivers::OLED_FLUSH_IDLE);
+
+    /* A shared DMA fault follows the same recoverable dirty-page path. */
+    assert(drivers::OledSsd1306_Service(&ctx) ==
+           drivers::DRIVER_ERROR_BUSY);
+    drivers::OledSsd1306_HandleDmaFault(&ctx);
+    assert(drivers::OledSsd1306_Service(&ctx) == drivers::DRIVER_ERROR);
     assert(ctx.flush_phase == drivers::OLED_FLUSH_IDLE);
 
     return 0;

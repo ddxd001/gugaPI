@@ -4,6 +4,7 @@
 #include "board/board_pins.h"
 #include "drivers/i2c_diag/i2c_diag.h"
 #include "drivers/oled/oled_ssd1306.h"
+#include "services/dma_fault.h"
 
 namespace board {
 namespace {
@@ -41,6 +42,9 @@ drivers::DriverStatus Board_OledInit(void)
     const drivers::DriverStatus status =
         drivers::OledSsd1306_Init(&g_oledContext, &g_oledConfig);
     if (status == drivers::DRIVER_OK) {
+        if (!services::DmaFault_RegisterHandler(Board_OledHandleDmaFault)) {
+            return drivers::DRIVER_ERROR;
+        }
         NVIC_SetPriority(SENSOR_I2C_INST_INT_IRQN,
                          BOARD_OLED_I2C_IRQ_PRIORITY);
         NVIC_ClearPendingIRQ(SENSOR_I2C_INST_INT_IRQN);
@@ -85,6 +89,12 @@ drivers::DriverStatus Board_OledWriteText(uint8_t row,
     return drivers::OledSsd1306_DrawString(&g_oledContext, row, col, text);
 }
 
+drivers::DriverStatus Board_OledWriteBuffer(const uint8_t *buffer,
+                                            uint16_t length)
+{
+    return drivers::OledSsd1306_WriteBuffer(&g_oledContext, buffer, length);
+}
+
 drivers::DriverStatus Board_OledSetDisplayOn(bool on)
 {
     return drivers::OledSsd1306_SetDisplayOn(&g_oledContext, on);
@@ -103,6 +113,11 @@ drivers::DriverStatus Board_OledService(void)
 void Board_OledHandleI2cInterrupt(void)
 {
     drivers::OledSsd1306_HandleI2cInterrupt(&g_oledContext);
+}
+
+void Board_OledHandleDmaFault(void)
+{
+    drivers::OledSsd1306_HandleDmaFault(&g_oledContext);
 }
 
 bool Board_OledHasPendingFlush(void)

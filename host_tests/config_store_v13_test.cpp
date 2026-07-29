@@ -87,6 +87,8 @@ int main(void)
     static const uint16_t kV15PayloadLength = 223U;
     static const uint16_t kV14PayloadLength = 219U;
     static const uint16_t kV13PayloadLength = 215U;
+    static const uint16_t kInfraredExtensionAddress = 0x1FD0U;
+    static const uint16_t kInfraredExtensionLength = 32U;
 
     ConfigStore_ResetDefaults();
     assert(ConfigStore_Get()->road_align_distance_mm == 0U);
@@ -101,22 +103,72 @@ int main(void)
     assert(ConfigStore_Set("road_align_rpm", 45) ==
            drivers::DRIVER_OK);
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[4]) == 17U);
     assert(ReadU16(&g_fram[6]) == kV16PayloadLength);
     assert(kHeaderLength + kV16PayloadLength + 4U < 0x0100U);
+    assert(ConfigStore_Get()->line_sensor_source == LINE_SENSOR_SOURCE_IR3);
+    assert(ConfigStore_Get()->infrared_position_span_raw == 0U);
+
+    /* Upstream v16 stores DM parameters in the final 20 bytes. It must load
+     * unchanged when no infrared extension exists. */
+    WriteU16(&g_fram[4], 16U);
+    WriteU32(&g_fram[kHeaderLength + kV16PayloadLength],
+             Crc32(g_fram, kHeaderLength + kV16PayloadLength));
+    (void) memset(&g_fram[kInfraredExtensionAddress],
+                  0,
+                  kInfraredExtensionLength);
+    ConfigStore_ResetDefaults();
+    assert(ConfigStore_Load() == drivers::DRIVER_OK);
+    assert(ConfigStore_Get()->heading_kp == 4321);
+    assert(ConfigStore_Get()->dm_position_kp_milli == 4000U);
+    assert(ConfigStore_Get()->dm_feedback_timeout_ms == 100U);
+    assert(ConfigStore_Get()->infrared_position_span_raw == 0U);
+    assert(ConfigStore_GetStatus()->dirty);
+
+    /* The pre-merge infrared branch also used version 16 and the same main
+     * length. Its distinct tail is detected and migrated into the extension
+     * record without losing the common v1-v15 prefix. */
+    uint8_t *legacy_ir = &g_fram[kHeaderLength + kV15PayloadLength];
+    legacy_ir[0] = LINE_SENSOR_SOURCE_IR3;
+    legacy_ir[1] = 1U;
+    WriteU16(&legacy_ir[2], 3210U);
+    WriteU16(&legacy_ir[4], 2000U);
+    WriteU16(&legacy_ir[6], 200U);
+    WriteU32(&legacy_ir[8], 4200U);
+    WriteU32(&legacy_ir[12], 700U);
+    WriteU16(&legacy_ir[16], 31U);
+    WriteU16(&legacy_ir[18], 25000U);
+    WriteU32(&g_fram[kHeaderLength + kV16PayloadLength],
+             Crc32(g_fram, kHeaderLength + kV16PayloadLength));
+    ConfigStore_ResetDefaults();
+    assert(ConfigStore_Load() == drivers::DRIVER_OK);
+    assert(ConfigStore_Get()->heading_kp == 4321);
+    assert(ConfigStore_Get()->infrared_position_invert == 1U);
+    assert(ConfigStore_Get()->infrared_position_span_raw == 3210U);
+    assert(ConfigStore_Get()->infrared_adc_threshold == 2000U);
+    assert(ConfigStore_Get()->infrared_linefollow_kp == 4200);
+    assert(ConfigStore_Get()->dm_position_kp_milli == 4000U);
+    assert(ConfigStore_GetStatus()->dirty);
+    assert(ConfigStore_Save() == drivers::DRIVER_OK);
+    assert(ReadU16(&g_fram[4]) == 17U);
 
     /* A v15 image keeps every existing setting and receives the appended
-     * DM-G6220 defaults, then becomes dirty until saved as v16. */
+     * DM-G6220 and infrared defaults, then becomes dirty until saved as v17. */
     WriteU16(&g_fram[4], 15U);
     WriteU16(&g_fram[6], kV15PayloadLength);
     WriteU32(&g_fram[kHeaderLength + kV15PayloadLength],
              Crc32(g_fram, kHeaderLength + kV15PayloadLength));
+    (void) memset(&g_fram[kInfraredExtensionAddress],
+                  0,
+                  kInfraredExtensionLength);
     ConfigStore_ResetDefaults();
     assert(ConfigStore_Load() == drivers::DRIVER_OK);
     const ConfigStoreParams *params = ConfigStore_Get();
     assert(params->heading_kp == 4321);
     assert(params->road_align_distance_mm == 20U);
     assert(params->road_align_rpm == 45U);
+    assert(params->line_sensor_source == LINE_SENSOR_SOURCE_IR3);
+    assert(params->infrared_position_span_raw == 0U);
     assert(params->dm_position_kp_milli == 4000U);
     assert(params->dm_position_kd_milli == 400U);
     assert(params->dm_speed_kd_milli == 500U);
@@ -129,7 +181,7 @@ int main(void)
     assert(params->dm_feedback_timeout_ms == 100U);
     assert(ConfigStore_GetStatus()->dirty);
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[4]) == 17U);
     assert(ReadU16(&g_fram[6]) == kV16PayloadLength);
 
     /* A v14 image retains alignment settings and receives new asymmetric
@@ -151,7 +203,7 @@ int main(void)
     assert(ConfigStore_GetStatus()->stored_length == kV14PayloadLength);
 
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[4]) == 17U);
     assert(ReadU16(&g_fram[6]) == kV16PayloadLength);
     assert(!ConfigStore_GetStatus()->dirty);
 
@@ -178,7 +230,7 @@ int main(void)
     assert(ConfigStore_GetStatus()->stored_length == kV13PayloadLength);
 
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
-    assert(ReadU16(&g_fram[4]) == 16U);
+    assert(ReadU16(&g_fram[4]) == 17U);
     assert(ReadU16(&g_fram[6]) == kV16PayloadLength);
     assert(!ConfigStore_GetStatus()->dirty);
 
@@ -206,6 +258,12 @@ int main(void)
            drivers::DRIVER_ERROR_INVALID_ARG);
     assert(ConfigStore_Set("road_turn_inner_reverse_max_rpm", 1001) ==
            drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_Set("line_sensor_source", 2) ==
+           drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(ConfigStore_SetInfraredCalibration(0U, 100U, 2000U, 200U) ==
+           drivers::DRIVER_OK);
+    assert(ConfigStore_Set("ir_lf_kp", 4200) == drivers::DRIVER_OK);
+    assert(ConfigStore_Set("ir_lf_kd", 700) == drivers::DRIVER_OK);
     assert(ConfigStore_Set("dm_max_velocity_mrad_s", 20001) ==
            drivers::DRIVER_ERROR_INVALID_ARG);
     assert(ConfigStore_Set("dm_max_velocity_mrad_s", 20000) ==
@@ -243,10 +301,15 @@ int main(void)
     assert(params->road_align_rpm == 80U);
     assert(params->road_turn_outer_max_rpm == 210U);
     assert(params->road_turn_inner_reverse_max_rpm == 140U);
+    assert(params->infrared_position_span_raw == 100U);
+    assert(params->infrared_adc_threshold == 2000U);
+    assert(params->infrared_adc_hysteresis == 200U);
+    assert(params->infrared_linefollow_kp == 4200);
+    assert(params->infrared_linefollow_kd == 700);
     assert(params->dm_position_kp_milli == 4500U);
     assert(params->dm_feedback_timeout_ms == 120U);
     assert(!ConfigStore_GetStatus()->dirty);
 
-    puts("config store v16 migration ok");
+    puts("config store v17 main+infrared extension migration ok");
     return 0;
 }

@@ -20,7 +20,7 @@ const descriptorNames=[...storeSource.matchAll(
   /\{\s*"([a-zA-Z0-9_]+)"\s*,\s*PARAM_(?:U8|U16|U32|I32)\s*,/g
 )].map(match=>match[1]);
 
-assert.strictEqual(descriptorNames.length,107,
+assert.strictEqual(descriptorNames.length,116,
   'firmware parameter count changed; audit the host metadata');
 assert.strictEqual(new Set(descriptorNames).size,descriptorNames.length,
   'firmware parameter descriptors contain duplicates');
@@ -76,12 +76,12 @@ for(let index=0;index<8;index++){
 assert.strictEqual(context.PARAM_META.gray_track_mask.defaultValue,0x7E,
   'host default grayscale tracking mask must match firmware migration');
 
-assert(/static const uint16_t kVersion = 16U;/.test(storeSource),
+assert(/static const uint16_t kVersion = 17U;/.test(storeSource),
   'firmware ConfigStore version changed');
 assert(/static const uint16_t kPayloadLength = 243U;/.test(storeSource),
   'firmware ConfigStore payload length changed');
-assert(/len=243/.test(parameterSource),
-  'host simulator must report the v16 payload length');
+assert(/version=17 len=243/.test(parameterSource),
+  'host simulator must report the v17 main payload length');
 
 const current={};
 for(const name of context.PARAM_ORDER){
@@ -116,4 +116,4 @@ assert.strictEqual(radiusPlan.ok,true,radiusPlan.error);
 assert.strictEqual(radiusPlan.finalValues.wheel_radius_mm,33,
   'import planner must model ConfigStore wheel-radius synchronization');
 
-console.log('parameter catalog ok: 107 parameters, ConfigStore v16 payload 243');
+console.log('parameter catalog ok: 116 parameters, ConfigStore v17 main payload 243');

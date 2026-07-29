@@ -33,9 +33,13 @@ struct OledSsd1306Context {
     bool initialized;
     OledSsd1306FlushPhase flush_phase;
     uint8_t dirty_pages;
+    uint8_t dirty_first_column;
+    uint8_t dirty_last_column;
     uint8_t active_pages;
     uint8_t active_first_page;
     uint8_t active_last_page;
+    uint8_t active_first_column;
+    uint8_t active_last_column;
     uint16_t active_data_length;
     DriverStatus last_flush_status;
     uint8_t framebuffer[OLED_SSD1306_FRAME_BYTES];
@@ -60,6 +64,7 @@ DriverStatus OledSsd1306_WriteBuffer(OledSsd1306Context *ctx,
                                      uint16_t length);
 DriverStatus OledSsd1306_Service(OledSsd1306Context *ctx);
 void OledSsd1306_HandleI2cInterrupt(OledSsd1306Context *ctx);
+void OledSsd1306_HandleDmaFault(OledSsd1306Context *ctx);
 bool OledSsd1306_HasPendingFlush(const OledSsd1306Context *ctx);
 bool OledSsd1306_IsReady(const OledSsd1306Context *ctx);
 

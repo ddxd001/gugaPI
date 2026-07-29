@@ -43,6 +43,15 @@ build_and_run app_can_bus \
 build_and_run grayscale_processing \
     host_tests/grayscale_processing_test.cpp \
     gugaPI/drivers/grayscale/grayscale_processing.cpp
+build_and_run infrared_line_protocol \
+    host_tests/infrared_line_protocol_test.cpp \
+    gugaPI/drivers/infrared_line/infrared_line_protocol.cpp
+build_and_run infrared_line_dma_cursor \
+    host_tests/infrared_line_dma_cursor_test.cpp
+build_and_run infrared_calibration \
+    host_tests/infrared_calibration_test.cpp \
+    gugaPI/app/app_infrared_sensor.cpp \
+    gugaPI/drivers/infrared_line/infrared_line_protocol.cpp
 build_and_run grayscale_road \
     host_tests/grayscale_road_test.cpp \
     gugaPI/app/grayscale_road.cpp
@@ -67,6 +76,9 @@ build_and_run action_runner \
 build_and_run oled_framebuffer \
     host_tests/oled_framebuffer_test.cpp \
     gugaPI/drivers/oled/oled_ssd1306.cpp
+build_and_run large_timer \
+    host_tests/large_timer_test.cpp \
+    gugaPI/app/app_large_timer.cpp
 
 echo "[host-test] shell_command_catalog"
 "${node_bin}" host_tests/shell_command_catalog_test.js

@@ -11,7 +11,9 @@ namespace {
 
 static const uint16_t kFramAddress = 0x0000U;
 static const uint32_t kMagic = 0x47504643U; /* "CFPG" little-endian */
-static const uint16_t kVersion = 16U;
+static const uint16_t kVersion = 17U;
+static const uint16_t kV16Version = 16U;
+static const uint16_t kV16PayloadLength = 243U;
 static const uint16_t kV15Version = 15U;
 static const uint16_t kV15PayloadLength = 223U;
 static const uint16_t kV14Version = 14U;
@@ -45,13 +47,24 @@ static const uint16_t kV2PayloadLength = 68U; /* v2 layout length (motor_invert 
  * grayscale tracking mask. v12 appends predictive TURN fields, v13 appends
  * stationary heading-lock fields, v14 appends corner alignment distance and
  * speed, v15 appends asymmetric road-turn wheel limits, and v16 appends
- * the bounded DM-G6220 MIT control parameters;
+ * the bounded DM-G6220 MIT control parameters. v17 retains the same main
+ * payload and adds a separate infrared extension record in the free FRAM
+ * tail so neither parameter family nor the sequence region is overwritten;
  * every older field keeps its binary offset. */
 static const uint16_t kPayloadLength = 243U;
 static const uint16_t kHeaderLength = 8U;
 static const uint16_t kCrcLength = 4U;
 static const uint16_t kImageLength =
     kHeaderLength + kPayloadLength + kCrcLength;
+static const uint16_t kInfraredExtensionAddress = 0x1FD0U;
+static const uint32_t kInfraredExtensionMagic = 0x43335249U; /* "IR3C" */
+static const uint16_t kInfraredExtensionVersion = 1U;
+static const uint16_t kInfraredExtensionPayloadLength = 20U;
+static const uint16_t kInfraredExtensionImageLength =
+    kHeaderLength + kInfraredExtensionPayloadLength + kCrcLength;
+static_assert(kInfraredExtensionAddress + kInfraredExtensionImageLength <=
+              0x1FF0U,
+              "infrared config must not overlap the FRAM self-test area");
 static const uint32_t kCrc32Init = 0xFFFFFFFFU;
 static const uint8_t kLegacyDefaultGrayscaleTrackMask = 0x3CU;
 static const uint8_t kDefaultGrayscaleTrackMask = 0x7EU;
@@ -302,6 +315,27 @@ static const ParamDescriptor kParamDescriptors[] = {
       PARAM_OFFSET(linefollow_lost_stop_ms), 1, 10000 },
     { "lf_slew_permille_s", PARAM_U16,
       PARAM_OFFSET(linefollow_correction_slew_permille_per_second),
+      1, 65535 },
+    { "line_sensor_source", PARAM_U8,
+      PARAM_OFFSET(line_sensor_source),
+      LINE_SENSOR_SOURCE_ADC8, LINE_SENSOR_SOURCE_IR3 },
+    { "ir_position_invert", PARAM_U8,
+      PARAM_OFFSET(infrared_position_invert), 0, 1 },
+    { "ir_position_span_raw", PARAM_U16,
+      PARAM_OFFSET(infrared_position_span_raw), 0, 32767 },
+    { "ir_adc_threshold", PARAM_U16,
+      PARAM_OFFSET(infrared_adc_threshold), 0, 4095 },
+    { "ir_adc_hysteresis", PARAM_U16,
+      PARAM_OFFSET(infrared_adc_hysteresis), 0, 1000 },
+    { "ir_lf_kp", PARAM_I32,
+      PARAM_OFFSET(infrared_linefollow_kp), 0, 1000000 },
+    { "ir_lf_kd", PARAM_I32,
+      PARAM_OFFSET(infrared_linefollow_kd), 0, 1000000 },
+    { "ir_lf_maxcorr", PARAM_U16,
+      PARAM_OFFSET(infrared_linefollow_max_correction_rpm), 0, 500 },
+    { "ir_lf_slew_permille_s", PARAM_U16,
+      PARAM_OFFSET(
+          infrared_linefollow_correction_slew_permille_per_second),
       1, 65535 }
 };
 
@@ -507,6 +541,19 @@ void SetDefaults(ConfigStoreParams *params)
     params->linefollow_lost_hold_ms = 150U;
     params->linefollow_lost_stop_ms = 500U;
     params->linefollow_correction_slew_permille_per_second = 25000U;
+
+    /* The new real sensor is the requested default, but zero calibration
+     * values deliberately inhibit motion until the five-step wizard commits
+     * measured thresholds and position span. */
+    params->line_sensor_source = LINE_SENSOR_SOURCE_IR3;
+    params->infrared_position_invert = 0U;
+    params->infrared_position_span_raw = 0U;
+    params->infrared_adc_threshold = 0U;
+    params->infrared_adc_hysteresis = 0U;
+    params->infrared_linefollow_kp = 3800;
+    params->infrared_linefollow_kd = 600;
+    params->infrared_linefollow_max_correction_rpm = 30U;
+    params->infrared_linefollow_correction_slew_permille_per_second = 25000U;
 }
 
 uint8_t *AppendU8(uint8_t *cursor, uint8_t value)
@@ -671,7 +718,8 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
 
 void DecodePayload(const uint8_t *payload,
                    uint16_t payload_length,
-                   ConfigStoreParams *params)
+                   ConfigStoreParams *params,
+                   bool infrared_v16_layout)
 {
     const uint8_t *cursor = payload;
 
@@ -842,21 +890,110 @@ void DecodePayload(const uint8_t *payload,
             &params->road_turn_inner_reverse_max_rpm);
     }
     if (payload_length >= kPayloadLength) {
-        cursor = ReadU16Field(cursor, &params->dm_position_kp_milli);
-        cursor = ReadU16Field(cursor, &params->dm_position_kd_milli);
-        cursor = ReadU16Field(cursor, &params->dm_speed_kd_milli);
-        cursor = ReadU16Field(cursor, &params->dm_max_velocity_mrad_s);
-        cursor = ReadU16Field(
-            cursor, &params->dm_max_tracking_error_mrad);
-        cursor = ReadU16Field(cursor, &params->dm_speed_slew_mrad_s2);
-        cursor = ReadU16Field(
-            cursor, &params->dm_position_tolerance_mrad);
-        cursor = ReadU16Field(
-            cursor, &params->dm_velocity_tolerance_mrad_s);
-        cursor = ReadU16Field(cursor, &params->dm_settle_ms);
-        (void) ReadU16Field(cursor, &params->dm_feedback_timeout_ms);
+        if (infrared_v16_layout) {
+            cursor = ReadU8Field(cursor, &params->line_sensor_source);
+            cursor = ReadU8Field(cursor, &params->infrared_position_invert);
+            cursor = ReadU16Field(cursor, &params->infrared_position_span_raw);
+            cursor = ReadU16Field(cursor, &params->infrared_adc_threshold);
+            cursor = ReadU16Field(cursor, &params->infrared_adc_hysteresis);
+            cursor = ReadI32Field(cursor, &params->infrared_linefollow_kp);
+            cursor = ReadI32Field(cursor, &params->infrared_linefollow_kd);
+            cursor = ReadU16Field(
+                cursor, &params->infrared_linefollow_max_correction_rpm);
+            (void) ReadU16Field(
+                cursor,
+                &params->
+                    infrared_linefollow_correction_slew_permille_per_second);
+        } else {
+            cursor = ReadU16Field(cursor, &params->dm_position_kp_milli);
+            cursor = ReadU16Field(cursor, &params->dm_position_kd_milli);
+            cursor = ReadU16Field(cursor, &params->dm_speed_kd_milli);
+            cursor = ReadU16Field(cursor, &params->dm_max_velocity_mrad_s);
+            cursor = ReadU16Field(
+                cursor, &params->dm_max_tracking_error_mrad);
+            cursor = ReadU16Field(cursor, &params->dm_speed_slew_mrad_s2);
+            cursor = ReadU16Field(
+                cursor, &params->dm_position_tolerance_mrad);
+            cursor = ReadU16Field(
+                cursor, &params->dm_velocity_tolerance_mrad_s);
+            cursor = ReadU16Field(cursor, &params->dm_settle_ms);
+            (void) ReadU16Field(cursor, &params->dm_feedback_timeout_ms);
+        }
     }
     (void) cursor;
+}
+
+void EncodeInfraredExtension(const ConfigStoreParams &params, uint8_t *payload)
+{
+    uint8_t *cursor = payload;
+    cursor = AppendU8(cursor, params.line_sensor_source);
+    cursor = AppendU8(cursor, params.infrared_position_invert);
+    cursor = AppendU16(cursor, params.infrared_position_span_raw);
+    cursor = AppendU16(cursor, params.infrared_adc_threshold);
+    cursor = AppendU16(cursor, params.infrared_adc_hysteresis);
+    cursor = AppendI32(cursor, params.infrared_linefollow_kp);
+    cursor = AppendI32(cursor, params.infrared_linefollow_kd);
+    cursor = AppendU16(
+        cursor, params.infrared_linefollow_max_correction_rpm);
+    (void) AppendU16(
+        cursor,
+        params.infrared_linefollow_correction_slew_permille_per_second);
+}
+
+void DecodeInfraredExtension(const uint8_t *payload,
+                             ConfigStoreParams *params)
+{
+    const uint8_t *cursor = payload;
+    cursor = ReadU8Field(cursor, &params->line_sensor_source);
+    cursor = ReadU8Field(cursor, &params->infrared_position_invert);
+    cursor = ReadU16Field(cursor, &params->infrared_position_span_raw);
+    cursor = ReadU16Field(cursor, &params->infrared_adc_threshold);
+    cursor = ReadU16Field(cursor, &params->infrared_adc_hysteresis);
+    cursor = ReadI32Field(cursor, &params->infrared_linefollow_kp);
+    cursor = ReadI32Field(cursor, &params->infrared_linefollow_kd);
+    cursor = ReadU16Field(
+        cursor, &params->infrared_linefollow_max_correction_rpm);
+    (void) ReadU16Field(
+        cursor,
+        &params->infrared_linefollow_correction_slew_permille_per_second);
+}
+
+bool LoadInfraredExtension(ConfigStoreParams *params)
+{
+    uint8_t image[kInfraredExtensionImageLength];
+    if (board::Board_FramRead(kInfraredExtensionAddress,
+                              image,
+                              sizeof(image)) != drivers::DRIVER_OK) {
+        return false;
+    }
+    if ((ReadU32(&image[0]) != kInfraredExtensionMagic) ||
+        (ReadU16(&image[4]) != kInfraredExtensionVersion) ||
+        (ReadU16(&image[6]) != kInfraredExtensionPayloadLength)) {
+        return false;
+    }
+    const uint32_t stored_crc = ReadU32(
+        &image[kHeaderLength + kInfraredExtensionPayloadLength]);
+    if (stored_crc !=
+        Crc32(image, kHeaderLength + kInfraredExtensionPayloadLength)) {
+        return false;
+    }
+    DecodeInfraredExtension(&image[kHeaderLength], params);
+    return true;
+}
+
+drivers::DriverStatus SaveInfraredExtension(const ConfigStoreParams &params)
+{
+    uint8_t image[kInfraredExtensionImageLength];
+    WriteU32(&image[0], kInfraredExtensionMagic);
+    WriteU16(&image[4], kInfraredExtensionVersion);
+    WriteU16(&image[6], kInfraredExtensionPayloadLength);
+    EncodeInfraredExtension(params, &image[kHeaderLength]);
+    WriteU32(&image[kHeaderLength + kInfraredExtensionPayloadLength],
+             Crc32(image,
+                   kHeaderLength + kInfraredExtensionPayloadLength));
+    return board::Board_FramWrite(kInfraredExtensionAddress,
+                                  image,
+                                  sizeof(image));
 }
 
 bool ValidateParams(const ConfigStoreParams &params)
@@ -920,6 +1057,18 @@ bool ValidateParams(const ConfigStoreParams &params)
          1000U) ||
         (params.linefollow_lost_stop_ms < params.linefollow_lost_hold_ms)) {
         return false;
+    }
+    if (params.infrared_adc_threshold != 0U) {
+        const uint16_t ir_lower = static_cast<uint16_t>(
+            params.infrared_adc_hysteresis / 2U);
+        const uint16_t ir_upper = static_cast<uint16_t>(
+            (params.infrared_adc_hysteresis + 1U) / 2U);
+        if ((params.infrared_adc_threshold <= ir_lower) ||
+            ((static_cast<uint32_t>(params.infrared_adc_threshold) +
+              ir_upper) > 4095U) ||
+            (params.infrared_position_span_raw == 0U)) {
+            return false;
+        }
     }
     return true;
 }
@@ -1001,6 +1150,8 @@ drivers::DriverStatus ConfigStore_Load(void)
 
     const bool current_layout =
         (version == kVersion) && (length == kPayloadLength);
+    const bool v16_layout =
+        (version == kV16Version) && (length == kV16PayloadLength);
     const bool v15_layout =
         (version == kV15Version) && (length == kV15PayloadLength);
     const bool v14_layout =
@@ -1031,7 +1182,7 @@ drivers::DriverStatus ConfigStore_Load(void)
         (version == kLegacyVersion) && (length == kLegacyPayloadLength);
     const bool legacy_v2 = (version == 2U) && (length == kV2PayloadLength);
     const bool legacy_layout =
-        v15_layout || v14_layout || v13_layout || v12_layout || v11_layout || v10_layout || v9_layout || v8_layout || v7_layout || v6_layout ||
+        v16_layout || v15_layout || v14_layout || v13_layout || v12_layout || v11_layout || v10_layout || v9_layout || v8_layout || v7_layout || v6_layout ||
         v5_layout || v4_layout || v3_layout || legacy_v1 || legacy_v2;
 
     if ((magic != kMagic) ||
@@ -1054,7 +1205,16 @@ drivers::DriverStatus ConfigStore_Load(void)
         return g_status.last_load_status;
     }
 
-    DecodePayload(&image[kHeaderLength], length, &loaded);
+    bool legacy_infrared_v16 = false;
+    DecodePayload(&image[kHeaderLength], length, &loaded, false);
+    if (v16_layout && !ValidateParams(loaded)) {
+        /* The infrared feature branch and upstream DM branch both shipped a
+         * 243-byte v16 image before they were merged. Prefer the authoritative
+         * upstream DM interpretation when valid; otherwise migrate the old
+         * infrared layout without discarding any v1-v15 fields. */
+        DecodePayload(&image[kHeaderLength], length, &loaded, true);
+        legacy_infrared_v16 = true;
+    }
     /* Preserve deliberate user masks. Only the exact historical default is
      * upgraded when loading an older image. */
     if ((version <= kV10Version) &&
@@ -1068,10 +1228,19 @@ drivers::DriverStatus ConfigStore_Load(void)
         return g_status.last_load_status;
     }
 
+    bool infrared_extension_loaded = false;
+    if (!legacy_infrared_v16) {
+        ConfigStoreParams extended = loaded;
+        if (LoadInfraredExtension(&extended) && ValidateParams(extended)) {
+            loaded = extended;
+            infrared_extension_loaded = true;
+        }
+    }
+
     g_params = loaded;
     g_status.loaded_from_fram = true;
     g_status.load_outcome = CONFIG_LOAD_FROM_FRAM;
-    g_status.dirty = !current_layout;
+    g_status.dirty = !current_layout || !infrared_extension_loaded;
     g_status.last_load_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 #else
@@ -1091,6 +1260,12 @@ drivers::DriverStatus ConfigStore_Save(void)
         return g_status.last_save_status;
     }
 
+    drivers::DriverStatus status = SaveInfraredExtension(g_params);
+    if (status != drivers::DRIVER_OK) {
+        g_status.last_save_status = status;
+        return status;
+    }
+
     WriteU32(&image[0], kMagic);
     WriteU16(&image[4], kVersion);
     WriteU16(&image[6], kPayloadLength);
@@ -1099,8 +1274,7 @@ drivers::DriverStatus ConfigStore_Save(void)
     const uint32_t crc = Crc32(image, kHeaderLength + kPayloadLength);
     WriteU32(&image[kHeaderLength + kPayloadLength], crc);
 
-    const drivers::DriverStatus status =
-        board::Board_FramWrite(kFramAddress, image, kImageLength);
+    status = board::Board_FramWrite(kFramAddress, image, kImageLength);
     g_status.last_save_status = status;
     if (status == drivers::DRIVER_OK) {
         g_status.loaded_from_fram = true;
@@ -1170,6 +1344,30 @@ drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
         g_params.grayscale_position_floor,
         g_params.grayscale_min_line_strength,
         g_params.grayscale_track_mask);
+}
+
+drivers::DriverStatus ConfigStore_SetInfraredCalibration(
+    uint8_t invert,
+    uint16_t span_raw,
+    uint16_t adc_threshold,
+    uint16_t adc_hysteresis)
+{
+    if ((invert > 1U) || (span_raw == 0U) || (span_raw > 32767U) ||
+        (adc_threshold == 0U) || (adc_threshold > 4095U) ||
+        (adc_hysteresis > 1000U)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    ConfigStoreParams updated = g_params;
+    updated.infrared_position_invert = invert;
+    updated.infrared_position_span_raw = span_raw;
+    updated.infrared_adc_threshold = adc_threshold;
+    updated.infrared_adc_hysteresis = adc_hysteresis;
+    if (!ValidateParams(updated)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    g_params = updated;
+    g_status.dirty = true;
+    return drivers::DRIVER_OK;
 }
 
 drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(

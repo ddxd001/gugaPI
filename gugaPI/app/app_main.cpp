@@ -2,7 +2,9 @@
 
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
+#include "app/app_infrared_sensor.h"
 #include "app/app_jyme02_can.h"
+#include "app/app_large_timer.h"
 #include "app/app_can_bus.h"
 #include "app/app_lora.h"
 #include "app/app_shell.h"
@@ -12,6 +14,7 @@
 #include "app/dm_g6220_controller.h"
 #include "app/heading.h"
 #include "app/linefollow.h"
+#include "app/line_sensor.h"
 #include "app/mode_switch_chord.h"
 #include "app/road_event_controller.h"
 #include "app/seq_store.h"
@@ -139,17 +142,42 @@ void App_ActionTask(void)
 #endif
 
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
-/* Wake at 10 ms so a completed 8-channel frame is consumed promptly.
- * LF_Update ignores duplicate sequence numbers, so this does not create
- * redundant MotorDriver writes when no new frame is available. */
-const uint32_t LINEFOLLOW_PERIOD_MS = 10U;
+/* The real UART sensor publishes a complete frame in about 1.30 ms. Polling
+ * the unified sequence at 2 ms keeps last-byte-to-wheel-command latency below
+ * 5 ms without running PID or chassis code inside the UART ISR. Duplicate
+ * sequence numbers remain no-ops for the slower 8-channel ADC source. */
+const uint32_t LINEFOLLOW_PERIOD_MS = 2U;
 
 void App_LineFollowTask(void)
 {
 #if FEATURE_ENABLE_IMU
-    app::RoadEventController_Update();
+    if (app::LineSensor_IsRoadCapable()) {
+        app::RoadEventController_Update();
+    }
 #endif
     app::LF_Update();
+}
+#endif
+
+#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
+void App_InfraredLineTask(void)
+{
+    app::App_InfraredSensorUpdate();
+#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+    /* IR3 frames are already decoded in this foreground task. Let an active
+     * line follower consume the newly published sequence immediately instead
+     * of waiting for the independent 2 ms safety/control task. LF_Update()
+     * ignores duplicate sequence numbers, so the regular task remains the
+     * watchdog path without issuing a second wheel command. */
+    const app::LFState *linefollow = app::LF_GetState();
+    const app::AppInfraredSensorData *infrared =
+        app::App_InfraredSensorGetData();
+    if ((app::LineSensor_GetSource() == app::LINE_SENSOR_IR3) &&
+        (linefollow->mode == app::LF_FOLLOW) &&
+        (infrared->frame.sequence != linefollow->last_sequence)) {
+        app::LF_Update();
+    }
+#endif
 }
 #endif
 
@@ -809,6 +837,11 @@ void App_CompetitionStatusTask(void)
 #if FEATURE_ENABLE_OLED
     if (mode == app::APP_MODE_FAULT) {
         App_FaultOledUpdate(now);
+    } else if (app::App_LargeTimerOwnsDisplay()) {
+        /* The independently controlled large timer may be used while a
+         * competition sequence is running. Invalidate the cached page so it
+         * is redrawn immediately after the timer releases the OLED. */
+        g_compOledLastSlot = 0xFFU;
     } else {
         g_faultOledCode = services::FAULT_NONE;
         App_CompetitionOledUpdate(now, mode);
@@ -937,6 +970,9 @@ void App_Init(void)
         (void) board::Board_BuzzerOff();
     }
 #endif
+#if FEATURE_ENABLE_OLED
+    App_LargeTimerInit();
+#endif
 
     g_appState.mode = APP_MODE_COMPETITION_ARMED;
     g_appState.uptime_ms = 0U;
@@ -1016,7 +1052,18 @@ void App_Init(void)
 #endif
     CompetitionSelectInitialSlot();
     AppShell_DisableOledStreams();
+#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
+    app::App_InfraredSensorInit();
+    if (services::Scheduler_AddTask("infrared_line",
+                                    App_InfraredLineTask,
+                                    1U,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
+    app::LineSensor_Init();
     app::LF_Init();
 #if FEATURE_ENABLE_IMU
     app::RoadEventController_Init();
@@ -1146,6 +1193,9 @@ void App_Run(void)
 #if FEATURE_ENABLE_OLED
     /* Progress the OLED DMA state machine before other shared-I2C clients. */
     (void) board::Board_OledService();
+    /* The large timer only updates the framebuffer when a displayed tenth
+     * changes. Scheduler_Run has already serviced every control task. */
+    App_LargeTimerUpdate();
 #endif
 
 #if FEATURE_ENABLE_INA219

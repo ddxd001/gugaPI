@@ -9,6 +9,7 @@
 #include "board/board_grayscale.h"
 #include "board/board_gy931.h"
 #include "board/board_ina219.h"
+#include "board/board_infrared_sensor.h"
 #include "board/board_imu.h"
 #include "board/board_led.h"
 #include "board/board_lora.h"
@@ -105,6 +106,11 @@ drivers::DriverStatus Board_Init(void)
 
 #if FEATURE_ENABLE_LORA
     TrackInit("lora", Board_LoraInit(), BOARD_INIT_DEGRADED);
+#endif
+
+#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
+    TrackInit("infrared_line", Board_InfraredSensorInit(),
+              BOARD_INIT_DEGRADED);
 #endif
 
 #if FEATURE_ENABLE_CAN
