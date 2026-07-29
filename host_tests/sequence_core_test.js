@@ -15,22 +15,19 @@ function simple(type){
     SC.connect(p,first.id,'success',body.id);
     SC.connect(p,first.id,'failure',end.id);
     SC.connect(p,body.id,'success',first.id);
-    SC.connect(p,body.id,'failure','abort');
     return p;
   }
   const end=add(p,'end','end',2);
   SC.connect(p,first.id,'success',end.id);
-  SC.connect(p,first.id,'failure','abort');
-  if(type==='condition'){
-    const no=add(p,'end','end-no',3);
-    SC.connect(p,first.id,'failure',no.id);
-  }
   return p;
 }
 
 assert.strictEqual(SC.FORMAT,'gugapi-sequence-project');
 assert.strictEqual(SC.VERSION,2);
 assert.strictEqual(Object.keys(SC.ACTIONS).length,16);
+const fresh=SC.newProject('无中止节点',7);
+assert.deepStrictEqual(fresh.nodes.map(n=>n.type),['system_start']);
+assert(!fresh.nodes.some(n=>n.id==='abort'||n.type==='system_abort'));
 
 for(const type of Object.keys(SC.ACTIONS)){
   const p=simple(type);
@@ -41,6 +38,10 @@ for(const type of Object.keys(SC.ACTIONS)){
   assert.strictEqual(built.instrs[0].op,expectedOp,type+' opcode');
   assert(Number.isInteger(built.instrs[0].p1)&&Number.isInteger(built.instrs[0].p2));
   assert(Number.isInteger(built.instrs[0].until));
+  if(type!=='loop'&&type!=='end'){
+    assert.strictEqual(built.instrs[0].ont,SC.ABORT,
+      type+' unconnected failure port defaults to abort');
+  }
 }
 
 for(const template of SC.templates()){
@@ -71,7 +72,6 @@ let previous='start';
 for(let i=0;i<65;i++){
   const n=add(tooMany,i===64?'end':'stop','m'+i,i+1);
   SC.connect(tooMany,previous,'success',n.id);
-  if(previous!=='start')SC.connect(tooMany,previous,'failure','abort');
   previous=n.id;
 }
 result=SC.validate(tooMany);
@@ -88,7 +88,6 @@ SC.connect(cycle,'start','success','branch');
 SC.connect(cycle,'branch','success','wait');
 SC.connect(cycle,'branch','failure','finish');
 SC.connect(cycle,'wait','success','branch');
-SC.connect(cycle,'wait','failure','abort');
 result=SC.validate(cycle);
 assert(result.valid&&result.issues.some(x=>x.code==='cycle'));
 assert.doesNotThrow(()=>SC.compile(cycle));
@@ -189,9 +188,7 @@ SC.connect(nested,'outer','failure','outer-done');
 SC.connect(nested,'inner','success','inner-body');
 SC.connect(nested,'inner','failure','inner-done');
 SC.connect(nested,'inner-body','success','inner');
-SC.connect(nested,'inner-body','failure','abort');
 SC.connect(nested,'inner-done','success','outer');
-SC.connect(nested,'inner-done','failure','abort');
 result=SC.validate(nested);
 assert(result.valid,result.issues.map(x=>x.message).join('; '));
 assert(!result.issues.some(x=>x.code==='cycle'));
@@ -211,7 +208,6 @@ add(overTime,'end','wend',12);
 SC.connect(overTime,'start','success','w0');
 for(let i=0;i<waits.length;i++){
   SC.connect(overTime,'w'+i,'success',i+1<waits.length?'w'+(i+1):'wend');
-  SC.connect(overTime,'w'+i,'failure','abort');
 }
 result=SC.validate(overTime);
 assert(!result.valid&&result.issues.some(x=>x.code==='global_timeout'));
@@ -233,7 +229,6 @@ SC.connect(roadOverTime,'start','success','road0');
 for(let i=0;i<roadSteps.length;i++){
   SC.connect(roadOverTime,'road'+i,'success',
     i+1<roadSteps.length?'road'+(i+1):'road-end');
-  SC.connect(roadOverTime,'road'+i,'failure','abort');
 }
 result=SC.validate(roadOverTime);
 assert(!result.valid&&result.issues.some(x=>x.code==='global_timeout'),
@@ -248,7 +243,6 @@ const edge=stable.edges.find(e=>e.source===before.nodeOrder[0]&&e.port==='succes
 const oldTarget=edge.target;
 edge.target='inserted';
 SC.connect(stable,'inserted','success',oldTarget);
-SC.connect(stable,'inserted','failure','abort');
 const after=SC.compile(stable);
 assert.strictEqual(after.nodeOrder[after.indexByNode[targetId]],targetId,'node identity survives insertion');
 const rawFromFirst=after.instrs[after.indexByNode[before.nodeOrder[0]]];
@@ -281,8 +275,51 @@ Object.assign(button2Node.params,{source:'button2_pressed',compare:'eq',
 assert(SC.validate(button2,{maxRpm:1000}).valid);
 assert(!SC.validate(button2,{maxRpm:1000,competition:true}).valid);
 
+const implicitFailure=simple('condition');
+result=SC.validate(implicitFailure);
+assert(result.valid&&!result.issues.some(x=>x.code==='missing_failure'),
+  'condition failure port may be left unconnected');
+const implicitRaw=SC.compile(implicitFailure).instrs;
+assert.strictEqual(implicitRaw[0].ont,SC.ABORT);
+const implicitDecoded=SC.decompile(implicitRaw);
+assert(!implicitDecoded.nodes.some(n=>n.type==='system_abort'));
+assert(!implicitDecoded.edges.some(e=>e.port==='failure'),
+  'ont=abort decompiles without a visible failure edge');
+
+const explicitFailure=simple('condition');
+const recovery=add(explicitFailure,'stop','recovery',3);
+SC.connect(explicitFailure,'first','failure','recovery');
+SC.connect(explicitFailure,'recovery','success','end');
+const explicitBuilt=SC.compile(explicitFailure);
+assert.strictEqual(explicitBuilt.instrs[0].ont,
+  explicitBuilt.indexByNode.recovery);
+const explicitDecoded=SC.decompile(explicitBuilt.instrs);
+assert(explicitDecoded.edges.some(e=>e.port==='failure'),
+  'explicit failure target survives decompile');
+
+const legacyV2=SC.newProject('旧版可视中止',7);
+legacyV2.nodes.push(
+  {id:'abort',type:'system_abort',x:700,y:400,createdOrder:999999,params:{}},
+  SC.actionNode('stop',200,100,1,'legacy-stop'),
+  SC.actionNode('end',400,100,2,'legacy-v2-end')
+);
+legacyV2.edges.push(
+  {id:'legacy-v2-a',source:'start',port:'success',target:'legacy-stop'},
+  {id:'legacy-v2-b',source:'legacy-stop',port:'success',target:'legacy-v2-end'},
+  {id:'legacy-v2-c',source:'legacy-stop',port:'failure',target:'abort'}
+);
+const normalizedLegacyV2=SC.normalizeProject(legacyV2);
+assert(!normalizedLegacyV2.nodes.some(n=>n.type==='system_abort'));
+assert(!normalizedLegacyV2.edges.some(e=>e.target==='abort'));
+assert.strictEqual(SC.compile(normalizedLegacyV2).instrs[0].ont,SC.ABORT);
+assert(!JSON.parse(SC.serialize(legacyV2)).nodes.some(
+  n=>n.type==='system_abort'));
+
 const v1=SC.clone(SC.newProject('legacy',3));
 v1.version=1;
+v1.nodes.push(
+  {id:'abort',type:'system_abort',x:700,y:400,createdOrder:999999,params:{}}
+);
 const legacy={
   id:'legacy-branch',type:'branch',x:200,y:100,createdOrder:1,
   params:{condition:'line_lost'}
@@ -302,5 +339,7 @@ assert.strictEqual(migrated.version,2);
 assert.strictEqual(migratedNode.type,'condition');
 assert.strictEqual(migratedNode.params.source,'line_detected');
 assert.strictEqual(migratedNode.params.value,0);
+assert(!migrated.nodes.some(n=>n.type==='system_abort'));
+assert(!migrated.edges.some(e=>e.target==='abort'));
 
-console.log('sequence core ok: v2 migration, 16 actions, road-nav, counted/nested loops and round trips');
+console.log('sequence core ok: implicit abort, legacy migration, 16 actions, road-nav, counted/nested loops and round trips');

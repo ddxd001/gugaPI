@@ -68,6 +68,9 @@ echo "[host-test] parameter_catalog"
 echo "[host-test] sequence_core"
 "${node_bin}" host_tests/sequence_core_test.js
 
+echo "[host-test] help_catalog"
+"${node_bin}" host_tests/help_catalog_test.js
+
 echo "[host-test] dashboard_core"
 "${node_bin}" host_tests/dashboard_core_test.js
 

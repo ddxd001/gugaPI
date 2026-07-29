@@ -51,23 +51,27 @@ function switchTab(name){
   var terminal=name==='terminal';
   var parameters=name==='parameters';
   var commands=name==='commands';
+  var help=name==='help';
   $('editorView').hidden=!editor;
   $('dashboardView').hidden=!dashboard;
   $('termView').hidden=!terminal;
   $('paramView').hidden=!parameters;
   $('commandView').hidden=!commands;
+  $('helpView').hidden=!help;
   $('log').hidden=!editor;
   $('tabEditor').classList.toggle('active',editor);
   $('tabDashboard').classList.toggle('active',dashboard);
   $('tabTerminal').classList.toggle('active',terminal);
   $('tabParameters').classList.toggle('active',parameters);
   $('tabCommands').classList.toggle('active',commands);
+  $('tabHelp').classList.toggle('active',help);
   if(terminal&&!$('termInput').disabled)$('termInput').focus();
   if(dashboard&&typeof Dashboard_OnShow==='function')Dashboard_OnShow();
   if(!dashboard&&typeof Dashboard_OnHide==='function')Dashboard_OnHide();
   if(parameters&&typeof ParamPage_OnShow==='function')ParamPage_OnShow();
   if(!parameters&&typeof ParamPage_OnHide==='function')ParamPage_OnHide();
   if(commands&&typeof CommandLibrary_OnShow==='function')CommandLibrary_OnShow();
+  if(help&&typeof HelpPage_OnShow==='function')HelpPage_OnShow();
 }
 
 async function terminalSend(){
@@ -107,6 +111,7 @@ $('tabDashboard').addEventListener('click',function(){switchTab('dashboard')});
 $('tabTerminal').addEventListener('click',function(){switchTab('terminal')});
 $('tabParameters').addEventListener('click',function(){switchTab('parameters')});
 $('tabCommands').addEventListener('click',function(){switchTab('commands')});
+$('tabHelp').addEventListener('click',function(){switchTab('help')});
 $('btnTermClear').addEventListener('click',function(){$('termDisplay').textContent=''});
 $('btnTermSend').addEventListener('click',terminalSend);
 $('btnTermHelp').addEventListener('click',function(){

@@ -214,14 +214,12 @@ function newProject(name,slot){
   var t=now();
   return{format:FORMAT,version:VERSION,name:name||'未命名流程',
     slot:slot==null?7:slot,nodes:[
-      {id:'start',type:'system_start',x:70,y:220,createdOrder:0,params:{}},
-      {id:'abort',type:'system_abort',x:760,y:420,
-        createdOrder:999999,params:{}}
+      {id:'start',type:'system_start',x:70,y:220,createdOrder:0,params:{}}
     ],edges:[],createdAt:t,updatedAt:t};
 }
 function ports(type){
   if(type==='system_start')return['success'];
-  if(type==='system_abort'||type==='end')return[];
+  if(type==='end')return[];
   return['success','failure'];
 }
 function legacyCondition(condition,mode,timeoutMs){
@@ -276,11 +274,18 @@ function normalizeProject(input){
   }
   if(input.version===1)input=migrateV1(input);
   if(input.version!==VERSION)throw new Error('不支持的工程版本：'+input.version);
-  var p=clone(input),ids={};
+  var p=clone(input),ids={},abortIds={};
+  p.nodes.forEach(function(n){
+    if(n.type==='system_abort')abortIds[n.id]=1;
+  });
+  p.nodes=p.nodes.filter(function(n){return n.type!=='system_abort'});
+  p.edges=p.edges.filter(function(e){
+    return !abortIds[e.source]&&!abortIds[e.target];
+  });
   p.nodes.forEach(function(n,i){
     if(!n.id||ids[n.id])throw new Error('节点 ID 缺失或重复');
     ids[n.id]=1;
-    if(n.type!=='system_start'&&n.type!=='system_abort'&&!ACTIONS[n.type]){
+    if(n.type!=='system_start'&&!ACTIONS[n.type]){
       throw new Error('未知节点类型：'+n.type);
     }
     n.x=Number(n.x)||0;n.y=Number(n.y)||0;
@@ -289,7 +294,7 @@ function normalizeProject(input){
       n.params=Object.assign(clone(ACTIONS[n.type].defaults),n.params);
     }
   });
-  if(!ids.start||!ids.abort)throw new Error('工程缺少开始或中止系统节点');
+  if(!ids.start)throw new Error('工程缺少开始系统节点');
   p.edges.forEach(function(e){
     if(!e.id)e.id=uid('e');
     if(!ids[e.source]||!ids[e.target]){
@@ -475,26 +480,24 @@ function validate(project,options){
       'missing_success',n.type==='condition'?'判断的“成立”端口未连接':
       n.type==='loop'?'循环的“执行循环体”端口未连接':
       '“完成”端口必须连接后续动作',n.id,'success');
-    if((n.type==='condition'||n.type==='loop')&&!out[n.id].failure){
+    if(n.type==='loop'&&!out[n.id].failure){
       addIssue(issues,'error','missing_failure',
-        n.type==='loop'?'循环的“循环完成”端口未连接':
-        '判断的失败端口未连接',n.id,'failure');
+        '循环的“循环完成”端口未连接',n.id,'failure');
     }
     if(out[n.id].success&&
        !ACTIONS[nodesBy[out[n.id].success.target].type]){
       addIssue(issues,'error','success_target',
         '成功端口必须连接实际动作',n.id,'success');
     }
-    if(out[n.id].failure&&out[n.id].failure.target!=='abort'&&
+    if(out[n.id].failure&&
        !ACTIONS[nodesBy[out[n.id].failure.target].type]){
       addIssue(issues,'error','failure_target',
-        '失败端口只能连接动作或中止节点',n.id,'failure');
+        '失败端口只能连接实际动作',n.id,'failure');
     }
     if(n.type==='loop'&&out[n.id].failure&&
-       (out[n.id].failure.target==='abort'||
-        !ACTIONS[nodesBy[out[n.id].failure.target].type])){
+       !ACTIONS[nodesBy[out[n.id].failure.target].type]){
       addIssue(issues,'error','loop_done_target',
-        '循环完成端口必须连接实际动作，不能使用中止',n.id,'failure');
+        '循环完成端口必须连接实际动作',n.id,'failure');
     }
   });
   var reachable={},q=[];
@@ -505,8 +508,7 @@ function validate(project,options){
     reachable[id]=true;
     var o=out[id]||{};
     ['success','failure'].forEach(function(k){
-      if(o[k]&&nodesBy[o[k].target]&&
-         nodesBy[o[k].target].type!=='system_abort')q.push(o[k].target);
+      if(o[k]&&nodesBy[o[k].target])q.push(o[k].target);
     });
   }
   actions.forEach(function(n){
@@ -523,11 +525,11 @@ function validate(project,options){
   actions.filter(function(n){return n.type==='loop'}).forEach(function(loop){
     var body=out[loop.id]&&out[loop.id].success;
     var done=out[loop.id]&&out[loop.id].failure;
-    if(!body||!done||done.target==='abort')return;
+    if(!body||!done)return;
     var found=false,seenBody={},stack=[body.target],backKeys=[];
     while(stack.length){
       var id=stack.pop();
-      if(id===done.target||id==='abort'||seenBody[id])continue;
+      if(id===done.target||seenBody[id])continue;
       if(id===loop.id){found=true;continue}
       seenBody[id]=1;
       var bodyOut=out[id]||{};
@@ -650,8 +652,7 @@ function compile(project,options){
     var n=v.nodesById[id],r=rawFor(n),o=v.outgoing[id]||{};
     if(n.type!=='end'){
       r.ons=index[o.success.target];
-      r.ont=o.failure&&o.failure.target!=='abort'?
-        index[o.failure.target]:ABORT;
+      r.ont=o.failure?index[o.failure.target]:ABORT;
     }
     return r;
   });
@@ -708,10 +709,6 @@ function autoLayout(project){
   actions.forEach(function(n,i){
     n.x=280+(i%4)*230;n.y=100+Math.floor(i/4)*190;
   });
-  if(by.abort){
-    by.abort.x=280+Math.min(3,actions.length%4)*230;
-    by.abort.y=100+(Math.floor(actions.length/4)+1)*190;
-  }
   return p;
 }
 function decompile(instrs,meta){
@@ -734,8 +731,6 @@ function decompile(instrs,meta){
     var f=r.ont;
     if(f!==ABORT&&f<nodes.length)p.edges.push({id:uid('e'),source:n.id,
       port:'failure',target:nodes[f].id});
-    else p.edges.push({id:uid('e'),source:n.id,
-      port:'failure',target:'abort'});
   });
   return autoLayout(p);
 }
@@ -753,10 +748,6 @@ function chain(types,name){
     var n=actionNode(type,0,0,i+1,'n'+i);
     if(typeof spec==='object')Object.assign(n.params,spec.params||{});
     p.nodes.push(n);connect(p,prev,'success',n.id);
-    if(prev!=='start'&&
-       p.nodes.find(function(x){return x.id===prev}).type!=='end'){
-      connect(p,prev,'failure','abort');
-    }
     prev=n.id;
   });
   return autoLayout(p);
@@ -784,7 +775,6 @@ function templates(){
   connect(c,'start','success','n0');connect(c,'n0','success','n1');
   connect(c,'n0','failure','n2');connect(c,'n1','success','n3');
   connect(c,'n1','failure','n2');connect(c,'n2','success','n3');
-  connect(c,'n2','failure','abort');
   var d=chain([
     {type:'led_on',params:{target:0,durationMs:500}},
     {type:'buzzer_on',params:{durationMs:200}},

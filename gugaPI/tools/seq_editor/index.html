@@ -180,6 +180,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 @media(max-width:1100px){#paramLayout{grid-template-columns:190px minmax(330px,1fr) 310px}#commandLayout{grid-template-columns:330px minmax(400px,1fr)}}
 </style>
 <link rel="stylesheet" href="dashboard.css?v=20260728-three-columns">
+<link rel="stylesheet" href="help.css?v=20260729-help-v2">
 </head>
 <body>
 <header>
@@ -196,6 +197,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <button class="tab" id="tabTerminal" type="button">串口终端</button>
 <button class="tab" id="tabParameters" type="button">参数</button>
 <button class="tab" id="tabCommands" type="button">命令库</button>
+<button class="tab" id="tabHelp" type="button">使用帮助</button>
 </div>
 <div id="dashboardView" class="main" hidden>
 <div id="dashboardShell">
@@ -338,18 +340,40 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 </div>
 </div>
 </div>
+<div id="helpView" class="main" hidden>
+<div id="helpShell">
+<div id="helpToolbar">
+<span class="help-title">使用帮助</span>
+<span class="help-subtitle">离线中文知识库 · 不发送设备命令</span>
+<span class="help-spacer"></span>
+<input id="helpSearch" type="search" autocomplete="off" placeholder="搜索模块、问题、操作码或错误提示">
+<button id="btnHelpClear" type="button">清除搜索</button>
+<span id="helpStats"></span>
+</div>
+<div id="helpLayout">
+<aside class="help-pane"><nav id="helpCategories" aria-label="帮助分类"></nav></aside>
+<section class="help-pane">
+<div id="helpResults"></div>
+<div id="helpEmpty" hidden>没有匹配的帮助内容</div>
+</section>
+<main class="help-pane" id="helpContent"></main>
+</div>
+</div>
+</div>
 <div class="log" id="log"></div>
 <div id="paramToast" role="status" aria-live="polite"></div>
-<div id="seqGuide" class="seq-guide"><div class="seq-guide-card"><h2>第一次使用图形序列编辑器</h2><p>这个编辑器把当前画布编译成固件可脱机执行的 ActionRunner 指令，不会生成依赖上位机在线发送的脚本块。</p><div class="seq-guide-grid"><div><b>1. 拖入动作</b><p>从左侧动作库拖到画布；点击动作后在右侧设置中文参数。</p></div><div><b>2. 连接端口</b><p>从动作块右侧圆点拖到目标块。绿色表示完成，红色表示失败或超时。</p></div><div><b>3. 先试运行</b><p>试运行只临时更新 MCU RAM，校验并回读比对后启动，不会写 FRAM。</p></div><div><b>4. 再保存</b><p>保存会覆盖绑定槽位，写入后自动通过 seq dump 逐项比对。</p></div></div><p style="color:#ef8697">运动动作具有机械风险。实车测试前请架空车轮，并确保“紧急停止”按钮始终可操作。</p><button id="btnGuideClose" class="primary">开始编辑</button></div></div>
-<script src="sequence_core.js?v=20260728-seq-v1"></script>
+<div id="seqGuide" class="seq-guide"><div class="seq-guide-card"><h2>第一次使用图形序列编辑器</h2><p>这个编辑器把当前画布编译成固件可脱机执行的 ActionRunner 指令，不会生成依赖上位机在线发送的脚本块。</p><div class="seq-guide-grid"><div><b>1. 拖入动作</b><p>从左侧动作库拖到画布；点击动作后在右侧设置中文参数。</p></div><div><b>2. 连接端口</b><p>从动作块右侧圆点拖到目标块。绿色表示完成；红色表示失败或超时，留空时默认终止序列并停车。</p></div><div><b>3. 先试运行</b><p>试运行只临时更新 MCU RAM，校验并回读比对后启动，不会写 FRAM。</p></div><div><b>4. 再保存</b><p>保存会覆盖绑定槽位，写入后自动通过 seq dump 逐项比对。</p></div></div><p style="color:#ef8697">运动动作具有机械风险。实车测试前请架空车轮，并确保“紧急停止”按钮始终可操作。</p><button id="btnGuideClose" class="primary">开始编辑</button></div></div>
+<script src="sequence_core.js?v=20260729-implicit-abort"></script>
+<script src="help_catalog.js?v=20260729-help-v2"></script>
 <script src="dashboard_core.js?v=20260728-grouped"></script>
 <script src="app1.js?v=20260728-seq-dashboard"></script>
-<script src="app2.js?v=20260728-pointer-fix"></script>
-<script src="app3.js?v=20260728-pointer-fix"></script>
-<script src="app4.js?v=20260728-dashboard-lifecycle"></script>
+<script src="app2.js?v=20260729-implicit-abort"></script>
+<script src="app3.js?v=20260729-help-v1"></script>
+<script src="app4.js?v=20260729-help-v1"></script>
 <script src="app5.js?v=20260728-host-sync"></script>
 <script src="command_catalog.js?v=20260728-host-sync"></script>
 <script src="app6.js?v=20260728-shell-library"></script>
 <script src="app7.js?v=20260728-grouped"></script>
+<script src="app8.js?v=20260729-help-v2"></script>
 </body>
 </html>
