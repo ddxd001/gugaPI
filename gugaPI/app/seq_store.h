@@ -8,14 +8,14 @@
 
 namespace app {
 
-/* Action sequence FRAM persistence. 8 slots, each up to 64 instructions.
- * Stored independently from ConfigStore at FRAM address 0x0100. */
+/* Action sequence FRAM persistence. 8 slots, each up to 54 instructions. */
 
 static const uint8_t SEQ_SLOT_COUNT = 8U;
 
-/* Validate/create the layout and resume an interrupted v1->v2 migration.
- * Call once during App_Init before competition metadata is scanned. */
+/* Validate or create the clean v1 layout. Call once during App_Init before
+ * competition metadata is scanned. */
 drivers::DriverStatus SeqStore_Init(void);
+drivers::DriverStatus SeqStore_Format(void);
 
 struct SeqSlotInfo {
     bool valid;

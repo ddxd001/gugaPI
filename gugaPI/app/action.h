@@ -8,6 +8,8 @@
 
 namespace app {
 
+static const uint8_t ACTION_MAX_INSTRS = 54U;
+
 /* Instruction-table interpreter: each instruction runs an action until a
  * condition (or safety timeout), then jumps to on_success / on_timeout. This
  * replaces the old linear timed-action sequencer with condition-driven
@@ -188,7 +190,7 @@ struct ActionValidationResult {
 };
 
 struct ActionRunnerState {
-    Instr instrs[64];
+    Instr instrs[ACTION_MAX_INSTRS];
     uint8_t count;
     uint8_t current;
     bool running;

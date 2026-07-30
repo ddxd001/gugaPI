@@ -1,499 +1,381 @@
 #include "app/seq_store.h"
 
-#include "app/action.h"
-#include "board/board_fram.h"
-#include "drivers/common/driver_status.h"
 #include <string.h>
+
+#include "app/fram_layout.h"
+#include "board/board_fram.h"
 
 namespace app {
 namespace {
 
-/* FRAM layout v2 (starting at 0x0100, after ConfigStore at 0x0000):
- *   Header:  [magic(4)] [version(2)] [slot_count(1)] [reserved(1)]
- *   Slot 0: [valid(1)] [count(1)] [instrs(count*14)] [crc(4)]
- *   Slot 1: ...
- *   ...
- *   Slot 7: ...
- *
- * Each slot is fixed-size: 2 + 64*14 + 4 = 902 bytes.
- * Total: 8 (header) + 8 * 902 = 7224 bytes.
- *
- * The remaining bytes before the board self-test address hold one complete
- * v1 slot plus a migration journal. This allows a power-loss-safe in-place
- * migration even when a growing v2 destination overlaps its v1 source.
- */
+static const uint32_t kHeaderMagic = 0x31515347U; /* "GSQ1" */
+static const uint8_t kFormatVersion = 1U;
+static const uint8_t kSlotValid = 0xA5U;
+static const uint16_t kSlotDataOffset = 6U;
+static const uint16_t kSlotCrcOffset =
+    kSlotDataOffset + FRAM_SEQ_MAX_INSTRS * FRAM_SEQ_INSTR_SIZE;
+static_assert(kSlotCrcOffset + 4U == FRAM_SEQ_SLOT_SIZE,
+              "SeqStore slot offsets must match the FRAM map");
 
-static const uint16_t kFramBase = 0x0100U;
-static const uint32_t kMagic = 0x53455131U; /* "SEQ1" */
-static const uint16_t kVersionV1 = 1U;
-static const uint16_t kVersion = 2U;
-/* Versions 1, 3 (migrating), and 2 differ only in the low byte.  Moving
- * v1 -> migrating is therefore a single-byte FRAM write: power loss cannot
- * leave a half-written 16-bit version that no subsequent boot recognizes. */
-static const uint16_t kMigrationVersion = 3U;
-static const uint8_t kInstrSizeV1 = 10U;
-static const uint8_t kInstrSize = 14U;
-static const uint16_t kSlotPayloadMax = 64U * kInstrSize; /* 896 */
-static const uint16_t kSlotSize = 2U + kSlotPayloadMax + 4U; /* 902 */
-static const uint16_t kSlotPayloadMaxV1 = 64U * kInstrSizeV1;
-static const uint16_t kSlotSizeV1 =
-    2U + kSlotPayloadMaxV1 + 4U; /* 646 */
-static const uint16_t kHeaderSize = 8U;
-static const uint16_t kMigrationStageAddr =
-    kFramBase + kHeaderSize + SEQ_SLOT_COUNT * kSlotSize; /* 0x1D38 */
-static const uint16_t kMigrationJournalAddr =
-    kMigrationStageAddr + kSlotSizeV1; /* 0x1FBE */
-static const uint32_t kMigrationMagic = 0x3247494DU; /* "MIG2" */
-static const uint8_t kMigrationJournalSize = 12U;
+uint8_t g_slotScratch[FRAM_SEQ_SLOT_SIZE];
+uint8_t g_slotVerify[FRAM_SEQ_SLOT_SIZE];
+Instr g_instrScratch[FRAM_SEQ_MAX_INSTRS];
 
-uint16_t SlotAddr(uint8_t slot)
+uint16_t SlotAddress(uint8_t slot)
 {
-    return static_cast<uint16_t>(kFramBase + kHeaderSize +
-                                 static_cast<uint16_t>(slot) * kSlotSize);
+    return static_cast<uint16_t>(
+        FRAM_SEQ_SLOT_ADDRESS +
+        static_cast<uint16_t>(slot) * FRAM_SEQ_SLOT_SIZE);
 }
 
-uint16_t SlotAddrV1(uint8_t slot)
+void WriteU16(uint8_t *data, uint16_t value)
 {
-    return static_cast<uint16_t>(kFramBase + kHeaderSize +
-                                 static_cast<uint16_t>(slot) * kSlotSizeV1);
+    data[0] = static_cast<uint8_t>(value);
+    data[1] = static_cast<uint8_t>(value >> 8U);
 }
 
-void WriteU16(uint8_t *buf, uint16_t v)
+uint16_t ReadU16(const uint8_t *data)
 {
-    buf[0] = static_cast<uint8_t>(v & 0xFFU);
-    buf[1] = static_cast<uint8_t>((v >> 8) & 0xFFU);
+    return static_cast<uint16_t>(data[0]) |
+           static_cast<uint16_t>(
+               static_cast<uint16_t>(data[1]) << 8U);
 }
 
-uint16_t ReadU16(const uint8_t *buf)
+void WriteU32(uint8_t *data, uint32_t value)
 {
-    return static_cast<uint16_t>(buf[0]) |
-           (static_cast<uint16_t>(buf[1]) << 8);
+    data[0] = static_cast<uint8_t>(value);
+    data[1] = static_cast<uint8_t>(value >> 8U);
+    data[2] = static_cast<uint8_t>(value >> 16U);
+    data[3] = static_cast<uint8_t>(value >> 24U);
 }
 
-void WriteU32(uint8_t *buf, uint32_t v)
+uint32_t ReadU32(const uint8_t *data)
 {
-    buf[0] = static_cast<uint8_t>(v & 0xFFU);
-    buf[1] = static_cast<uint8_t>((v >> 8) & 0xFFU);
-    buf[2] = static_cast<uint8_t>((v >> 16) & 0xFFU);
-    buf[3] = static_cast<uint8_t>((v >> 24) & 0xFFU);
+    return static_cast<uint32_t>(data[0]) |
+           (static_cast<uint32_t>(data[1]) << 8U) |
+           (static_cast<uint32_t>(data[2]) << 16U) |
+           (static_cast<uint32_t>(data[3]) << 24U);
 }
 
-uint32_t ReadU32(const uint8_t *buf)
+void WriteI32(uint8_t *data, int32_t value)
 {
-    return static_cast<uint32_t>(buf[0]) |
-           (static_cast<uint32_t>(buf[1]) << 8) |
-           (static_cast<uint32_t>(buf[2]) << 16) |
-           (static_cast<uint32_t>(buf[3]) << 24);
+    WriteU32(data, static_cast<uint32_t>(value));
 }
 
-void WriteI32(uint8_t *buf, int32_t v)
+int32_t ReadI32(const uint8_t *data)
 {
-    WriteU32(buf, static_cast<uint32_t>(v));
+    return static_cast<int32_t>(ReadU32(data));
 }
 
-int32_t ReadI32(const uint8_t *buf)
-{
-    return static_cast<int32_t>(ReadU32(buf));
-}
-
-uint32_t Crc32(const uint8_t *data, uint16_t len)
+uint32_t Crc32(const uint8_t *data, uint16_t length)
 {
     uint32_t crc = 0xFFFFFFFFU;
-    for (uint16_t i = 0; i < len; i++) {
-        crc ^= static_cast<uint32_t>(data[i]) << 24;
-        for (uint8_t b = 0; b < 8; b++) {
-            if ((crc & 0x80000000U) != 0U) {
-                crc = (crc << 1) ^ 0x04C11DB7U;
-            } else {
-                crc <<= 1;
-            }
+    for (uint16_t i = 0U; i < length; i++) {
+        crc ^= static_cast<uint32_t>(data[i]) << 24U;
+        for (uint8_t bit = 0U; bit < 8U; bit++) {
+            crc = ((crc & 0x80000000U) != 0U)
+                ? (crc << 1U) ^ 0x04C11DB7U
+                : crc << 1U;
         }
     }
     return crc ^ 0xFFFFFFFFU;
 }
 
-/* Serialize one v2 Instr to 14 bytes. */
-void SerializeInstr(const Instr *instr, uint8_t *buf)
+uint8_t Crc8(const uint8_t *data, uint8_t length)
 {
-    buf[0] = static_cast<uint8_t>(instr->op);
-    WriteI32(&buf[1], instr->param1);
-    WriteU16(&buf[5], static_cast<uint16_t>(instr->param2));
-    buf[7] = static_cast<uint8_t>(instr->until);
-    WriteI32(&buf[8], instr->condition_value);
-    buf[12] = instr->on_success;
-    buf[13] = instr->on_timeout;
+    uint8_t crc = 0U;
+    for (uint8_t i = 0U; i < length; i++) {
+        crc ^= data[i];
+        for (uint8_t bit = 0U; bit < 8U; bit++) {
+            crc = ((crc & 0x80U) != 0U)
+                ? static_cast<uint8_t>((crc << 1U) ^ 0x07U)
+                : static_cast<uint8_t>(crc << 1U);
+        }
+    }
+    return crc;
 }
 
-/* Deserialize 14-byte v2 and legacy 10-byte v1 instructions. */
-void DeserializeInstr(const uint8_t *buf, Instr *instr)
-{
-    instr->op = static_cast<ActionOp>(buf[0]);
-    instr->param1 = ReadI32(&buf[1]);
-    instr->param2 = static_cast<int32_t>(ReadU16(&buf[5]));
-    instr->until = static_cast<ActionCond>(buf[7]);
-    instr->condition_value = ReadI32(&buf[8]);
-    instr->on_success = buf[12];
-    instr->on_timeout = buf[13];
-}
-
-void DeserializeInstrV1(const uint8_t *buf, Instr *instr)
-{
-    instr->op = static_cast<ActionOp>(buf[0]);
-    instr->param1 = ReadI32(&buf[1]);
-    instr->param2 = static_cast<int32_t>(ReadU16(&buf[5]));
-    instr->until = static_cast<ActionCond>(buf[7]);
-    instr->condition_value = 0;
-    instr->on_success = buf[8];
-    instr->on_timeout = buf[9];
-}
-
-bool BuffersEqual(const uint8_t *a, const uint8_t *b, uint16_t length)
+bool Equal(const uint8_t *left, const uint8_t *right, uint16_t length)
 {
     for (uint16_t i = 0U; i < length; i++) {
-        if (a[i] != b[i]) {
+        if (left[i] != right[i]) {
             return false;
         }
     }
     return true;
 }
 
-drivers::DriverStatus WriteAndVerify(uint16_t address,
-                                     const uint8_t *data,
-                                     uint16_t length)
+drivers::DriverStatus WriteVerify(uint16_t address,
+                                  const uint8_t *data,
+                                  uint16_t length)
 {
     if (board::Board_FramWrite(address, data, length) !=
         drivers::DRIVER_OK) {
         return drivers::DRIVER_ERROR;
     }
-    uint8_t verify[kSlotSize];
-    if ((length > sizeof(verify)) ||
-        (board::Board_FramRead(address, verify, length) !=
+    if ((length > sizeof(g_slotVerify)) ||
+        (board::Board_FramRead(address, g_slotVerify, length) !=
          drivers::DRIVER_OK) ||
-        !BuffersEqual(data, verify, length)) {
+        !Equal(data, g_slotVerify, length)) {
         return drivers::DRIVER_ERROR;
     }
     return drivers::DRIVER_OK;
 }
 
-bool ReadMigrationJournal(uint8_t slot, uint32_t expected_crc)
+void SerializeInstr(const Instr &instr, uint8_t *data)
 {
-    uint8_t journal[kMigrationJournalSize];
-    if (board::Board_FramRead(kMigrationJournalAddr, journal,
-                             sizeof(journal)) != drivers::DRIVER_OK) {
-        return false;
-    }
-    return (ReadU32(&journal[0]) == kMigrationMagic) &&
-           (journal[4] == slot) &&
-           (ReadU32(&journal[8]) == expected_crc);
+    data[0] = static_cast<uint8_t>(instr.op);
+    WriteI32(&data[1], instr.param1);
+    WriteU16(&data[5], static_cast<uint16_t>(instr.param2));
+    data[7] = static_cast<uint8_t>(instr.until);
+    WriteI32(&data[8], instr.condition_value);
+    data[12] = instr.on_success;
+    data[13] = instr.on_timeout;
 }
 
-drivers::DriverStatus WriteMigrationJournal(uint8_t slot, uint32_t crc)
+void DeserializeInstr(const uint8_t *data, Instr *instr)
 {
-    uint8_t journal[kMigrationJournalSize] = {};
-    WriteU32(&journal[0], kMigrationMagic);
-    journal[4] = slot;
-    WriteU32(&journal[8], crc);
-    return WriteAndVerify(kMigrationJournalAddr, journal, sizeof(journal));
+    instr->op = static_cast<ActionOp>(data[0]);
+    instr->param1 = ReadI32(&data[1]);
+    instr->param2 = static_cast<int32_t>(ReadU16(&data[5]));
+    instr->until = static_cast<ActionCond>(data[7]);
+    instr->condition_value = ReadI32(&data[8]);
+    instr->on_success = data[12];
+    instr->on_timeout = data[13];
 }
 
-drivers::DriverStatus StageV1Slot(uint8_t slot, uint8_t *slot_data)
+bool HeaderValid(const uint8_t *header)
 {
-    if (board::Board_FramRead(SlotAddrV1(slot), slot_data, kSlotSizeV1) !=
-        drivers::DRIVER_OK) {
-        return drivers::DRIVER_ERROR;
-    }
-    const uint32_t crc = Crc32(slot_data, kSlotSizeV1);
-    if (WriteAndVerify(kMigrationStageAddr, slot_data, kSlotSizeV1) !=
-        drivers::DRIVER_OK) {
-        return drivers::DRIVER_ERROR;
-    }
-    return WriteMigrationJournal(slot, crc);
+    return (ReadU32(header) == kHeaderMagic) &&
+           (header[4] == kFormatVersion) &&
+           (header[5] == FRAM_SEQ_SLOT_COUNT) &&
+           (header[6] == FRAM_SEQ_MAX_INSTRS) &&
+           (header[7] == Crc8(header, 7U));
 }
 
-drivers::DriverStatus LoadStagedV1Slot(uint8_t slot, uint8_t *slot_data)
+drivers::DriverStatus WriteHeader(void)
 {
-    if (board::Board_FramRead(kMigrationStageAddr, slot_data,
-                             kSlotSizeV1) != drivers::DRIVER_OK) {
-        return drivers::DRIVER_ERROR;
-    }
-    const uint32_t crc = Crc32(slot_data, kSlotSizeV1);
-    if (!ReadMigrationJournal(slot, crc)) {
-        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
-    }
-    return drivers::DRIVER_OK;
-}
-
-drivers::DriverStatus ConvertStagedSlot(uint8_t slot,
-                                        const uint8_t *v1)
-{
-    if (v1[0] != 1U) {
-        const uint8_t empty[2] = { 0U, 0U };
-        return WriteAndVerify(SlotAddr(slot), empty, sizeof(empty));
-    }
-    const uint8_t count = v1[1];
-    if ((count == 0U) || (count > 64U)) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-    const uint16_t old_payload_len =
-        static_cast<uint16_t>(2U + count * kInstrSizeV1);
-    if (ReadU32(&v1[old_payload_len]) != Crc32(v1, old_payload_len)) {
-        return drivers::DRIVER_ERROR;
-    }
-
-    uint8_t v2[2U + kSlotPayloadMax + 4U] = {};
-    v2[0] = 1U;
-    v2[1] = count;
-    for (uint8_t i = 0U; i < count; i++) {
-        Instr instr;
-        DeserializeInstrV1(&v1[2U + i * kInstrSizeV1], &instr);
-        SerializeInstr(&instr, &v2[2U + i * kInstrSize]);
-    }
-    const uint16_t new_payload_len =
-        static_cast<uint16_t>(2U + count * kInstrSize);
-    WriteU32(&v2[new_payload_len], Crc32(v2, new_payload_len));
-    return WriteAndVerify(
-        SlotAddr(slot), v2,
-        static_cast<uint16_t>(new_payload_len + 4U));
-}
-
-drivers::DriverStatus ResumeMigration(uint8_t next_slot)
-{
-    uint8_t staged[kSlotSizeV1];
-    int32_t slot = static_cast<int32_t>(next_slot);
-    while (slot >= 0) {
-        const uint8_t current = static_cast<uint8_t>(slot);
-        drivers::DriverStatus status =
-            LoadStagedV1Slot(current, staged);
-        if (status != drivers::DRIVER_OK) {
-            status = StageV1Slot(current, staged);
-            if (status != drivers::DRIVER_OK) {
-                return status;
-            }
-            status = LoadStagedV1Slot(current, staged);
-            if (status != drivers::DRIVER_OK) {
-                return status;
-            }
-        }
-        status = ConvertStagedSlot(current, staged);
-        if (status != drivers::DRIVER_OK) {
-            return status;
-        }
-        const uint8_t following =
-            (slot == 0) ? 0xFFU : static_cast<uint8_t>(slot - 1);
-        if (board::Board_FramWriteByte(
-                static_cast<uint16_t>(kFramBase + 7U), following) !=
-            drivers::DRIVER_OK) {
-            return drivers::DRIVER_ERROR;
-        }
-        slot--;
-    }
-
-    uint8_t header[kHeaderSize];
-    if (board::Board_FramRead(kFramBase, header, sizeof(header)) !=
-        drivers::DRIVER_OK) {
-        return drivers::DRIVER_ERROR;
-    }
-    WriteU16(&header[4], kVersion);
-    header[6] = SEQ_SLOT_COUNT;
-    header[7] = 0U;
-    return WriteAndVerify(kFramBase, header, sizeof(header));
+    uint8_t header[FRAM_SEQ_HEADER_SIZE] = {};
+    WriteU32(header, kHeaderMagic);
+    header[4] = kFormatVersion;
+    header[5] = FRAM_SEQ_SLOT_COUNT;
+    header[6] = FRAM_SEQ_MAX_INSTRS;
+    header[7] = Crc8(header, 7U);
+    return WriteVerify(FRAM_SEQ_HEADER_ADDRESS,
+                       header,
+                       sizeof(header));
 }
 
 drivers::DriverStatus EnsureLayout(void)
 {
-    uint8_t header[kHeaderSize];
-    if (board::Board_FramRead(kFramBase, header, kHeaderSize) !=
+    uint8_t header[FRAM_SEQ_HEADER_SIZE];
+    const drivers::DriverStatus read_status =
+        board::Board_FramRead(FRAM_SEQ_HEADER_ADDRESS,
+                              header,
+                              sizeof(header));
+    if (read_status != drivers::DRIVER_OK) {
+        return drivers::DRIVER_ERROR;
+    }
+    if (HeaderValid(header)) {
+        return drivers::DRIVER_OK;
+    }
+    return SeqStore_Format();
+}
+
+bool SlotValid(const uint8_t *slot)
+{
+    if ((slot[0] != kSlotValid) ||
+        (slot[1] == 0U) ||
+        (slot[1] > FRAM_SEQ_MAX_INSTRS)) {
+        return false;
+    }
+    return ReadU32(&slot[kSlotCrcOffset]) ==
+           Crc32(&slot[1],
+                 static_cast<uint16_t>(kSlotCrcOffset - 1U));
+}
+
+drivers::DriverStatus ReadSlot(uint8_t slot, uint8_t *data)
+{
+    if (board::Board_FramRead(SlotAddress(slot),
+                              data,
+                              FRAM_SEQ_SLOT_SIZE) !=
         drivers::DRIVER_OK) {
         return drivers::DRIVER_ERROR;
     }
-    if (ReadU32(&header[0]) != kMagic) {
-        WriteU32(&header[0], kMagic);
-        WriteU16(&header[4], kVersion);
-        header[6] = SEQ_SLOT_COUNT;
-        header[7] = 0U;
-        return WriteAndVerify(kFramBase, header, sizeof(header));
-    }
-    const uint16_t version = ReadU16(&header[4]);
-    if ((version == kVersion) && (header[6] == SEQ_SLOT_COUNT)) {
-        return drivers::DRIVER_OK;
-    }
-    if (version == kVersionV1) {
-        header[7] = static_cast<uint8_t>(SEQ_SLOT_COUNT - 1U);
-        if (board::Board_FramWriteByte(
-                static_cast<uint16_t>(kFramBase + 7U), header[7]) !=
-            drivers::DRIVER_OK) {
-            return drivers::DRIVER_ERROR;
+    return SlotValid(data)
+        ? drivers::DRIVER_OK
+        : drivers::DRIVER_ERROR_NOT_INITIALIZED;
+}
+
+drivers::DriverStatus AddDecodedInstr(const Instr &instr)
+{
+    if (ActionCondition_IsCompareOp(instr.op)) {
+        ActionConditionConfig condition;
+        if (!ActionCondition_Decode(&instr, &condition)) {
+            return drivers::DRIVER_ERROR_INVALID_ARG;
         }
-        if (board::Board_FramWriteByte(
-                static_cast<uint16_t>(kFramBase + 4U),
-                static_cast<uint8_t>(kMigrationVersion)) !=
-            drivers::DRIVER_OK) {
-            return drivers::DRIVER_ERROR;
-        }
-        return ResumeMigration(header[7]);
+        return ActionRunner_AddCompareInstr(
+            instr.op, instr.param1, &condition,
+            instr.on_success, instr.on_timeout);
     }
-    if (version == kMigrationVersion) {
-        if (header[7] == 0xFFU) {
-            WriteU16(&header[4], kVersion);
-            header[7] = 0U;
-            return WriteAndVerify(kFramBase, header, sizeof(header));
-        }
-        if (header[7] < SEQ_SLOT_COUNT) {
-            return ResumeMigration(header[7]);
-        }
+    if (instr.op == ACT_OP_ROAD_NAV) {
+        return ActionRunner_AddRoadNav(
+            instr.condition_value, instr.param1, instr.param2,
+            instr.on_success, instr.on_timeout);
     }
-    return drivers::DRIVER_ERROR_INVALID_ARG;
+    if (instr.op == ACT_OP_DM_POSITION) {
+        return ActionRunner_AddDmPosition(
+            instr.until == ACT_COND_DM_RELATIVE,
+            instr.param1,
+            instr.param2,
+            instr.condition_value,
+            instr.on_success,
+            instr.on_timeout);
+    }
+    return ActionRunner_AddInstr(
+        instr.op, instr.param1, instr.param2, instr.until,
+        instr.on_success, instr.on_timeout);
 }
 
 } /* namespace */
+
+drivers::DriverStatus SeqStore_Format(void)
+{
+    uint8_t invalid = 0U;
+    for (uint8_t slot = 0U; slot < FRAM_SEQ_SLOT_COUNT; slot++) {
+        if (WriteVerify(SlotAddress(slot), &invalid, 1U) !=
+            drivers::DRIVER_OK) {
+            return drivers::DRIVER_ERROR;
+        }
+    }
+    return WriteHeader();
+}
 
 drivers::DriverStatus SeqStore_Init(void)
 {
     return EnsureLayout();
 }
 
-drivers::DriverStatus SeqStore_GetInfo(uint8_t slot, SeqSlotInfo *out_info)
+drivers::DriverStatus SeqStore_GetInfo(uint8_t slot,
+                                       SeqSlotInfo *out_info)
 {
-    if ((slot >= SEQ_SLOT_COUNT) || (out_info == 0)) {
+    if ((slot >= FRAM_SEQ_SLOT_COUNT) || (out_info == 0)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
-
     out_info->valid = false;
     out_info->count = 0U;
-    const drivers::DriverStatus layout_status = EnsureLayout();
-    if (layout_status != drivers::DRIVER_OK) {
-        return layout_status;
+    const drivers::DriverStatus layout = EnsureLayout();
+    if (layout != drivers::DRIVER_OK) {
+        return layout;
     }
-
-    uint8_t header[2];
-    if (board::Board_FramRead(SlotAddr(slot), header, 2U) !=
-        drivers::DRIVER_OK) {
-        return drivers::DRIVER_ERROR;
-    }
-    if (header[0] != 1U) {
+    const drivers::DriverStatus status = ReadSlot(slot, g_slotScratch);
+    if (status == drivers::DRIVER_ERROR_NOT_INITIALIZED) {
         return drivers::DRIVER_OK;
     }
-    if ((header[1] == 0U) || (header[1] > 64U)) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
+    if (status != drivers::DRIVER_OK) {
+        return status;
     }
-
     out_info->valid = true;
-    out_info->count = header[1];
+    out_info->count = g_slotScratch[1];
     return drivers::DRIVER_OK;
 }
 
 drivers::DriverStatus SeqStore_Save(uint8_t slot)
 {
-    if (slot >= SEQ_SLOT_COUNT) {
+    if (slot >= FRAM_SEQ_SLOT_COUNT) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
-    const drivers::DriverStatus layout_status = EnsureLayout();
-    if (layout_status != drivers::DRIVER_OK) {
-        return layout_status;
+    const drivers::DriverStatus layout = EnsureLayout();
+    if (layout != drivers::DRIVER_OK) {
+        return layout;
     }
-
-    const ActionRunnerState *state = ActionRunner_GetState();
     ActionValidationResult validation;
     if (ActionRunner_ValidateCompetition(&validation) !=
         drivers::DRIVER_OK) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
-
-    /* Build slot payload: valid(1) + count(1) + instrs + crc(4) */
-    uint16_t payload_len = 2U + state->count * kInstrSize;
-    uint8_t buf[2U + kSlotPayloadMax + 4U];
-
-    buf[0] = 1U; /* valid */
-    buf[1] = state->count;
-    for (uint8_t i = 0; i < state->count; i++) {
-        SerializeInstr(&state->instrs[i], &buf[2 + i * kInstrSize]);
+    const ActionRunnerState *state = ActionRunner_GetState();
+    if ((state->count == 0U) ||
+        (state->count > FRAM_SEQ_MAX_INSTRS)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
     }
 
-    uint32_t crc = Crc32(buf, payload_len);
-    WriteU32(&buf[payload_len], crc);
+    uint32_t generation = 1U;
+    if (ReadSlot(slot, g_slotScratch) == drivers::DRIVER_OK) {
+        generation = ReadU32(&g_slotScratch[2]) + 1U;
+    }
 
-    uint16_t total = static_cast<uint16_t>(payload_len + 4U);
-    uint16_t addr = SlotAddr(slot);
-    if (board::Board_FramWrite(addr, buf, total) != drivers::DRIVER_OK) {
+    (void) memset(g_slotScratch, 0, sizeof(g_slotScratch));
+    g_slotScratch[0] = 0U;
+    g_slotScratch[1] = state->count;
+    WriteU32(&g_slotScratch[2], generation);
+    for (uint8_t i = 0U; i < state->count; i++) {
+        SerializeInstr(state->instrs[i],
+                       &g_slotScratch[
+                           kSlotDataOffset +
+                           static_cast<uint16_t>(i) *
+                           FRAM_SEQ_INSTR_SIZE]);
+    }
+    WriteU32(&g_slotScratch[kSlotCrcOffset],
+             Crc32(&g_slotScratch[1],
+                   static_cast<uint16_t>(kSlotCrcOffset - 1U)));
+
+    const uint16_t address = SlotAddress(slot);
+    uint8_t invalid = 0U;
+    if ((WriteVerify(address, &invalid, 1U) != drivers::DRIVER_OK) ||
+        (WriteVerify(static_cast<uint16_t>(address + 1U),
+                     &g_slotScratch[1],
+                     static_cast<uint16_t>(
+                         FRAM_SEQ_SLOT_SIZE - 1U)) !=
+         drivers::DRIVER_OK)) {
         return drivers::DRIVER_ERROR;
     }
+    const uint8_t valid = kSlotValid;
+    return WriteVerify(address, &valid, 1U);
+}
+
+drivers::DriverStatus SeqStore_Read(uint8_t slot,
+                                    Instr *out_instrs,
+                                    uint8_t *out_count)
+{
+    if ((slot >= FRAM_SEQ_SLOT_COUNT) ||
+        (out_instrs == 0) ||
+        (out_count == 0)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    *out_count = 0U;
+    const drivers::DriverStatus layout = EnsureLayout();
+    if (layout != drivers::DRIVER_OK) {
+        return layout;
+    }
+    const drivers::DriverStatus status = ReadSlot(slot, g_slotScratch);
+    if (status != drivers::DRIVER_OK) {
+        return status;
+    }
+    for (uint8_t i = 0U; i < g_slotScratch[1]; i++) {
+        DeserializeInstr(
+            &g_slotScratch[
+                kSlotDataOffset +
+                static_cast<uint16_t>(i) * FRAM_SEQ_INSTR_SIZE],
+            &out_instrs[i]);
+    }
+    *out_count = g_slotScratch[1];
     return drivers::DRIVER_OK;
 }
 
 drivers::DriverStatus SeqStore_Load(uint8_t slot)
 {
-    if (slot >= SEQ_SLOT_COUNT) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
+    uint8_t count = 0U;
+    const drivers::DriverStatus read =
+        SeqStore_Read(slot, g_instrScratch, &count);
+    if (read != drivers::DRIVER_OK) {
+        return read;
     }
-    const drivers::DriverStatus layout_status = EnsureLayout();
-    if (layout_status != drivers::DRIVER_OK) {
-        return layout_status;
-    }
-
-    uint8_t header[2];
-    uint16_t addr = SlotAddr(slot);
-    if (board::Board_FramRead(addr, header, 2) != drivers::DRIVER_OK) {
-        return drivers::DRIVER_ERROR;
-    }
-    if (header[0] != 1U) {
-        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
-    }
-
-    uint8_t count = header[1];
-    if ((count == 0U) || (count > 64U)) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-
-    uint16_t payload_len = 2U + count * kInstrSize;
-    uint8_t buf[2U + kSlotPayloadMax + 4U];
-    uint16_t total = static_cast<uint16_t>(payload_len + 4U);
-
-    if (board::Board_FramRead(addr, buf, total) != drivers::DRIVER_OK) {
-        return drivers::DRIVER_ERROR;
-    }
-
-    uint32_t stored_crc = ReadU32(&buf[payload_len]);
-    uint32_t actual_crc = Crc32(buf, payload_len);
-    if (stored_crc != actual_crc) {
-        return drivers::DRIVER_ERROR;
-    }
-
-    /* Load into ActionRunner */
     if (ActionRunner_Clear() != drivers::DRIVER_OK) {
         return drivers::DRIVER_ERROR_BUSY;
     }
-    for (uint8_t i = 0; i < count; i++) {
-        Instr instr;
-        DeserializeInstr(&buf[2 + i * kInstrSize], &instr);
-        drivers::DriverStatus add_status = drivers::DRIVER_ERROR;
-        if (ActionCondition_IsCompareOp(instr.op)) {
-            ActionConditionConfig condition;
-            if (ActionCondition_Decode(&instr, &condition)) {
-                add_status = ActionRunner_AddCompareInstr(
-                    instr.op, instr.param1, &condition,
-                    instr.on_success, instr.on_timeout);
-            }
-        } else if (instr.op == ACT_OP_ROAD_NAV) {
-            add_status = ActionRunner_AddRoadNav(
-                instr.condition_value,
-                instr.param1,
-                instr.param2,
-                instr.on_success,
-                instr.on_timeout);
-        } else if (instr.op == ACT_OP_DM_POSITION) {
-            add_status = ActionRunner_AddDmPosition(
-                instr.until == ACT_COND_DM_RELATIVE,
-                instr.param1,
-                instr.param2,
-                instr.condition_value,
-                instr.on_success,
-                instr.on_timeout);
-        } else {
-            add_status = ActionRunner_AddInstr(
-                instr.op, instr.param1, instr.param2, instr.until,
-                instr.on_success, instr.on_timeout);
-        }
-        if (add_status != drivers::DRIVER_OK) {
+    for (uint8_t i = 0U; i < count; i++) {
+        if (AddDecodedInstr(g_instrScratch[i]) != drivers::DRIVER_OK) {
             (void) ActionRunner_Clear();
             return drivers::DRIVER_ERROR;
         }
@@ -501,70 +383,17 @@ drivers::DriverStatus SeqStore_Load(uint8_t slot)
     return drivers::DRIVER_OK;
 }
 
-drivers::DriverStatus SeqStore_Read(uint8_t slot,
-                                    Instr *out_instrs,
-                                    uint8_t *out_count)
-{
-    if ((slot >= SEQ_SLOT_COUNT) || (out_instrs == 0) ||
-        (out_count == 0)) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-
-    *out_count = 0U;
-    const drivers::DriverStatus layout_status = EnsureLayout();
-    if (layout_status != drivers::DRIVER_OK) {
-        return layout_status;
-    }
-
-    uint8_t header[2];
-    uint16_t addr = SlotAddr(slot);
-    if (board::Board_FramRead(addr, header, 2) != drivers::DRIVER_OK) {
-        return drivers::DRIVER_ERROR;
-    }
-    if (header[0] != 1U) {
-        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
-    }
-
-    uint8_t count = header[1];
-    if ((count == 0U) || (count > 64U)) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-
-    uint16_t payload_len = 2U + count * kInstrSize;
-    uint8_t buf[2U + kSlotPayloadMax + 4U];
-    uint16_t total = static_cast<uint16_t>(payload_len + 4U);
-
-    if (board::Board_FramRead(addr, buf, total) != drivers::DRIVER_OK) {
-        return drivers::DRIVER_ERROR;
-    }
-
-    uint32_t stored_crc = ReadU32(&buf[payload_len]);
-    uint32_t actual_crc = Crc32(buf, payload_len);
-    if (stored_crc != actual_crc) {
-        return drivers::DRIVER_ERROR;
-    }
-
-    for (uint8_t i = 0; i < count; i++) {
-        DeserializeInstr(&buf[2 + i * kInstrSize], &out_instrs[i]);
-    }
-    *out_count = count;
-    return drivers::DRIVER_OK;
-}
-
 drivers::DriverStatus SeqStore_Delete(uint8_t slot)
 {
-    if (slot >= SEQ_SLOT_COUNT) {
+    if (slot >= FRAM_SEQ_SLOT_COUNT) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
-    const drivers::DriverStatus layout_status = EnsureLayout();
-    if (layout_status != drivers::DRIVER_OK) {
-        return layout_status;
+    const drivers::DriverStatus layout = EnsureLayout();
+    if (layout != drivers::DRIVER_OK) {
+        return layout;
     }
-    uint8_t valid = 0U;
-    uint16_t addr = SlotAddr(slot);
-    return board::Board_FramWrite(addr, &valid, 1) == drivers::DRIVER_OK
-               ? drivers::DRIVER_OK
-               : drivers::DRIVER_ERROR;
+    const uint8_t invalid = 0U;
+    return WriteVerify(SlotAddress(slot), &invalid, 1U);
 }
 
 bool SeqStore_IsValid(uint8_t slot)
@@ -577,8 +406,8 @@ bool SeqStore_IsValid(uint8_t slot)
 uint8_t SeqStore_GetCount(uint8_t slot)
 {
     SeqSlotInfo info = { false, 0U };
-    return (SeqStore_GetInfo(slot, &info) == drivers::DRIVER_OK) &&
-           info.valid ? info.count : 0U;
+    return ((SeqStore_GetInfo(slot, &info) == drivers::DRIVER_OK) &&
+            info.valid) ? info.count : 0U;
 }
 
 } /* namespace app */

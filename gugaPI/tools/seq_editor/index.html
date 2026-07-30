@@ -99,6 +99,10 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 .param-edit-card label.edit-label{display:block;color:#8d99aa;font-size:11px;margin-bottom:6px}
 .param-edit-card input[type=number]{width:100%;padding:8px 9px;background:#0f1218;border:1px solid #3b4553;border-radius:4px;color:#f0f3f8;font-family:Consolas,monospace}
 .param-edit-card input:focus{outline:none;border-color:#4da3d9}
+.param-map-table{width:100%;border-collapse:collapse;font-size:12px}
+.param-map-table th,.param-map-table td{padding:6px;border-bottom:1px solid #303744;text-align:left}
+.param-map-table th{color:#8d99aa;font-weight:600}
+.param-map-table td:first-child{width:34px;color:#758094;text-align:center}
 .param-preview{min-height:18px;margin-top:5px;color:#7e8a9a;font-size:11px}
 .param-switch-row{display:flex;align-items:center;justify-content:space-between;padding:8px 2px;border-bottom:1px solid #292f39}
 .param-switch-row:last-child{border-bottom:0}
@@ -311,7 +315,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <button id="btnSeqNew">新建</button><button id="btnSeqImport">导入 JSON</button><button id="btnSeqExport">导出 JSON</button><input id="seqFileInput" type="file" accept=".json,application/json" hidden>
 <span class="seq-spacer"></span><button id="btnSeqUndo" title="Ctrl+Z">撤销</button><button id="btnSeqRedo" title="Ctrl+Y">重做</button><button id="btnSeqLayout">自动布局</button><button id="btnSeqFit">适应窗口</button><button id="btnSeqHelp">使用说明</button>
 <button id="btnSeqRun" class="danger">试运行当前画布</button><button id="btnSeqSave" class="primary">保存到 FRAM</button>
-<span class="seq-status"><span id="seqCount">0/64 步</span> · <span id="seqValidationState"></span> · <span id="seqAutosave"></span></span>
+<span class="seq-status"><span id="seqCount">0/54 步</span> · <span id="seqValidationState"></span> · <span id="seqAutosave"></span></span>
 </div>
 <div class="seq-layout">
 <aside class="seq-left"><div class="seq-left-head">动作库</div><div class="seq-left-note">把动作拖入画布。动作块右侧端口可拖线，空白处拖动画布，滚轮缩放。</div><div id="actionPalette"></div><div class="seq-slots"><div class="seq-slots-title">FRAM 槽位（点击读取）</div><div id="slotList"></div></div></aside>

@@ -135,7 +135,7 @@
 #define BOARD_FRAM_I2C_SDA_IOMUX_FUNC   GPIO_SENSOR_I2C_IOMUX_SDA_FUNC
 #define BOARD_FRAM_I2C_ADDRESS          (0x50U)
 #define BOARD_FRAM_TIMEOUT_ITERATIONS   (100000U)
-#define BOARD_FRAM_SELF_TEST_ADDRESS    (0x1FF0U)
+#define BOARD_FRAM_SELF_TEST_ADDRESS    (0x1FF8U)
 
 /* OLED shares board IIC3 with FRAM and INA219. Datasheet ADD=0x78 is 8-bit,
  * so firmware uses the 7-bit I2C address 0x3C. */

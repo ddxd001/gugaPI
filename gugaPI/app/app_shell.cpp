@@ -994,28 +994,64 @@ void BallCommand(int argc, const char * const argv[])
         return;
     }
     if ((argc == 2) && StrEqual(argv[1], "params")) {
-        const BallBalanceParams *params = BallBalance_GetParams();
+        const ConfigStoreParams *params = ConfigStore_Get();
         services::Shell_WriteString("ball params kp=");
-        WriteInt32(params->kp_mdeg_per_0p1mm);
+        WriteInt32(params->ball_kp_mdeg_per_0p1mm);
         services::Shell_WriteString(" kd=");
-        WriteInt32(params->kd_mdeg_per_0p1mm_s);
+        WriteInt32(params->ball_kd_mdeg_per_0p1mm_s);
         services::Shell_WriteString(" ki=");
-        WriteInt32(params->ki_mdeg_per_0p1mm_s);
+        WriteInt32(params->ball_ki_mdeg_per_0p1mm_s);
         services::Shell_WriteString(" pitch_gain_permille=");
-        WriteInt32(params->pitch_gain_permille);
+        WriteInt32(params->ball_pitch_gain_permille);
         services::Shell_WriteString(" max_angle_mdeg=");
-        WriteInt32(params->maximum_angle_mdeg);
+        WriteInt32(params->ball_max_angle_mdeg);
         services::Shell_WriteString(" degraded_angle_mdeg=");
-        WriteInt32(params->degraded_angle_mdeg);
+        WriteInt32(params->ball_degraded_angle_mdeg);
         services::Shell_WriteString(" slew_mdeg_s=");
-        WriteInt32(params->angle_slew_mdeg_s);
+        WriteInt32(params->ball_angle_slew_mdeg_s);
         services::Shell_WriteString(" tolerance_0p1mm=");
-        WriteInt32(params->position_tolerance_0p1mm);
+        WriteInt32(params->ball_position_tolerance_0p1mm);
         services::Shell_WriteString(" velocity_tolerance_0p1mm_s=");
-        WriteInt32(params->velocity_tolerance_0p1mm_s);
+        WriteInt32(params->ball_velocity_tolerance_0p1mm_s);
         services::Shell_WriteString(" settle_ms=");
-        services::Shell_WriteUInt32(params->settle_ms);
+        services::Shell_WriteUInt32(params->ball_settle_ms);
+        services::Shell_WriteString(" applies=next_start active=");
+        services::Shell_WriteUInt32(BallBalance_IsActive() ? 1U : 0U);
         services::Shell_WriteString("\r\n");
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "map")) {
+        const ConfigStoreParams *params = ConfigStore_Get();
+        services::Shell_WriteString("ball map");
+        for (uint8_t i = 0U; i < 5U; i++) {
+            services::Shell_WriteString(" ");
+            WriteInt32(params->ball_map_angle_mdeg[i]);
+            services::Shell_WriteString(" ");
+            WriteInt32(params->ball_map_dm_mrad[i]);
+        }
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+    if ((argc == 12) && StrEqual(argv[1], "map")) {
+        int16_t angles[5];
+        int16_t positions[5];
+        for (uint8_t i = 0U; i < 5U; i++) {
+            int32_t angle = 0;
+            int32_t position = 0;
+            if ((!ParseInt32(argv[2U + i * 2U],
+                             -15000, 15000, &angle)) ||
+                (!ParseInt32(argv[3U + i * 2U],
+                             -12500, 12500, &position))) {
+                services::Shell_WriteLine(
+                    "usage: ball map <angle0> <dm0> ... <angle4> <dm4>");
+                return;
+            }
+            angles[i] = static_cast<int16_t>(angle);
+            positions[i] = static_cast<int16_t>(position);
+        }
+        WriteStatusLine(
+            "ball map: ",
+            ConfigStore_SetBallMap(angles, positions));
         return;
     }
     if ((argc == 2) && StrEqual(argv[1], "stop")) {
@@ -1061,7 +1097,7 @@ void BallCommand(int argc, const char * const argv[])
         return;
     }
     services::Shell_WriteLine(
-        "usage: ball status|params|hold <target>|move <target> <timeout_ms>|stop");
+        "usage: ball status|params|map [angle0 dm0 ... angle4 dm4]|hold <target>|move <target> <timeout_ms>|stop");
 }
 #endif
 
@@ -1087,6 +1123,7 @@ void PrintFramUsage(void)
     services::Shell_WriteLine("  fram status");
     services::Shell_WriteLine("  fram recover");
     services::Shell_WriteLine("  fram test");
+    services::Shell_WriteLine("  fram format confirm");
     services::Shell_WriteLine("  fram read <addr> <len 1..32>");
     services::Shell_WriteLine("  fram write <addr> <byte>");
 }
@@ -2456,6 +2493,23 @@ void PrintParamStatus(void)
     services::Shell_WriteString(DriverStatusText(status->last_load_status));
     services::Shell_WriteString(" save=");
     services::Shell_WriteString(DriverStatusText(status->last_save_status));
+    services::Shell_WriteString(" layout=1 bank=");
+    if (status->active_bank == 0U) {
+        services::Shell_WriteString("A");
+    } else if (status->active_bank == 1U) {
+        services::Shell_WriteString("B");
+    } else {
+        services::Shell_WriteString("none");
+    }
+    services::Shell_WriteString(" generation=");
+    services::Shell_WriteUInt32(status->generation);
+    services::Shell_WriteString(" capacity=");
+    services::Shell_WriteUInt32(status->payload_capacity);
+    services::Shell_WriteString(" free=");
+    services::Shell_WriteUInt32(
+        (status->stored_length <= status->payload_capacity)
+            ? status->payload_capacity - status->stored_length
+            : 0U);
     services::Shell_WriteString("\r\n");
 }
 
@@ -3565,7 +3619,59 @@ void FramCommand(int argc, const char * const argv[])
         services::Shell_WriteString(scl_high ? "H" : "L");
         services::Shell_WriteString(" sda=");
         services::Shell_WriteString(sda_high ? "H" : "L");
+        const ConfigStoreStatus *config = ConfigStore_GetStatus();
+        services::Shell_WriteString(" layout=1 configA=0x0000..0x03FF");
+        services::Shell_WriteString(" configB=0x0400..0x07FF");
+        services::Shell_WriteString(" seq=0x0800..0x1FF7");
+        services::Shell_WriteString(" selftest=0x1FF8..0x1FFF");
+        services::Shell_WriteString(" active_bank=");
+        if (config->active_bank == 0U) {
+            services::Shell_WriteString("A");
+        } else if (config->active_bank == 1U) {
+            services::Shell_WriteString("B");
+        } else {
+            services::Shell_WriteString("none");
+        }
+        services::Shell_WriteString(" generation=");
+        services::Shell_WriteUInt32(config->generation);
         services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "format")) {
+        const ChassisState *chassis = Chassis_GetState();
+        const ActionRunnerState *runner = ActionRunner_GetState();
+        const DmG6220ControlState *dm =
+            DmG6220Controller_GetState();
+        const HeadingState *heading = Heading_GetState();
+        const LFState *linefollow = LF_GetState();
+        const bool chassis_stopped = (chassis == 0) ||
+            ((chassis->left.target_rpm == 0) &&
+             (chassis->right.target_rpm == 0));
+        const bool controllers_idle =
+            ((dm == 0) || !dm->enabled) &&
+            ((heading == 0) || (heading->mode == HEADING_IDLE)) &&
+            ((linefollow == 0) || (linefollow->mode == LF_IDLE)) &&
+            !RoadEventController_IsRouteActive();
+        if ((argc != 3) || !StrEqual(argv[2], "confirm")) {
+            PrintFramUsage();
+            return;
+        }
+        if ((App_GetState()->mode != APP_MODE_RUNNING) ||
+            services::Fault_HasFault() ||
+            ((runner != 0) && runner->running) ||
+            BallBalance_IsActive() ||
+            !controllers_idle ||
+            !chassis_stopped) {
+            services::Shell_WriteLine(
+                "fram format: dev-running idle state required");
+            return;
+        }
+        drivers::DriverStatus status = ConfigStore_Format();
+        if (status == drivers::DRIVER_OK) {
+            status = SeqStore_Format();
+        }
+        WriteStatusLine("fram format: ", status);
         return;
     }
 
@@ -9837,7 +9943,7 @@ void SeqCommand(int argc, const char * const argv[])
             PrintSeqUsage();
             return;
         }
-        app::Instr instrs[64];
+        app::Instr instrs[app::ACTION_MAX_INSTRS];
         uint8_t count = 0U;
         const drivers::DriverStatus status =
             app::SeqStore_Read(static_cast<uint8_t>(dump_slot), instrs, &count);

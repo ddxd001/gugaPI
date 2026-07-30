@@ -1067,7 +1067,7 @@ void App_Init(void)
 #endif
 #if FEATURE_ENABLE_FRAM && FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
     if (SeqStore_Init() != drivers::DRIVER_OK) {
-        LOG_WARN("sequence store unavailable or migration incomplete");
+        LOG_WARN("sequence store unavailable");
     }
 #endif
     CompetitionSelectInitialSlot();

@@ -14,6 +14,7 @@ var PARAM_GROUPS=[
   {id:'imu',section:'姿态与航向',label:'IMU 偏置'},
   {id:'heading',section:'姿态与航向',label:'航向控制'},
   {id:'dm',section:'执行器',label:'达妙电机'},
+  {id:'ball',section:'执行器',label:'滚球系统'},
   {id:'power',section:'保护',label:'电源保护'},
   {id:'gray_cal',section:'灰度与循迹',label:'灰度标定'},
   {id:'gray_proc',section:'灰度与循迹',label:'灰度判定'},
@@ -150,6 +151,29 @@ addParamMeta('dm_velocity_tolerance_mrad_s','达妙速度容差','dm',80,1,500,'
 addParamMeta('dm_settle_ms','达妙稳定时间','dm',200,50,1000,'ms','位置和速度持续满足容差后才判定完成。',false);
 addParamMeta('dm_feedback_timeout_ms','达妙反馈超时','dm',100,50,500,'ms','活动控制期间反馈超过该时间触发全局 DM TIMEOUT。',false);
 
+addParamMeta('ball_kp_mdeg_per_0p1mm','滚球位置 Kp','ball',10,0,1000,'mdeg/0.1mm','位置误差到横梁角度的比例增益；下次启动滚球控制时生效。',false);
+addParamMeta('ball_kd_mdeg_per_0p1mm_s','滚球速度 Kd','ball',3,0,1000,'mdeg/(0.1mm/s)','抑制钢球速度和过冲的微分增益。',false);
+addParamMeta('ball_ki_mdeg_per_0p1mm_s','滚球位置 Ki','ball',0,0,1000,'scaled','消除静态位置偏差的积分增益。',false);
+addParamMeta('ball_pitch_gain_permille','车体俯仰补偿','ball',0,-2000,2000,'permille','根据小车俯仰角补偿横梁目标角度。',false);
+addParamMeta('ball_max_angle_mdeg','滚球最大倾角','ball',8000,100,15000,'mdeg','视觉正常时允许的横梁最大绝对倾角。',false,'number','mdeg');
+addParamMeta('ball_degraded_angle_mdeg','滚球降级倾角','ball',3000,100,15000,'mdeg','视觉帧变旧但尚可使用时的倾角限制，不能大于最大倾角。',false,'number','mdeg');
+addParamMeta('ball_angle_slew_mdeg_s','滚球倾角变化率','ball',30000,100,180000,'mdeg/s','限制横梁目标倾角的变化速度。',false);
+addParamMeta('ball_position_tolerance_0p1mm','滚球位置容差','ball',100,1,1000,'0.1mm','进入完成判定的位置误差范围。',false);
+addParamMeta('ball_velocity_tolerance_0p1mm_s','滚球速度容差','ball',100,1,32767,'0.1mm/s','进入完成判定的钢球速度范围。',false);
+addParamMeta('ball_settle_ms','滚球稳定时间','ball',200,10,5000,'ms','位置和速度持续满足容差后判定完成。',false,'number','ms');
+var DEFAULT_BALL_MAP_ANGLES=[-8000,-4000,0,4000,8000];
+var DEFAULT_BALL_MAP_DM=[-1000,-500,0,500,1000];
+for(var ballMapIndex=0;ballMapIndex<5;ballMapIndex++){
+  addParamMeta('ball_map_angle_'+ballMapIndex+'_mdeg','映射横梁角 '+ballMapIndex,'ball',DEFAULT_BALL_MAP_ANGLES[ballMapIndex],-15000,15000,'mdeg','五点机构映射的横梁角度。请选择任意映射项后使用原子表格编辑。',false,'ball_map','mdeg');
+}
+for(var ballDmIndex=0;ballDmIndex<5;ballDmIndex++){
+  addParamMeta('ball_map_dm_'+ballDmIndex+'_mrad','映射达妙位置 '+ballDmIndex,'ball',DEFAULT_BALL_MAP_DM[ballDmIndex],-12500,12500,'mrad','五点机构映射的达妙目标位置；允许整体递增或整体递减。',false,'ball_map');
+}
+
+var BALL_MAP_ANGLE_NAMES=Array.from({length:5},function(_,i){return'ball_map_angle_'+i+'_mdeg'});
+var BALL_MAP_DM_NAMES=Array.from({length:5},function(_,i){return'ball_map_dm_'+i+'_mrad'});
+var BALL_MAP_NAMES=BALL_MAP_ANGLE_NAMES.concat(BALL_MAP_DM_NAMES);
+
 function paramHasNumbers(values,names){
   return names.every(function(name){return Number.isFinite(values[name])});
 }
@@ -204,7 +228,20 @@ function paramCandidateError(candidate,ranges){
     return candidate.gray_threshold<=lower||candidate.gray_threshold+upper>=1000;
   },'灰度阈值与回差组合无效');
   if(error)return error;
-  return invalid(['lf_lost_stop_ms','lf_lost_hold_ms'],function(){return candidate.lf_lost_stop_ms<candidate.lf_lost_hold_ms},'丢线停车时间不能小于保持时间');
+  error=invalid(['lf_lost_stop_ms','lf_lost_hold_ms'],function(){return candidate.lf_lost_stop_ms<candidate.lf_lost_hold_ms},'丢线停车时间不能小于保持时间');
+  if(error)return error;
+  error=invalid(['ball_degraded_angle_mdeg','ball_max_angle_mdeg'],function(){return candidate.ball_degraded_angle_mdeg>candidate.ball_max_angle_mdeg},'滚球降级倾角不能大于最大倾角');
+  if(error)return error;
+  if(paramHasNumbers(candidate,BALL_MAP_NAMES)){
+    var dmDirection=Math.sign(candidate[BALL_MAP_DM_NAMES[1]]-candidate[BALL_MAP_DM_NAMES[0]]);
+    if(!dmDirection)return'滚球达妙映射点不能相等';
+    for(var ballIndex=1;ballIndex<5;ballIndex++){
+      if(candidate[BALL_MAP_ANGLE_NAMES[ballIndex]]<=candidate[BALL_MAP_ANGLE_NAMES[ballIndex-1]])return'滚球横梁角映射必须严格递增';
+      var delta=candidate[BALL_MAP_DM_NAMES[ballIndex]]-candidate[BALL_MAP_DM_NAMES[ballIndex-1]];
+      if(Math.sign(delta)!==dmDirection)return'滚球达妙映射必须整体严格递增或严格递减';
+    }
+  }
+  return'';
 }
 
 function paramPlanImport(currentValues,targetValues,ranges){
@@ -216,8 +253,17 @@ function paramPlanImport(currentValues,targetValues,ranges){
   var finalError=paramCandidateError(desired,ranges);
   if(finalError)return{ok:false,error:'文件中的参数组合无效：'+finalError,steps:[]};
   var planned=Object.assign({},currentValues);
-  var pending=Object.keys(targetValues).filter(function(name){return planned[name]!==desired[name]});
+  var mapChanged=BALL_MAP_NAMES.some(function(name){
+    return Object.prototype.hasOwnProperty.call(targetValues,name)&&planned[name]!==desired[name];
+  });
+  var pending=Object.keys(targetValues).filter(function(name){
+    return BALL_MAP_NAMES.indexOf(name)<0&&planned[name]!==desired[name];
+  });
   var steps=[];
+  if(mapChanged){
+    BALL_MAP_NAMES.forEach(function(name){planned[name]=desired[name]});
+    steps.push({type:'ball_map',angles:BALL_MAP_ANGLE_NAMES.map(function(name){return desired[name]}),dm:BALL_MAP_DM_NAMES.map(function(name){return desired[name]})});
+  }
   while(pending.length){
     var selected=-1,next=null;
     for(var index=0;index<pending.length;index++){
@@ -353,6 +399,26 @@ function paramRenderRows(){
   }
   paramRenderDetails();
 }
+function paramRenderBallMapDetails(){
+  var rows='';
+  for(var i=0;i<5;i++){
+    rows+='<tr><td>'+(i+1)+'</td><td><input id="ballMapAngle'+i+'" type="number" step="1" min="-15000" max="15000" value="'+paramPageState.values[BALL_MAP_ANGLE_NAMES[i]]+'"></td><td><input id="ballMapDm'+i+'" type="number" step="1" min="-12500" max="12500" value="'+paramPageState.values[BALL_MAP_DM_NAMES[i]]+'"></td></tr>';
+  }
+  $('paramDetails').innerHTML=
+    '<div class="param-detail-kicker">滚球系统</div><h2 class="param-detail-title">五点机构映射</h2>'+
+    '<div class="param-detail-raw">ball map</div>'+
+    '<p class="param-detail-desc">横梁角必须严格递增；达妙位置可整体递增或整体递减。五个点会通过一条命令原子提交，运行中的滚球控制继续使用启动时快照。</p>'+
+    '<div class="param-edit-card"><table class="param-map-table"><thead><tr><th>点</th><th>横梁角 / mdeg</th><th>达妙位置 / mrad</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<div class="param-detail-actions"><button id="btnBallMapDefault" type="button">填入默认映射</button><button id="btnBallMapApply" class="primary" type="button">原子应用到 RAM</button></div></div>';
+  $('btnBallMapDefault').onclick=function(){
+    for(var i=0;i<5;i++){
+      $('ballMapAngle'+i).value=DEFAULT_BALL_MAP_ANGLES[i];
+      $('ballMapDm'+i).value=DEFAULT_BALL_MAP_DM[i];
+    }
+  };
+  $('btnBallMapApply').onclick=paramApplyBallMap;
+  paramUpdateControls();
+}
 function paramRenderDetails(){
   var name=paramPageState.selected;
   if(!name||!Object.prototype.hasOwnProperty.call(paramPageState.values,name)){
@@ -360,6 +426,10 @@ function paramRenderDetails(){
     return;
   }
   var meta=paramMeta(name),value=paramPageState.values[name],range=paramPageState.ranges[name]||{min:meta.min,max:meta.max};
+  if(meta.kind==='ball_map'){
+    paramRenderBallMapDetails();
+    return;
+  }
   var editor='';
   if(meta.kind==='flags'){
     editor='<div class="param-switch-row"><span>右轮 M1 反向</span><input id="paramFlagM1" type="checkbox"'+((value&1)?' checked':'')+'></div>'+
@@ -399,7 +469,12 @@ function paramUpdateControls(){
   ['btnParamImport','btnParamLoad','btnParamReset','btnParamSave','btnParamReboot'].forEach(function(id){$(id).disabled=locked});
   $('btnParamRefresh').disabled=!paramPageState.connected||paramPageState.busy;
   $('btnParamExport').disabled=!paramPageState.loaded||paramPageState.busy;
-  ['btnParamApply','btnParamUseDefault','paramEditValue','paramFlagM1','paramFlagM2','paramBoolValue'].forEach(function(id){var el=$(id);if(el)el.disabled=locked||(id==='btnParamUseDefault'&&paramMeta(paramPageState.selected).defaultValue===null)});
+  ['btnParamApply','btnParamUseDefault','paramEditValue','paramFlagM1','paramFlagM2','paramBoolValue','btnBallMapDefault','btnBallMapApply'].forEach(function(id){var el=$(id);if(el)el.disabled=locked||(id==='btnParamUseDefault'&&paramMeta(paramPageState.selected).defaultValue===null)});
+  for(var mapInput=0;mapInput<5;mapInput++){
+    var angleInput=$('ballMapAngle'+mapInput),dmInput=$('ballMapDm'+mapInput);
+    if(angleInput)angleInput.disabled=locked;
+    if(dmInput)dmInput.disabled=locked;
+  }
   var dot=$('paramStatusDot'),text=$('paramStatusText');
   dot.className='param-status-dot';
   if(!paramPageState.connected){text.textContent='未连接';}
@@ -516,6 +591,34 @@ async function paramApplySelected(){
   }catch(error){paramToast('应用失败：'+error.message,'error')}
   finally{paramPageState.busy=false;paramUpdateControls()}
 }
+async function paramApplyBallMap(){
+  if(paramPageState.mode==='running'){paramToast('RUNNING 状态禁止修改参数','error');return}
+  var angles=[],dm=[],candidate=Object.assign({},paramPageState.values);
+  for(var i=0;i<5;i++){
+    var angle=Number($('ballMapAngle'+i).value),position=Number($('ballMapDm'+i).value);
+    if(!Number.isInteger(angle)||angle<-15000||angle>15000||!Number.isInteger(position)||position<-12500||position>12500){
+      paramToast('映射表包含非整数或越界值','error');return;
+    }
+    angles.push(angle);dm.push(position);
+    candidate[BALL_MAP_ANGLE_NAMES[i]]=angle;
+    candidate[BALL_MAP_DM_NAMES[i]]=position;
+  }
+  var validation=paramCandidateError(candidate,paramPageState.ranges);
+  if(validation){paramToast(validation,'error');return}
+  paramPageState.busy=true;paramUpdateControls();
+  try{
+    await paramRequireWritable();
+    var args=[];
+    for(var j=0;j<5;j++)args.push(angles[j],dm[j]);
+    var response=await send('ball map '+args.join(' '),{timeoutMs:3000});
+    if(!paramResponseOk(response,'ball map'))throw new Error('固件拒绝该映射');
+    BALL_MAP_NAMES.forEach(function(name){paramPageState.sessionChanged[name]=true});
+    paramPageState.busy=false;
+    await paramRefresh();
+    paramToast('五点映射已原子写入 RAM，下次滚球启动生效','ok');
+  }catch(error){paramToast('映射应用失败：'+error.message,'error')}
+  finally{paramPageState.busy=false;paramUpdateControls()}
+}
 async function paramSave(){
   paramPageState.busy=true;paramUpdateControls();
   try{
@@ -590,10 +693,20 @@ async function paramImportFile(file){
     await paramRequireWritable();
     var applied=0,failed=null;
     for(var i=0;i<plan.steps.length;i++){
-      var item=plan.steps[i],response=await send('param set '+item.name+' '+item.value,{timeoutMs:2800});
-      if(!paramResponseOk(response,'param set')){failed=item.name;break}
-      applied++;paramPageState.sessionChanged[item.name]=true;
-      if(paramMeta(item.name).restart)paramPageState.restartPending=true;
+      var item=plan.steps[i],response;
+      if(item.type==='ball_map'){
+        var mapArgs=[];
+        for(var mapIndex=0;mapIndex<5;mapIndex++)mapArgs.push(item.angles[mapIndex],item.dm[mapIndex]);
+        response=await send('ball map '+mapArgs.join(' '),{timeoutMs:3000});
+        if(!paramResponseOk(response,'ball map')){failed='ball map';break}
+        applied+=10;
+        BALL_MAP_NAMES.forEach(function(name){paramPageState.sessionChanged[name]=true});
+      }else{
+        response=await send('param set '+item.name+' '+item.value,{timeoutMs:2800});
+        if(!paramResponseOk(response,'param set')){failed=item.name;break}
+        applied++;paramPageState.sessionChanged[item.name]=true;
+        if(paramMeta(item.name).restart)paramPageState.restartPending=true;
+      }
     }
     paramPageState.busy=false;await paramRefresh();
     if(failed)paramToast('已应用 '+applied+' 项，固件在 '+failed+' 拒绝后停止导入','error');
@@ -649,7 +762,7 @@ onSerialStateChange=function(connected){
 };
 
 // Parameter simulation hooks into app1.js without changing the real shell path.
-var simParamValues=null,simPersistedValues=null,simParamDirty=false;
+var simParamValues=null,simPersistedValues=null,simParamDirty=false,simParamGeneration=1,simParamBank='A';
 function paramSimInit(){
   if(simParamValues)return;
   simParamValues={};
@@ -663,7 +776,7 @@ function paramSimCommand(cmd){
   paramSimInit();
   if(cmd==='comp status')return'comp mode=dev-running slot=0 valid=1 any_valid=1 count=5 step=0 result=none last=ok\r\n> ';
   if(cmd==='reset'){simParamValues=Object.assign({},simPersistedValues);simParamDirty=false;return'resetting...\r\n> '}
-  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' version=17 len=243 crc=0x5C758F1C load=ok save=ok\r\n> ';
+  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=305 crc=0x5C758F1C load=ok save=ok layout=1 bank='+simParamBank+' generation='+simParamGeneration+' capacity=1004 free=699\r\n> ';
   if(cmd==='param export'||cmd.startsWith('param export ')){
     var exportParts=cmd.split(/\s+/),start=exportParts.length>=3?Number(exportParts[2]):0;
     var requested=exportParts.length>=4?Number(exportParts[3]):PARAM_EXPORT_BATCH_SIZE;
@@ -691,7 +804,19 @@ function paramSimCommand(cmd){
     if(!paramSimValid(candidate))return'param set: invalid-arg\r\n> ';
     simParamValues=candidate;simParamDirty=true;return'param set: ok\r\n> ';
   }
-  if(cmd==='param save'){simPersistedValues=Object.assign({},simParamValues);simParamDirty=false;return'param save: ok\r\n> '}
+  if(cmd.startsWith('ball map ')){
+    var mapParts=cmd.split(/\s+/).slice(2).map(Number);
+    if(mapParts.length!==10||mapParts.some(function(value){return!Number.isInteger(value)}))return'ball map: invalid-arg\r\n> ';
+    var mapCandidate=Object.assign({},simParamValues);
+    for(var mapIndex=0;mapIndex<5;mapIndex++){
+      mapCandidate[BALL_MAP_ANGLE_NAMES[mapIndex]]=mapParts[mapIndex*2];
+      mapCandidate[BALL_MAP_DM_NAMES[mapIndex]]=mapParts[mapIndex*2+1];
+    }
+    if(!paramSimValid(mapCandidate))return'ball map: invalid-arg\r\n> ';
+    simParamValues=mapCandidate;simParamDirty=true;return'ball map: ok\r\n> ';
+  }
+  if(cmd==='ball map')return'ball map '+BALL_MAP_ANGLE_NAMES.map(function(name,index){return simParamValues[name]+' '+simParamValues[BALL_MAP_DM_NAMES[index]]}).join(' ')+'\r\n> ';
+  if(cmd==='param save'){simPersistedValues=Object.assign({},simParamValues);simParamDirty=false;simParamGeneration++;simParamBank=simParamBank==='A'?'B':'A';return'param save: ok\r\n> '}
   if(cmd==='param load'){simParamValues=Object.assign({},simPersistedValues);simParamDirty=false;return'param load: ok\r\n> '}
   if(cmd==='param reset'){
     PARAM_ORDER.forEach(function(name){simParamValues[name]=PARAM_META[name].defaultValue});

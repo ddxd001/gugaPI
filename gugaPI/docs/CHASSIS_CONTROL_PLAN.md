@@ -337,7 +337,7 @@ Idle -> Running -> Success
 
 实现内容（`action.h` / `action.cpp`）：
 
-- 指令表最多 64 条指令，每条指令包含 `op`、`param1`、`param2`、`until`（完成条件）、`on_success`、`on_timeout`（跳转目标）。
+- 指令表最多54条指令，每条指令包含 `op`、`param1`、`param2`、`until`（完成条件）、`on_success`、`on_timeout`（跳转目标）。
 - 操作码 `ACT_OP`：`DRIVE`（航向保持直行）、`TURN`（相对角度转弯）、`FOLLOW`（循迹）、`WAIT`（等待）、`STOP`（立即停车）、`BRANCH`（条件跳转，不产生运动）、`END`（序列完成）。
 - 完成条件 `ACT_COND`：`TIMEOUT`（param2 ms 后完成）、`HEADING_REACHED`（转弯到位）、`LINE_DETECTED`（灰度检测到线）、`LINE_LOST`（灰度丢线）、`BUTTON`（按键 1 按下）、`IMMEDIATE`（立即为真）。
 - 跳转目标：`ACT_NEXT`（on_success=下一条，on_timeout=中止）或索引 0..63（goto）。
@@ -456,8 +456,8 @@ lf losttimeout <ms>   # 兼容旧配置，当前不延迟停车
 
 实现内容（`config_store.cpp`）：
 
-- 速度环、航向闭环、IMU 偏置和底盘几何参数统一进入 ConfigStore，持久化到 FRAM（地址 0x0000，magic "CFPG"，CRC32 校验）。
-- 当前版本 v11，payload 183 字节；兼容加载 v1-v10 历史布局。v8及更早布局缺少MotorDriver ramp时补入1500/2000 RPM/s，v9及更早布局缺少循迹修正斜率时补入25000 permille/s；旧版默认灰度掩码`0x3C`迁移为`0x7E`，其它自定义掩码保留。旧版默认组合 `364/364/32` 加载时自动迁移为 `1456/1456/33050 um`，并标记 dirty，等待 `param save` 写回。
+- 所有参数统一进入 ConfigStore，使用 FRAM `0x0000..0x03FF` 和 `0x0400..0x07FF` 两个1 KiB副本，采用新magic、generation和CRC32保护。
+- 新布局格式从v1开始，payload为305字节；不读取或迁移旧ConfigStore/IR扩展数据。两个副本均无效时加载源码默认值并标记dirty，等待用户确认后执行`param save`。
 - `param set` 修改后显示 dirty 状态，`param save` 显式持久化，`param load` 从 FRAM 重新加载，`param reset` 恢复源码默认值。
 - 参数列表：
   - 底盘：`left/right_counts_per_rev`、`wheel_radius_um`、兼容参数 `wheel_radius_mm`、`wheel_track_mm`、`max_wheel_rpm`、`motor_output/encoder_invert_flags`
@@ -579,7 +579,7 @@ lf losttimeout <ms>   # 兼容旧配置，当前不延迟停车
 1. ~~**航向闭环硬件验收**~~：**已完成（07-25），HOLD 最大误差 1.63°，TURN 最大误差 2.88°**
 2. **距离闭环硬件验收**：测试 `heading distance` 的 100/500/-200 mm 精度、倒车方向、超时与编码器异常路径。
 3. **循迹硬件验收**：`lf cal` 标定 → 低速直线循迹 → 缓弯 → S 弯 → 丢线恢复。（**阻塞：暂不具备测试条件**）
-4. ~~**动作序列基础联调**~~：**已通过（07-25）**；继续验证 `drive_mm`、FRAM 64 条序列和循迹组合。
+4. ~~**动作序列基础联调**~~：**已通过（07-25）**；继续验证 `drive_mm`、FRAM 54 条序列和循迹组合。
 5. ~~**速度环地面回归**（阶段一 4.4）~~：**已完成（07-25），稳态误差 ≤10%，超调 2.3%，20 次启停无故障**
 6. **赛道事件识别**（阶段五 8.3）：十字/终点检测，接入 ActionRunner 条件。（依赖循迹硬件）
 7. **比赛模式回归**：验证上电静止、按键启动/停止、故障锁定和序列完成返回 ARMED。

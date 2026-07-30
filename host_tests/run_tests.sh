@@ -28,7 +28,7 @@ build_and_run() {
     "${build_dir}/${name}"
 }
 
-build_and_run config_store_v16 \
+build_and_run config_store \
     host_tests/config_store_v13_test.cpp \
     gugaPI/app/config_store.cpp
 build_and_run dm_g6220_protocol \

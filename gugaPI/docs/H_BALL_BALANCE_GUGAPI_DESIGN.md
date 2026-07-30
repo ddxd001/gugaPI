@@ -33,7 +33,7 @@
 | ActionRunner | 50 ms |
 
 序列启动时由 `SeqStore_Load()` 把FRAM指令读取、校验并反序列化到
-`ActionRunnerState::instrs[64]`。运行期间不逐条读取FRAM，因此序列槽不会降低滚球或巡线控制频率。
+`ActionRunnerState::instrs[54]`。运行期间不逐条读取FRAM，因此序列槽不会降低滚球或巡线控制频率。
 
 ## 3. 新增控制架构
 
@@ -203,7 +203,9 @@ competition profile当前关闭OLED，H题版本必须重新开启。OLED至少�
 
 结果保持到下一次选择或启动，不在2秒后自动清除。
 
-当前ConfigStore已是v17，主payload仍为243字节，IR3扩展占用FRAM尾部 `0x1FD0` 区域。滚球、视觉、双连杆和H题参数不能继续简单追加，正式版本需要实施新的FRAM布局和迁移；控制原型阶段先使用编译默认值及Shell在线参数。
+当前使用全新FRAM布局：ConfigStore A/B各1 KiB，滚球、红外、达妙和原有
+参数统一保存；8个SeqStore槽每槽最多54条。滚球参数和五点双连杆映射均可
+由上位机调整，启动 `hold/move` 时复制为运行快照。
 
 最新代码默认线路传感器为IR3。若比赛实车使用8路ADC板，必须明确执行并保存：
 

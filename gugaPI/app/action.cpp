@@ -21,7 +21,7 @@
 namespace app {
 namespace {
 
-static const uint8_t kMaxInstrs = 64U;
+static const uint8_t kMaxInstrs = ACTION_MAX_INSTRS;
 static const uint32_t kSequenceTimeoutMs = 300000U; /* whole-sequence cap */
 static const int32_t kMaxLoopCount = 1000;
 static const int32_t kDmMaxVelocityMradS = 20000;

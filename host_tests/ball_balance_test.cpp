@@ -5,6 +5,7 @@
 #include "app/app_imu.h"
 #include "app/ball_balance.h"
 #include "app/ball_vision.h"
+#include "app/config_store.h"
 #include "app/dm_g6220_controller.h"
 
 namespace {
@@ -16,6 +17,27 @@ bool g_vision_usable = true;
 bool g_dm_acquired = false;
 int32_t g_dm_target = 0;
 uint32_t g_chassis_stops = 0U;
+app::ConfigStoreParams g_config = {};
+
+void SetDefaultBallConfig()
+{
+    g_config.ball_kp_mdeg_per_0p1mm = 10;
+    g_config.ball_kd_mdeg_per_0p1mm_s = 3;
+    g_config.ball_ki_mdeg_per_0p1mm_s = 0;
+    g_config.ball_pitch_gain_permille = 0;
+    g_config.ball_max_angle_mdeg = 8000;
+    g_config.ball_degraded_angle_mdeg = 3000;
+    g_config.ball_angle_slew_mdeg_s = 30000;
+    g_config.ball_position_tolerance_0p1mm = 100;
+    g_config.ball_velocity_tolerance_0p1mm_s = 100;
+    g_config.ball_settle_ms = 200U;
+    const int16_t angles[5] = { -8000, -4000, 0, 4000, 8000 };
+    const int16_t positions[5] = { -1000, -500, 0, 500, 1000 };
+    for (uint8_t i = 0U; i < 5U; i++) {
+        g_config.ball_map_angle_mdeg[i] = angles[i];
+        g_config.ball_map_dm_mrad[i] = positions[i];
+    }
+}
 
 void SetBall(int16_t position)
 {
@@ -41,6 +63,11 @@ uint32_t Time_Millis(void)
 } /* namespace services */
 
 namespace app {
+
+const ConfigStoreParams *ConfigStore_Get(void)
+{
+    return &g_config;
+}
 
 const BallVisionData *BallVision_GetData(void)
 {
@@ -102,6 +129,7 @@ int main(void)
 {
     using namespace app;
 
+    SetDefaultBallConfig();
     BallBalance_Init();
     const BallBalanceParams *params = BallBalance_GetParams();
     assert(BallBalance_MapBeamToDm(params, -8000) == -1000);
@@ -118,6 +146,8 @@ int main(void)
     assert(state->mode == BALL_BALANCE_MOVE);
     assert(state->beam_target_mdeg < 0);
     assert(g_dm_target < 0);
+    g_config.ball_kp_mdeg_per_0p1mm = 20;
+    assert(BallBalance_GetParams()->kp_mdeg_per_0p1mm == 10);
 
     /* Feed a smooth approach and then enough zero-velocity samples to meet
      * the 200 ms settle qualification. */

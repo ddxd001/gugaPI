@@ -3,73 +3,39 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "app/fram_layout.h"
 #include "board/board_fram.h"
 #include "config/feature_config.h"
 
 namespace app {
 namespace {
 
-static const uint16_t kFramAddress = 0x0000U;
-static const uint32_t kMagic = 0x47504643U; /* "CFPG" little-endian */
-static const uint16_t kVersion = 17U;
-static const uint16_t kV16Version = 16U;
-static const uint16_t kV16PayloadLength = 243U;
-static const uint16_t kV15Version = 15U;
-static const uint16_t kV15PayloadLength = 223U;
-static const uint16_t kV14Version = 14U;
-static const uint16_t kV14PayloadLength = 219U;
-static const uint16_t kV13Version = 13U;
-static const uint16_t kV13PayloadLength = 215U;
-static const uint16_t kV12Version = 12U;
-static const uint16_t kV12PayloadLength = 191U;
-static const uint16_t kV11Version = 11U;
-static const uint16_t kV11PayloadLength = 183U;
-static const uint16_t kV10Version = 10U;
-static const uint16_t kV10PayloadLength = 183U;
-static const uint16_t kV9Version = 9U;
-static const uint16_t kV9PayloadLength = 181U;
-static const uint16_t kV8Version = 8U;
-static const uint16_t kV8PayloadLength = 177U;
-static const uint16_t kV7Version = 7U;
-static const uint16_t kV7PayloadLength = 162U;
-static const uint16_t kV6Version = 6U;
-static const uint16_t kV6PayloadLength = 158U;
-static const uint16_t kV5Version = 5U;
-static const uint16_t kV5PayloadLength = 137U;
-static const uint16_t kV4Version = 4U;
-static const uint16_t kV4PayloadLength = 103U;
-static const uint16_t kV3Version = 3U;
-static const uint16_t kV3PayloadLength = 90U;
-static const uint16_t kLegacyVersion = 1U;
-static const uint16_t kLegacyPayloadLength = 66U;
-static const uint16_t kV2PayloadLength = 68U; /* v2 layout length (motor_invert guard) */
-/* v11 keeps the v10 binary layout and migrates the former default four-channel
- * grayscale tracking mask. v12 appends predictive TURN fields, v13 appends
- * stationary heading-lock fields, v14 appends corner alignment distance and
- * speed, v15 appends asymmetric road-turn wheel limits, and v16 appends
- * the bounded DM-G6220 MIT control parameters. v17 retains the same main
- * payload and adds a separate infrared extension record in the free FRAM
- * tail so neither parameter family nor the sequence region is overwritten;
- * every older field keeps its binary offset. */
-static const uint16_t kPayloadLength = 243U;
-static const uint16_t kHeaderLength = 8U;
+static const uint32_t kMagic = 0x31464347U; /* "GCF1" little-endian */
+static const uint16_t kVersion = 1U;
+static const uint16_t kMainPayloadLength = 243U;
+static const uint16_t kInfraredPayloadLength = 20U;
+static const uint16_t kBallPayloadLength = 42U;
+static const uint16_t kPayloadLength =
+    kMainPayloadLength + kInfraredPayloadLength +
+    kBallPayloadLength;
+static const uint16_t kHeaderLength = 16U;
 static const uint16_t kCrcLength = 4U;
-static const uint16_t kImageLength =
-    kHeaderLength + kPayloadLength + kCrcLength;
-static const uint16_t kInfraredExtensionAddress = 0x1FD0U;
-static const uint32_t kInfraredExtensionMagic = 0x43335249U; /* "IR3C" */
-static const uint16_t kInfraredExtensionVersion = 1U;
-static const uint16_t kInfraredExtensionPayloadLength = 20U;
-static const uint16_t kInfraredExtensionImageLength =
-    kHeaderLength + kInfraredExtensionPayloadLength + kCrcLength;
-static_assert(kInfraredExtensionAddress + kInfraredExtensionImageLength <=
-              0x1FF0U,
-              "infrared config must not overlap the FRAM self-test area");
+static const uint16_t kPayloadCapacity =
+    FRAM_CONFIG_BANK_SIZE - kHeaderLength - kCrcLength;
+static const uint8_t kBankValid = 0xA5U;
+static const uint8_t kNoActiveBank = 0xFFU;
+static_assert(kPayloadLength <= kPayloadCapacity,
+              "ConfigStore payload exceeds a 1 KiB bank");
 static const uint32_t kCrc32Init = 0xFFFFFFFFU;
-static const uint8_t kLegacyDefaultGrayscaleTrackMask = 0x3CU;
 static const uint8_t kDefaultGrayscaleTrackMask = 0x7EU;
 
 ConfigStoreParams g_params;
+ConfigStoreParams g_candidateA;
+ConfigStoreParams g_candidateB;
+ConfigStoreParams g_validationSaved;
+ConfigStoreParams g_updateScratch;
+uint8_t g_bankScratch[FRAM_CONFIG_BANK_SIZE];
+uint8_t g_verifyScratch[FRAM_CONFIG_BANK_SIZE];
 ConfigStoreStatus g_status = {
     false,
     false,
@@ -77,13 +43,17 @@ ConfigStoreStatus g_status = {
     0U,
     drivers::DRIVER_ERROR_NOT_INITIALIZED,
     drivers::DRIVER_ERROR_NOT_INITIALIZED,
-    CONFIG_LOAD_NOT_ATTEMPTED
+    CONFIG_LOAD_NOT_ATTEMPTED,
+    kNoActiveBank,
+    0U,
+    kPayloadCapacity
 };
 
 enum ParamType : uint8_t {
     PARAM_U8 = 0U,
     PARAM_U16,
     PARAM_U32,
+    PARAM_I16,
     PARAM_I32
 };
 
@@ -224,6 +194,46 @@ static const ParamDescriptor kParamDescriptors[] = {
       PARAM_OFFSET(dm_settle_ms), 50, 1000 },
     { "dm_feedback_timeout_ms", PARAM_U16,
       PARAM_OFFSET(dm_feedback_timeout_ms), 50, 500 },
+    { "ball_kp_mdeg_per_0p1mm", PARAM_I16,
+      PARAM_OFFSET(ball_kp_mdeg_per_0p1mm), 0, 1000 },
+    { "ball_kd_mdeg_per_0p1mm_s", PARAM_I16,
+      PARAM_OFFSET(ball_kd_mdeg_per_0p1mm_s), 0, 1000 },
+    { "ball_ki_mdeg_per_0p1mm_s", PARAM_I16,
+      PARAM_OFFSET(ball_ki_mdeg_per_0p1mm_s), 0, 1000 },
+    { "ball_pitch_gain_permille", PARAM_I16,
+      PARAM_OFFSET(ball_pitch_gain_permille), -2000, 2000 },
+    { "ball_max_angle_mdeg", PARAM_I16,
+      PARAM_OFFSET(ball_max_angle_mdeg), 100, 15000 },
+    { "ball_degraded_angle_mdeg", PARAM_I16,
+      PARAM_OFFSET(ball_degraded_angle_mdeg), 100, 15000 },
+    { "ball_angle_slew_mdeg_s", PARAM_I32,
+      PARAM_OFFSET(ball_angle_slew_mdeg_s), 100, 180000 },
+    { "ball_position_tolerance_0p1mm", PARAM_I16,
+      PARAM_OFFSET(ball_position_tolerance_0p1mm), 1, 1000 },
+    { "ball_velocity_tolerance_0p1mm_s", PARAM_I16,
+      PARAM_OFFSET(ball_velocity_tolerance_0p1mm_s), 1, 32767 },
+    { "ball_settle_ms", PARAM_U16,
+      PARAM_OFFSET(ball_settle_ms), 10, 5000 },
+    { "ball_map_angle_0_mdeg", PARAM_I16,
+      PARAM_ARRAY_OFFSET(ball_map_angle_mdeg, 0), -15000, 15000 },
+    { "ball_map_angle_1_mdeg", PARAM_I16,
+      PARAM_ARRAY_OFFSET(ball_map_angle_mdeg, 1), -15000, 15000 },
+    { "ball_map_angle_2_mdeg", PARAM_I16,
+      PARAM_ARRAY_OFFSET(ball_map_angle_mdeg, 2), -15000, 15000 },
+    { "ball_map_angle_3_mdeg", PARAM_I16,
+      PARAM_ARRAY_OFFSET(ball_map_angle_mdeg, 3), -15000, 15000 },
+    { "ball_map_angle_4_mdeg", PARAM_I16,
+      PARAM_ARRAY_OFFSET(ball_map_angle_mdeg, 4), -15000, 15000 },
+    { "ball_map_dm_0_mrad", PARAM_I16,
+      PARAM_ARRAY_OFFSET(ball_map_dm_mrad, 0), -12500, 12500 },
+    { "ball_map_dm_1_mrad", PARAM_I16,
+      PARAM_ARRAY_OFFSET(ball_map_dm_mrad, 1), -12500, 12500 },
+    { "ball_map_dm_2_mrad", PARAM_I16,
+      PARAM_ARRAY_OFFSET(ball_map_dm_mrad, 2), -12500, 12500 },
+    { "ball_map_dm_3_mrad", PARAM_I16,
+      PARAM_ARRAY_OFFSET(ball_map_dm_mrad, 3), -12500, 12500 },
+    { "ball_map_dm_4_mrad", PARAM_I16,
+      PARAM_ARRAY_OFFSET(ball_map_dm_mrad, 4), -12500, 12500 },
     { "distance_speed_mode", PARAM_U8,
       PARAM_OFFSET(distance_speed_mode),
       DISTANCE_SPEED_MODE_LEGACY, DISTANCE_SPEED_MODE_TRAPEZOID },
@@ -412,15 +422,6 @@ uint32_t Crc32Update(uint32_t crc, uint8_t value)
     return crc;
 }
 
-uint32_t Crc32(const uint8_t *data, uint16_t length)
-{
-    uint32_t crc = kCrc32Init;
-    for (uint16_t i = 0U; i < length; i++) {
-        crc = Crc32Update(crc, data[i]);
-    }
-    return crc ^ 0xFFFFFFFFU;
-}
-
 void SetDefaults(ConfigStoreParams *params)
 {
     (void) memset(params, 0, sizeof(*params));
@@ -554,6 +555,27 @@ void SetDefaults(ConfigStoreParams *params)
     params->infrared_linefollow_kd = 600;
     params->infrared_linefollow_max_correction_rpm = 30U;
     params->infrared_linefollow_correction_slew_permille_per_second = 25000U;
+
+    params->ball_kp_mdeg_per_0p1mm = 10;
+    params->ball_kd_mdeg_per_0p1mm_s = 3;
+    params->ball_ki_mdeg_per_0p1mm_s = 0;
+    params->ball_pitch_gain_permille = 0;
+    params->ball_max_angle_mdeg = 8000;
+    params->ball_degraded_angle_mdeg = 3000;
+    params->ball_angle_slew_mdeg_s = 30000;
+    params->ball_position_tolerance_0p1mm = 100;
+    params->ball_velocity_tolerance_0p1mm_s = 100;
+    params->ball_settle_ms = 200U;
+    static const int16_t kDefaultBallAngles[5] = {
+        -8000, -4000, 0, 4000, 8000
+    };
+    static const int16_t kDefaultBallDmPositions[5] = {
+        -1000, -500, 0, 500, 1000
+    };
+    for (uint8_t i = 0U; i < 5U; i++) {
+        params->ball_map_angle_mdeg[i] = kDefaultBallAngles[i];
+        params->ball_map_dm_mrad[i] = kDefaultBallDmPositions[i];
+    }
 }
 
 uint8_t *AppendU8(uint8_t *cursor, uint8_t value)
@@ -566,6 +588,11 @@ uint8_t *AppendU16(uint8_t *cursor, uint16_t value)
 {
     WriteU16(cursor, value);
     return cursor + 2;
+}
+
+uint8_t *AppendI16(uint8_t *cursor, int16_t value)
+{
+    return AppendU16(cursor, static_cast<uint16_t>(value));
 }
 
 uint8_t *AppendU32(uint8_t *cursor, uint32_t value)
@@ -589,6 +616,12 @@ const uint8_t *ReadU8Field(const uint8_t *cursor, uint8_t *value)
 const uint8_t *ReadU16Field(const uint8_t *cursor, uint16_t *value)
 {
     *value = ReadU16(cursor);
+    return cursor + 2;
+}
+
+const uint8_t *ReadI16Field(const uint8_t *cursor, int16_t *value)
+{
+    *value = static_cast<int16_t>(ReadU16(cursor));
     return cursor + 2;
 }
 
@@ -716,10 +749,7 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     (void) AppendU16(cursor, params.dm_feedback_timeout_ms);
 }
 
-void DecodePayload(const uint8_t *payload,
-                   uint16_t payload_length,
-                   ConfigStoreParams *params,
-                   bool infrared_v16_layout)
+void DecodeMainPayload(const uint8_t *payload, ConfigStoreParams *params)
 {
     const uint8_t *cursor = payload;
 
@@ -730,10 +760,8 @@ void DecodePayload(const uint8_t *payload,
     cursor = ReadU32Field(cursor, &params->wheel_radius_mm);
     cursor = ReadU32Field(cursor, &params->wheel_track_mm);
     cursor = ReadU16Field(cursor, &params->max_wheel_rpm);
-    if (payload_length >= kV2PayloadLength) {
-        cursor = ReadU8Field(cursor, &params->motor_output_invert_flags);
-        cursor = ReadU8Field(cursor, &params->motor_encoder_invert_flags);
-    }
+    cursor = ReadU8Field(cursor, &params->motor_output_invert_flags);
+    cursor = ReadU8Field(cursor, &params->motor_encoder_invert_flags);
 
     cursor = ReadU8Field(cursor, &params->speed_kp_q4_4);
     cursor = ReadU8Field(cursor, &params->speed_ki_q4_4);
@@ -758,172 +786,99 @@ void DecodePayload(const uint8_t *payload,
     cursor = ReadI32Field(cursor, &params->imu_gyro_bias_y_mdps);
     cursor = ReadI32Field(cursor, &params->imu_gyro_bias_z_mdps);
 
-    /* v3 heading fields - present in v3 and later layouts; v1/v2
-     * keep the SetDefaults values. */
-    if (payload_length >= kV3PayloadLength) {
-        cursor = ReadI32Field(cursor, &params->heading_kp);
-        cursor = ReadI32Field(cursor, &params->heading_max_correction_rpm);
-        cursor = ReadI32Field(cursor, &params->heading_turn_max_rpm);
-        cursor = ReadI32Field(cursor, &params->heading_turn_min_rpm);
-        cursor = ReadI32Field(cursor, &params->heading_tolerance_mdeg);
-        cursor = ReadU16Field(cursor, &params->heading_settle_ms);
-    }
-    if (payload_length >= kV4PayloadLength) {
-        cursor = ReadU16Field(cursor,
-                              &params->ina219_undervoltage_trip_mv);
-        cursor = ReadU16Field(cursor,
-                              &params->ina219_undervoltage_release_mv);
-        cursor = ReadU16Field(cursor, &params->ina219_overcurrent_trip_ma);
-        cursor = ReadU16Field(cursor,
-                              &params->ina219_overcurrent_release_ma);
-        cursor = ReadU8Field(cursor, &params->ina219_trip_samples);
-        cursor = ReadU8Field(cursor, &params->ina219_release_samples);
-        cursor = ReadU8Field(cursor, &params->ina219_comm_fail_samples);
-        cursor = ReadU8Field(cursor, &params->ina219_latch_faults);
-        cursor = ReadU8Field(cursor, &params->ina219_motion_inhibit_enable);
-    }
-    if (payload_length >= kV5PayloadLength) {
-        for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
-            cursor = ReadU16Field(cursor, &params->grayscale_white[i]);
-        }
-        for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
-            cursor = ReadU16Field(cursor, &params->grayscale_black[i]);
-        }
-        cursor = ReadU16Field(cursor, &params->grayscale_threshold);
-    }
-    if ((payload_length >= kV5PayloadLength) &&
-        (payload_length < kV6PayloadLength)) {
-        /* v5 allowed a single threshold over the full 1..1000 range. Keep
-         * that image loadable while deriving the widest valid v6 hysteresis
-         * around its existing center. */
-        if (params->grayscale_threshold >= 1000U) {
-            params->grayscale_threshold = 999U;
-        }
-        const uint16_t lower_room = static_cast<uint16_t>(
-            (params->grayscale_threshold - 1U) * 2U);
-        const uint16_t upper_room = static_cast<uint16_t>(
-            (999U - params->grayscale_threshold) * 2U);
-        const uint16_t available =
-            (lower_room < upper_room) ? lower_room : upper_room;
-        if (params->grayscale_hysteresis > available) {
-            params->grayscale_hysteresis = available;
-        }
-    }
-    if (payload_length >= kV6PayloadLength) {
-        cursor = ReadU16Field(cursor, &params->grayscale_hysteresis);
-        cursor = ReadU16Field(cursor, &params->grayscale_position_floor);
-        cursor = ReadU16Field(cursor, &params->grayscale_min_line_strength);
-        cursor = ReadU8Field(cursor, &params->grayscale_track_mask);
-        cursor = ReadI32Field(cursor, &params->linefollow_kp);
-        cursor = ReadI32Field(cursor, &params->linefollow_kd);
-        cursor = ReadU16Field(cursor,
-                              &params->linefollow_max_correction_rpm);
-        cursor = ReadU16Field(cursor, &params->linefollow_lost_hold_ms);
-        cursor = ReadU16Field(cursor, &params->linefollow_lost_stop_ms);
-    }
-    if (payload_length >= kV7PayloadLength) {
-        cursor = ReadU32Field(cursor, &params->wheel_radius_um);
-    } else {
-        params->wheel_radius_um = params->wheel_radius_mm * 1000U;
+    cursor = ReadI32Field(cursor, &params->heading_kp);
+    cursor = ReadI32Field(cursor, &params->heading_max_correction_rpm);
+    cursor = ReadI32Field(cursor, &params->heading_turn_max_rpm);
+    cursor = ReadI32Field(cursor, &params->heading_turn_min_rpm);
+    cursor = ReadI32Field(cursor, &params->heading_tolerance_mdeg);
+    cursor = ReadU16Field(cursor, &params->heading_settle_ms);
 
-        /* V1-V6 shipped with the 13-PPR encoder's x4 hardware-QEI count
-         * omitted. Migrate only the exact old default tuple so that an
-         * explicitly calibrated legacy configuration remains untouched. */
-        if ((params->left_counts_per_rev == 364U) &&
-            (params->right_counts_per_rev == 364U) &&
-            (params->wheel_radius_mm == 32U)) {
-            params->left_counts_per_rev = 1456U;
-            params->right_counts_per_rev = 1456U;
-            params->wheel_radius_um = 33050U;
-        }
+    cursor = ReadU16Field(cursor,
+                          &params->ina219_undervoltage_trip_mv);
+    cursor = ReadU16Field(cursor,
+                          &params->ina219_undervoltage_release_mv);
+    cursor = ReadU16Field(cursor, &params->ina219_overcurrent_trip_ma);
+    cursor = ReadU16Field(cursor,
+                          &params->ina219_overcurrent_release_ma);
+    cursor = ReadU8Field(cursor, &params->ina219_trip_samples);
+    cursor = ReadU8Field(cursor, &params->ina219_release_samples);
+    cursor = ReadU8Field(cursor, &params->ina219_comm_fail_samples);
+    cursor = ReadU8Field(cursor, &params->ina219_latch_faults);
+    cursor = ReadU8Field(cursor, &params->ina219_motion_inhibit_enable);
+
+    for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
+        cursor = ReadU16Field(cursor, &params->grayscale_white[i]);
     }
-    if (payload_length >= kV8PayloadLength) {
-        cursor = ReadU8Field(cursor, &params->distance_speed_mode);
-        cursor = ReadU16Field(cursor, &params->distance_accel_rpm_s);
-        cursor = ReadU16Field(cursor, &params->distance_decel_rpm_s);
-        cursor = ReadU16Field(cursor, &params->distance_creep_rpm);
-        cursor = ReadU16Field(cursor, &params->distance_stop_latency_ms);
-        cursor = ReadU16Field(cursor, &params->distance_brake_margin_mm);
-        cursor = ReadU16Field(cursor, &params->distance_settle_rpm);
-        cursor = ReadU16Field(cursor, &params->distance_tolerance_mm);
+    for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
+        cursor = ReadU16Field(cursor, &params->grayscale_black[i]);
     }
-    if (payload_length >= kV9PayloadLength) {
-        cursor = ReadU16Field(cursor, &params->speed_accel_rpm_s);
-        cursor = ReadU16Field(cursor, &params->speed_decel_rpm_s);
-    }
-    if (payload_length >= kV11PayloadLength) {
-        cursor = ReadU16Field(
-            cursor,
-            &params->linefollow_correction_slew_permille_per_second);
-    }
-    if (payload_length >= kV12PayloadLength) {
-        cursor = ReadU16Field(cursor, &params->heading_turn_brake_ms);
-        cursor = ReadU16Field(
-            cursor,
-            &params->heading_turn_brake_margin_mdeg);
-        cursor = ReadU16Field(
-            cursor,
-            &params->heading_turn_settle_rate_mdps);
-        cursor = ReadU16Field(cursor, &params->heading_turn_settle_rpm);
-    }
-    if (payload_length >= kV13PayloadLength) {
-        cursor = ReadI32Field(cursor, &params->heading_lock_kp);
-        cursor = ReadI32Field(cursor, &params->heading_lock_kd);
-        cursor = ReadU16Field(cursor, &params->heading_lock_wake_mdeg);
-        cursor = ReadU16Field(cursor, &params->heading_lock_settle_mdeg);
-        cursor = ReadU16Field(cursor, &params->heading_lock_min_rpm);
-        cursor = ReadU16Field(cursor, &params->heading_lock_max_rpm);
-        cursor = ReadU16Field(cursor,
-                              &params->heading_lock_settle_rate_mdps);
-        cursor = ReadU16Field(cursor, &params->heading_lock_settle_rpm);
-        cursor = ReadU16Field(cursor, &params->heading_lock_settle_ms);
-        cursor = ReadU16Field(cursor, &params->heading_lock_timeout_ms);
-    }
-    if (payload_length >= kV14PayloadLength) {
-        cursor = ReadU16Field(cursor, &params->road_align_distance_mm);
-        cursor = ReadU16Field(cursor, &params->road_align_rpm);
-    }
-    if (payload_length >= kV15PayloadLength) {
-        cursor = ReadU16Field(cursor, &params->road_turn_outer_max_rpm);
-        cursor = ReadU16Field(
-            cursor,
-            &params->road_turn_inner_reverse_max_rpm);
-    }
-    if (payload_length >= kPayloadLength) {
-        if (infrared_v16_layout) {
-            cursor = ReadU8Field(cursor, &params->line_sensor_source);
-            cursor = ReadU8Field(cursor, &params->infrared_position_invert);
-            cursor = ReadU16Field(cursor, &params->infrared_position_span_raw);
-            cursor = ReadU16Field(cursor, &params->infrared_adc_threshold);
-            cursor = ReadU16Field(cursor, &params->infrared_adc_hysteresis);
-            cursor = ReadI32Field(cursor, &params->infrared_linefollow_kp);
-            cursor = ReadI32Field(cursor, &params->infrared_linefollow_kd);
-            cursor = ReadU16Field(
-                cursor, &params->infrared_linefollow_max_correction_rpm);
-            (void) ReadU16Field(
-                cursor,
-                &params->
-                    infrared_linefollow_correction_slew_permille_per_second);
-        } else {
-            cursor = ReadU16Field(cursor, &params->dm_position_kp_milli);
-            cursor = ReadU16Field(cursor, &params->dm_position_kd_milli);
-            cursor = ReadU16Field(cursor, &params->dm_speed_kd_milli);
-            cursor = ReadU16Field(cursor, &params->dm_max_velocity_mrad_s);
-            cursor = ReadU16Field(
-                cursor, &params->dm_max_tracking_error_mrad);
-            cursor = ReadU16Field(cursor, &params->dm_speed_slew_mrad_s2);
-            cursor = ReadU16Field(
-                cursor, &params->dm_position_tolerance_mrad);
-            cursor = ReadU16Field(
-                cursor, &params->dm_velocity_tolerance_mrad_s);
-            cursor = ReadU16Field(cursor, &params->dm_settle_ms);
-            (void) ReadU16Field(cursor, &params->dm_feedback_timeout_ms);
-        }
-    }
+    cursor = ReadU16Field(cursor, &params->grayscale_threshold);
+    cursor = ReadU16Field(cursor, &params->grayscale_hysteresis);
+    cursor = ReadU16Field(cursor, &params->grayscale_position_floor);
+    cursor = ReadU16Field(cursor, &params->grayscale_min_line_strength);
+    cursor = ReadU8Field(cursor, &params->grayscale_track_mask);
+    cursor = ReadI32Field(cursor, &params->linefollow_kp);
+    cursor = ReadI32Field(cursor, &params->linefollow_kd);
+    cursor = ReadU16Field(cursor,
+                          &params->linefollow_max_correction_rpm);
+    cursor = ReadU16Field(cursor, &params->linefollow_lost_hold_ms);
+    cursor = ReadU16Field(cursor, &params->linefollow_lost_stop_ms);
+    cursor = ReadU32Field(cursor, &params->wheel_radius_um);
+    cursor = ReadU8Field(cursor, &params->distance_speed_mode);
+    cursor = ReadU16Field(cursor, &params->distance_accel_rpm_s);
+    cursor = ReadU16Field(cursor, &params->distance_decel_rpm_s);
+    cursor = ReadU16Field(cursor, &params->distance_creep_rpm);
+    cursor = ReadU16Field(cursor, &params->distance_stop_latency_ms);
+    cursor = ReadU16Field(cursor, &params->distance_brake_margin_mm);
+    cursor = ReadU16Field(cursor, &params->distance_settle_rpm);
+    cursor = ReadU16Field(cursor, &params->distance_tolerance_mm);
+    cursor = ReadU16Field(cursor, &params->speed_accel_rpm_s);
+    cursor = ReadU16Field(cursor, &params->speed_decel_rpm_s);
+    cursor = ReadU16Field(
+        cursor,
+        &params->linefollow_correction_slew_permille_per_second);
+    cursor = ReadU16Field(cursor, &params->heading_turn_brake_ms);
+    cursor = ReadU16Field(
+        cursor,
+        &params->heading_turn_brake_margin_mdeg);
+    cursor = ReadU16Field(
+        cursor,
+        &params->heading_turn_settle_rate_mdps);
+    cursor = ReadU16Field(cursor, &params->heading_turn_settle_rpm);
+    cursor = ReadI32Field(cursor, &params->heading_lock_kp);
+    cursor = ReadI32Field(cursor, &params->heading_lock_kd);
+    cursor = ReadU16Field(cursor, &params->heading_lock_wake_mdeg);
+    cursor = ReadU16Field(cursor, &params->heading_lock_settle_mdeg);
+    cursor = ReadU16Field(cursor, &params->heading_lock_min_rpm);
+    cursor = ReadU16Field(cursor, &params->heading_lock_max_rpm);
+    cursor = ReadU16Field(cursor,
+                          &params->heading_lock_settle_rate_mdps);
+    cursor = ReadU16Field(cursor, &params->heading_lock_settle_rpm);
+    cursor = ReadU16Field(cursor, &params->heading_lock_settle_ms);
+    cursor = ReadU16Field(cursor, &params->heading_lock_timeout_ms);
+    cursor = ReadU16Field(cursor, &params->road_align_distance_mm);
+    cursor = ReadU16Field(cursor, &params->road_align_rpm);
+    cursor = ReadU16Field(cursor, &params->road_turn_outer_max_rpm);
+    cursor = ReadU16Field(
+        cursor,
+        &params->road_turn_inner_reverse_max_rpm);
+    cursor = ReadU16Field(cursor, &params->dm_position_kp_milli);
+    cursor = ReadU16Field(cursor, &params->dm_position_kd_milli);
+    cursor = ReadU16Field(cursor, &params->dm_speed_kd_milli);
+    cursor = ReadU16Field(cursor, &params->dm_max_velocity_mrad_s);
+    cursor = ReadU16Field(
+        cursor, &params->dm_max_tracking_error_mrad);
+    cursor = ReadU16Field(cursor, &params->dm_speed_slew_mrad_s2);
+    cursor = ReadU16Field(
+        cursor, &params->dm_position_tolerance_mrad);
+    cursor = ReadU16Field(
+        cursor, &params->dm_velocity_tolerance_mrad_s);
+    cursor = ReadU16Field(cursor, &params->dm_settle_ms);
+    (void) ReadU16Field(cursor, &params->dm_feedback_timeout_ms);
     (void) cursor;
 }
 
-void EncodeInfraredExtension(const ConfigStoreParams &params, uint8_t *payload)
+void EncodeInfraredPayload(const ConfigStoreParams &params, uint8_t *payload)
 {
     uint8_t *cursor = payload;
     cursor = AppendU8(cursor, params.line_sensor_source);
@@ -940,8 +895,8 @@ void EncodeInfraredExtension(const ConfigStoreParams &params, uint8_t *payload)
         params.infrared_linefollow_correction_slew_permille_per_second);
 }
 
-void DecodeInfraredExtension(const uint8_t *payload,
-                             ConfigStoreParams *params)
+void DecodeInfraredPayload(const uint8_t *payload,
+                           ConfigStoreParams *params)
 {
     const uint8_t *cursor = payload;
     cursor = ReadU8Field(cursor, &params->line_sensor_source);
@@ -958,47 +913,56 @@ void DecodeInfraredExtension(const uint8_t *payload,
         &params->infrared_linefollow_correction_slew_permille_per_second);
 }
 
-bool LoadInfraredExtension(ConfigStoreParams *params)
+void EncodeBallPayload(const ConfigStoreParams &params, uint8_t *payload)
 {
-    uint8_t image[kInfraredExtensionImageLength];
-    if (board::Board_FramRead(kInfraredExtensionAddress,
-                              image,
-                              sizeof(image)) != drivers::DRIVER_OK) {
-        return false;
+    uint8_t *cursor = payload;
+    cursor = AppendI16(cursor, params.ball_kp_mdeg_per_0p1mm);
+    cursor = AppendI16(cursor, params.ball_kd_mdeg_per_0p1mm_s);
+    cursor = AppendI16(cursor, params.ball_ki_mdeg_per_0p1mm_s);
+    cursor = AppendI16(cursor, params.ball_pitch_gain_permille);
+    cursor = AppendI16(cursor, params.ball_max_angle_mdeg);
+    cursor = AppendI16(cursor, params.ball_degraded_angle_mdeg);
+    cursor = AppendI32(cursor, params.ball_angle_slew_mdeg_s);
+    cursor = AppendI16(cursor, params.ball_position_tolerance_0p1mm);
+    cursor = AppendI16(cursor, params.ball_velocity_tolerance_0p1mm_s);
+    cursor = AppendU16(cursor, params.ball_settle_ms);
+    for (uint8_t i = 0U; i < 5U; i++) {
+        cursor = AppendI16(cursor, params.ball_map_angle_mdeg[i]);
     }
-    if ((ReadU32(&image[0]) != kInfraredExtensionMagic) ||
-        (ReadU16(&image[4]) != kInfraredExtensionVersion) ||
-        (ReadU16(&image[6]) != kInfraredExtensionPayloadLength)) {
-        return false;
+    for (uint8_t i = 0U; i < 5U; i++) {
+        cursor = AppendI16(cursor, params.ball_map_dm_mrad[i]);
     }
-    const uint32_t stored_crc = ReadU32(
-        &image[kHeaderLength + kInfraredExtensionPayloadLength]);
-    if (stored_crc !=
-        Crc32(image, kHeaderLength + kInfraredExtensionPayloadLength)) {
-        return false;
-    }
-    DecodeInfraredExtension(&image[kHeaderLength], params);
-    return true;
+    (void) cursor;
 }
 
-drivers::DriverStatus SaveInfraredExtension(const ConfigStoreParams &params)
+void DecodeBallPayload(const uint8_t *payload,
+                       ConfigStoreParams *params)
 {
-    uint8_t image[kInfraredExtensionImageLength];
-    WriteU32(&image[0], kInfraredExtensionMagic);
-    WriteU16(&image[4], kInfraredExtensionVersion);
-    WriteU16(&image[6], kInfraredExtensionPayloadLength);
-    EncodeInfraredExtension(params, &image[kHeaderLength]);
-    WriteU32(&image[kHeaderLength + kInfraredExtensionPayloadLength],
-             Crc32(image,
-                   kHeaderLength + kInfraredExtensionPayloadLength));
-    return board::Board_FramWrite(kInfraredExtensionAddress,
-                                  image,
-                                  sizeof(image));
+    const uint8_t *cursor = payload;
+    cursor = ReadI16Field(cursor, &params->ball_kp_mdeg_per_0p1mm);
+    cursor = ReadI16Field(cursor, &params->ball_kd_mdeg_per_0p1mm_s);
+    cursor = ReadI16Field(cursor, &params->ball_ki_mdeg_per_0p1mm_s);
+    cursor = ReadI16Field(cursor, &params->ball_pitch_gain_permille);
+    cursor = ReadI16Field(cursor, &params->ball_max_angle_mdeg);
+    cursor = ReadI16Field(cursor, &params->ball_degraded_angle_mdeg);
+    cursor = ReadI32Field(cursor, &params->ball_angle_slew_mdeg_s);
+    cursor = ReadI16Field(
+        cursor, &params->ball_position_tolerance_0p1mm);
+    cursor = ReadI16Field(
+        cursor, &params->ball_velocity_tolerance_0p1mm_s);
+    cursor = ReadU16Field(cursor, &params->ball_settle_ms);
+    for (uint8_t i = 0U; i < 5U; i++) {
+        cursor = ReadI16Field(cursor, &params->ball_map_angle_mdeg[i]);
+    }
+    for (uint8_t i = 0U; i < 5U; i++) {
+        cursor = ReadI16Field(cursor, &params->ball_map_dm_mrad[i]);
+    }
+    (void) cursor;
 }
 
 bool ValidateParams(const ConfigStoreParams &params)
 {
-    ConfigStoreParams saved = g_params;
+    g_validationSaved = g_params;
     g_params = params;
 
     for (uint8_t i = 0U; i < ConfigStore_ParamCount(); i++) {
@@ -1010,12 +974,12 @@ bool ValidateParams(const ConfigStoreParams &params)
                                     &min_value,
                                     &max_value);
         if ((value < min_value) || (value > max_value)) {
-            g_params = saved;
+            g_params = g_validationSaved;
             return false;
         }
     }
 
-    g_params = saved;
+    g_params = g_validationSaved;
     if (params.speed_min_duty > params.speed_max_duty) {
         return false;
     }
@@ -1070,6 +1034,31 @@ bool ValidateParams(const ConfigStoreParams &params)
             return false;
         }
     }
+    if (params.ball_degraded_angle_mdeg >
+        params.ball_max_angle_mdeg) {
+        return false;
+    }
+    const bool dm_increasing =
+        params.ball_map_dm_mrad[1] > params.ball_map_dm_mrad[0];
+    if (params.ball_map_dm_mrad[1] ==
+        params.ball_map_dm_mrad[0]) {
+        return false;
+    }
+    for (uint8_t i = 1U; i < 5U; i++) {
+        if (params.ball_map_angle_mdeg[i] <=
+            params.ball_map_angle_mdeg[i - 1U]) {
+            return false;
+        }
+        if (dm_increasing) {
+            if (params.ball_map_dm_mrad[i] <=
+                params.ball_map_dm_mrad[i - 1U]) {
+                return false;
+            }
+        } else if (params.ball_map_dm_mrad[i] >=
+                   params.ball_map_dm_mrad[i - 1U]) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -1087,6 +1076,9 @@ int32_t ReadParamValue(const ParamDescriptor &param)
     case PARAM_U32:
         return static_cast<int32_t>(
             *reinterpret_cast<const uint32_t *>(field));
+    case PARAM_I16:
+        return static_cast<int32_t>(
+            *reinterpret_cast<const int16_t *>(field));
     case PARAM_I32:
         return *reinterpret_cast<const int32_t *>(field);
     default:
@@ -1109,6 +1101,9 @@ void WriteParamValue(const ParamDescriptor &param, int32_t value)
     case PARAM_U32:
         *reinterpret_cast<uint32_t *>(field) = static_cast<uint32_t>(value);
         break;
+    case PARAM_I16:
+        *reinterpret_cast<int16_t *>(field) = static_cast<int16_t>(value);
+        break;
     case PARAM_I32:
         *reinterpret_cast<int32_t *>(field) = value;
         break;
@@ -1117,13 +1112,96 @@ void WriteParamValue(const ParamDescriptor &param, int32_t value)
     }
 }
 
+uint32_t BankCrc(const uint8_t *image, uint16_t payload_length)
+{
+    uint32_t crc = kCrc32Init;
+    for (uint8_t i = 0U; i < 12U; i++) {
+        crc = Crc32Update(crc, image[i]);
+    }
+    for (uint8_t i = 13U; i < kHeaderLength; i++) {
+        crc = Crc32Update(crc, image[i]);
+    }
+    for (uint16_t i = 0U; i < payload_length; i++) {
+        crc = Crc32Update(crc, image[kHeaderLength + i]);
+    }
+    return crc ^ 0xFFFFFFFFU;
+}
+
+bool GenerationNewer(uint32_t left, uint32_t right)
+{
+    return static_cast<int32_t>(left - right) > 0;
+}
+
+bool BuffersEqual(const uint8_t *left,
+                  const uint8_t *right,
+                  uint16_t length)
+{
+    for (uint16_t i = 0U; i < length; i++) {
+        if (left[i] != right[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+drivers::DriverStatus WriteAndVerify(uint16_t address,
+                                     const uint8_t *data,
+                                     uint16_t length)
+{
+    if (board::Board_FramWrite(address, data, length) !=
+        drivers::DRIVER_OK) {
+        return drivers::DRIVER_ERROR;
+    }
+    if ((length > sizeof(g_verifyScratch)) ||
+        (board::Board_FramRead(address, g_verifyScratch, length) !=
+         drivers::DRIVER_OK) ||
+        !BuffersEqual(data, g_verifyScratch, length)) {
+        return drivers::DRIVER_ERROR;
+    }
+    return drivers::DRIVER_OK;
+}
+
+bool DecodeBank(const uint8_t *image,
+                ConfigStoreParams *params,
+                uint32_t *generation,
+                uint32_t *stored_crc)
+{
+    if ((ReadU32(&image[0]) != kMagic) ||
+        (ReadU16(&image[4]) != kVersion) ||
+        (ReadU16(&image[6]) != kPayloadLength) ||
+        (image[12] != kBankValid)) {
+        return false;
+    }
+    const uint16_t length = ReadU16(&image[6]);
+    if (length > kPayloadCapacity) {
+        return false;
+    }
+    const uint32_t expected =
+        ReadU32(&image[kHeaderLength + length]);
+    if (expected != BankCrc(image, length)) {
+        return false;
+    }
+
+    DecodeMainPayload(&image[kHeaderLength], params);
+    DecodeInfraredPayload(
+        &image[kHeaderLength + kMainPayloadLength],
+        params);
+    DecodeBallPayload(
+        &image[kHeaderLength + kMainPayloadLength +
+               kInfraredPayloadLength],
+        params);
+    if (!ValidateParams(*params)) {
+        return false;
+    }
+    *generation = ReadU32(&image[8]);
+    *stored_crc = expected;
+    return true;
+}
+
 } /* namespace */
 
 drivers::DriverStatus ConfigStore_Load(void)
 {
-    uint8_t image[kImageLength];
-    ConfigStoreParams loaded = {};
-
     ConfigStore_ResetDefaults();
 
 #if FEATURE_ENABLE_FRAM
@@ -1133,115 +1211,58 @@ drivers::DriverStatus ConfigStore_Load(void)
         return g_status.last_load_status;
     }
 
-    drivers::DriverStatus status =
-        board::Board_FramRead(kFramAddress, image, kImageLength);
-    if (status != drivers::DRIVER_OK) {
-        g_status.load_outcome = CONFIG_LOAD_DEFAULTS_IO_ERROR;
-        g_status.last_load_status = status;
-        return status;
-    }
+    const drivers::DriverStatus read_a =
+        board::Board_FramRead(FRAM_CONFIG_BANK_A_ADDRESS,
+                              g_bankScratch,
+                              sizeof(g_bankScratch));
+    uint32_t generation_a = 0U;
+    uint32_t crc_a = 0U;
+    const bool valid_a =
+        (read_a == drivers::DRIVER_OK) &&
+        DecodeBank(g_bankScratch,
+                   &g_candidateA,
+                   &generation_a,
+                   &crc_a);
 
-    const uint32_t magic = ReadU32(&image[0]);
-    const uint16_t version = ReadU16(&image[4]);
-    const uint16_t length = ReadU16(&image[6]);
+    const drivers::DriverStatus read_b =
+        board::Board_FramRead(FRAM_CONFIG_BANK_B_ADDRESS,
+                              g_bankScratch,
+                              sizeof(g_bankScratch));
+    uint32_t generation_b = 0U;
+    uint32_t crc_b = 0U;
+    const bool valid_b =
+        (read_b == drivers::DRIVER_OK) &&
+        DecodeBank(g_bankScratch,
+                   &g_candidateB,
+                   &generation_b,
+                   &crc_b);
 
-    g_status.stored_length = length;
-    g_status.stored_crc = 0U;
-
-    const bool current_layout =
-        (version == kVersion) && (length == kPayloadLength);
-    const bool v16_layout =
-        (version == kV16Version) && (length == kV16PayloadLength);
-    const bool v15_layout =
-        (version == kV15Version) && (length == kV15PayloadLength);
-    const bool v14_layout =
-        (version == kV14Version) && (length == kV14PayloadLength);
-    const bool v13_layout =
-        (version == kV13Version) && (length == kV13PayloadLength);
-    const bool v12_layout =
-        (version == kV12Version) && (length == kV12PayloadLength);
-    const bool v11_layout =
-        (version == kV11Version) && (length == kV11PayloadLength);
-    const bool v10_layout =
-        (version == kV10Version) && (length == kV10PayloadLength);
-    const bool v9_layout =
-        (version == kV9Version) && (length == kV9PayloadLength);
-    const bool v8_layout =
-        (version == kV8Version) && (length == kV8PayloadLength);
-    const bool v7_layout =
-        (version == kV7Version) && (length == kV7PayloadLength);
-    const bool v6_layout =
-        (version == kV6Version) && (length == kV6PayloadLength);
-    const bool v5_layout =
-        (version == kV5Version) && (length == kV5PayloadLength);
-    const bool v4_layout =
-        (version == kV4Version) && (length == kV4PayloadLength);
-    const bool v3_layout =
-        (version == kV3Version) && (length == kV3PayloadLength);
-    const bool legacy_v1 =
-        (version == kLegacyVersion) && (length == kLegacyPayloadLength);
-    const bool legacy_v2 = (version == 2U) && (length == kV2PayloadLength);
-    const bool legacy_layout =
-        v16_layout || v15_layout || v14_layout || v13_layout || v12_layout || v11_layout || v10_layout || v9_layout || v8_layout || v7_layout || v6_layout ||
-        v5_layout || v4_layout || v3_layout || legacy_v1 || legacy_v2;
-
-    if ((magic != kMagic) ||
-        ((!current_layout) && (!legacy_layout))) {
+    if (!valid_a && !valid_b) {
         g_status.loaded_from_fram = false;
-        g_status.load_outcome = CONFIG_LOAD_DEFAULTS_INVALID;
-        g_status.last_load_status = drivers::DRIVER_ERROR;
-        return g_status.last_load_status;
-    }
-
-    const uint32_t stored_crc = ReadU32(&image[kHeaderLength + length]);
-    const uint32_t actual_crc = Crc32(image, kHeaderLength + length);
-
-    g_status.stored_crc = stored_crc;
-
-    if (stored_crc != actual_crc) {
-        g_status.loaded_from_fram = false;
-        g_status.load_outcome = CONFIG_LOAD_DEFAULTS_INVALID;
-        g_status.last_load_status = drivers::DRIVER_ERROR;
-        return g_status.last_load_status;
-    }
-
-    bool legacy_infrared_v16 = false;
-    DecodePayload(&image[kHeaderLength], length, &loaded, false);
-    if (v16_layout && !ValidateParams(loaded)) {
-        /* The infrared feature branch and upstream DM branch both shipped a
-         * 243-byte v16 image before they were merged. Prefer the authoritative
-         * upstream DM interpretation when valid; otherwise migrate the old
-         * infrared layout without discarding any v1-v15 fields. */
-        DecodePayload(&image[kHeaderLength], length, &loaded, true);
-        legacy_infrared_v16 = true;
-    }
-    /* Preserve deliberate user masks. Only the exact historical default is
-     * upgraded when loading an older image. */
-    if ((version <= kV10Version) &&
-        (loaded.grayscale_track_mask == kLegacyDefaultGrayscaleTrackMask)) {
-        loaded.grayscale_track_mask = kDefaultGrayscaleTrackMask;
-    }
-    if (!ValidateParams(loaded)) {
-        g_status.loaded_from_fram = false;
-        g_status.load_outcome = CONFIG_LOAD_DEFAULTS_INVALID;
-        g_status.last_load_status = drivers::DRIVER_ERROR_INVALID_ARG;
-        return g_status.last_load_status;
-    }
-
-    bool infrared_extension_loaded = false;
-    if (!legacy_infrared_v16) {
-        ConfigStoreParams extended = loaded;
-        if (LoadInfraredExtension(&extended) && ValidateParams(extended)) {
-            loaded = extended;
-            infrared_extension_loaded = true;
+        g_status.active_bank = kNoActiveBank;
+        g_status.generation = 0U;
+        if ((read_a != drivers::DRIVER_OK) ||
+            (read_b != drivers::DRIVER_OK)) {
+            g_status.load_outcome = CONFIG_LOAD_DEFAULTS_IO_ERROR;
+            g_status.last_load_status = drivers::DRIVER_ERROR;
+            return g_status.last_load_status;
         }
+        g_status.load_outcome = CONFIG_LOAD_DEFAULTS_INVALID;
+        g_status.last_load_status = drivers::DRIVER_ERROR;
+        return g_status.last_load_status;
     }
 
-    g_params = loaded;
+    const bool use_b = valid_b &&
+        (!valid_a || GenerationNewer(generation_b, generation_a));
+    g_params = use_b ? g_candidateB : g_candidateA;
     g_status.loaded_from_fram = true;
+    g_status.dirty = false;
+    g_status.stored_length = kPayloadLength;
+    g_status.stored_crc = use_b ? crc_b : crc_a;
     g_status.load_outcome = CONFIG_LOAD_FROM_FRAM;
-    g_status.dirty = !current_layout || !infrared_extension_loaded;
     g_status.last_load_status = drivers::DRIVER_OK;
+    g_status.active_bank = use_b ? 1U : 0U;
+    g_status.generation = use_b ? generation_b : generation_a;
     return drivers::DRIVER_OK;
 #else
     g_status.load_outcome = CONFIG_LOAD_DEFAULTS_UNSUPPORTED;
@@ -1252,40 +1273,103 @@ drivers::DriverStatus ConfigStore_Load(void)
 
 drivers::DriverStatus ConfigStore_Save(void)
 {
-    uint8_t image[kImageLength];
-
 #if FEATURE_ENABLE_FRAM
     if (!board::Board_FramIsReady()) {
-        g_status.last_save_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        g_status.last_save_status =
+            drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        return g_status.last_save_status;
+    }
+    if (!ValidateParams(g_params)) {
+        g_status.last_save_status =
+            drivers::DRIVER_ERROR_INVALID_ARG;
         return g_status.last_save_status;
     }
 
-    drivers::DriverStatus status = SaveInfraredExtension(g_params);
-    if (status != drivers::DRIVER_OK) {
-        g_status.last_save_status = status;
-        return status;
+    const uint8_t target_bank =
+        (g_status.active_bank == 0U) ? 1U : 0U;
+    const uint16_t address = (target_bank == 0U)
+        ? FRAM_CONFIG_BANK_A_ADDRESS
+        : FRAM_CONFIG_BANK_B_ADDRESS;
+    const uint32_t generation = g_status.generation + 1U;
+
+    (void) memset(g_bankScratch, 0, sizeof(g_bankScratch));
+    WriteU32(&g_bankScratch[0], kMagic);
+    WriteU16(&g_bankScratch[4], kVersion);
+    WriteU16(&g_bankScratch[6], kPayloadLength);
+    WriteU32(&g_bankScratch[8], generation);
+    g_bankScratch[12] = 0U;
+    EncodePayload(g_params, &g_bankScratch[kHeaderLength]);
+    EncodeInfraredPayload(
+        g_params,
+        &g_bankScratch[kHeaderLength + kMainPayloadLength]);
+    EncodeBallPayload(
+        g_params,
+        &g_bankScratch[kHeaderLength + kMainPayloadLength +
+                       kInfraredPayloadLength]);
+    const uint32_t crc = BankCrc(g_bankScratch, kPayloadLength);
+    WriteU32(&g_bankScratch[kHeaderLength + kPayloadLength], crc);
+
+    const uint8_t invalid = 0U;
+    if (WriteAndVerify(
+            static_cast<uint16_t>(address + 12U),
+            &invalid,
+            1U) != drivers::DRIVER_OK) {
+        g_status.last_save_status = drivers::DRIVER_ERROR;
+        return g_status.last_save_status;
+    }
+    if (WriteAndVerify(address,
+                       g_bankScratch,
+                       sizeof(g_bankScratch)) != drivers::DRIVER_OK) {
+        g_status.last_save_status = drivers::DRIVER_ERROR;
+        return g_status.last_save_status;
+    }
+    const uint8_t valid = kBankValid;
+    if (WriteAndVerify(
+            static_cast<uint16_t>(address + 12U),
+            &valid,
+            1U) != drivers::DRIVER_OK) {
+        g_status.last_save_status = drivers::DRIVER_ERROR;
+        return g_status.last_save_status;
     }
 
-    WriteU32(&image[0], kMagic);
-    WriteU16(&image[4], kVersion);
-    WriteU16(&image[6], kPayloadLength);
-    EncodePayload(g_params, &image[kHeaderLength]);
-
-    const uint32_t crc = Crc32(image, kHeaderLength + kPayloadLength);
-    WriteU32(&image[kHeaderLength + kPayloadLength], crc);
-
-    status = board::Board_FramWrite(kFramAddress, image, kImageLength);
-    g_status.last_save_status = status;
-    if (status == drivers::DRIVER_OK) {
-        g_status.loaded_from_fram = true;
-        g_status.dirty = false;
-        g_status.stored_length = kPayloadLength;
-        g_status.stored_crc = crc;
-    }
-    return status;
+    g_status.loaded_from_fram = true;
+    g_status.dirty = false;
+    g_status.stored_length = kPayloadLength;
+    g_status.stored_crc = crc;
+    g_status.last_save_status = drivers::DRIVER_OK;
+    g_status.load_outcome = CONFIG_LOAD_FROM_FRAM;
+    g_status.active_bank = target_bank;
+    g_status.generation = generation;
+    return drivers::DRIVER_OK;
 #else
     g_status.last_save_status = drivers::DRIVER_ERROR_UNSUPPORTED;
     return g_status.last_save_status;
+#endif
+}
+
+drivers::DriverStatus ConfigStore_Format(void)
+{
+#if FEATURE_ENABLE_FRAM
+    if (!board::Board_FramIsReady()) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    const uint8_t invalid = 0U;
+    if ((WriteAndVerify(
+             static_cast<uint16_t>(
+                 FRAM_CONFIG_BANK_A_ADDRESS + 12U),
+             &invalid,
+             1U) != drivers::DRIVER_OK) ||
+        (WriteAndVerify(
+             static_cast<uint16_t>(
+                 FRAM_CONFIG_BANK_B_ADDRESS + 12U),
+             &invalid,
+             1U) != drivers::DRIVER_OK)) {
+        return drivers::DRIVER_ERROR;
+    }
+    ConfigStore_ResetDefaults();
+    return drivers::DRIVER_OK;
+#else
+    return drivers::DRIVER_ERROR_UNSUPPORTED;
 #endif
 }
 
@@ -1297,6 +1381,9 @@ void ConfigStore_ResetDefaults(void)
     g_status.stored_length = kPayloadLength;
     g_status.stored_crc = 0U;
     g_status.load_outcome = CONFIG_LOAD_DEFAULTS_EXPLICIT;
+    g_status.active_bank = kNoActiveBank;
+    g_status.generation = 0U;
+    g_status.payload_capacity = kPayloadCapacity;
 }
 
 const ConfigStoreParams *ConfigStore_Get(void)
@@ -1307,7 +1394,7 @@ const ConfigStoreParams *ConfigStore_Get(void)
 drivers::DriverStatus ConfigStore_Set(const char *name, int32_t value)
 {
     const ParamDescriptor *param = FindParam(name);
-    const ConfigStoreParams saved = g_params;
+    g_updateScratch = g_params;
 
     if (param == 0) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
@@ -1323,7 +1410,7 @@ drivers::DriverStatus ConfigStore_Set(const char *name, int32_t value)
         g_params.wheel_radius_mm = static_cast<uint32_t>(value) / 1000U;
     }
     if (!ValidateParams(g_params)) {
-        g_params = saved;
+        g_params = g_updateScratch;
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
 
@@ -1357,15 +1444,35 @@ drivers::DriverStatus ConfigStore_SetInfraredCalibration(
         (adc_hysteresis > 1000U)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
-    ConfigStoreParams updated = g_params;
-    updated.infrared_position_invert = invert;
-    updated.infrared_position_span_raw = span_raw;
-    updated.infrared_adc_threshold = adc_threshold;
-    updated.infrared_adc_hysteresis = adc_hysteresis;
-    if (!ValidateParams(updated)) {
+    g_updateScratch = g_params;
+    g_updateScratch.infrared_position_invert = invert;
+    g_updateScratch.infrared_position_span_raw = span_raw;
+    g_updateScratch.infrared_adc_threshold = adc_threshold;
+    g_updateScratch.infrared_adc_hysteresis = adc_hysteresis;
+    if (!ValidateParams(g_updateScratch)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
-    g_params = updated;
+    g_params = g_updateScratch;
+    g_status.dirty = true;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus ConfigStore_SetBallMap(
+    const int16_t angles_mdeg[5],
+    const int16_t dm_positions_mrad[5])
+{
+    if ((angles_mdeg == 0) || (dm_positions_mrad == 0)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    g_updateScratch = g_params;
+    for (uint8_t i = 0U; i < 5U; i++) {
+        g_updateScratch.ball_map_angle_mdeg[i] = angles_mdeg[i];
+        g_updateScratch.ball_map_dm_mrad[i] = dm_positions_mrad[i];
+    }
+    if (!ValidateParams(g_updateScratch)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    g_params = g_updateScratch;
     g_status.dirty = true;
     return drivers::DRIVER_OK;
 }
@@ -1386,26 +1493,26 @@ drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
 
-    ConfigStoreParams updated = g_params;
+    g_updateScratch = g_params;
     for (uint8_t i = 0U; i < CONFIG_STORE_GRAYSCALE_CHANNEL_COUNT; i++) {
         if ((white[i] > 4095U) || (black[i] > 4095U) ||
             (white[i] == black[i])) {
             return drivers::DRIVER_ERROR_INVALID_ARG;
         }
-        updated.grayscale_white[i] = white[i];
-        updated.grayscale_black[i] = black[i];
+        g_updateScratch.grayscale_white[i] = white[i];
+        g_updateScratch.grayscale_black[i] = black[i];
     }
-    updated.grayscale_threshold = threshold;
-    updated.grayscale_hysteresis = hysteresis;
-    updated.grayscale_position_floor = position_floor;
-    updated.grayscale_min_line_strength = min_line_strength;
-    updated.grayscale_track_mask = track_mask;
+    g_updateScratch.grayscale_threshold = threshold;
+    g_updateScratch.grayscale_hysteresis = hysteresis;
+    g_updateScratch.grayscale_position_floor = position_floor;
+    g_updateScratch.grayscale_min_line_strength = min_line_strength;
+    g_updateScratch.grayscale_track_mask = track_mask;
 
-    if (!ValidateParams(updated)) {
+    if (!ValidateParams(g_updateScratch)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
 
-    g_params = updated;
+    g_params = g_updateScratch;
     g_status.dirty = true;
     return drivers::DRIVER_OK;
 }

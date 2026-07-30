@@ -121,47 +121,6 @@ void RunUntilStopped(uint16_t max_updates)
     assert(!app::ActionRunner_GetState()->running);
 }
 
-uint32_t TestCrc32(const uint8_t *data, uint16_t length)
-{
-    uint32_t crc = 0xFFFFFFFFU;
-    for (uint16_t i = 0U; i < length; i++) {
-        crc ^= static_cast<uint32_t>(data[i]) << 24U;
-        for (uint8_t bit = 0U; bit < 8U; bit++) {
-            crc = ((crc & 0x80000000U) != 0U) ?
-                ((crc << 1U) ^ 0x04C11DB7U) : (crc << 1U);
-        }
-    }
-    return crc ^ 0xFFFFFFFFU;
-}
-
-void TestWriteU32(uint8_t *data, uint32_t value)
-{
-    data[0] = static_cast<uint8_t>(value);
-    data[1] = static_cast<uint8_t>(value >> 8U);
-    data[2] = static_cast<uint8_t>(value >> 16U);
-    data[3] = static_cast<uint8_t>(value >> 24U);
-}
-
-void PrepareLegacyV1Slot7()
-{
-    memset(g_fram, 0, sizeof(g_fram));
-    TestWriteU32(&g_fram[0x0100], 0x53455131U);
-    g_fram[0x0104] = 1U;
-    g_fram[0x0105] = 0U;
-    g_fram[0x0106] = 8U;
-    const uint16_t slot =
-        static_cast<uint16_t>(0x0100U + 8U + 7U * 646U);
-    g_fram[slot] = 1U;
-    g_fram[slot + 1U] = 1U;
-    uint8_t *instr = &g_fram[slot + 2U];
-    instr[0] = static_cast<uint8_t>(app::ACT_OP_END);
-    instr[7] = static_cast<uint8_t>(app::ACT_COND_IMMEDIATE);
-    instr[8] = app::ACT_NEXT;
-    instr[9] = app::ACT_NEXT;
-    const uint16_t payload_length = 12U;
-    TestWriteU32(&g_fram[slot + payload_length],
-                 TestCrc32(&g_fram[slot], payload_length));
-}
 } /* namespace */
 
 namespace services {
@@ -996,7 +955,19 @@ int main()
     assert(ActionRunner_ValidateCompetition(&validation) ==
            drivers::DRIVER_ERROR_INVALID_ARG);
 
-    /* SeqStore v2 keeps eight 64-step slots with 14-byte instructions. */
+    /* ActionRunner and SeqStore share the same 54-instruction ceiling. */
+    Reset();
+    for (uint8_t i = 0U; i < ACTION_MAX_INSTRS; i++) {
+        assert(ActionRunner_AddInstr(
+                   ACT_OP_STOP, 0, 0, ACT_COND_IMMEDIATE,
+                   ACT_NEXT, ACT_NEXT) == drivers::DRIVER_OK);
+    }
+    assert(ActionRunner_AddInstr(
+               ACT_OP_END, 0, 0, ACT_COND_IMMEDIATE,
+               ACT_NEXT, ACT_NEXT) ==
+           drivers::DRIVER_ERROR);
+
+    /* Clean SeqStore v1 keeps eight 54-step slots with 14-byte instructions. */
     Reset();
     memset(g_fram, 0, sizeof(g_fram));
     assert(ActionRunner_AddInstr(ACT_OP_LOOP, 3, 0,
@@ -1007,14 +978,19 @@ int main()
                                  ACT_NEXT) == drivers::DRIVER_OK);
     AddEnd();
     assert(SeqStore_Save(7U) == drivers::DRIVER_OK);
-    assert(g_fram[0x0100] == '1' && g_fram[0x0101] == 'Q' &&
-           g_fram[0x0102] == 'E' && g_fram[0x0103] == 'S');
-    assert(g_fram[0x0104] == 2U && g_fram[0x0105] == 0U);
-    const uint16_t slot7 = static_cast<uint16_t>(0x0100U + 8U + 7U * 902U);
-    assert(g_fram[slot7] == 1U && g_fram[slot7 + 1U] == 3U);
-    assert(g_fram[slot7 + 2U] == static_cast<uint8_t>(ACT_OP_LOOP));
-    assert(g_fram[slot7 + 16U] == static_cast<uint8_t>(ACT_OP_STOP));
-    assert(g_fram[slot7 + 30U] == static_cast<uint8_t>(ACT_OP_END));
+    assert(g_fram[0x0800] == 'G' && g_fram[0x0801] == 'S' &&
+           g_fram[0x0802] == 'Q' && g_fram[0x0803] == '1');
+    assert(g_fram[0x0804] == 1U && g_fram[0x0805] == 8U &&
+           g_fram[0x0806] == 54U);
+    const uint16_t slot7 = 0x1CFAU;
+    assert(g_fram[slot7] == 0xA5U &&
+           g_fram[slot7 + 1U] == 3U);
+    assert(g_fram[slot7 + 6U] ==
+           static_cast<uint8_t>(ACT_OP_LOOP));
+    assert(g_fram[slot7 + 20U] ==
+           static_cast<uint8_t>(ACT_OP_STOP));
+    assert(g_fram[slot7 + 34U] ==
+           static_cast<uint8_t>(ACT_OP_END));
     assert(ActionRunner_Clear() == drivers::DRIVER_OK);
     assert(SeqStore_Load(7U) == drivers::DRIVER_OK);
     assert(ActionRunner_GetState()->count == 3U);
@@ -1023,7 +999,7 @@ int main()
     assert(ActionRunner_GetState()->instrs[0].on_success == 1U);
     assert(ActionRunner_GetState()->instrs[0].on_timeout == 2U);
 
-    /* Opcode 19 and its route enum survive the unchanged 14-byte v2 slot
+    /* Opcode 19 and its route enum survive the unchanged 14-byte slot
      * record and CRC round-trip. */
     assert(ActionRunner_Clear() == drivers::DRIVER_OK);
     assert(ActionRunner_AddRoadNav(
@@ -1040,7 +1016,7 @@ int main()
     assert(ActionRunner_GetState()->instrs[0].condition_value ==
            ROAD_ROUTE_UTURN_RIGHT_PIVOT);
 
-    /* Opcodes 20..22 keep the existing 14-byte SeqStore v2 record,
+    /* Opcodes 20..22 keep the existing 14-byte SeqStore record,
      * including dm_position's timeout in condition_value. */
     assert(ActionRunner_Clear() == drivers::DRIVER_OK);
     assert(ActionRunner_AddDmPosition(
@@ -1079,16 +1055,18 @@ int main()
     assert(ActionRunner_GetState()->instrs[1].op == ACT_OP_DM_SPEED);
     assert(ActionRunner_GetState()->instrs[2].op == ACT_OP_DM_DISABLE);
 
-    /* Existing v1 slots migrate in place without changing their behavior. */
+    /* Former layouts are deliberately discarded, with all slots invalid. */
     Reset();
-    PrepareLegacyV1Slot7();
+    memset(g_fram, 0xCC, sizeof(g_fram));
     assert(SeqStore_Init() == drivers::DRIVER_OK);
-    assert(g_fram[0x0104] == 2U && g_fram[0x0105] == 0U);
-    assert(SeqStore_Load(7U) == drivers::DRIVER_OK);
-    assert(ActionRunner_GetState()->count == 1U);
-    assert(ActionRunner_GetState()->instrs[0].op == ACT_OP_END);
+    assert(g_fram[0x0800] == 'G' && g_fram[0x0804] == 1U);
+    assert(g_fram[0x0806] == 54U);
+    assert(g_fram[0x0808] == 0U);
+    assert(g_fram[0x1CFA] == 0U);
+    assert(SeqStore_Load(7U) ==
+           drivers::DRIVER_ERROR_NOT_INITIALIZED);
 
     printf("action runner ok: 300s guard, DM-G6220, counted/nested loops, "
-           "generic conditions, competition validation, SeqStore v1/v2\n");
+           "generic conditions, competition validation, clean SeqStore v1\n");
     return 0;
 }

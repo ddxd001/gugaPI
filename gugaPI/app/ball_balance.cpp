@@ -5,6 +5,7 @@
 #include "app/app_imu.h"
 #include "app/ball_vision.h"
 #include "app/chassis.h"
+#include "app/config_store.h"
 #include "app/dm_g6220_controller.h"
 #include "services/time.h"
 
@@ -73,8 +74,11 @@ int32_t SignedPitchMdeg(void)
 bool ParamsValid(const BallBalanceParams *params)
 {
     if ((params == 0) || (params->kp_mdeg_per_0p1mm < 0) ||
+        (params->kp_mdeg_per_0p1mm > 1000) ||
         (params->kd_mdeg_per_0p1mm_s < 0) ||
+        (params->kd_mdeg_per_0p1mm_s > 1000) ||
         (params->ki_mdeg_per_0p1mm_s < 0) ||
+        (params->ki_mdeg_per_0p1mm_s > 1000) ||
         (params->pitch_gain_permille < -2000) ||
         (params->pitch_gain_permille > 2000) ||
         (params->maximum_angle_mdeg < 100) ||
@@ -84,19 +88,77 @@ bool ParamsValid(const BallBalanceParams *params)
         (params->angle_slew_mdeg_s < 100) ||
         (params->angle_slew_mdeg_s > 180000) ||
         (params->position_tolerance_0p1mm < 1) ||
+        (params->position_tolerance_0p1mm > 1000) ||
         (params->velocity_tolerance_0p1mm_s < 1) ||
         (params->settle_ms < 10U) || (params->settle_ms > 5000U)) {
+        return false;
+    }
+    const bool dm_increasing =
+        params->dm_position_mrad[1] > params->dm_position_mrad[0];
+    if (params->dm_position_mrad[1] ==
+        params->dm_position_mrad[0]) {
         return false;
     }
     for (uint8_t i = 1U; i < 5U; i++) {
         if ((params->beam_angle_mdeg[i] <=
              params->beam_angle_mdeg[i - 1U]) ||
-            (params->dm_position_mrad[i] <=
-             params->dm_position_mrad[i - 1U])) {
+            (params->beam_angle_mdeg[i] < -15000) ||
+            (params->beam_angle_mdeg[i] > 15000) ||
+            (params->dm_position_mrad[i] < -12500) ||
+            (params->dm_position_mrad[i] > 12500)) {
+            return false;
+        }
+        if (dm_increasing) {
+            if (params->dm_position_mrad[i] <=
+                params->dm_position_mrad[i - 1U]) {
+                return false;
+            }
+        } else if (params->dm_position_mrad[i] >=
+                   params->dm_position_mrad[i - 1U]) {
             return false;
         }
     }
+    if ((params->beam_angle_mdeg[0] < -15000) ||
+        (params->beam_angle_mdeg[0] > 15000) ||
+        (params->dm_position_mrad[0] < -12500) ||
+        (params->dm_position_mrad[0] > 12500)) {
+        return false;
+    }
     return true;
+}
+
+bool LoadConfiguredParams(BallBalanceParams *params)
+{
+    const ConfigStoreParams *config = ConfigStore_Get();
+    if ((config == 0) || (params == 0)) {
+        return false;
+    }
+    params->kp_mdeg_per_0p1mm =
+        config->ball_kp_mdeg_per_0p1mm;
+    params->kd_mdeg_per_0p1mm_s =
+        config->ball_kd_mdeg_per_0p1mm_s;
+    params->ki_mdeg_per_0p1mm_s =
+        config->ball_ki_mdeg_per_0p1mm_s;
+    params->pitch_gain_permille =
+        config->ball_pitch_gain_permille;
+    params->maximum_angle_mdeg =
+        config->ball_max_angle_mdeg;
+    params->degraded_angle_mdeg =
+        config->ball_degraded_angle_mdeg;
+    params->angle_slew_mdeg_s =
+        config->ball_angle_slew_mdeg_s;
+    params->position_tolerance_0p1mm =
+        config->ball_position_tolerance_0p1mm;
+    params->velocity_tolerance_0p1mm_s =
+        config->ball_velocity_tolerance_0p1mm_s;
+    params->settle_ms = config->ball_settle_ms;
+    for (uint8_t i = 0U; i < 5U; i++) {
+        params->beam_angle_mdeg[i] =
+            config->ball_map_angle_mdeg[i];
+        params->dm_position_mrad[i] =
+            config->ball_map_dm_mrad[i];
+    }
+    return ParamsValid(params);
 }
 
 void UpdateEstimator(const drivers::BallVisionFrame &sample,
@@ -159,6 +221,10 @@ drivers::DriverStatus Start(BallBalanceMode mode,
         ((mode != BALL_BALANCE_HOLD) && (mode != BALL_BALANCE_MOVE))) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
+    BallBalanceParams configured;
+    if (!LoadConfiguredParams(&configured)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
     const uint32_t now_ms = services::Time_Millis();
     const BallVisionData *vision = BallVision_GetData();
     if ((vision == 0) || !BallVision_IsUsable(now_ms) ||
@@ -173,6 +239,7 @@ drivers::DriverStatus Start(BallBalanceMode mode,
         return acquire;
     }
 
+    g_params = configured;
     g_state = {};
     g_state.initialized = true;
     g_state.mode = mode;
@@ -191,7 +258,9 @@ drivers::DriverStatus Start(BallBalanceMode mode,
 
 void BallBalance_Init(void)
 {
-    g_params = kDefaultParams;
+    if (!LoadConfiguredParams(&g_params)) {
+        g_params = kDefaultParams;
+    }
     g_state = {};
     g_state.initialized = true;
     g_state.mode = BALL_BALANCE_IDLE;

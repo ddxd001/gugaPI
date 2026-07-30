@@ -17,10 +17,10 @@ vm.createContext(context);
 vm.runInContext(metadataSource,context,{filename:'app5.js metadata'});
 
 const descriptorNames=[...storeSource.matchAll(
-  /\{\s*"([a-zA-Z0-9_]+)"\s*,\s*PARAM_(?:U8|U16|U32|I32)\s*,/g
+  /\{\s*"([a-zA-Z0-9_]+)"\s*,\s*PARAM_(?:U8|U16|U32|I16|I32)\s*,/g
 )].map(match=>match[1]);
 
-assert.strictEqual(descriptorNames.length,116,
+assert.strictEqual(descriptorNames.length,136,
   'firmware parameter count changed; audit the host metadata');
 assert.strictEqual(new Set(descriptorNames).size,descriptorNames.length,
   'firmware parameter descriptors contain duplicates');
@@ -74,14 +74,19 @@ for(let index=0;index<8;index++){
     grayBlack[index],'gray black defaults must match the commissioned car');
 }
 assert.strictEqual(context.PARAM_META.gray_track_mask.defaultValue,0x7E,
-  'host default grayscale tracking mask must match firmware migration');
+  'host default grayscale tracking mask must match firmware defaults');
 
-assert(/static const uint16_t kVersion = 17U;/.test(storeSource),
+assert(/static const uint16_t kVersion = 1U;/.test(storeSource),
   'firmware ConfigStore version changed');
-assert(/static const uint16_t kPayloadLength = 243U;/.test(storeSource),
+assert(/kBallPayloadLength = 42U/.test(storeSource),
   'firmware ConfigStore payload length changed');
-assert(/version=17 len=243/.test(parameterSource),
-  'host simulator must report the v17 main payload length');
+assert(/len=305/.test(parameterSource),
+  'host simulator must report the clean-layout payload length');
+
+assert.strictEqual(context.PARAM_META.ball_kp_mdeg_per_0p1mm.defaultValue,10);
+assert.strictEqual(context.PARAM_META.ball_max_angle_mdeg.max,15000);
+assert.strictEqual(context.PARAM_META.ball_map_angle_0_mdeg.defaultValue,-8000);
+assert.strictEqual(context.PARAM_META.ball_map_dm_4_mrad.defaultValue,1000);
 
 const current={};
 for(const name of context.PARAM_ORDER){
@@ -99,6 +104,7 @@ assert.deepStrictEqual(Array.from(plan.steps,item=>item.name),
   'JSON import must arrange coupled parameters in a firmware-safe order');
 let intermediate=Object.assign({},current);
 for(const step of plan.steps){
+  assert.notStrictEqual(step.type,'ball_map');
   intermediate=context.paramCandidateWithValue(intermediate,step.name,step.value);
   assert.strictEqual(context.paramCandidateError(intermediate,{}),'',
     'every planned param set must satisfy ConfigStore validation');
@@ -116,4 +122,18 @@ assert.strictEqual(radiusPlan.ok,true,radiusPlan.error);
 assert.strictEqual(radiusPlan.finalValues.wheel_radius_mm,33,
   'import planner must model ConfigStore wheel-radius synchronization');
 
-console.log('parameter catalog ok: 116 parameters, ConfigStore v17 main payload 243');
+const reverseMap={};
+for(let index=0;index<5;index++){
+  reverseMap['ball_map_angle_'+index+'_mdeg']=[-8000,-4000,0,4000,8000][index];
+  reverseMap['ball_map_dm_'+index+'_mrad']=[1000,500,0,-500,-1000][index];
+}
+const mapPlan=context.paramPlanImport(current,reverseMap,{});
+assert.strictEqual(mapPlan.ok,true,mapPlan.error);
+assert.strictEqual(mapPlan.steps.filter(step=>step.type==='ball_map').length,1,
+  'five-point mapping must be emitted as one atomic command');
+
+const invalidMap=Object.assign({},reverseMap,{ball_map_dm_3_mrad:200});
+assert.strictEqual(context.paramPlanImport(current,invalidMap,{}).ok,false,
+  'non-monotonic ball mapping must be rejected');
+
+console.log('parameter catalog ok: 136 parameters, clean ConfigStore payload 305');

@@ -77,6 +77,7 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('fram status','查看FRAM就绪状态和I²C线状态。'),
       ShellForm('fram recover','发送恢复时钟并重新恢复I²C控制器。','W'),
       ShellForm('fram test','在保留测试区执行备份、写入、读回和恢复。','W'),
+      ShellForm('fram format confirm','在dev-running静止状态清空全部配置和序列并重建新布局。','W'),
       ShellForm('fram read <addr> <len 1..32>','从指定地址读取1到32字节。'),
       ShellForm('fram write <addr> <byte>','写入单字节并读回校验。','W')
     ],'fram write/test 会改变非易失存储；测试期间必须保持供电稳定。'),
@@ -298,7 +299,7 @@ var SHELL_COMMAND_LIBRARY=[
     ]),
 
   ShellCommand('run','RAM动作序列','流程',
-    '在 RAM 中构建、检查和执行最多 64 步的动作状态机。','M',BOTH,[
+    '在 RAM 中构建、检查和执行最多 54 步的动作状态机。','M',BOTH,[
       ShellForm('run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>','追加传统运动、等待、结束及 LED/蜂鸣器动作。','W'),
       ShellForm('run add condition <source> <cmp> <value> <instant|wait>','后续填写超时、稳定时间和真假跳转，追加通用条件判断。','W'),
       ShellForm('run add drive_if|follow_if <rpm> <source> <cmp> <value>','后续填写超时、稳定时间和跳转，运动期间持续判断通用条件。','W'),
@@ -408,9 +409,10 @@ var SHELL_COMMAND_LIBRARY=[
   ShellCommand('ball','滚球闭环控制','执行器',
     '调试100 Hz滚球位置闭环和双连杆角度映射；运动命令只允许在dev-running执行。','M',BOTH,[
       ShellForm('ball status','查看模式、结果、球位置/速度、梁角和达妙目标。'),
-      ShellForm('ball params','查看当前编译期滚球控制参数。'),
+      ShellForm('ball params','查看ConfigStore中的滚球参数；下次启动闭环时生效。'),
+      ShellForm('ball map [angle0 dm0 ... angle4 dm4]','查看或原子设置五点横梁角/达妙位置映射。','W'),
       ShellForm('ball hold <-1000..1000>','按0.1 mm单位保持目标位置。','M'),
       ShellForm('ball move <-1000..1000> <50..30000>','移动到目标并等待稳定。','M'),
       ShellForm('ball stop','停止闭环并失能达妙电机。','M')
-    ],'当前参数尚未写入ConfigStore；首次联调必须空载、限流并用vision inject验证方向。')
+    ],'参数修改后下次滚球启动生效；持久化仍需param save。首次联调必须空载、限流并用vision inject验证方向。')
 ];

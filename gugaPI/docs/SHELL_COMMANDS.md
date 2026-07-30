@@ -177,6 +177,8 @@ vision inject <position_0p1mm> <confidence>
 ```text
 ball status
 ball params
+ball map
+ball map <angle0_mdeg> <dm0_mrad> ... <angle4_mdeg> <dm4_mrad>
 ball hold <-1000..1000>
 ball move <-1000..1000> <50..30000>
 ball stop
@@ -188,8 +190,13 @@ ball stop
 `ball stop` 停止滚球闭环并失能达妙电机。
 
 `ball status` 显示目标、估计位置/速度、误差、梁角、DM目标和本次最大误差；
-`ball params` 显示当前编译期控制参数。现阶段参数尚未写入ConfigStore，
-双连杆五点映射也必须在实物安装后重新标定。
+`ball params` 显示ConfigStore中的控制参数。参数在下一次 `hold/move`
+启动时复制为运行快照，活动闭环不受中途调参影响。
+
+`ball map` 显示五点双连杆映射；带10个参数时原子更新全部映射点。横梁角
+范围为 `-15000..15000 mdeg` 且必须严格递增，DM位置范围为
+`-12500..12500 mrad`，可整体严格递增或严格递减。修改后仍需
+`param save` 才会持久化。
 
 ## LED
 
@@ -322,6 +329,15 @@ fram status
 ```
 
 输出里的 `scl`、`sda` 表示总线电平。
+
+### `fram format confirm`
+
+在`dev-running`、系统无故障且底盘/序列/滚球均静止时，清空两个
+ConfigStore副本和全部8个序列槽，然后重建SeqStore布局头。该操作不可恢复：
+
+```text
+fram format confirm
+```
 
 ### `fram recover`
 
@@ -2005,7 +2021,7 @@ LED2、LED3 和蜂鸣器都会关闭。序列运行期间仍可通过 Shell 查�
 
 ### `run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>`
 
-追加一条指令到序列末尾。最多 64 条。参数会立即执行与 `run validate` 相同的类型规则；允许先引用尚未追加的后续索引，整表跳转在启动或保存前检查。
+追加一条指令到序列末尾。最多 54 条。参数会立即执行与 `run validate` 相同的类型规则；允许先引用尚未追加的后续索引，整表跳转在启动或保存前检查。
 
 ```text
 run add drive  80  5000  timeout          next abort
@@ -2192,15 +2208,20 @@ seq 5
 
 `255` = `ACT_NEXT`（onsuccess=下一条，ontimeout=中止）。
 
-FRAM 序列表当前为 SeqStore v2：每槽最多 64 条、每条 14 字节、共 8 个
-槽位。固件启动时会把 v1 的 10 字节指令自动迁移到 v2；迁移带有持久化
-进度和暂存区，掉电重启后会继续，不要求用户先清空已有比赛序列。
+FRAM序列表使用全新SeqStore v1：每槽最多54条、每条14字节、共8个
+固定槽位。格式与旧SeqStore不兼容；首次运行新固件会清空旧序列。
+运行时先把所选槽完整加载到RAM，不在控制循环中逐条访问FRAM。
 
 ## 参数管理
 
-参数持久化系统。底盘几何、速度环、位置环、距离速度规划、IMU 偏置、航向闭环、电源保护、灰度循迹和达妙控制参数存储在 FRAM 主记录中（地址 0x0000，magic "CFPG"，CRC32 校验）。当前主记录版本为 v17，payload 仍为 243 字节、完整镜像 255 字节，不越过 `0x0100` 的 SeqStore 起始地址。三路串口红外的设备选择、标定和独立 PID 参数存放在 `0x1FD0..0x1FEF` 的 32 字节 CRC 扩展记录中，位于序列迁移日志与 `0x1FF0` 自检区之间，不占用任何序列槽。
+参数持久化系统使用全新的ConfigStore v1。A/B两个1 KiB副本分别位于
+`0x0000..0x03FF` 和 `0x0400..0x07FF`，统一保存底盘、传感器、
+红外、达妙和滚球参数。每次保存写入非活动副本，CRC和回读通过后才提交
+有效状态；掉电时仍可回退到原副本。当前payload为305字节，每个副本容量
+1004字节。
 
-固件兼容加载 v1-v15 历史布局，以及合并前两种同为 243 字节的 v16 布局：主线 DM-G6220 v16 按原参数读取；三路红外分支 v16 会识别其尾部字段并迁移到扩展记录。旧布局或缺少有效扩展记录时会补入安全默认值并标记 dirty，只有显式执行 `param save` 才升级并写入；路口、静止锁向、循迹斜率和灰度掩码的既有迁移规则保持不变。
+旧ConfigStore数据不迁移。首次启动会加载源码默认值并标记dirty，检查后
+执行一次 `param save` 建立第一个有效副本。
 
 ### `param status`
 
@@ -2220,6 +2241,10 @@ param status
 | `crc` | 存储的 CRC32 |
 | `load` | 上次加载结果 |
 | `save` | 上次保存结果 |
+| `layout` | FRAM布局版本，当前为1 |
+| `bank` | 当前活动配置副本A/B |
+| `generation` | 当前配置代际号 |
+| `capacity` / `free` | payload容量和剩余字节 |
 
 ### `param get [name]`
 
@@ -2244,7 +2269,7 @@ param heading_kp=1000 range=0..100000
 
 ```text
 param export 0 16
-param export start=0 count=16 total=79
+param export start=0 count=16 total=136
 param left_counts_per_rev=1456 range=1..100000000
 ...
 ```

@@ -69,8 +69,8 @@ assert(!result.valid&&result.issues.some(x=>x.code==='unreachable'));
 
 const tooMany=SC.newProject('超长',7);
 let previous='start';
-for(let i=0;i<65;i++){
-  const n=add(tooMany,i===64?'end':'stop','m'+i,i+1);
+for(let i=0;i<55;i++){
+  const n=add(tooMany,i===54?'end':'stop','m'+i,i+1);
   SC.connect(tooMany,previous,'success',n.id);
   previous=n.id;
 }
@@ -432,4 +432,4 @@ assert.strictEqual(migratedNode.params.value,0);
 assert(!migrated.nodes.some(n=>n.type==='system_abort'));
 assert(!migrated.edges.some(e=>e.target==='abort'));
 
-console.log('sequence core ok: implicit abort, legacy migration, 22 actions, road-nav, DM-G6220, ball balance, counted/nested loops and round trips');
+console.log('sequence core ok: implicit abort, clean 54-step layout, 22 actions, road-nav, DM-G6220, ball balance, counted/nested loops and round trips');

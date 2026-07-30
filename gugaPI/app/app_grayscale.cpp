@@ -599,26 +599,6 @@ drivers::DriverStatus App_GrayscaleReloadCalibration(void)
     calibration.min_line_strength = params->grayscale_min_line_strength;
     calibration.track_mask = params->grayscale_track_mask;
 
-    /* Migrate only the exact early commissioning tuple. This keeps deliberate
-     * user tuning intact while preventing the known 200/40/20/50 settings
-     * from treating normal floor variation as line evidence. */
-    const bool legacy_processing_tuple =
-        (calibration.threshold == 200U) &&
-        (calibration.hysteresis == 40U) &&
-        (calibration.position_floor == 20U) &&
-        (calibration.min_line_strength == 50U) &&
-        (calibration.track_mask == kDefaultTrackMask);
-    if (legacy_processing_tuple) {
-        ApplyProcessingDefaults(&calibration);
-        (void) ConfigStore_SetGrayscaleCalibration(
-            calibration.white,
-            calibration.black,
-            calibration.threshold,
-            calibration.hysteresis,
-            calibration.position_floor,
-            calibration.min_line_strength,
-            calibration.track_mask);
-    }
     g_calibration = calibration;
 
     uint8_t fault_mask = 0U;

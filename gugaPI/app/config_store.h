@@ -60,7 +60,7 @@ struct ConfigStoreParams {
     int32_t heading_tolerance_mdeg;      /* TURN target tolerance */
     uint16_t heading_settle_ms;          /* TURN settle time at target */
 
-    /* Predictive TURN braking and completion gates (v12). */
+    /* Predictive TURN braking and completion gates. */
     uint16_t heading_turn_brake_ms;          /* gyro-rate prediction horizon */
     uint16_t heading_turn_brake_margin_mdeg; /* fixed early-stop margin */
     uint16_t heading_turn_settle_rate_mdps;  /* maximum stopped yaw rate */
@@ -103,8 +103,7 @@ struct ConfigStoreParams {
     /* Maximum differential-correction change, relative to base RPM. */
     uint16_t linefollow_correction_slew_permille_per_second;
 
-    /* Stationary disturbance-recovery heading lock (v13). Appended to the
-     * persisted payload so every v1-v12 field keeps its original offset. */
+    /* Stationary disturbance-recovery heading lock. */
     int32_t heading_lock_kp;
     int32_t heading_lock_kd;
     uint16_t heading_lock_wake_mdeg;
@@ -116,20 +115,18 @@ struct ConfigStoreParams {
     uint16_t heading_lock_settle_ms;
     uint16_t heading_lock_timeout_ms;
 
-    /* Encoder-distance corner alignment before the relative heading turn
-     * (v14). RPM is the closed-loop alignment speed ceiling. */
+    /* Encoder-distance corner alignment before the relative heading turn.
+     * RPM is the closed-loop alignment speed ceiling. */
     uint16_t road_align_distance_mm;
     uint16_t road_align_rpm;
 
-    /* Automatic road-corner asymmetric wheel endpoints (v15). The outer
+    /* Automatic road-corner asymmetric wheel endpoints. The outer
      * wheel retains the existing base+correction law while the inner wheel
      * may reverse independently. */
     uint16_t road_turn_outer_max_rpm;
     uint16_t road_turn_inner_reverse_max_rpm;
 
-    /* Real line-sensor selection and infrared tuning. These fields are kept
-     * in the CRC-protected infrared extension record because the main v16
-     * payload uses its final 20 bytes for DM-G6220 parameters. */
+    /* Real line-sensor selection and infrared tuning. */
     uint8_t line_sensor_source;
     uint8_t infrared_position_invert;
     uint16_t infrared_position_span_raw;
@@ -140,8 +137,8 @@ struct ConfigStoreParams {
     uint16_t infrared_linefollow_max_correction_rpm;
     uint16_t infrared_linefollow_correction_slew_permille_per_second;
 
-    /* DM-G6220 MIT controller (v16). Integer units avoid floating point in
-     * the 100 Hz control path. */
+    /* DM-G6220 MIT controller. Integer units avoid floating point in the
+     * 100 Hz control path. */
     uint16_t dm_position_kp_milli;
     uint16_t dm_position_kd_milli;
     uint16_t dm_speed_kd_milli;
@@ -152,6 +149,21 @@ struct ConfigStoreParams {
     uint16_t dm_velocity_tolerance_mrad_s;
     uint16_t dm_settle_ms;
     uint16_t dm_feedback_timeout_ms;
+
+    /* H-problem ball-balance controller. Integer units keep the 100 Hz
+     * control path deterministic and avoid runtime floating point. */
+    int16_t ball_kp_mdeg_per_0p1mm;
+    int16_t ball_kd_mdeg_per_0p1mm_s;
+    int16_t ball_ki_mdeg_per_0p1mm_s;
+    int16_t ball_pitch_gain_permille;
+    int16_t ball_max_angle_mdeg;
+    int16_t ball_degraded_angle_mdeg;
+    int32_t ball_angle_slew_mdeg_s;
+    int16_t ball_position_tolerance_0p1mm;
+    int16_t ball_velocity_tolerance_0p1mm_s;
+    uint16_t ball_settle_ms;
+    int16_t ball_map_angle_mdeg[5];
+    int16_t ball_map_dm_mrad[5];
 };
 
 enum ConfigStoreLoadOutcome : uint8_t {
@@ -171,10 +183,14 @@ struct ConfigStoreStatus {
     drivers::DriverStatus last_load_status;
     drivers::DriverStatus last_save_status;
     ConfigStoreLoadOutcome load_outcome;
+    uint8_t active_bank;
+    uint32_t generation;
+    uint16_t payload_capacity;
 };
 
 drivers::DriverStatus ConfigStore_Load(void);
 drivers::DriverStatus ConfigStore_Save(void);
+drivers::DriverStatus ConfigStore_Format(void);
 void ConfigStore_ResetDefaults(void);
 const ConfigStoreParams *ConfigStore_Get(void);
 drivers::DriverStatus ConfigStore_Set(const char *name, int32_t value);
@@ -195,6 +211,9 @@ drivers::DriverStatus ConfigStore_SetInfraredCalibration(
     uint16_t span_raw,
     uint16_t adc_threshold,
     uint16_t adc_hysteresis);
+drivers::DriverStatus ConfigStore_SetBallMap(
+    const int16_t angles_mdeg[5],
+    const int16_t dm_positions_mrad[5]);
 bool ConfigStore_GetValue(const char *name,
                           int32_t *value,
                           int32_t *min_value,

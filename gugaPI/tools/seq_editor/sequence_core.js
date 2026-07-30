@@ -510,8 +510,8 @@ function validate(project,options){
   var actions=p.nodes.filter(function(n){return ACTIONS[n.type]});
   if(actions.length===0)addIssue(issues,'error','empty',
     '画布中没有可执行动作');
-  if(actions.length>64)addIssue(issues,'error','too_many',
-    '动作数量超过固件上限 64 步');
+  if(actions.length>54)addIssue(issues,'error','too_many',
+    '动作数量超过固件上限 54 步');
   p.edges.forEach(function(e){
     if(out[e.source][e.port])addIssue(issues,'error','duplicate_port',
       '同一输出端口只能有一条连线',e.source,e.port);
