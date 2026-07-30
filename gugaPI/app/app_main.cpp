@@ -20,6 +20,7 @@
 #include "app/mode_switch_chord.h"
 #include "app/road_event_controller.h"
 #include "app/seq_store.h"
+#include "app/track_course.h"
 #include "board/board.h"
 #include "board/board_button.h"
 
@@ -158,6 +159,7 @@ void App_LineFollowTask(void)
     }
 #endif
     app::LF_Update();
+    app::TrackCourse_Update();
 }
 #endif
 
@@ -568,6 +570,24 @@ drivers::DriverStatus CompetitionOledWriteLine(
     return board::Board_OledWriteText(row, 0U, line);
 }
 
+drivers::DriverStatus CompetitionOledWriteTaskHeader(
+    const app::CompetitionState *state)
+{
+    char line[22];
+    char *cursor = line;
+    const char *end = &line[21];
+    line[0] = '\0';
+    cursor = OledAppendText(cursor, end, "H");
+    if (state->problem_number == 0U) {
+        cursor = OledAppendText(cursor, end, "?");
+    } else {
+        cursor = OledAppendUInt(cursor, end, state->problem_number);
+    }
+    cursor = OledAppendText(cursor, end, " TASK ");
+    (void) OledAppendUInt(cursor, end, state->selected_slot);
+    return board::Board_OledWriteText(0U, 0U, line);
+}
+
 const char *CompetitionResultText(app::CompetitionResult result)
 {
     switch (result) {
@@ -654,13 +674,47 @@ drivers::DriverStatus CompetitionOledRender(
         return status;
     }
 
+    if ((state->selected_slot == 0U) && state->slot_valid &&
+        (state->result == app::COMP_RESULT_NONE)) {
+        status = CompetitionOledWriteTaskHeader(state);
+        if (status == drivers::DRIVER_OK) {
+            status = board::Board_OledWriteText(
+                1U, 0U, "ONE LAP FOLLOW");
+        }
+        if (status == drivers::DRIVER_OK) {
+            const app::ConfigStoreParams *params = app::ConfigStore_Get();
+            char line[22];
+            char *cursor = line;
+            const char *end = &line[21];
+            line[0] = '\0';
+            if (params != 0) {
+                cursor = OledAppendUInt(
+                    cursor, end, params->task0_cruise_rpm);
+                cursor = OledAppendText(cursor, end, ">");
+                cursor = OledAppendUInt(
+                    cursor, end, params->task0_approach_rpm);
+                (void) OledAppendText(cursor, end, " RPM");
+            } else {
+                (void) OledAppendText(cursor, end, "SPEED UNAVAILABLE");
+            }
+            status = board::Board_OledWriteText(2U, 0U, line);
+        }
+        if (status == drivers::DRIVER_OK) {
+            status = board::Board_OledWriteText(3U, 0U, "B2 START");
+        }
+        return status;
+    }
+
     const char *title = "COMP READY";
     if (state->result == app::COMP_RESULT_LOAD_ERROR) {
         title = CompetitionResultText(state->result);
     } else if (!state->any_valid_slot) {
         title = "COMP NO TASK";
     }
-    status = board::Board_OledWriteText(0U, 0U, title);
+    status = ((state->result == app::COMP_RESULT_NONE) &&
+              state->any_valid_slot)
+        ? CompetitionOledWriteTaskHeader(state)
+        : board::Board_OledWriteText(0U, 0U, title);
     if (status == drivers::DRIVER_OK) {
         status = CompetitionOledWriteLine(
             1U, "TASK ", state->selected_slot, "");
@@ -880,14 +934,20 @@ static AppState g_appState = {
 
 static CompetitionState g_competitionState = {
     0U,
+    2U,
+    COMP_TASK_SOURCE_BUILTIN,
     false,
     false,
     0U,
     COMP_RESULT_NONE,
     drivers::DRIVER_OK
 };
-static uint32_t g_competitionResultStartMs = 0U;
-static const uint32_t kCompetitionResultHoldMs = 2000U;
+static uint32_t g_competitionTrackStopSequence = 0U;
+
+static uint8_t CompetitionProblemNumber(uint8_t slot)
+{
+    return (slot <= 3U) ? static_cast<uint8_t>(slot + 2U) : 0U;
+}
 
 static void CompetitionClearButtonEvents(void)
 {
@@ -907,33 +967,40 @@ static void CompetitionSetResult(CompetitionResult result,
 {
     g_competitionState.result = result;
     g_competitionState.last_status = status;
-    g_competitionResultStartMs = services::Time_Millis();
 }
 
 static drivers::DriverStatus CompetitionRefreshMetadata(void)
 {
-    SeqSlotInfo selected_info = { false, 0U };
-    const drivers::DriverStatus selected_status = SeqStore_GetInfo(
-        g_competitionState.selected_slot, &selected_info);
-    if (selected_status == drivers::DRIVER_OK) {
-        g_competitionState.slot_valid = selected_info.valid;
-        g_competitionState.instruction_count = selected_info.count;
-    } else {
-        g_competitionState.slot_valid = false;
-        g_competitionState.instruction_count = 0U;
+    g_competitionState.problem_number =
+        CompetitionProblemNumber(g_competitionState.selected_slot);
+    g_competitionState.task_source =
+        (g_competitionState.selected_slot == 0U)
+        ? COMP_TASK_SOURCE_BUILTIN : COMP_TASK_SOURCE_FRAM;
+    if (g_competitionState.selected_slot == 0U) {
+        g_competitionState.slot_valid = true;
+        g_competitionState.instruction_count = 2U;
     }
 
-    g_competitionState.any_valid_slot = false;
-    for (uint8_t slot = 0U; slot < SEQ_SLOT_COUNT; slot++) {
-        SeqSlotInfo info = { false, 0U };
-        const drivers::DriverStatus status = SeqStore_GetInfo(slot, &info);
-        if (status != drivers::DRIVER_OK) {
-            continue;
-        }
-        if (info.valid) {
-            g_competitionState.any_valid_slot = true;
+    SeqSlotInfo selected_info = { false, 0U };
+    drivers::DriverStatus selected_status = drivers::DRIVER_OK;
+    if (g_competitionState.selected_slot != 0U) {
+        selected_status = SeqStore_GetInfo(
+            g_competitionState.selected_slot, &selected_info);
+        if (selected_status == drivers::DRIVER_OK) {
+            g_competitionState.slot_valid = selected_info.valid;
+            g_competitionState.instruction_count = selected_info.count;
+        } else {
+            g_competitionState.slot_valid = false;
+            g_competitionState.instruction_count = 0U;
         }
     }
+
+    /* Built-in task 0 is always valid, so any_valid_slot is unconditionally
+     * true.  Do not synchronously scan FRAM slots 1..7 here: that redundant
+     * scan blocked the cooperative scheduler for about 147 ms, made the
+     * 100 ms chassis feedback watchdog stale, and caused task-0 preflight to
+     * reject an otherwise ready launch. */
+    g_competitionState.any_valid_slot = true;
 
     if (selected_status != drivers::DRIVER_OK) {
         return selected_status;
@@ -943,34 +1010,13 @@ static drivers::DriverStatus CompetitionRefreshMetadata(void)
 
 static void CompetitionSelectInitialSlot(void)
 {
-    uint8_t selected_slot = 0U;
-    bool found_valid = false;
-    drivers::DriverStatus scan_status = drivers::DRIVER_OK;
-
-    for (uint8_t slot = 0U; slot < SEQ_SLOT_COUNT; slot++) {
-        SeqSlotInfo info = { false, 0U };
-        const drivers::DriverStatus status = SeqStore_GetInfo(slot, &info);
-        if (status != drivers::DRIVER_OK) {
-            scan_status = status;
-            continue;
-        }
-        if (info.valid) {
-            selected_slot = slot;
-            found_valid = true;
-            break;
-        }
-    }
-
-    g_competitionState.selected_slot = selected_slot;
+    g_competitionState.selected_slot = 0U;
     const drivers::DriverStatus refresh_status =
         CompetitionRefreshMetadata();
-    if ((!found_valid) &&
-        ((scan_status != drivers::DRIVER_OK) ||
-         (refresh_status != drivers::DRIVER_OK))) {
+    if (refresh_status != drivers::DRIVER_OK) {
         CompetitionSetResult(
             COMP_RESULT_LOAD_ERROR,
-            (refresh_status != drivers::DRIVER_OK) ?
-                refresh_status : scan_status);
+            refresh_status);
     } else {
         CompetitionSetResult(COMP_RESULT_NONE, drivers::DRIVER_OK);
     }
@@ -1095,6 +1141,7 @@ void App_Init(void)
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
     app::LineSensor_Init();
     app::LF_Init();
+    app::TrackCourse_Init();
 #if FEATURE_ENABLE_IMU
     app::RoadEventController_Init();
 #endif
@@ -1276,6 +1323,11 @@ void App_Run(void)
 #endif
             (void) Chassis_Stop();
             SetChassisTaskEnabled(false);
+#if FEATURE_ENABLE_OLED
+            if (App_LargeTimerGetState()->running) {
+                (void) App_LargeTimerStop();
+            }
+#endif
         }
 #endif
         return;
@@ -1283,15 +1335,6 @@ void App_Run(void)
 
     if (g_faultStopHandled) {
         g_faultStopHandled = false;
-    }
-
-    if ((g_appState.mode == APP_MODE_COMPETITION_ARMED) &&
-        ((g_competitionState.result == COMP_RESULT_DONE) ||
-         (g_competitionState.result == COMP_RESULT_FAILED) ||
-         (g_competitionState.result == COMP_RESULT_STOPPED)) &&
-        services::Time_HasElapsed(g_competitionResultStartMs,
-                                  kCompetitionResultHoldMs)) {
-        CompetitionSetResult(COMP_RESULT_NONE, drivers::DRIVER_OK);
     }
 
 #if FEATURE_ENABLE_MOTOR_DRIVER
@@ -1302,6 +1345,15 @@ void App_Run(void)
 
     case APP_MODE_COMPETITION_RUNNING:
         SetChassisTaskEnabled(true);
+#if FEATURE_ENABLE_OLED
+        if (App_LargeTimerGetState()->running &&
+            (TrackCourse_GetState()->stop_sequence !=
+             g_competitionTrackStopSequence)) {
+            g_competitionTrackStopSequence =
+                TrackCourse_GetState()->stop_sequence;
+            (void) App_LargeTimerStop();
+        }
+#endif
         if (!ActionRunner_GetState()->running) {
             const ActionRunnerState *runner = ActionRunner_GetState();
             CompetitionSetResult(
@@ -1312,6 +1364,11 @@ void App_Run(void)
             g_appState.mode = APP_MODE_COMPETITION_ARMED;
             CompetitionClearButtonEvents();
             (void) Chassis_Stop();
+#if FEATURE_ENABLE_OLED
+            if (App_LargeTimerGetState()->running) {
+                (void) App_LargeTimerStop();
+            }
+#endif
         }
         break;
 
@@ -1344,6 +1401,11 @@ drivers::DriverStatus App_CompetitionSelect(uint8_t slot)
         return drivers::DRIVER_ERROR_BUSY;
     }
 
+#if FEATURE_ENABLE_OLED
+    if (App_LargeTimerOwnsDisplay()) {
+        (void) App_LargeTimerHide();
+    }
+#endif
     g_competitionState.selected_slot = slot;
     const drivers::DriverStatus status = CompetitionRefreshMetadata();
     if (status != drivers::DRIVER_OK) {
@@ -1381,6 +1443,11 @@ drivers::DriverStatus App_CompetitionArm(void)
     SetChassisTaskEnabled(false);
 #endif
     (void) ActionRunner_Cancel();
+#if FEATURE_ENABLE_OLED
+    if (App_LargeTimerOwnsDisplay()) {
+        (void) App_LargeTimerHide();
+    }
+#endif
 #if FEATURE_ENABLE_BALL_BALANCE
     BallBalance_EmergencyStop();
 #endif
@@ -1413,6 +1480,9 @@ drivers::DriverStatus App_DebugModeEnter(void)
 
     CompetitionClearButtonEvents();
 #if FEATURE_ENABLE_OLED
+    if (App_LargeTimerOwnsDisplay()) {
+        (void) App_LargeTimerHide();
+    }
     (void) board::Board_OledClear();
     g_compOledLastMode = APP_MODE_IDLE;
 #endif
@@ -1449,8 +1519,28 @@ drivers::DriverStatus App_CompetitionStart(void)
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
 
-    const drivers::DriverStatus load_status = SeqStore_Load(
-        g_competitionState.selected_slot);
+    drivers::DriverStatus load_status = drivers::DRIVER_OK;
+    if (g_competitionState.selected_slot == 0U) {
+        const ConfigStoreParams *params = ConfigStore_Get();
+        if (params == 0) {
+            return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        }
+        load_status = ActionRunner_Clear();
+        if (load_status == drivers::DRIVER_OK) {
+            load_status = ActionRunner_AddTrackCourse(
+                params->task0_cruise_rpm,
+                params->task0_approach_rpm,
+                params->task0_lap_mm,
+                ACT_NEXT,
+                ACT_NEXT);
+        }
+        if (load_status == drivers::DRIVER_OK) {
+            load_status = ActionRunner_AddInstr(
+                ACT_OP_END, 0, 0, ACT_COND_IMMEDIATE, ACT_NEXT, ACT_NEXT);
+        }
+    } else {
+        load_status = SeqStore_Load(g_competitionState.selected_slot);
+    }
     if (load_status != drivers::DRIVER_OK) {
         CompetitionSetResult(COMP_RESULT_LOAD_ERROR, load_status);
         return load_status;
@@ -1464,14 +1554,48 @@ drivers::DriverStatus App_CompetitionStart(void)
         return validation_status;
     }
 
+    /* Task 0 previously opened the timer page before its first action found
+     * an invalid line and aborted.  Run the exact TrackCourse preflight now,
+     * while the OLED still shows the ready page, so a rejected launch never
+     * looks like a running timed attempt. */
+    if (g_competitionState.selected_slot == 0U) {
+        const ConfigStoreParams *params = ConfigStore_Get();
+        if (params == 0) {
+            CompetitionSetResult(
+                COMP_RESULT_FAILED, drivers::DRIVER_ERROR_NOT_INITIALIZED);
+            return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        }
+        const drivers::DriverStatus readiness =
+            TrackCourse_CheckStartReady(
+                params->task0_cruise_rpm,
+                params->task0_approach_rpm,
+                params->task0_lap_mm);
+        if (readiness != drivers::DRIVER_OK) {
+            CompetitionSetResult(COMP_RESULT_FAILED, readiness);
+            return readiness;
+        }
+    }
+
+#if FEATURE_ENABLE_OLED
+    const drivers::DriverStatus timer_status = App_LargeTimerStart();
+    if (timer_status != drivers::DRIVER_OK) {
+        g_competitionState.last_status = timer_status;
+        return timer_status;
+    }
+#endif
     const drivers::DriverStatus status = ActionRunner_Start();
     if (status == drivers::DRIVER_OK) {
 #if FEATURE_ENABLE_MOTOR_DRIVER
         SetChassisTaskEnabled(true);
 #endif
         CompetitionSetResult(COMP_RESULT_NONE, drivers::DRIVER_OK);
+        g_competitionTrackStopSequence =
+            TrackCourse_GetState()->stop_sequence;
         g_appState.mode = APP_MODE_COMPETITION_RUNNING;
     } else {
+#if FEATURE_ENABLE_OLED
+        (void) App_LargeTimerHide();
+#endif
         g_competitionState.last_status = status;
     }
     return status;
@@ -1484,6 +1608,11 @@ drivers::DriverStatus App_CompetitionStop(void)
     }
     (void) ActionRunner_Cancel();
     (void) Chassis_Stop();
+#if FEATURE_ENABLE_OLED
+    if (App_LargeTimerGetState()->running) {
+        (void) App_LargeTimerStop();
+    }
+#endif
     SetChassisTaskEnabled(false);
     CompetitionSetResult(COMP_RESULT_STOPPED, drivers::DRIVER_OK);
     CompetitionClearButtonEvents();
@@ -1506,6 +1635,7 @@ drivers::DriverStatus App_EmergencyStop(void)
     FEATURE_ENABLE_IMU
     record_error(RoadEventController_Cancel());
 #endif
+    record_error(TrackCourse_Cancel());
 #if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
     record_error(ActionRunner_Cancel());
     record_error(Heading_Stop());
@@ -1527,6 +1657,11 @@ drivers::DriverStatus App_EmergencyStop(void)
 #endif
 
     if (g_appState.mode == APP_MODE_COMPETITION_RUNNING) {
+#if FEATURE_ENABLE_OLED
+        if (App_LargeTimerGetState()->running) {
+            (void) App_LargeTimerStop();
+        }
+#endif
         CompetitionSetResult(COMP_RESULT_STOPPED, first_error);
         CompetitionClearButtonEvents();
         g_appState.mode = APP_MODE_COMPETITION_ARMED;

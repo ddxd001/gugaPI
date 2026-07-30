@@ -43,6 +43,11 @@ build_and_run app_can_bus \
 build_and_run grayscale_processing \
     host_tests/grayscale_processing_test.cpp \
     gugaPI/drivers/grayscale/grayscale_processing.cpp
+build_and_run app_grayscale_calibration \
+    host_tests/app_grayscale_calibration_test.cpp \
+    gugaPI/app/app_grayscale.cpp \
+    gugaPI/app/grayscale_road.cpp \
+    gugaPI/drivers/grayscale/grayscale_processing.cpp
 build_and_run infrared_line_protocol \
     host_tests/infrared_line_protocol_test.cpp \
     gugaPI/drivers/infrared_line/infrared_line_protocol.cpp
@@ -74,6 +79,12 @@ build_and_run imu_bias_estimator \
     gugaPI/app/imu_bias_estimator.cpp
 build_and_run linefollow_road_handoff \
     host_tests/linefollow_road_handoff_test.cpp
+build_and_run linefollow_recovery \
+    host_tests/linefollow_recovery_test.cpp \
+    gugaPI/app/linefollow.cpp
+build_and_run track_course \
+    host_tests/track_course_test.cpp \
+    gugaPI/app/track_course.cpp
 build_and_run mode_switch_chord \
     host_tests/mode_switch_chord_test.cpp
 build_and_run road_event_controller \
@@ -104,6 +115,15 @@ echo "[host-test] help_catalog"
 
 echo "[host-test] dashboard_core"
 "${node_bin}" host_tests/dashboard_core_test.js
+
+echo "[host-test] serial_log_core"
+"${node_bin}" host_tests/serial_log_core_test.js
+
+echo "[host-test] line_sensor_core"
+"${node_bin}" host_tests/line_sensor_core_test.js
+
+echo "[host-test] line_sensor_page"
+"${node_bin}" host_tests/line_sensor_page_test.js
 
 echo "[host-test] ball_page"
 "${node_bin}" host_tests/ball_page_test.js

@@ -1,5 +1,5 @@
 'use strict';
-const OP={0:'none',1:'drive',2:'turn',3:'follow',4:'wait',5:'stop',6:'branch',7:'end',8:'drive_mm',9:'led_on',10:'led_off',11:'led_toggle',12:'buzzer_on',13:'buzzer_off',14:'buzzer_toggle',15:'condition',16:'drive_if',17:'follow_if',18:'loop',19:'road_nav',20:'dm_position',21:'dm_speed',22:'dm_disable',23:'ball_hold',24:'ball_move',25:'ball_disable'};
+const OP={0:'none',1:'drive',2:'turn',3:'follow',4:'wait',5:'stop',6:'branch',7:'end',8:'drive_mm',9:'led_on',10:'led_off',11:'led_toggle',12:'buzzer_on',13:'buzzer_off',14:'buzzer_toggle',15:'condition',16:'drive_if',17:'follow_if',18:'loop',19:'road_nav',20:'dm_position',21:'dm_speed',22:'dm_disable',23:'ball_hold',24:'ball_move',25:'ball_disable',26:'track_course'};
 const OPL={1:'直行',2:'转向',3:'循迹',4:'等待',5:'停车',6:'条件分支',7:'结束',8:'定距行驶',9:'LED 点亮',10:'LED 熄灭',11:'LED 翻转',12:'蜂鸣器开启',13:'蜂鸣器关闭',14:'蜂鸣器翻转',15:'通用判断',16:'条件直行',17:'条件循迹',18:'循环',19:'循迹通过路口',20:'达妙定位',21:'达妙定速',22:'达妙失能',23:'滚球保持',24:'滚球移动',25:'滚球失能'};
 const OPC={1:'#89b4fa',2:'#fab387',3:'#a6e3a1',4:'#9399b2',5:'#f38ba8',6:'#cba6f7',7:'#6c7086',8:'#74c7ec',9:'#f9e2af',10:'#7f849c',11:'#f5c2e7',12:'#f38ba8',13:'#7f849c',14:'#eba0ac',15:'#cba6f7',16:'#89b4fa',17:'#a6e3a1',18:'#7b74d6',19:'#32b8a0',20:'#d08b5b',21:'#c46e8f',22:'#8c788d',23:'#4db6ac',24:'#26a69a',25:'#607d8b'};
 const COND=['timeout','heading_reached','line_detected','line_lost','button','immediate','distance_reached','absolute','relative'];
@@ -7,6 +7,7 @@ const ROAD_ROUTE=['left','straight','right','uturn_left_arc','uturn_right_arc','
 let port=null,reader=null,writer=null,readableClosed=null,writableClosed=null;
 let curSlot=-1,instrs=[],selIdx=-1,slots=Array(8).fill(null);
 let rxBuf='',rxResolve=null,rxExpectedCommand='',simMode=false;
+let rxQuietTimer=null;
 var onSerialData=null,onSerialStateChange=null,commandQueue=Promise.resolve();
 var serialRouter=null;
 let simSlots=Array(8).fill(null),simInstrs=[],simRun={running:false,current:0,started:0,result:'idle'};
@@ -25,6 +26,11 @@ function shellTextReceived(text){
       (/(?:^|\n)> $/.test(rxBuf)||rxBuf==='> ');
   if(responseComplete){
     if(rxResolve)rxResolve(rxBuf);
+  }else if(rxResolve&&typeof DashboardCore!=='undefined'&&
+           typeof DashboardCore.isPromptlessShellResponseCandidate==='function'&&
+           DashboardCore.isPromptlessShellResponseCandidate(rxBuf,rxExpectedCommand)){
+    clearTimeout(rxQuietTimer);
+    rxQuietTimer=setTimeout(function(){if(rxResolve)rxResolve(rxBuf)},90);
   }
 }
 function telemetryReceived(event,raw){
@@ -46,6 +52,7 @@ if(typeof DashboardCore!=='undefined'){
   });
 }
 function routeSerialData(data){
+  if(typeof SerialLog_Record==='function')SerialLog_Record('rx',data);
   if(serialRouter)serialRouter.push(data);
   else shellTextReceived(String(data).replace(/\r/g,''));
 }
@@ -57,6 +64,7 @@ async function disconnectSerial(){
     if(writer){await writer.close();if(writableClosed)await writableClosed.catch(function(){});writer.releaseLock()}
     if(port)await port.close();
   }catch(e){logc('tx','[断开异常] '+e.message)}
+  if(typeof SerialLog_Stop==='function')await SerialLog_Stop('serial-disconnect');
   reader=null;writer=null;readableClosed=null;writableClosed=null;port=null;
   if(serialRouter)serialRouter.reset();
   $('btnConnect').textContent='连接串口';$('btnRefresh').disabled=true;
@@ -85,6 +93,7 @@ $('btnConnect').onclick=async function(){
 };
 $('btnSim').onclick=async function(){
   if(simMode){
+    if(typeof SerialLog_Stop==='function')await SerialLog_Stop('simulator-disconnect');
     simMode=false;port=null;writer=null;$('btnSim').textContent='模拟设备';
     $('btnConnect').disabled=false;$('btnRefresh').disabled=true;$('statusText').textContent='';
     logc('tx','[退出模拟]');
@@ -102,17 +111,23 @@ async function sendNow(cmd,options){
   if(!writer)return'';
   logc('tx','> '+cmd);
   if(typeof onSerialData==='function')onSerialData('> '+cmd+'\n','tx');
-  if(simMode)return simResponse(cmd);
+  if(simMode){
+    if(typeof SerialLog_Record==='function')SerialLog_Record('tx',cmd+'\r\n');
+    return simResponse(cmd);
+  }
   rxBuf='';
   rxExpectedCommand=cmd;
+  clearTimeout(rxQuietTimer);rxQuietTimer=null;
   await writer.write(cmd+'\r\n');
+  if(typeof SerialLog_Record==='function')SerialLog_Record('tx',cmd+'\r\n');
   var timeoutMs=options&&options.timeoutMs?options.timeoutMs:1500;
-  return new Promise(function(resolve){
+  return new Promise(function(resolve,reject){
     var settled=false,timer;
     function finish(text){
       if(settled)return;
       settled=true;
       clearTimeout(timer);
+      clearTimeout(rxQuietTimer);rxQuietTimer=null;
       if(rxResolve===finish){
         rxResolve=null;
         rxExpectedCommand='';
@@ -120,11 +135,22 @@ async function sendNow(cmd,options){
       resolve(text);
     }
     rxResolve=finish;
-    timer=setTimeout(function(){finish(rxBuf)},timeoutMs);
+    timer=setTimeout(function(){
+      if(settled)return;
+      settled=true;
+      clearTimeout(rxQuietTimer);rxQuietTimer=null;
+      if(rxResolve===finish){rxResolve=null;rxExpectedCommand=''}
+      var detail=rxBuf.trim();
+      reject(new Error('命令超时：'+cmd+(detail?'；已收到：'+detail:'')));
+    },timeoutMs);
     if(typeof DashboardCore!=='undefined'&&
        typeof DashboardCore.isShellCommandResponseComplete==='function'&&
        DashboardCore.isShellCommandResponseComplete(rxBuf,cmd)){
       finish(rxBuf);
+    }else if(typeof DashboardCore!=='undefined'&&
+             typeof DashboardCore.isPromptlessShellResponseCandidate==='function'&&
+             DashboardCore.isPromptlessShellResponseCandidate(rxBuf,cmd)){
+      rxQuietTimer=setTimeout(function(){finish(rxBuf)},90);
     }
   });
 }
@@ -177,6 +203,10 @@ function parseRawInstruction(tokens,hasIndex){
     return{op:25,p1:0,p2:0,until:5,conditionValue:0,
       ons:rawTarget(p[1]),ont:rawTarget(p[2])};
   }
+  if(op===26&&p.length>=6){
+    return{op:26,p1:Number(p[1]),p2:Number(p[2]),until:5,
+      conditionValue:Number(p[3]),ons:rawTarget(p[4]),ont:rawTarget(p[5])};
+  }
   if(p.length<6)return null;
   return{op:op,p1:Number(p[1]),p2:Number(p[2]),
     until:COND.indexOf(p[3]),conditionValue:0,
@@ -214,6 +244,10 @@ function formatRawInstruction(x,includeIndex,index){
   }
   if(x.op===25){
     return prefix+'ball_disable '+x.ons+' '+x.ont;
+  }
+  if(x.op===26){
+    return prefix+'track_course '+x.p1+' '+x.p2+' '+x.conditionValue+
+      ' '+x.ons+' '+x.ont;
   }
   return prefix+OP[x.op]+' '+x.p1+' '+x.p2+' '+COND[x.until]+' '+
     x.ons+' '+x.ont;
@@ -261,6 +295,10 @@ function parseSimAdd(cmd){
     return{op:25,p1:0,p2:0,until:5,conditionValue:0,
       ons:rawTarget(p[3]),ont:rawTarget(p[4])};
   }
+  if(op==='track_course'){
+    return{op:26,p1:Number(p[3]),p2:Number(p[4]),until:5,
+      conditionValue:Number(p[5]),ons:rawTarget(p[6]),ont:rawTarget(p[7])};
+  }
   var opKey=Object.keys(OP).find(function(k){return OP[k]===op});
   return{op:Number(opKey),p1:Number(p[3]),p2:Number(p[4]),
     until:COND.indexOf(p[5]),conditionValue:0,
@@ -288,7 +326,7 @@ function simResponse(cmd){
   }else if(cmd.indexOf('run add ')===0){
     simInstrs.push(parseSimAdd(cmd));resp='run add: ok\r\n> ';
   }else if(cmd==='run'){
-    resp='usage: run add ... loop|road_nav|dm_position|dm_speed|dm_disable|ball_hold|ball_move|ball_disable\r\n> ';
+    resp='usage: run add ... loop|road_nav|track_course|dm_position|dm_speed|dm_disable|ball_hold|ball_move|ball_disable\r\n> ';
   }else if(cmd==='run validate'||cmd==='run validate competition'){
     resp=simInstrs.length?'run validate ok count='+simInstrs.length+
       '\r\n> ':'run validate error index=255 field=table reason=empty\r\n> ';
@@ -326,21 +364,30 @@ function simResponse(cmd){
     resp='estop: ok\r\n> ';
   }else if(cmd.indexOf('seq save ')===0){
     var saveSlot=Number(cmd.split(' ')[2]);
-    simSlots[saveSlot]=simInstrs.map(function(x){
-      return Object.assign({},x);
-    });
-    resp='seq save: ok\r\n> ';
+    if(saveSlot===0){
+      resp='seq save: invalid-arg\r\n> ';
+    }else{
+      simSlots[saveSlot]=simInstrs.map(function(x){
+        return Object.assign({},x);
+      });
+      resp='seq save: ok\r\n> ';
+    }
   }else if(cmd.indexOf('seq del ')===0){
-    simSlots[Number(cmd.split(' ')[2])]=null;resp='seq del: ok\r\n> ';
+    var deleteSlot=Number(cmd.split(' ')[2]);
+    if(deleteSlot===0)resp='seq del: invalid-arg\r\n> ';
+    else{simSlots[deleteSlot]=null;resp='seq del: ok\r\n> '}
   }else if(cmd==='param get max_wheel_rpm'){
     resp='max_wheel_rpm = 1000\r\n> ';
   }else if(typeof paramSimCommand==='function'&&
            (cmd==='param'||cmd.indexOf('param ')===0||
-            cmd==='comp status'||cmd==='reset')){
+            cmd==='comp status'||cmd==='reset'||
+            cmd.indexOf('lf maxratio ')===0||
+            cmd.indexOf('lf deadband ')===0)){
     resp=paramSimCommand(cmd);
   }else if(typeof lineSensorSimCommand==='function'&&
            (cmd==='linesensor'||cmd.indexOf('linesensor ')===0||
-            cmd==='irsensor'||cmd.indexOf('irsensor ')===0)){
+            cmd==='irsensor'||cmd.indexOf('irsensor ')===0||
+            cmd==='gray'||cmd.indexOf('gray ')===0)){
     resp=lineSensorSimCommand(cmd);
   }else if(typeof ballSimCommand==='function'&&
            (cmd==='ball'||cmd.indexOf('ball ')===0||
@@ -355,6 +402,7 @@ function simResponse(cmd){
   }
   logc('rx',resp.replace(/\r/g,''));
   if(typeof onSerialData==='function')onSerialData(resp.replace(/\r/g,''),'rx');
+  if(typeof SerialLog_Record==='function')SerialLog_Record('rx',resp);
   return new Promise(function(resolve){
     setTimeout(function(){resolve(resp)},35);
   });

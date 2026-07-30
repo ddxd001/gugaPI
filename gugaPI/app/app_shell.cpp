@@ -24,6 +24,7 @@
 #include "app/motor_driver_client.h"
 #include "app/road_event_controller.h"
 #include "app/seq_store.h"
+#include "app/track_course.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
 #include "board/board_can.h"
@@ -6983,7 +6984,7 @@ void PrintRunUsage(void)
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  run add <op> <p1> <p2> <until> <onsuccess> <ontimeout>");
     services::Shell_WriteLine(
-        "    op: drive|drive_mm|turn|follow|wait|stop|branch|loop|road_nav|end");
+        "    op: drive|drive_mm|turn|follow|wait|stop|branch|loop|road_nav|track_course|end");
     services::Shell_WriteLine(
         "        dm_position|dm_speed|dm_disable|ball_hold|ball_move|ball_disable");
     services::Shell_WriteLine(
@@ -7000,6 +7001,8 @@ void PrintRunUsage(void)
         "  run add loop <count> 0 immediate <body_index> <done_index>");
     services::Shell_WriteLine(
         "  run add road_nav <route> <rpm> <timeout_ms> <onsuccess> <onfailure>");
+    services::Shell_WriteLine(
+        "  run add track_course <cruise_rpm> <approach_rpm> <lap_mm> <onsuccess> <onfailure>");
     services::Shell_WriteLine(
         "    route: left|straight|right|uturn_left_arc|uturn_right_arc");
     services::Shell_WriteLine(
@@ -7056,6 +7059,7 @@ bool ParseActionOp(const char *t, app::ActionOp *op)
     if (StrEqual(t, "ball_hold")) { *op = app::ACT_OP_BALL_HOLD; return true; }
     if (StrEqual(t, "ball_move")) { *op = app::ACT_OP_BALL_MOVE; return true; }
     if (StrEqual(t, "ball_disable")) { *op = app::ACT_OP_BALL_DISABLE; return true; }
+    if (StrEqual(t, "track_course")) { *op = app::ACT_OP_TRACK_COURSE; return true; }
     return false;
 }
 
@@ -7171,6 +7175,7 @@ const char *OpText(app::ActionOp op)
     case app::ACT_OP_BALL_HOLD: return "ball_hold";
     case app::ACT_OP_BALL_MOVE: return "ball_move";
     case app::ACT_OP_BALL_DISABLE: return "ball_disable";
+    case app::ACT_OP_TRACK_COURSE: return "track_course";
     default: return "none";
     }
 }
@@ -7230,6 +7235,8 @@ const char *ActionFailureText(app::ActionFailureReason reason)
         return "ball_endpoint";
     case app::ACT_FAIL_BALL_CONTROL:
         return "ball_control";
+    case app::ACT_FAIL_COURSE:
+        return "course";
     default: return "unknown";
     }
 }
@@ -7753,6 +7760,33 @@ void RunCommand(int argc, const char * const argv[])
                     onf));
             return;
         }
+        if ((argc >= 3) && StrEqual(argv[2], "track_course")) {
+            if (argc != 8) {
+                PrintRunUsage();
+                return;
+            }
+            const app::ChassisState *cs = app::Chassis_GetState();
+            const int32_t max_rpm =
+                static_cast<int32_t>(cs->config.max_wheel_rpm);
+            int32_t cruise_rpm = 0;
+            int32_t approach_rpm = 0;
+            int32_t lap_mm = 0;
+            uint8_t ons = 0U;
+            uint8_t onf = 0U;
+            if ((!ParseInt32(argv[3], 20, max_rpm, &cruise_rpm)) ||
+                (!ParseInt32(argv[4], 20, cruise_rpm, &approach_rpm)) ||
+                (!ParseInt32(argv[5], 3000, 8000, &lap_mm)) ||
+                (!ParseTarget(argv[6], &ons)) ||
+                (!ParseTarget(argv[7], &onf))) {
+                PrintRunUsage();
+                return;
+            }
+            WriteStatusLine(
+                "run add: ",
+                app::ActionRunner_AddTrackCourse(
+                    cruise_rpm, approach_rpm, lap_mm, ons, onf));
+            return;
+        }
         if (argc != 8) {
             PrintRunUsage();
             return;
@@ -7832,9 +7866,11 @@ void PrintLFUsage(void)
     services::Shell_WriteLine("  lf kp <val>");
     services::Shell_WriteLine("  lf kd <val>");
     services::Shell_WriteLine("  lf maxcorr <val>");
+    services::Shell_WriteLine("  lf maxratio <permille 100..1000>");
+    services::Shell_WriteLine("  lf deadband <mpos 0..500>");
     services::Shell_WriteLine("  lf slew <permille_per_s 1..65535>");
-    services::Shell_WriteLine("  lf losthold <ms> (compatibility only)");
-    services::Shell_WriteLine("  lf losttimeout <ms> (compatibility only)");
+    services::Shell_WriteLine("  lf losthold <ms>");
+    services::Shell_WriteLine("  lf losttimeout <ms>");
 }
 
 const char *GrayscalePositionSourceText(
@@ -7871,6 +7907,19 @@ const char *GrayscaleTrackStateText(drivers::GrayscaleTrackState state)
     case drivers::GRAYSCALE_TRACK_UNKNOWN:
     default:
         return "unknown";
+    }
+}
+
+const char *LFRecoveryModeText(app::LFRecoveryMode mode)
+{
+    switch (mode) {
+    case app::LF_RECOVERY_HOLD:
+        return "hold";
+    case app::LF_RECOVERY_DECEL:
+        return "decel";
+    case app::LF_RECOVERY_NONE:
+    default:
+        return "none";
     }
 }
 
@@ -7927,17 +7976,21 @@ void LFCommand(int argc, const char * const argv[])
         services::Shell_WriteUInt32(st->weak_tracking_frames);
         services::Shell_WriteString(" invalid_frames=");
         services::Shell_WriteUInt32(st->invalid_frames);
-        services::Shell_WriteString(" invalid_policy=confirm");
-        services::Shell_WriteUInt32(
-            static_cast<uint32_t>(app::LF_INVALID_TRACK_STOP_FRAMES));
+        services::Shell_WriteString(
+            " invalid_policy=hold-last-until-valid");
         services::Shell_WriteString(" ref_rpm=");
         services::Shell_WriteUInt32(
             static_cast<uint32_t>(app::LF_REFERENCE_RPM));
         services::Shell_WriteString(" max_ratio_permille=");
-        services::Shell_WriteUInt32(app::LF_MAX_STEERING_PERMILLE);
-        services::Shell_WriteString(" deadband=");
-        services::Shell_WriteUInt32(
-            static_cast<uint32_t>(app::LF_ERROR_DEADBAND_MPOS));
+        services::Shell_WriteUInt32(st->max_steering_permille);
+        services::Shell_WriteString(" deadband_mpos=");
+        services::Shell_WriteUInt32(st->deadband_mpos);
+        services::Shell_WriteString(" recovery=");
+        services::Shell_WriteString(LFRecoveryModeText(st->recovery_mode));
+        services::Shell_WriteString(" recovery_ms=");
+        services::Shell_WriteUInt32(st->recovery_elapsed_ms);
+        services::Shell_WriteString(" last_strong_pos=");
+        WriteInt32(st->last_strong_position_mpos);
         services::Shell_WriteString("\r\n");
         return;
     }
@@ -8006,6 +8059,34 @@ void LFCommand(int argc, const char * const argv[])
         }
         app::LF_SetMaxCorrection(v);
         services::Shell_WriteLine("lf maxcorr: ok");
+        return;
+    }
+
+    if (StrEqual(argv[1], "maxratio")) {
+        uint32_t value = 0U;
+        if ((argc != 3) ||
+            (!ParseUint32(argv[2],
+                          app::LF_MAX_MAX_STEERING_PERMILLE,
+                          &value)) ||
+            (value < app::LF_MIN_MAX_STEERING_PERMILLE)) {
+            PrintLFUsage();
+            return;
+        }
+        app::LF_SetMaxSteeringRatio(value);
+        services::Shell_WriteLine("lf maxratio: ok");
+        return;
+    }
+
+    if (StrEqual(argv[1], "deadband")) {
+        uint32_t value = 0U;
+        if ((argc != 3) ||
+            (!ParseUint32(argv[2], app::LF_MAX_ERROR_DEADBAND_MPOS,
+                          &value))) {
+            PrintLFUsage();
+            return;
+        }
+        app::LF_SetDeadband(value);
+        services::Shell_WriteLine("lf deadband: ok");
         return;
     }
 
@@ -9378,6 +9459,27 @@ void TxStatCommand(int argc, const char * const argv[])
 #endif
 
 #if FEATURE_ENABLE_GRAYSCALE
+void WriteGrayArray(const uint16_t values[drivers::GRAYSCALE_CHANNEL_COUNT])
+{
+    for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+        if (i != 0U) {
+            services::Shell_WriteChar(',');
+        }
+        services::Shell_WriteUInt32(values[i]);
+    }
+}
+
+const char *GrayCalibrationModeText(AppGrayscaleCalibrationMode mode)
+{
+    switch (mode) {
+    case APP_GRAYSCALE_CAL_SWEEP: return "sweep";
+    case APP_GRAYSCALE_CAL_WHITE: return "white";
+    case APP_GRAYSCALE_CAL_BLACK: return "black";
+    case APP_GRAYSCALE_CAL_IDLE:
+    default: return "idle";
+    }
+}
+
 void PrintGrayUsage(void)
 {
     services::Shell_WriteLine("usage:");
@@ -9385,8 +9487,9 @@ void PrintGrayUsage(void)
     services::Shell_WriteLine("  gray read <0..7>");
     services::Shell_WriteLine("  gray all");
     services::Shell_WriteLine("  gray data");
+    services::Shell_WriteLine("  gray live");
     services::Shell_WriteLine("  gray process");
-    services::Shell_WriteLine("  gray calib show|status|reload|sweep [ms]");
+    services::Shell_WriteLine("  gray calib begin|show|status|preview|reload|sweep [ms]");
     services::Shell_WriteLine("  gray calib white [frames]|black [frames]|commit|cancel");
     services::Shell_WriteLine("  gray oled on [period_ms 50..5000]|off|status|once");
 }
@@ -9426,6 +9529,45 @@ void GrayCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" event=");
         services::Shell_WriteString(
             app::GrayscaleRoad_TypeText(data->road_event_type));
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+
+    if (StrEqual(argv[1], "live") && (argc == 2)) {
+        const AppGrayscaleData *data = App_GrayscaleGetData();
+        const uint32_t age_ms = (data->sequence != 0U)
+            ? static_cast<uint32_t>(services::Time_Millis() -
+                                    data->last_update_ms) : 0U;
+        services::Shell_WriteString("gray live valid=");
+        services::Shell_WriteUInt32(data->valid ? 1U : 0U);
+        services::Shell_WriteString(" processed=");
+        services::Shell_WriteUInt32(data->processed_valid ? 1U : 0U);
+        services::Shell_WriteString(" seq=");
+        services::Shell_WriteUInt32(data->sequence);
+        services::Shell_WriteString(" age_ms=");
+        services::Shell_WriteUInt32(age_ms);
+        services::Shell_WriteString(" frame_ms=");
+        services::Shell_WriteUInt32(data->frame_period_ms);
+        services::Shell_WriteString(" raw=");
+        WriteGrayArray(data->raw);
+        services::Shell_WriteString(" normalized=");
+        WriteGrayArray(data->normalized);
+        services::Shell_WriteString(" position=");
+        WriteInt32(data->line_position);
+        services::Shell_WriteString(" strength=");
+        services::Shell_WriteUInt32(data->line_strength);
+        services::Shell_WriteString(" line=");
+        services::Shell_WriteUInt32(data->line_detected ? 1U : 0U);
+        services::Shell_WriteString(" fault=");
+        WriteHex8(data->calibration_fault_mask);
+        services::Shell_WriteString(" saturation=");
+        WriteHex8(data->saturation_mask);
+        services::Shell_WriteString(" anomaly=");
+        WriteHex8(data->channel_anomaly_mask);
+        services::Shell_WriteString(" status=");
+        services::Shell_WriteString(DriverStatusText(data->last_status));
+        services::Shell_WriteString(" process_status=");
+        services::Shell_WriteString(DriverStatusText(data->processing_status));
         services::Shell_WriteString("\r\n");
         return;
     }
@@ -9495,13 +9637,19 @@ void GrayCommand(int argc, const char * const argv[])
         if ((argc == 3) && StrEqual(argv[2], "status")) {
             const AppGrayscaleCalibrationStatus *status =
                 App_GrayscaleGetCalibrationStatus();
-            services::Shell_WriteString("gray calib running=");
+            services::Shell_WriteString("gray calib session=");
+            services::Shell_WriteUInt32(status->session_active ? 1U : 0U);
+            services::Shell_WriteString(" running=");
             services::Shell_WriteUInt32(status->running ? 1U : 0U);
             services::Shell_WriteString(" mode=");
             services::Shell_WriteUInt32(status->mode);
+            services::Shell_WriteString(" phase=");
+            services::Shell_WriteString(GrayCalibrationModeText(status->mode));
             services::Shell_WriteString(" samples=");
             services::Shell_WriteUInt32(status->sample_count);
             services::Shell_WriteString("/");
+            services::Shell_WriteUInt32(status->target_samples);
+            services::Shell_WriteString(" target_samples=");
             services::Shell_WriteUInt32(status->target_samples);
             services::Shell_WriteString(" white=");
             services::Shell_WriteUInt32(status->white_ready ? 1U : 0U);
@@ -9511,6 +9659,37 @@ void GrayCommand(int argc, const char * const argv[])
             WriteHex8(status->fault_mask);
             services::Shell_WriteString(" last=");
             services::Shell_WriteString(DriverStatusText(status->last_status));
+            services::Shell_WriteString("\r\n");
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "begin")) {
+            WriteStatusLine("gray calib begin: ",
+                            App_GrayscaleBeginCalibration());
+            return;
+        }
+        if ((argc == 3) && StrEqual(argv[2], "preview")) {
+            const AppGrayscaleCalibrationStatus *status =
+                App_GrayscaleGetCalibrationStatus();
+            const AppGrayscaleCalibrationPreview *preview =
+                App_GrayscaleGetCalibrationPreview();
+            services::Shell_WriteString("gray calib preview session=");
+            services::Shell_WriteUInt32(status->session_active ? 1U : 0U);
+            services::Shell_WriteString(" white_ready=");
+            services::Shell_WriteUInt32(status->white_ready ? 1U : 0U);
+            services::Shell_WriteString(" black_ready=");
+            services::Shell_WriteUInt32(status->black_ready ? 1U : 0U);
+            services::Shell_WriteString(" white=");
+            WriteGrayArray(preview->white);
+            services::Shell_WriteString(" black=");
+            WriteGrayArray(preview->black);
+            services::Shell_WriteString(" white_noise=");
+            WriteGrayArray(preview->white_noise);
+            services::Shell_WriteString(" black_noise=");
+            WriteGrayArray(preview->black_noise);
+            services::Shell_WriteString(" span=");
+            WriteGrayArray(preview->span);
+            services::Shell_WriteString(" fault=");
+            WriteHex8(preview->fault_mask);
             services::Shell_WriteString("\r\n");
             return;
         }
@@ -9804,6 +9983,52 @@ const char *CompetitionResultText(app::CompetitionResult result)
     }
 }
 
+const char *CompetitionTaskSourceText(app::CompetitionTaskSource source)
+{
+    return (source == app::COMP_TASK_SOURCE_BUILTIN) ? "builtin" : "fram";
+}
+
+void CourseCommand(int argc, const char * const argv[])
+{
+    if ((argc != 2) || !StrEqual(argv[1], "status")) {
+        services::Shell_WriteLine("usage: course status");
+        return;
+    }
+    const app::TrackCourseState *course = app::TrackCourse_GetState();
+    services::Shell_WriteString("course phase=");
+    services::Shell_WriteString(app::TrackCourse_PhaseText(course->phase));
+    services::Shell_WriteString(" result=");
+    services::Shell_WriteString(app::TrackCourse_ResultText(course->result));
+    services::Shell_WriteString(" completion=");
+    services::Shell_WriteString(
+        app::TrackCourse_CompletionText(course->completion));
+    services::Shell_WriteString(" failure=");
+    services::Shell_WriteString(app::TrackCourse_FailureText(course->failure));
+    services::Shell_WriteString(" distance_mm=");
+    WriteInt32(course->average_distance_mm);
+    services::Shell_WriteString(" left_mm=");
+    WriteInt32(course->left_distance_mm);
+    services::Shell_WriteString(" right_mm=");
+    WriteInt32(course->right_distance_mm);
+    services::Shell_WriteString(" lap_mm=");
+    services::Shell_WriteUInt32(course->lap_distance_mm);
+    services::Shell_WriteString(" finish_gate_mm=");
+    services::Shell_WriteUInt32(course->finish_gate_mm);
+    services::Shell_WriteString(" finish_mask=");
+    WriteHex8(course->finish_mask);
+    services::Shell_WriteString(" finish_frames=");
+    services::Shell_WriteUInt32(course->finish_count);
+    services::Shell_WriteString(" cruise_rpm=");
+    services::Shell_WriteUInt32(course->cruise_rpm);
+    services::Shell_WriteString(" approach_rpm=");
+    services::Shell_WriteUInt32(course->approach_rpm);
+    services::Shell_WriteString(" stop_seq=");
+    services::Shell_WriteUInt32(course->stop_sequence);
+    services::Shell_WriteString(" last=");
+    services::Shell_WriteString(DriverStatusText(course->last_status));
+    services::Shell_WriteString("\r\n");
+}
+
 void CompCommand(int argc, const char * const argv[])
 {
     if (argc < 2) {
@@ -9875,6 +10100,11 @@ void CompCommand(int argc, const char * const argv[])
         services::Shell_WriteString(AppModeText(st->mode));
         services::Shell_WriteString(" slot=");
         services::Shell_WriteUInt32(competition->selected_slot);
+        services::Shell_WriteString(" problem=");
+        services::Shell_WriteUInt32(competition->problem_number);
+        services::Shell_WriteString(" source=");
+        services::Shell_WriteString(
+            CompetitionTaskSourceText(competition->task_source));
         services::Shell_WriteString(" valid=");
         services::Shell_WriteUInt32(competition->slot_valid ? 1U : 0U);
         services::Shell_WriteString(" any_valid=");
@@ -9889,6 +10119,17 @@ void CompCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" last=");
         services::Shell_WriteString(
             DriverStatusText(competition->last_status));
+        const app::TrackCourseState *course = app::TrackCourse_GetState();
+        services::Shell_WriteString(" course=");
+        services::Shell_WriteString(
+            app::TrackCourse_ResultText(course->result));
+        services::Shell_WriteString(" completion=");
+        services::Shell_WriteString(
+            app::TrackCourse_CompletionText(course->completion));
+        services::Shell_WriteString(" distance_mm=");
+        WriteInt32(course->average_distance_mm);
+        services::Shell_WriteString(" finish_mask=");
+        WriteHex8(course->finish_mask);
         services::Shell_WriteString("\r\n");
         return;
     }
@@ -9903,10 +10144,10 @@ void PrintSeqUsage(void)
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  seq list");
     services::Shell_WriteLine("  seq dump <0..7>");
-    services::Shell_WriteLine("  seq save <0..7>");
-    services::Shell_WriteLine("  seq load <0..7>");
-    services::Shell_WriteLine("  seq del <0..7>");
-    services::Shell_WriteLine("  seq run <0..7>");
+    services::Shell_WriteLine("  seq save <1..7>");
+    services::Shell_WriteLine("  seq load <1..7>");
+    services::Shell_WriteLine("  seq del <1..7>");
+    services::Shell_WriteLine("  seq run <1..7>");
 }
 
 void SeqCommand(int argc, const char * const argv[])
@@ -11087,7 +11328,7 @@ void AppShell_RegisterCommands(void)
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
     (void) services::Shell_RegisterCommand(
         "lf",
-        "LineFollow: status|cal|start|stop|kp|kd|maxcorr|slew|losthold|losttimeout",
+        "LineFollow: status|cal|start|stop|kp|kd|maxcorr|maxratio|slew|losthold|losttimeout",
         LFCommand);
 #endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER && \
@@ -11101,6 +11342,10 @@ void AppShell_RegisterCommands(void)
         "comp",
         "Competition: arm|select <n>|start [n]|stop|status",
         CompCommand);
+    (void) services::Shell_RegisterCommand(
+        "course",
+        "Built-in one-lap course: status",
+        CourseCommand);
     (void) services::Shell_RegisterCommand(
         "estop",
         "Software-wide motion stop",

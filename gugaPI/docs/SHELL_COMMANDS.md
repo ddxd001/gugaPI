@@ -1014,10 +1014,14 @@ gray process
 推荐使用白、黑两阶段多帧平均标定：
 
 ```text
+gray live
+gray calib begin
 gray calib white
 gray calib status
+gray calib preview
 gray calib black
 gray calib status
+gray calib preview
 gray calib commit
 param save
 ```
@@ -1025,6 +1029,12 @@ param save
 `white`/`black` 默认采集 64 个位置帧，可设为 1..128。两个阶段都完成后执行
 `commit`；去掉两端各 1/8 样本后求均值，每个通道的黑白跨度必须至少为 400 ADC counts，且至少为采集噪声的 8 倍。`commit` 更新标定值和推荐处理参数，并
 将 ConfigStore 标记为 dirty，断电保存还需执行 `param save`。
+
+`begin` 明确清除上一会话的暂存白/黑样本。`begin` 和每次 `white`/`black` 前要求
+存在年龄不超过 200 ms 的有效完整八路帧，否则返回 `not-initialized`。采集中只消费
+序号递增的完整帧；500 ms 没有新帧或超过采集总期限时自动返回 `timeout` 并释放
+`running/busy`。`preview` 以单行键值形式返回八路 `white`、`black`、
+`white_noise`、`black_noise`、`span` 和失败通道 `fault`，供图形界面逐路显示。
 
 辅助命令：
 
@@ -1039,6 +1049,19 @@ gray calib cancel
 `show` 查看当前白点、黑点和处理参数；`reload` 从 ConfigStore 重新装载；`sweep`
 是在黑线和白底间扫动的兼容标定方式，默认 2000 ms，并假定白色 ADC 值高于黑色；
 极性相反时必须使用显式 `white`/`black` 标定。`cancel` 终止尚未完成的采集。
+
+### `gray live`
+
+返回适合图形界面轮询的单行快照，不发起阻塞式 ADC 读取：
+
+```text
+gray live
+```
+
+字段包含 `valid`、`seq`、`age_ms`、八路 `raw`、八路 `normalized`、
+`position`、`strength`、`fault`、`anomaly`、`status` 和 `process_status`。
+界面用 `valid=1` 且 `age_ms<=200` 判断当前数据可否开始标定；日常页面轮询应使用
+此命令，不应使用会与异步扫描竞争的 `gray read/all`。
 
 ### `gray oled on [period_ms]`
 
@@ -1775,9 +1798,9 @@ heading stop
 
 ## 循迹控制
 
-8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间六路位置帧约 7 ms；10 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置由 `track_mask=0x7E` 的中间六路插值，全八路迟滞位图独立识别道路类型，最外侧 0、7 路不拉动循迹质心。
+8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间六路位置帧约 7 ms；2 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置由 `track_mask=0x7E` 的中间六路插值，全八路迟滞位图独立识别道路类型，最外侧 0、7 路不拉动循迹质心。除强迟滞位外，冷启动也接受最多两路、单一连续段的窄模拟证据。单路继续使用`max(min_line_strength/2, threshold-position_floor)`门槛；两路相邻的探头间隙响应使用`max(min_line_strength/4, (threshold-position_floor)/3)`门槛，使当前实机约184的相邻总强度可以获取，同时仍拒绝低能量、分离弱峰和宽弱响应。
 
-安全机制：灰度数据无效或超过 200 ms、通道诊断异常 → 立即停车。强线之后允许短暂全白间隙，并可在相邻单段弱模拟信号重新出现时继续位置插值；全白与弱跟踪共享最多 8 个完整帧（约 56 ms）的恢复预算。每个全白帧同时计入独立的连续异常计数，相邻弱线恢复会将该计数清零；`lost/multiple/wide` 连续 6 个完整帧（约 42 ms）仍异常即停车。因此连续全白不会等待完整 56 ms，也不进行无限保持或盲目搜线。`confidence` 只作诊断，不再独立决定停车。正常跟踪期间始终使用命令指定的基础速度，不根据位置误差自动降速。
+安全机制：灰度原始数据无效或超过 200 ms、通道诊断异常、底盘通信失败或全局故障 → 立即停车。弱但仍满足 `line_detected=1、position_valid=1、track_state=valid` 的位置继续参与正常 PID，不再被巡线层当作丢线。ADC8 几何真正变为 `lost/multiple/wide` 时，锁存并持续重发丢线前最后一组左右轮目标，不减速、不受 `losttimeout` 限制；连续 3 个有效位置帧重新捕线后清除微分历史并恢复 PID。人工 `lf stop`、动作时限结束和上述硬件故障仍可结束这种搜索运动。
 
 ### `lf status`
 
@@ -1808,10 +1831,13 @@ lf status
 | `track_state` | `valid` / `lost` / `multiple` / `wide` / `sensor_fault` |
 | `weak_frames` | 有界弱模拟跟踪的连续帧数，0 表示当前使用正常强度证据，最大 8 |
 | `invalid_frames` | 连续几何异常完整帧数 |
-| `invalid_policy` | `confirm6` 表示连续 6 个几何异常完整帧（约 42 ms）后停车；路口分类器处于有界`observing`窗口时暂缓到事件发布，硬件、过期和通道异常仍立即停车 |
+| `invalid_policy` | `hold-last-until-valid` 表示 ADC8 几何丢失后保持最后左右轮目标，连续 3 个有效位置帧后恢复 PID；硬件、过期和通道异常仍立即停车 |
+| `recovery` | `none` / `hold`；`hold` 表示正在按最后轮速搜索线路 |
+| `recovery_ms` | 本次保持搜索已经持续的时间，仅作诊断，不触发 ADC8 超时停车 |
+| `last_strong_pos` | 丢线前最后一次有效位置，用于诊断恢复方向 |
 | `ref_rpm` | 转向比例换算的参考速度，当前为 40 RPM |
-| `max_ratio_permille` | 修正量相对基础速度的硬限幅，当前为 400‰ |
-| `deadband` | 中心误差死区，单位为位置刻度 |
+| `max_ratio_permille` | 修正量相对基础速度的可调限幅，默认 400‰ |
+| `deadband_mpos` | 连续软死区宽度；超出后从误差幅值中减去该值 |
 
 ### `lf cal`
 
@@ -1829,7 +1855,7 @@ lf cal
 lf start 80 10000
 ```
 
-修正先在 40 RPM 参考速度计算：`reference_correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，再按 `abs(base_rpm) / 40` 缩放并限制在基础速度的 40%。中心 `±50` 位置刻度使用死区，微分滤波时间常数为 40 ms。修正量变化率由 `lf_slew_permille_s` 限制，默认 25000；从最大左修正切换到最大右修正的理论斜率时间约 32 ms。`left = base - correction`，`right = base + correction`。
+控制器先应用连续软死区：`soft_error = sign(error) * max(abs(error)-lf_deadband_mpos, 0)`。随后保持 64 位精度计算 `(soft_error * kp + filtered_derivative * kd) * abs(base_rpm) / (1e6 * 40)`，最后做正负对称的四舍五入，并限制在基础速度的 `lf_max_ratio_permille/1000`。这样小修正不会先被整数截断为零，软死区边缘也不会产生硬跳变。微分滤波时间常数为 40 ms。修正量变化率由 `lf_slew_permille_s` 限制。`left = base - correction`，`right = base + correction`。
 
 左右轮目标RPM占用MotorDriver连续寄存器，正常循迹更新使用一次4字节I²C块写入和一次4字节读回校验，避免两轮分开发送产生的时间差并减少总线事务。
 
@@ -1860,10 +1886,28 @@ lf kd 600
 
 ### `lf maxcorr <val>`
 
-设置 40 RPM 参考速度下的最大修正 RPM（范围 `0..500`）。实际修正按基础速度同比缩放，并额外受 40% 转向比例硬限幅。默认 30。
+设置 40 RPM 参考速度下的最大修正 RPM（范围 `0..500`）。实际修正按基础速度同比缩放，并额外受 `lf_max_ratio_permille` 限制。默认 30。
 
 ```text
 lf maxcorr 50
+```
+
+### `lf maxratio <permille>`
+
+设置最终差速修正相对基础转速的比例上限（范围 `100..1000`，默认400）。例如基础速度110 RPM、比例500时，单侧最大修正为55 RPM，对应极限轮速目标为55/165 RPM。命令立即更新RAM并将ConfigStore标记为dirty；持久化仍需显式执行`param save`。
+
+```text
+lf maxratio 500
+param save
+```
+
+### `lf deadband <mpos>`
+
+设置连续软死区（`0..500` mpos，默认20）。命令立即更新RAM控制器并将ConfigStore标记为dirty；持久化需显式执行`param save`。
+
+```text
+lf deadband 20
+param save
 ```
 
 ### `lf slew <permille_per_s>`
@@ -1877,7 +1921,7 @@ param save
 
 ### `lf losthold <ms>`
 
-兼容旧配置的保留命令，必须不大于 `losttimeout`。当前策略为硬件异常立即停车、几何异常确认 6 帧，此参数不再产生丢线搜索运动。默认值仍为 150 ms。
+设置 IR3 来源丢线后的保持时间，必须不大于 `losttimeout`。ADC8 使用“保持最后双轮速度直到重新捕线”策略，不读取此参数。默认值为 150 ms。
 
 ```text
 lf losthold 150
@@ -1885,7 +1929,7 @@ lf losthold 150
 
 ### `lf losttimeout <ms>`
 
-兼容旧配置的保留命令（`0..10000` ms），必须不小于 `losthold`。当前策略为硬件异常立即停车、几何异常确认 6 帧，此参数不再控制停车延迟。默认值仍为 500 ms。
+设置 IR3 来源持续丢线后的停车时间（`1..10000` ms），必须不小于 `losthold`。ADC8 几何丢失不会因该时间到期而停车；仍可由人工停止、动作时限、硬件异常或全局故障终止。默认值为 500 ms。
 
 ```text
 lf losttimeout 1000
@@ -2208,8 +2252,9 @@ seq 5
 
 `255` = `ACT_NEXT`（onsuccess=下一条，ontimeout=中止）。
 
-FRAM序列表使用全新SeqStore v1：每槽最多54条、每条14字节、共8个
-固定槽位。格式与旧SeqStore不兼容；首次运行新固件会清空旧序列。
+FRAM序列表使用SeqStore v1：每槽最多54条、每条14字节、物理上共8个
+固定槽位。槽0由内置H2任务保护，`seq save/load/del/run`仅允许槽1..7；
+`seq list/dump`仍可查看物理槽信息。格式与旧SeqStore不兼容；首次运行新固件会清空旧序列。
 运行时先把所选槽完整加载到RAM，不在控制循环中逐条访问FRAM。
 
 ## 参数管理
@@ -2217,8 +2262,8 @@ FRAM序列表使用全新SeqStore v1：每槽最多54条、每条14字节、共8
 参数持久化系统使用全新的ConfigStore v1。A/B两个1 KiB副本分别位于
 `0x0000..0x03FF` 和 `0x0400..0x07FF`，统一保存底盘、传感器、
 红外、达妙和滚球参数。每次保存写入非活动副本，CRC和回读通过后才提交
-有效状态；掉电时仍可回退到原副本。当前payload为305字节，每个副本容量
-1004字节。
+有效状态；掉电时仍可回退到原副本。当前payload为315字节，每个副本容量
+1004字节；旧的305字节和307字节同版本payload仍可读取，新增字段使用安全默认值。
 
 旧ConfigStore数据不迁移。首次启动会加载源码默认值并标记dirty，检查后
 执行一次 `param save` 建立第一个有效副本。
@@ -2269,7 +2314,7 @@ param heading_kp=1000 range=0..100000
 
 ```text
 param export 0 16
-param export start=0 count=16 total=136
+param export start=0 count=16 total=141
 param left_counts_per_rev=1456 range=1..100000000
 ...
 ```
@@ -2319,6 +2364,11 @@ param left_counts_per_rev=1456 range=1..100000000
 | `heading_tolerance_mdeg` | 0..90000 | 3000 | 转弯容差（mdeg，3000=3°） |
 | `heading_settle_ms` | 0..5000 | 300 | 转弯到位保持时间（ms） |
 | `lf_slew_permille_s` | 1..65535 | 25000 | 循迹差速修正变化率（基础RPM的千分之一/秒） |
+| `lf_max_ratio_permille` | 100..1000 | 400 | 循迹最终差速修正相对基础RPM的千分比上限 |
+| `lf_deadband_mpos` | 0..500 | 20 | 循迹连续软死区（mpos） |
+| `task0_cruise_rpm` | 20..1000 | 110 | 内置任务0巡航速度 |
+| `task0_approach_rpm` | 20..1000 | 60 | 内置任务0终点接近速度，不得高于巡航速度 |
+| `task0_lap_mm` | 3000..8000 | 6142 | 内置任务0一圈编码器里程及兜底停车距离 |
 
 ### `param set <name> <value>`
 
@@ -2357,7 +2407,7 @@ param reset
 
 比赛模式状态机：`ARMED`（安全静止并选择任务）→ `RUNNING`（序列执行中）→ `ARMED`。无论使用开发还是比赛 feature profile，上电都默认进入 ARMED；feature profile 只决定编译进固件的外设和诊断能力。
 
-ARMED 下按键 1/3 在槽位 0..7 间向左/向右循环，按键 2 短按加载并启动当前槽位。RUNNING 下按键 2 短按取消任务并停车；未形成组合键时，按键 1/3 仍可供 ActionRunner 按键条件使用。OLED 显示当前槽位、有效性、步数、运行进度和结束结果，FAULT 界面始终具有最高优先级。
+ARMED 下按键 1/3 在槽位 0..7 间向左/向右循环，按键 2 短按启动当前槽位。槽0是受保护的内置H2一圈循迹任务，不读取FRAM；槽1..7继续从FRAM加载。RUNNING 下按键 2 短按取消任务并停车。OLED待机显示题目号和任务号，启动后切换到0.1秒大计时器并在停车时冻结；FAULT 界面始终具有最高优先级。
 
 同时按住按键 1 和按键 3，两个消抖电平连续重叠 1 秒后，在比赛模式和 `dev-running` 调试模式之间切换；触发后必须松开两键才能再次切换。两键一旦确认同时按下，B1/B3 事件即由系统组合键接管，并立即取消当前比赛或调试运动、停止所有控制器。若在比赛运行中未保持满 1 秒就松开，车辆仍保持停车并返回 ARMED，不会恢复原序列。FAULT 下组合键无效，必须先排除故障并复位。
 
@@ -2381,7 +2431,7 @@ comp select 3
 
 ### `comp start [0..7]`
 
-校验并从 FRAM 加载当前槽，然后启动比赛序列。可选槽位参数会先更新当前选择。EMPTY、CRC 错误或 FRAM 读取失败时保持 ARMED 且不会产生电机动作。可通过按键 2 短按替代。仅在 `armed` 模式下可用。
+校验并启动当前任务。槽0动态构建内置`track_course`动作；槽1..7从FRAM加载。可选槽位参数会先更新当前选择。EMPTY、CRC 错误或 FRAM 读取失败时保持 ARMED 且不会产生电机动作。可通过按键 2 短按替代。仅在 `armed` 模式下可用。
 
 ```text
 comp start
@@ -2390,7 +2440,7 @@ comp start 3
 
 ### `comp stop`
 
-取消比赛序列、立即停车并返回武装状态。OLED 显示 `STOPPED` 2 秒。可通过按键 2 短按替代。仅在 `running` 模式下可用。
+取消比赛序列、立即停车并返回武装状态。OLED冻结并保持最终计时，直到重新选择任务或再次启动。可通过按键 2 短按替代。仅在 `running` 模式下可用。
 
 ```text
 comp stop
@@ -2398,7 +2448,7 @@ comp stop
 
 ### `comp status`
 
-查看比赛模式、当前槽位、槽位有效性、指令数、步骤、最近结果和状态码。
+查看比赛模式、题目号、任务来源、当前槽位、指令数、步骤、最近结果，以及任务0的里程、终点掩码和完成来源。
 
 ```text
 comp status
@@ -2407,10 +2457,23 @@ comp status
 输出示例：
 
 ```text
-comp mode=armed slot=3 valid=1 any_valid=1 count=6 step=0 result=none last=ok
+comp mode=armed slot=0 problem=2 source=builtin valid=1 any_valid=1 count=2 step=0 result=none last=ok course=idle completion=none distance_mm=0 finish_mask=0x00
 ```
 
 模式值：`armed`（安全静止）、`running`（序列执行中）、`fault`（故障锁定）、`dev-running`（开发模式）。结果值包括 `none`、`done`、`failed`、`stopped` 和 `load-error`。
+
+## 内置一圈任务
+
+### `course status`
+
+查看任务0控制器。任务以`task0_cruise_rpm`巡航，距`task0_lap_mm`约900 mm时切换到`task0_approach_rpm`。当前临时采用编码器单一完成条件：达到`task0_lap_mm`后在本次2 ms控制更新内立即停车并记录`completion=encoder`。行程达到`lap_mm-1200`后仍会诊断A线，A线要求`active_mask & 0x7E`中至少5路为黑且形成连续段，并由两个新灰度完整帧确认，不要求CH0、CH7变黑；这些诊断会显示在`finish_mask/finish_frames`中，但不会触发停车。
+
+```text
+course status
+course phase=approach result=running completion=none failure=none distance_mm=5300 left_mm=5298 right_mm=5302 lap_mm=6142 finish_gate_mm=4942 finish_mask=0x00 finish_frames=0 cruise_rpm=110 approach_rpm=60 stop_seq=0 last=ok
+```
+
+灰度或编码器过期、通道异常、循迹退出、恢复超过500 ms或总运行超过30秒会安全停车并判失败。编码器停车、手动停止和失败都在停车处理时冻结计时。
 
 ## 软件全停
 

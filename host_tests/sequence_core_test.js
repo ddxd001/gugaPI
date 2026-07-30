@@ -24,7 +24,7 @@ function simple(type){
 
 assert.strictEqual(SC.FORMAT,'gugapi-sequence-project');
 assert.strictEqual(SC.VERSION,2);
-assert.strictEqual(Object.keys(SC.ACTIONS).length,22);
+assert.strictEqual(Object.keys(SC.ACTIONS).length,23);
 const fresh=SC.newProject('无中止节点',7);
 assert.deepStrictEqual(fresh.nodes.map(n=>n.type),['system_start']);
 assert(!fresh.nodes.some(n=>n.id==='abort'||n.type==='system_abort'));
@@ -156,6 +156,30 @@ for(const patch of [
   result=SC.validate(invalidRoad,{maxRpm:500});
   assert(!result.valid,'invalid road-nav params must be rejected: '+
     JSON.stringify(patch));
+}
+
+const trackCourse=simple('track_course');
+Object.assign(trackCourse.nodes.find(n=>n.id==='first').params,
+  {cruiseRpm:110,approachRpm:60,lapMm:6142});
+result=SC.validate(trackCourse,{maxRpm:500});
+assert(result.valid,result.issues.map(x=>x.message).join('; '));
+const trackCourseRaw=SC.compile(trackCourse,{maxRpm:500}).instrs;
+assert.strictEqual(trackCourseRaw[0].op,26);
+assert.strictEqual(trackCourseRaw[0].p1,110);
+assert.strictEqual(trackCourseRaw[0].p2,60);
+assert.strictEqual(trackCourseRaw[0].conditionValue,6142);
+assert.strictEqual(trackCourseRaw[0].until,5);
+assert.deepStrictEqual(
+  SC.compile(SC.decompile(trackCourseRaw),{maxRpm:500}).instrs,
+  trackCourseRaw,'track-course round trip');
+for(const patch of [
+  {cruiseRpm:19},{approachRpm:111},{lapMm:2999},{lapMm:8001}
+]){
+  const invalidCourse=SC.clone(trackCourse);
+  Object.assign(
+    invalidCourse.nodes.find(n=>n.id==='first').params,patch);
+  assert(!SC.validate(invalidCourse,{maxRpm:500}).valid,
+    'invalid track-course params must be rejected: '+JSON.stringify(patch));
 }
 
 for(const frame of ['absolute','relative']){
@@ -432,4 +456,4 @@ assert.strictEqual(migratedNode.params.value,0);
 assert(!migrated.nodes.some(n=>n.type==='system_abort'));
 assert(!migrated.edges.some(e=>e.target==='abort'));
 
-console.log('sequence core ok: implicit abort, clean 54-step layout, 22 actions, road-nav, DM-G6220, ball balance, counted/nested loops and round trips');
+console.log('sequence core ok: implicit abort, clean 54-step layout, 23 actions, track-course, road-nav, DM-G6220, ball balance, counted/nested loops and round trips');

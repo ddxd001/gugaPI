@@ -102,6 +102,11 @@ var ARTICLES=[
       {title:'页面切换',body:[
         '离开仪表盘时，上位机会停止当前遥测流以减少串口占用；返回后会恢复已选择的图表。',
         '显示“数据超时”时先检查串口、固件 telemetry 支持和传感器数据新鲜度。'
+      ]},
+      {title:'全量串口留档',body:[
+        '顶栏“记录全量串口”会在 Shell 与 telemetry 分流之前保存数据，既包含所有页面发出的命令，也包含设备回复和终端隐藏的遥测帧。',
+        'Chrome/Edge 选择 JSONL 文件后会持续写入本地；再次点击或断开串口时自动收尾关闭。浏览器不支持实时文件写入时会在停止后下载同格式日志。',
+        '每条记录都包含主机时间、递增序号、tx/rx 方向和保持 CR/LF 的原始文本；日志不会上传。'
       ]}
     ]),
   Article('ball-workbench','ball','滚球系统联调与五点标定',
@@ -340,6 +345,27 @@ var ACTION_GUIDES={
     ]},
     tips:['连续 road_nav 可保留循迹交接；转入普通动作或结束前会安全停车。',
       '滚动掉头需要单独验证场地空间，首次必须低速架空轮胎。'],
+    risk:'motion'
+  },
+  track_course:{
+    purpose:'按编码器里程完成一圈循迹，并用中间六路横线或里程兜底安全停车。',
+    parameters:['巡航速度：20..max_wheel_rpm。',
+      '接近速度：20..巡航速度，距标称终点约900 mm后切换。',
+      '一圈里程：3000..8000 mm；横线漏检时作为成功停车兜底。'],
+    success:'通过距离门控后连续两个灰度帧确认中间六路至少连续五黑，或达到一圈里程时，停车并走完成出口。',
+    failure:'灰度/编码器过期、通道异常、循迹恢复超过500 ms或运行超过30秒时停车并走红色出口。',
+    example:{title:'一圈循迹完成后结束',paths:[
+      DemoFlow('横线或编码器完成',[
+        DemoNode('system_start'),DemoNode('track_course','6142 mm · 110>60 RPM'),
+        DemoNode('end')
+      ],['success','success']),
+      DemoFlow('传感器或控制失败',[
+        DemoNode('track_course','6142 mm · 110>60 RPM'),
+        DemoNode('stop'),DemoNode('end')
+      ],['failure','success'])
+    ]},
+    tips:['A线只检查CH1～CH6的连续五路证据，不要求最外侧CH0/CH7变黑。',
+      '槽0固定使用本动作；用户自定义序列应保存到槽1..7。'],
     risk:'motion'
   },
   dm_position:{

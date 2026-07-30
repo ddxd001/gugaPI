@@ -18,14 +18,36 @@ static const int32_t kControlScale = 1000000;
 
 LFState g_state;
 
+void ClearRecovery(void)
+{
+    g_state.recovery_mode = LF_RECOVERY_NONE;
+    g_state.recovery_start_ms = 0U;
+    g_state.recovery_elapsed_ms = 0U;
+    g_state.recovery_confirm_frames = 0U;
+}
+
 bool IsSensorFresh(const LineSensorSnapshot *data)
 {
     return (data != 0) && data->valid && data->fresh;
 }
 
+bool IsTrackValid(const LineSensorSnapshot *data)
+{
+    return (data != 0) && data->line_detected && data->position_valid &&
+           (data->track_state == drivers::GRAYSCALE_TRACK_VALID) &&
+           (data->channel_anomaly_mask == 0U);
+}
+
+bool IsStrongTrack(const LineSensorSnapshot *data)
+{
+    return IsTrackValid(data) && (data->weak_tracking_frames == 0U) &&
+           (data->position_confidence >= LF_STRONG_CONFIDENCE_MIN);
+}
+
 void SafetyStop(services::FaultCode code)
 {
     g_state.mode = LF_IDLE;
+    ClearRecovery();
     (void) Chassis_Stop();
     if (code != services::FAULT_NONE) {
         services::Fault_Set(code);
@@ -38,6 +60,13 @@ drivers::DriverStatus ApplyWheelCommand(int32_t base_rpm,
     const int32_t left = base_rpm - correction_rpm;
     const int32_t right = base_rpm + correction_rpm;
     const drivers::DriverStatus status = Chassis_SetWheelRpm(left, right);
+    if (status == drivers::DRIVER_OK) {
+        /* Keep the exact latest wheel command as the ADC8 search command.
+         * Re-applying it during recovery is intentional and does not change
+         * the saved pair. */
+        g_state.recovery_base_rpm = base_rpm;
+        g_state.recovery_correction_rpm = correction_rpm;
+    }
     if (LineSensor_GetSource() == LINE_SENSOR_IR3) {
         App_InfraredSensorRecordControlLatency(
             LineSensor_GetSnapshot()->sequence);
@@ -56,6 +85,9 @@ void LoadConfig(void)
         g_state.kp = 3800;
         g_state.kd = 600;
         g_state.max_correction_rpm = 30;
+        g_state.max_steering_permille =
+            LF_DEFAULT_MAX_STEERING_PERMILLE;
+        g_state.deadband_mpos = LF_DEFAULT_ERROR_DEADBAND_MPOS;
         g_state.correction_slew_permille_per_second =
             LF_DEFAULT_CORRECTION_SLEW_PERMILLE_PER_SECOND;
         g_state.lost_hold_ms = 150U;
@@ -78,6 +110,9 @@ void LoadConfig(void)
         g_state.correction_slew_permille_per_second =
             params->linefollow_correction_slew_permille_per_second;
     }
+    g_state.max_steering_permille =
+        params->linefollow_max_steering_permille;
+    g_state.deadband_mpos = params->linefollow_deadband_mpos;
     g_state.lost_hold_ms = params->linefollow_lost_hold_ms;
     g_state.lost_timeout_ms = params->linefollow_lost_stop_ms;
 }
@@ -90,6 +125,7 @@ void UpdateCalibrationMode(void)
         return;
     }
     g_state.mode = LF_IDLE;
+    ClearRecovery();
     if ((status != 0) && (status->last_status == drivers::DRIVER_OK)) {
         g_state.calibrated = true;
         g_state.last_status = drivers::DRIVER_OK;
@@ -118,6 +154,26 @@ int32_t ClampToMagnitude(int32_t value, int32_t magnitude)
         return -magnitude;
     }
     return value;
+}
+
+int32_t ApplySoftDeadband(int32_t value, uint16_t deadband)
+{
+    const int32_t magnitude = AbsoluteInt32(value);
+    if (magnitude <= static_cast<int32_t>(deadband)) {
+        return 0;
+    }
+    const int32_t reduced = magnitude - static_cast<int32_t>(deadband);
+    return (value < 0) ? -reduced : reduced;
+}
+
+int32_t DivideRoundedSymmetric(int64_t numerator, int64_t denominator)
+{
+    if (numerator >= 0) {
+        return static_cast<int32_t>(
+            (numerator + denominator / 2LL) / denominator);
+    }
+    return static_cast<int32_t>(
+        (numerator - denominator / 2LL) / denominator);
 }
 
 int32_t ApplyCorrectionSlew(int32_t requested,
@@ -151,27 +207,32 @@ int32_t ApplyCorrectionSlew(int32_t requested,
     return requested;
 }
 
-int32_t CalculateCorrection(const LineSensorSnapshot *data, int32_t base_rpm)
+int32_t CalculateCorrection(const LineSensorSnapshot *data,
+                            int32_t base_rpm,
+                            bool reset_derivative)
 {
     const int32_t measured_error = data->line_position;
     const int32_t error =
-        (AbsoluteInt32(measured_error) <= LF_ERROR_DEADBAND_MPOS)
-        ? 0
-        : measured_error;
+        ApplySoftDeadband(measured_error, g_state.deadband_mpos);
     const bool first_frame = (g_state.last_frame_ms == 0U);
     uint32_t dt_ms = 0U;
     int32_t derivative = 0;
     if ((!first_frame) &&
         (data->last_update_ms != g_state.last_frame_ms)) {
         dt_ms = data->last_update_ms - g_state.last_frame_ms;
-        const int64_t numerator =
-            static_cast<int64_t>(error - g_state.last_error_mpos) * 1000LL;
-        derivative = static_cast<int32_t>(numerator / dt_ms);
+        if (!reset_derivative) {
+            const int64_t numerator =
+                static_cast<int64_t>(error - g_state.last_error_mpos) *
+                1000LL;
+            derivative = static_cast<int32_t>(numerator / dt_ms);
+        }
     }
 
     /* Backward-Euler one-pole filtering keeps the derivative cutoff stable
      * when the grayscale frame period changes. */
-    if ((!first_frame) && (dt_ms != 0U)) {
+    if (reset_derivative) {
+        g_state.derivative_mpos_per_s = 0;
+    } else if ((!first_frame) && (dt_ms != 0U)) {
         const int64_t filtered_numerator =
             static_cast<int64_t>(g_state.derivative_mpos_per_s) *
                 static_cast<int64_t>(LF_DERIVATIVE_FILTER_TAU_MS) +
@@ -187,26 +248,28 @@ int32_t CalculateCorrection(const LineSensorSnapshot *data, int32_t base_rpm)
     const int64_t differential =
         static_cast<int64_t>(g_state.derivative_mpos_per_s) *
         static_cast<int64_t>(g_state.kd);
-    const int64_t combined = (proportional + differential) / kControlScale;
-
-    int32_t reference_correction;
-    if (combined > g_state.max_correction_rpm) {
-        reference_correction = g_state.max_correction_rpm;
-    } else if (combined < -g_state.max_correction_rpm) {
-        reference_correction = -g_state.max_correction_rpm;
-    } else {
-        reference_correction = static_cast<int32_t>(combined);
+    int64_t combined_numerator = proportional + differential;
+    const int64_t maximum_numerator =
+        static_cast<int64_t>(g_state.max_correction_rpm) *
+        static_cast<int64_t>(kControlScale);
+    if (combined_numerator > maximum_numerator) {
+        combined_numerator = maximum_numerator;
+    } else if (combined_numerator < -maximum_numerator) {
+        combined_numerator = -maximum_numerator;
     }
 
     const int32_t base_magnitude = AbsoluteInt32(base_rpm);
     const int64_t speed_scaled =
-        static_cast<int64_t>(reference_correction) *
+        combined_numerator *
         static_cast<int64_t>(base_magnitude);
-    int32_t requested = static_cast<int32_t>(
-        speed_scaled / static_cast<int64_t>(LF_REFERENCE_RPM));
+    const int64_t speed_scale_denominator =
+        static_cast<int64_t>(kControlScale) *
+        static_cast<int64_t>(LF_REFERENCE_RPM);
+    int32_t requested =
+        DivideRoundedSymmetric(speed_scaled, speed_scale_denominator);
     const int32_t ratio_limit = static_cast<int32_t>(
         (static_cast<int64_t>(base_magnitude) *
-         static_cast<int64_t>(LF_MAX_STEERING_PERMILLE)) / 1000LL);
+         static_cast<int64_t>(g_state.max_steering_permille)) / 1000LL);
     requested = ClampToMagnitude(requested, ratio_limit);
     const int32_t correction =
         ApplyCorrectionSlew(requested, base_rpm, dt_ms, first_frame);
@@ -216,6 +279,31 @@ int32_t CalculateCorrection(const LineSensorSnapshot *data, int32_t base_rpm)
     g_state.last_frame_ms = data->last_update_ms;
     g_state.correction_rpm = correction;
     return correction;
+}
+
+void RecordTrackPosition(const LineSensorSnapshot *data)
+{
+    g_state.last_strong_position_mpos = data->line_position;
+}
+
+void BeginAdcRecovery(uint32_t now)
+{
+    g_state.recovery_mode = LF_RECOVERY_HOLD;
+    g_state.recovery_start_ms = now;
+    g_state.recovery_elapsed_ms = 0U;
+    g_state.recovery_confirm_frames = 0U;
+    g_state.lost_since_ms = now;
+}
+
+bool ApplyAdcRecovery(uint32_t now, uint32_t frame_ms)
+{
+    g_state.recovery_elapsed_ms = now - g_state.recovery_start_ms;
+    g_state.recovery_mode = LF_RECOVERY_HOLD;
+    g_state.correction_rpm = g_state.recovery_correction_rpm;
+    g_state.last_frame_ms = frame_ms;
+    return ApplyWheelCommand(g_state.recovery_base_rpm,
+                             g_state.recovery_correction_rpm) ==
+           drivers::DRIVER_OK;
 }
 
 bool IsForwardJunctionPassThrough(const LineSensorSnapshot *data)
@@ -238,6 +326,7 @@ void LF_Init(void)
     g_state.lost = true;
     g_state.road_type = GRAYSCALE_ROAD_UNKNOWN;
     g_state.last_status = drivers::DRIVER_OK;
+    ClearRecovery();
     LoadConfig();
 }
 
@@ -254,6 +343,7 @@ void LF_ReloadConfig(void)
         g_state.lost = true;
         g_state.last_sequence = 0U;
         g_state.last_frame_ms = 0U;
+        ClearRecovery();
     }
 }
 
@@ -299,6 +389,9 @@ drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms)
         (data->channel_anomaly_mask != 0U)) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
+    if ((data->source == LINE_SENSOR_ADC8) && !IsStrongTrack(data)) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
 
     g_state.mode = LF_FOLLOW;
     g_state.base_rpm = base_rpm;
@@ -321,6 +414,10 @@ drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms)
     g_state.track_state = data->track_state;
     g_state.weak_tracking_frames = data->weak_tracking_frames;
     g_state.invalid_frames = data->invalid_frames;
+    ClearRecovery();
+    g_state.recovery_base_rpm = base_rpm;
+    g_state.recovery_correction_rpm = 0;
+    g_state.last_strong_position_mpos = data->line_position;
     g_state.last_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 }
@@ -331,6 +428,7 @@ drivers::DriverStatus LF_Stop(void)
         App_GrayscaleCancelCalibration();
     }
     g_state.mode = LF_IDLE;
+    ClearRecovery();
     const drivers::DriverStatus status = Chassis_Stop();
     g_state.last_status = status;
     return status;
@@ -360,6 +458,7 @@ drivers::DriverStatus LF_ReleaseForMotionHandoff(void)
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
     g_state.mode = LF_IDLE;
+    ClearRecovery();
     g_state.last_status = drivers::DRIVER_OK;
     return drivers::DRIVER_OK;
 }
@@ -412,8 +511,8 @@ void LF_Update(void)
         SafetyStop(services::FAULT_SENSOR_LOST);
         return;
     }
-    if ((!data->line_detected) || (!data->position_valid) ||
-        (data->track_state != drivers::GRAYSCALE_TRACK_VALID)) {
+    const bool track_valid = IsTrackValid(data);
+    if (!track_valid) {
         /* A branch/crossing can temporarily make the analogue geometry wide
          * while a forward path exists. A corner can also lose its center one
          * classifier frame before the confirmed event is published. Keep
@@ -426,11 +525,21 @@ void LF_Update(void)
             g_state.lost_since_ms = 0U;
             g_state.error_mpos = 0;
             g_state.correction_rpm = 0;
+            ClearRecovery();
             (void) ApplyWheelCommand(g_state.base_rpm, 0);
             return;
         }
         g_state.lost = true;
         g_state.error_mpos = 0;
+        if (data->source == LINE_SENSOR_ADC8) {
+            if (g_state.recovery_mode == LF_RECOVERY_NONE) {
+                BeginAdcRecovery(now);
+            } else {
+                g_state.recovery_confirm_frames = 0U;
+            }
+            (void) ApplyAdcRecovery(now, data->last_update_ms);
+            return;
+        }
         if (g_state.lost_since_ms == 0U) {
             g_state.lost_since_ms = now;
         }
@@ -443,18 +552,32 @@ void LF_Update(void)
                 (void) ApplyWheelCommand(g_state.base_rpm, 0);
                 return;
             }
-        } else if (data->invalid_frames < LF_INVALID_TRACK_STOP_FRAMES) {
-            return;
         }
         (void) LF_Stop();
         return;
     }
 
+    bool reset_derivative = false;
+    if ((data->source == LINE_SENSOR_ADC8) &&
+        (g_state.recovery_mode != LF_RECOVERY_NONE)) {
+        if (g_state.recovery_confirm_frames < UINT8_MAX) {
+            g_state.recovery_confirm_frames++;
+        }
+        if (g_state.recovery_confirm_frames < LF_RECOVERY_CONFIRM_FRAMES) {
+            (void) ApplyAdcRecovery(now, data->last_update_ms);
+            return;
+        }
+        reset_derivative = true;
+        ClearRecovery();
+    }
+
     g_state.lost = false;
     g_state.lost_since_ms = 0U;
     const int32_t correction =
-        CalculateCorrection(data, g_state.base_rpm);
-    (void) ApplyWheelCommand(g_state.base_rpm, correction);
+        CalculateCorrection(data, g_state.base_rpm, reset_derivative);
+    if (ApplyWheelCommand(g_state.base_rpm, correction) == drivers::DRIVER_OK) {
+        RecordTrackPosition(data);
+    }
 }
 
 const LFState *LF_GetState(void)
@@ -465,7 +588,15 @@ const LFState *LF_GetState(void)
 bool LF_IsLineDetected(void)
 {
     const LineSensorSnapshot *data = LineSensor_GetSnapshot();
-    return IsSensorFresh(data) &&
+    if (!IsSensorFresh(data) || (data->channel_anomaly_mask != 0U)) {
+        return false;
+    }
+    if ((g_state.mode == LF_FOLLOW) &&
+        (data->source == LINE_SENSOR_ADC8) &&
+        (g_state.recovery_mode != LF_RECOVERY_NONE)) {
+        return true;
+    }
+    return
            data->line_detected && data->position_valid &&
            (data->track_state == drivers::GRAYSCALE_TRACK_VALID) &&
            (data->channel_anomaly_mask == 0U);
@@ -501,6 +632,26 @@ void LF_SetMaxCorrection(int32_t max_correction_rpm)
             (LineSensor_GetSource() == LINE_SENSOR_IR3)
                 ? "ir_lf_maxcorr" : "lf_maxcorr",
             max_correction_rpm);
+    }
+}
+
+void LF_SetMaxSteeringRatio(uint32_t permille)
+{
+    if ((permille >= LF_MIN_MAX_STEERING_PERMILLE) &&
+        (permille <= LF_MAX_MAX_STEERING_PERMILLE)) {
+        g_state.max_steering_permille =
+            static_cast<uint16_t>(permille);
+        (void) ConfigStore_Set("lf_max_ratio_permille",
+                               static_cast<int32_t>(permille));
+    }
+}
+
+void LF_SetDeadband(uint32_t deadband_mpos)
+{
+    if (deadband_mpos <= LF_MAX_ERROR_DEADBAND_MPOS) {
+        g_state.deadband_mpos = static_cast<uint16_t>(deadband_mpos);
+        (void) ConfigStore_Set("lf_deadband_mpos",
+                               static_cast<int32_t>(deadband_mpos));
     }
 }
 

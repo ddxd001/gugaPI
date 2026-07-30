@@ -19,6 +19,7 @@ var PARAM_GROUPS=[
   {id:'gray_cal',section:'灰度与循迹',label:'灰度标定'},
   {id:'gray_proc',section:'灰度与循迹',label:'灰度判定'},
   {id:'linefollow',section:'灰度与循迹',label:'八路 ADC 循迹'},
+  {id:'task0',section:'比赛任务',label:'H2 内置任务 0'},
   {id:'infrared',section:'灰度与循迹',label:'三路串口红外'},
   {id:'other',section:'其他',label:'未分类参数'}
 ];
@@ -123,6 +124,8 @@ addParamMeta('gray_track_mask','循迹通道掩码','gray_proc',126,1,255,'bitma
 addParamMeta('lf_kp','循迹 Kp','linefollow',10000,0,1000000,'scaled','线位置误差的比例修正增益。',true);
 addParamMeta('lf_kd','循迹 Kd','linefollow',0,0,1000000,'scaled','线位置误差变化率的微分修正增益。',true);
 addParamMeta('lf_maxcorr','循迹最大差速修正','linefollow',30,0,500,'RPM','循迹控制允许施加的最大左右差速。',true);
+addParamMeta('lf_max_ratio_permille','循迹最大转向比例','linefollow',400,100,1000,'permille','最终差速修正相对基础转速的上限；400表示单侧修正最多为基础RPM的40%。参数页会通过专用命令同步更新当前控制器。',false);
+addParamMeta('lf_deadband_mpos','循迹连续软死区','linefollow',20,0,500,'mpos','误差绝对值不超过该值时不修正；超过后只减去死区宽度，避免传统硬死区边缘的修正跳变。参数页会同步更新当前控制器。',false);
 addParamMeta('lf_lost_hold_ms','丢线保持时间','linefollow',150,0,10000,'ms','短时丢线时保持最近修正的时间。',true,'number','ms');
 addParamMeta('lf_lost_stop_ms','丢线停车时间','linefollow',500,1,10000,'ms','持续丢线达到该时间后停车；必须不小于保持时间。',true,'number','ms');
 addParamMeta('lf_slew_permille_s','循迹修正变化率','linefollow',25000,1,65535,'permille/s','限制左右差速修正的变化速度；数值越大响应越快。',true);
@@ -130,6 +133,10 @@ addParamMeta('road_align_distance_mm','路口对齐距离','linefollow',0,0,300,
 addParamMeta('road_align_rpm','路口转弯基础速度','linefollow',30,1,300,'RPM','对齐、圆弧转弯和未确认线路时移动捕线的基础速度上限；实际不超过进入路口时的循迹基础速度。转弯末段会提前确认新线路，到达目标航向后尽快交还循迹并恢复原循迹速度。',false);
 addParamMeta('road_turn_outer_max_rpm','路口外轮正转上限','linefollow',220,1,1000,'RPM','自动路口圆弧中外轮沿用基础速度加差速修正，并由该值封顶；增大内轮反转速度不会继续抬高外轮。',false);
 addParamMeta('road_turn_inner_reverse_max_rpm','路口内轮最大反转','linefollow',120,0,1000,'RPM','自动路口圆弧满转向时内轮允许达到的反转速度；数值越大转弯半径越小，0表示内轮最多降到停止。',false);
+
+addParamMeta('task0_cruise_rpm','任务0巡航速度','task0',110,20,1000,'RPM','H2 一圈循迹的正常巡航速度；每次启动任务0时读取。',false);
+addParamMeta('task0_approach_rpm','任务0终点接近速度','task0',60,20,1000,'RPM','距编码器终点约900 mm后使用的速度，不得高于巡航速度。',false);
+addParamMeta('task0_lap_mm','任务0一圈里程','task0',6142,3000,8000,'mm','编码器一圈标称距离，同时作为横线漏检时的成功停车兜底。',false);
 
 addParamMeta('line_sensor_source','默认线路传感器','infrared',1,0,1,'enum','FRAM 中保存的真实线路传感器来源：0 为八路 ADC，1 为三路串口红外。运行时请在线路传感器页面切换；仅执行 param save 才会持久化。',false);
 addParamMeta('ir_position_invert','红外偏差方向反转','infrared',0,0,1,'bool','由五步标定自动确定。1 表示把模块回传的偏差取反后用于循迹。',false,'bool');
@@ -229,6 +236,10 @@ function paramCandidateError(candidate,ranges){
   },'灰度阈值与回差组合无效');
   if(error)return error;
   error=invalid(['lf_lost_stop_ms','lf_lost_hold_ms'],function(){return candidate.lf_lost_stop_ms<candidate.lf_lost_hold_ms},'丢线停车时间不能小于保持时间');
+  if(error)return error;
+  error=invalid(['task0_approach_rpm','task0_cruise_rpm'],function(){return candidate.task0_approach_rpm>candidate.task0_cruise_rpm},'任务0接近速度不能高于巡航速度');
+  if(error)return error;
+  error=invalid(['task0_cruise_rpm','max_wheel_rpm'],function(){return candidate.task0_cruise_rpm>candidate.max_wheel_rpm},'任务0巡航速度不能超过底盘最大轮速');
   if(error)return error;
   error=invalid(['ball_degraded_angle_mdeg','ball_max_angle_mdeg'],function(){return candidate.ball_degraded_angle_mdeg>candidate.ball_max_angle_mdeg},'滚球降级倾角不能大于最大倾角');
   if(error)return error;
@@ -340,6 +351,15 @@ function paramParseMode(text){
   return m?m[1]:'unknown';
 }
 function paramResponseOk(text,prefix){return text.indexOf(prefix+': ok')>=0}
+function paramWriteSpec(name,value){
+  if(name==='lf_max_ratio_permille'){
+    return{command:'lf maxratio '+value,prefix:'lf maxratio'};
+  }
+  if(name==='lf_deadband_mpos'){
+    return{command:'lf deadband '+value,prefix:'lf deadband'};
+  }
+  return{command:'param set '+name+' '+value,prefix:'param set'};
+}
 async function paramRequireWritable(){
   var response=await send('comp status',{timeoutMs:2500});
   paramPageState.mode=paramParseMode(response);
@@ -581,13 +601,14 @@ async function paramApplySelected(){
   paramPageState.busy=true;paramUpdateControls();
   try{
     await paramRequireWritable();
-    var response=await send('param set '+name+' '+value,{timeoutMs:2800});
-    if(!paramResponseOk(response,'param set'))throw new Error('固件拒绝该值，请检查关联参数约束');
+    var writeSpec=paramWriteSpec(name,value);
+    var response=await send(writeSpec.command,{timeoutMs:2800});
+    if(!paramResponseOk(response,writeSpec.prefix))throw new Error('固件拒绝该值，请检查关联参数约束');
     await paramRefreshOne(name);
     paramPageState.sessionChanged[name]=true;
     if(meta.restart)paramPageState.restartPending=true;
     paramRenderAll();
-    paramToast(meta.restart?'已写入 RAM，重启后生效':'已写入 RAM','ok');
+    paramToast(name==='lf_max_ratio_permille'?'已写入 RAM，并同步更新循迹转向上限':(meta.restart?'已写入 RAM，重启后生效':'已写入 RAM'),'ok');
   }catch(error){paramToast('应用失败：'+error.message,'error')}
   finally{paramPageState.busy=false;paramUpdateControls()}
 }
@@ -702,8 +723,9 @@ async function paramImportFile(file){
         applied+=10;
         BALL_MAP_NAMES.forEach(function(name){paramPageState.sessionChanged[name]=true});
       }else{
-        response=await send('param set '+item.name+' '+item.value,{timeoutMs:2800});
-        if(!paramResponseOk(response,'param set')){failed=item.name;break}
+        var itemWriteSpec=paramWriteSpec(item.name,item.value);
+        response=await send(itemWriteSpec.command,{timeoutMs:2800});
+        if(!paramResponseOk(response,itemWriteSpec.prefix)){failed=item.name;break}
         applied++;paramPageState.sessionChanged[item.name]=true;
         if(paramMeta(item.name).restart)paramPageState.restartPending=true;
       }
@@ -774,9 +796,21 @@ function paramSimValid(candidate){
 }
 function paramSimCommand(cmd){
   paramSimInit();
-  if(cmd==='comp status')return'comp mode=dev-running slot=0 valid=1 any_valid=1 count=5 step=0 result=none last=ok\r\n> ';
+  if(cmd==='comp status')return'comp mode=dev-running slot=0 problem=2 source=builtin valid=1 any_valid=1 count=2 step=0 result=none last=ok course=idle completion=none distance_mm=0 finish_mask=0x00\r\n> ';
   if(cmd==='reset'){simParamValues=Object.assign({},simPersistedValues);simParamDirty=false;return'resetting...\r\n> '}
-  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=305 crc=0x5C758F1C load=ok save=ok layout=1 bank='+simParamBank+' generation='+simParamGeneration+' capacity=1004 free=699\r\n> ';
+  if(cmd.startsWith('lf maxratio ')){
+    var ratioParts=cmd.split(/\s+/),ratioValue=Number(ratioParts[2]),ratioMeta=PARAM_META.lf_max_ratio_permille;
+    if(ratioParts.length!==3||!Number.isInteger(ratioValue)||ratioValue<ratioMeta.min||ratioValue>ratioMeta.max)return'lf maxratio: invalid-arg\r\n> ';
+    simParamValues=paramCandidateWithValue(simParamValues,'lf_max_ratio_permille',ratioValue);
+    simParamDirty=true;return'lf maxratio: ok\r\n> ';
+  }
+  if(cmd.startsWith('lf deadband ')){
+    var deadbandParts=cmd.split(/\s+/),deadbandValue=Number(deadbandParts[2]),deadbandMeta=PARAM_META.lf_deadband_mpos;
+    if(deadbandParts.length!==3||!Number.isInteger(deadbandValue)||deadbandValue<deadbandMeta.min||deadbandValue>deadbandMeta.max)return'lf deadband: invalid-arg\r\n> ';
+    simParamValues=paramCandidateWithValue(simParamValues,'lf_deadband_mpos',deadbandValue);
+    simParamDirty=true;return'lf deadband: ok\r\n> ';
+  }
+  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=315 crc=0x5C758F1C load=ok save=ok layout=1 bank='+simParamBank+' generation='+simParamGeneration+' capacity=1004 free=689\r\n> ';
   if(cmd==='param export'||cmd.startsWith('param export ')){
     var exportParts=cmd.split(/\s+/),start=exportParts.length>=3?Number(exportParts[2]):0;
     var requested=exportParts.length>=4?Number(exportParts[3]):PARAM_EXPORT_BATCH_SIZE;

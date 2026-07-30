@@ -181,6 +181,8 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 .seq-panel-title{font-size:18px;font-weight:750;color:#f0f3f8;margin-bottom:5px}.seq-tech{font:10px Consolas,monospace;color:#5fb9e8}.seq-action-help,.seq-muted{color:#909bad;line-height:1.55;margin:12px 0}.seq-right label{display:block;color:#adb6c4;font-size:11px;margin:12px 0 5px}.seq-right select,.seq-right input{width:100%;padding:7px;background:#151820;color:#edf0f5;border:1px solid #3c4553;border-radius:5px}.seq-right small{display:block;color:#737f91;font-size:10px;line-height:1.45;margin-top:4px}.seq-input-unit{display:flex}.seq-input-unit input{border-radius:5px 0 0 5px}.seq-input-unit span{display:flex;align-items:center;padding:0 9px;background:#2b323e;border:1px solid #3c4553;border-left:0;border-radius:0 5px 5px 0;color:#9ca7b7;font-size:11px}.seq-project-meta{display:flex;flex-direction:column;gap:4px;color:#8c97a8;margin:10px 0 15px}.seq-issues{display:flex;flex-direction:column;gap:5px}.seq-issue{display:block;text-align:left;border:1px solid #4a3f2e;background:#332c22;color:#e4b65f;font-size:11px}.seq-issue.error{border-color:#59333c;background:#38242a;color:#ef8697}.seq-pass{padding:10px;background:#21372e;color:#87d49b;border-radius:5px}.seq-help{border-top:1px solid #353d49;margin-top:18px;padding-top:14px;color:#8d98a9;font-size:11px;line-height:1.55}.seq-help b{color:#ccd3dd}.seq-help p{margin:4px 0 12px}.seq-inline-errors{margin-top:12px}.seq-inline-errors p{padding:6px 8px;border-radius:4px;font-size:11px}.seq-inline-errors .error{background:#3a252b;color:#ef8697}.seq-inline-errors .warning{background:#372f22;color:#e3b55c}
 .seq-guide{display:none;position:fixed;inset:0;z-index:50;background:#07090dbb;align-items:center;justify-content:center}.seq-guide.show{display:flex}.seq-guide-card{width:min(720px,90vw);max-height:85vh;overflow:auto;background:#232833;border:1px solid #495362;border-radius:12px;padding:25px;box-shadow:0 20px 70px #000}.seq-guide-card h2{margin-bottom:12px}.seq-guide-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0}.seq-guide-grid div{padding:13px;background:#191d25;border-radius:7px}.seq-guide-grid b{color:#7ec8ef}.seq-guide-grid p{margin-top:6px;color:#a1acba;line-height:1.55;font-size:12px}
 #btnEmergencyStop{position:relative;background:#d84f68;color:#fff;font-weight:800;border:0;box-shadow:0 0 0 2px #ff8b9d33}
+#btnSerialLog.recording{background:#b84f63;color:#fff;border-color:#dd7184;box-shadow:0 0 0 2px #ff8b9d22}
+#serialLogStatus{font-size:11px;color:#9399b2;white-space:nowrap}
 @media(max-width:1100px){#paramLayout{grid-template-columns:190px minmax(330px,1fr) 310px}#commandLayout{grid-template-columns:330px minmax(400px,1fr)}}
 </style>
 <link rel="stylesheet" href="dashboard.css?v=20260728-three-columns">
@@ -194,6 +196,8 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <button id="btnConnect" class="primary">连接串口</button>
 <button id="btnSim">模拟设备</button>
 <button id="btnRefresh" disabled>刷新槽位</button>
+<button id="btnSerialLog" type="button" disabled>记录全量串口</button>
+<span id="serialLogStatus">串口日志未开启</span>
 <button id="btnEmergencyStop" type="button">紧急停止</button>
 <span id="statusText"></span>
 </header>
@@ -277,12 +281,14 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <button class="line-source-card" type="button" data-source="adc8"><b>八路 ADC 灰度传感器</b><small>完整道路与路口识别</small><span></span></button>
 <button class="line-source-card" type="button" data-source="ir3"><b>三路串口红外传感器</b><small>PA1 RX / PA0 TX · UART0 · 115200 8N1</small><span></span></button>
 <div class="line-source-summary"><p>当前使用：<b id="lineActiveSource">--</b></p><p>FRAM 默认：<b id="lineFramSource">--</b></p><p>RAM 状态：<b id="lineDirtyState">--</b></p></div>
+<p id="lineSourcePending" class="line-source-pending" hidden></p>
 <button id="btnLineApply" class="primary" type="button" disabled>应用到 RAM</button>
 <button id="btnLineSave" type="button" disabled>保存为 FRAM 默认</button>
 <p class="line-sensor-note">切换要求循迹、道路控制、序列和比赛均已停止。应用到 RAM 不会写 FRAM；只有“保存为 FRAM 默认”或 <code>param save</code> 才会持久化。</p>
 </aside>
 <section class="line-sensor-pane line-calibration">
-<header><div><b>三路红外五步标定</b><small>每一步自动采集 64 个 CRC 正确帧</small></div><span id="lineCalState">未开始</span></header>
+<div id="lineIrCalibration">
+<header><div><b>三路红外五步标定</b><small>开始后自动采集白底；其余步骤各采集 64 个 CRC 正确帧</small></div><span id="lineCalState">未开始</span></header>
 <div class="line-cal-steps">
 <button type="button" data-cal-step="white"><i>1</i><span><b>白底</b><small>三路传感器全部放在白色底面</small></span><em>等待</em></button>
 <button type="button" data-cal-step="black"><i>2</i><span><b>全黑</b><small>三路传感器全部放在黑线上</small></span><em>等待</em></button>
@@ -291,10 +297,22 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <button type="button" data-cal-step="right"><i>5</i><span><b>线路最右</b><small>放到仍可稳定识别的最右位置</small></span><em>等待</em></button>
 </div>
 <div class="line-cal-actions"><button id="btnLineCalBegin" type="button" disabled>开始新标定</button><button id="btnLineCalCommit" class="primary" type="button" disabled>提交到 RAM</button><button id="btnLineCalCancel" type="button" disabled>取消</button></div>
-<div id="lineCalNotice">未完成有效标定时可以查看裸数据，但固件会禁止启动红外循迹。</div>
+<div id="lineCalNotice">点击“开始新标定”后会自动采集第一步白底数据；未完成有效标定时固件会禁止启动红外循迹。</div>
+</div>
+<div id="lineAdcCalibration" hidden>
+<header><div><b>八路 ADC 黑白标定</b><small>白底、黑线各采集 64 个完整八路帧</small></div><span id="grayCalState">未开始</span></header>
+<div class="gray-cal-actions"><button id="btnGrayCalBegin" type="button" disabled>开始新标定</button><button id="btnGrayCalWhite" type="button" disabled>1. 采集白底</button><button id="btnGrayCalBlack" type="button" disabled>2. 采集黑线</button></div>
+<div class="gray-cal-progress"><span>采集进度</span><progress id="grayCalProgress" max="64" value="0"></progress><b id="grayCalSamples">0/64</b></div>
+<div class="gray-preview-head"><span>通道</span><span>白值</span><span>黑值</span><span>跨度</span><span>噪声</span><span>结果</span></div>
+<div id="grayPreviewRows" class="gray-preview-rows"></div>
+<div class="line-cal-actions"><button id="btnGrayCalCommit" class="primary" type="button" disabled>提交到 RAM</button><button id="btnGrayCalCancel" type="button" disabled>取消</button></div>
+<div id="graySimControls" class="gray-sim-controls" hidden><span>离线演示：</span><button id="btnGraySimFailure" type="button">失败通道</button><button id="btnGraySimTimeout" type="button">采集中断</button></div>
+<div id="grayCalNotice">请先确认 8 路实时值持续更新，再开始新标定。提交后需单独点击左侧“保存为 FRAM 默认”。</div>
+</div>
 </section>
 <aside class="line-sensor-pane line-live">
 <header><b>实时裸数据</b><span id="lineLiveStatus">无数据</span></header>
+<div id="lineIrLive">
 <div class="line-live-grid">
 <div><span>模块偏差</span><b id="lineRawOffset">--</b><code>offset_raw</code></div><div><span>标准位置</span><b id="linePosition">--</b><code>position_mpos</code></div>
 <div><span>全黑</span><b id="lineAllBlack">--</b><code>all_black</code></div><div><span>数据年龄</span><b id="lineAge">--</b><code>age_ms</code></div>
@@ -303,6 +321,13 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <div class="line-stat-list"><p><span>有效帧</span><b id="lineFrames">--</b></p><p><span>CRC 错误</span><b id="lineCrcErrors">--</b></p><p><span>帧头错误</span><b id="lineHeaderErrors">--</b></p><p><span>UART 错误</span><b id="lineUartErrors">--</b></p><p><span>缓冲区丢弃</span><b id="lineDropped">--</b></p></div>
 <button id="btnLineClearStats" type="button" disabled>清零通信统计</button>
 <p class="line-sensor-note">三路串口红外是真实传感器，不支持自动路口。顶部显示“模拟设备”时，仅表示上位机离线模拟连接。</p>
+</div>
+<div id="lineAdcLive" hidden>
+<div class="gray-live-summary"><span>帧 <b id="graySequence">--</b></span><span>年龄 <b id="grayAge">--</b></span><span>位置 <b id="grayPosition">--</b></span><span>强度 <b id="grayStrength">--</b></span></div>
+<div id="grayChannelBars" class="gray-channel-bars"></div>
+<div class="gray-health"><span>采样状态 <b id="graySampleStatus">--</b></span><span>标定故障 <b id="grayFaultMask">--</b></span><span>通道异常 <b id="grayAnomalyMask">--</b></span></div>
+<p class="line-sensor-note">柱形图同时显示原始 ADC（0..4095）和归一化灰度（0..1000）。界面读取缓存快照，不会额外触发阻塞式 ADC 采样。</p>
+</div>
 </aside>
 </div>
 <div id="lineSensorToast" role="status" aria-live="polite"></div>
@@ -492,20 +517,23 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <div class="log" id="log"></div>
 <div id="paramToast" role="status" aria-live="polite"></div>
 <div id="seqGuide" class="seq-guide"><div class="seq-guide-card"><h2>第一次使用图形序列编辑器</h2><p>这个编辑器把当前画布编译成固件可脱机执行的 ActionRunner 指令，不会生成依赖上位机在线发送的脚本块。</p><div class="seq-guide-grid"><div><b>1. 拖入动作</b><p>从左侧动作库拖到画布；点击动作后在右侧设置中文参数。</p></div><div><b>2. 连接端口</b><p>从动作块右侧圆点拖到目标块。绿色表示完成；红色表示失败或超时，留空时默认终止序列并停车。</p></div><div><b>3. 先试运行</b><p>试运行只临时更新 MCU RAM，校验并回读比对后启动，不会写 FRAM。</p></div><div><b>4. 再保存</b><p>保存会覆盖绑定槽位，写入后自动通过 seq dump 逐项比对。</p></div></div><p style="color:#ef8697">运动动作具有机械风险。实车测试前请架空车轮，并确保“紧急停止”按钮始终可操作。</p><button id="btnGuideClose" class="primary">开始编辑</button></div></div>
-<script src="sequence_core.js?v=20260729-implicit-abort"></script>
-<script src="help_catalog.js?v=20260729-help-v2"></script>
+<script src="sequence_core.js?v=20260731-track-course-v1"></script>
+<script src="help_catalog.js?v=20260731-track-course-v1"></script>
 <script src="dashboard_core.js?v=20260728-grouped"></script>
 <script src="ball_core.js?v=20260730-ball-lab-v1"></script>
-<script src="app1.js?v=20260728-seq-dashboard"></script>
-<script src="app2.js?v=20260729-implicit-abort"></script>
-<script src="app3.js?v=20260729-help-v1"></script>
+<script src="serial_log_core.js?v=20260730-serial-log-v1"></script>
+<script src="app1.js?v=20260731-track-course-v1"></script>
+<script src="app2.js?v=20260731-track-course-v1"></script>
+<script src="app3.js?v=20260731-track-course-v1"></script>
 <script src="app4.js?v=20260729-help-v1"></script>
-<script src="app5.js?v=20260728-host-sync"></script>
-<script src="command_catalog.js?v=20260728-host-sync"></script>
+<script src="app5.js?v=20260731-task0-v1"></script>
+<script src="command_catalog.js?v=20260731-task0-v1"></script>
 <script src="app6.js?v=20260728-shell-library"></script>
 <script src="app7.js?v=20260728-grouped"></script>
 <script src="app8.js?v=20260729-help-v2"></script>
-<script src="app9.js?v=20260730-ir3-ui-v2"></script>
+<script src="line_sensor_core.js?v=20260730-adc8-cal-v1"></script>
+<script src="app9.js?v=20260730-adc8-cal-v1"></script>
 <script src="app10.js?v=20260730-ball-lab-v1"></script>
+<script src="app11.js?v=20260730-serial-log-v1"></script>
 </body>
 </html>

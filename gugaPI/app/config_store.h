@@ -98,10 +98,21 @@ struct ConfigStoreParams {
     int32_t linefollow_kp;
     int32_t linefollow_kd;
     uint16_t linefollow_max_correction_rpm;
+    /* Final correction clamp as a fraction of absolute base RPM. */
+    uint16_t linefollow_max_steering_permille;
+    /* Continuous center soft-deadband in line-position millipoints. */
+    uint16_t linefollow_deadband_mpos;
     uint16_t linefollow_lost_hold_ms;
     uint16_t linefollow_lost_stop_ms;
     /* Maximum differential-correction change, relative to base RPM. */
     uint16_t linefollow_correction_slew_permille_per_second;
+
+    /* Built-in H2 one-lap task. The approach and finish gates are derived
+     * from the configured lap distance so only three field values need
+     * commissioning. */
+    uint16_t task0_cruise_rpm;
+    uint16_t task0_approach_rpm;
+    uint16_t task0_lap_mm;
 
     /* Stationary disturbance-recovery heading lock. */
     int32_t heading_lock_kp;

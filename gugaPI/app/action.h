@@ -42,7 +42,8 @@ enum ActionOp {
     ACT_OP_DM_DISABLE = 22,
     ACT_OP_BALL_HOLD = 23,
     ACT_OP_BALL_MOVE = 24,
-    ACT_OP_BALL_DISABLE = 25
+    ACT_OP_BALL_DISABLE = 25,
+    ACT_OP_TRACK_COURSE = 26
 };
 
 enum ActionCond {
@@ -156,7 +157,8 @@ enum ActionFailureReason {
     ACT_FAIL_ROUTE_REACQUIRE_FAILED,
     ACT_FAIL_BALL_VISION_LOST,
     ACT_FAIL_BALL_ENDPOINT,
-    ACT_FAIL_BALL_CONTROL
+    ACT_FAIL_BALL_CONTROL,
+    ACT_FAIL_COURSE
 };
 
 enum ActionValidationField {
@@ -220,6 +222,12 @@ drivers::DriverStatus ActionRunner_AddRoadNav(
     int32_t route,
     int32_t rpm,
     int32_t timeout_ms,
+    uint8_t on_success,
+    uint8_t on_failure);
+drivers::DriverStatus ActionRunner_AddTrackCourse(
+    int32_t cruise_rpm,
+    int32_t approach_rpm,
+    int32_t lap_distance_mm,
     uint8_t on_success,
     uint8_t on_failure);
 drivers::DriverStatus ActionRunner_AddDmPosition(

@@ -172,6 +172,9 @@ var ACTIONS={
   road_nav:{op:19,name:'循迹通过路口',group:'电赛复合动作',color:'#32b8a0',
     help:'从当前黑线循迹到下一个路口，按指定方向通过并重新捕获黑线。',
     defaults:{direction:'straight',uturnMode:'arc',rpm:80,timeoutMs:15000}},
+  track_course:{op:26,name:'一圈循迹停车',group:'电赛复合动作',color:'#1aa6a6',
+    help:'按编码器里程跑完一圈；终点横线使用中间六路连续五黑确认，漏检时由里程成功停车。',
+    defaults:{cruiseRpm:110,approachRpm:60,lapMm:6142}},
   dm_position:{op:20,name:'达妙定位',group:'达妙电机',color:'#d08b5b',
     help:'以参考轨迹驱动 DM-G6220 到绝对或相对角度，完成后保持目标位置。',
     defaults:{frame:'relative',angleDeg:0,maxVelocityDegS:11.5,timeoutMs:5000}},
@@ -214,7 +217,7 @@ var OP_TYPES={
   9:'led_on',10:'led_off',11:'led_toggle',12:'buzzer_on',
   13:'buzzer_off',14:'buzzer_toggle',15:'condition',16:'drive',17:'follow',
   18:'loop',19:'road_nav',20:'dm_position',21:'dm_speed',22:'dm_disable',
-  23:'ball_hold',24:'ball_move',25:'ball_disable'
+  23:'ball_hold',24:'ball_move',25:'ball_disable',26:'track_course'
 };
 
 function clone(v){return JSON.parse(JSON.stringify(v))}
@@ -450,6 +453,14 @@ function validateParams(n,maxRpm,issues,options){
         '整体超时应为 50～30000 ms，步进 50 ms',
         n.id,'timeoutMs');
     }
+  }else if(t==='track_course'){
+    range('cruiseRpm',20,maxRpm,'巡航转速',false);
+    range('approachRpm',20,maxRpm,'接近转速',false);
+    range('lapMm',3000,8000,'一圈里程',false);
+    if(Number(p.approachRpm)>Number(p.cruiseRpm)){
+      addIssue(issues,'error','course_speed_order',
+        '接近转速不能高于巡航转速',n.id,'approachRpm');
+    }
   }else if(t==='dm_position'){
     if(p.frame!=='absolute'&&p.frame!=='relative'){
       addIssue(issues,'error','dm_frame','定位方式必须为绝对或相对',
@@ -674,6 +685,9 @@ function rawFor(n){
     r.p1=+p.rpm;r.p2=+p.timeoutMs;r.until=5;
     r.conditionValue=route?route.code:-1;
     r.route=routeValue;
+  }else if(type==='track_course'){
+    r.p1=+p.cruiseRpm;r.p2=+p.approachRpm;r.until=5;
+    r.conditionValue=+p.lapMm;
   }else if(type==='dm_position'){
     r.p1=Math.round(Number(p.angleDeg)*Math.PI*1000/180);
     r.p2=Math.round(Number(p.maxVelocityDegS)*Math.PI*1000/180);
@@ -757,6 +771,9 @@ function paramsFromRaw(type,r){
       rpm:r.p1,
       timeoutMs:r.p2
     };
+  }
+  if(type==='track_course'){
+    return{cruiseRpm:r.p1,approachRpm:r.p2,lapMm:r.conditionValue};
   }
   if(type==='dm_position'){
     return{

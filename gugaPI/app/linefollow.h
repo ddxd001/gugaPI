@@ -13,24 +13,35 @@ namespace app {
 /* Steering is calculated at this reference speed, then scaled with the
  * requested forward speed so the same line error produces approximately the
  * same chassis curvature. Geometry and filter constants remain fixed; gain,
- * correction ceiling, and correction slew are runtime tuning parameters. */
+ * correction ceiling, final steering ratio, and correction slew are runtime
+ * tuning parameters. */
 enum LFControllerConstant {
     LF_REFERENCE_RPM = 40,
-    LF_MAX_STEERING_PERMILLE = 400,
-    LF_ERROR_DEADBAND_MPOS = 50,
+    LF_DEFAULT_MAX_STEERING_PERMILLE = 400,
+    LF_MIN_MAX_STEERING_PERMILLE = 100,
+    LF_MAX_MAX_STEERING_PERMILLE = 1000,
+    LF_DEFAULT_ERROR_DEADBAND_MPOS = 20,
+    LF_MAX_ERROR_DEADBAND_MPOS = 500,
     LF_DERIVATIVE_FILTER_TAU_MS = 40,
     LF_DEFAULT_CORRECTION_SLEW_PERMILLE_PER_SECOND = 25000,
-    /* A complete grayscale position frame is about 7 ms. Geometry-only
-     * invalid states therefore receive about 42 ms to recover as the line
-     * crosses a gap between adjacent sensors. Hardware/stale/anomaly faults
-     * still stop immediately in LF_Update(). */
-    LF_INVALID_TRACK_STOP_FRAMES = 6
+    /* Retain the historical diagnostic constant for source compatibility.
+     * ADC8 geometry loss now holds the last wheel command until a valid line
+     * is reacquired; hardware/stale/anomaly failures still stop immediately. */
+    LF_INVALID_TRACK_STOP_FRAMES = 6,
+    LF_RECOVERY_CONFIRM_FRAMES = 3,
+    LF_STRONG_CONFIDENCE_MIN = 300
 };
 
 enum LFMode {
     LF_IDLE = 0,
     LF_CAL,      /* unified grayscale sweep calibration */
     LF_FOLLOW    /* following the line */
+};
+
+enum LFRecoveryMode : uint8_t {
+    LF_RECOVERY_NONE = 0U,
+    LF_RECOVERY_HOLD,
+    LF_RECOVERY_DECEL
 };
 
 struct LFState {
@@ -56,15 +67,23 @@ struct LFState {
     drivers::GrayscaleTrackState track_state;
     uint8_t weak_tracking_frames;
     uint8_t invalid_frames;
+    LFRecoveryMode recovery_mode;
+    uint32_t recovery_start_ms;
+    uint32_t recovery_elapsed_ms;
+    uint8_t recovery_confirm_frames;
+    int32_t recovery_base_rpm;
+    int32_t recovery_correction_rpm;
+    int16_t last_strong_position_mpos;
     /* Tunable parameters are loaded from ConfigStore and remain runtime-settable.
      * max_correction_rpm is the ceiling at LF_REFERENCE_RPM; the controller
-     * scales it with the requested speed before applying the steering-ratio
-     * safety limit. Lost-line timing is retained for configuration/API
-     * compatibility. Brief geometry gaps are tolerated for six complete
-     * grayscale frames (about 42 ms). */
+     * scales it with the requested speed before applying the configurable
+     * steering-ratio safety limit. Lost-line timing remains configurable for
+     * IR3; ADC8 geometry loss holds the last wheel command until reacquired. */
     int32_t kp;
     int32_t kd;
     int32_t max_correction_rpm;
+    uint16_t max_steering_permille;
+    uint16_t deadband_mpos;
     uint32_t correction_slew_permille_per_second;
     uint32_t lost_hold_ms;
     uint32_t lost_timeout_ms;
@@ -73,8 +92,9 @@ struct LFState {
 
 /* 8-channel grayscale line follower. Calibrate (sweep sensor over line +
  * floor for 2 s), then LF_Start drives following the line for a duration.
- * Fault/stale/sensor anomaly stops immediately. Lost, multiple, or wide line
- * geometry stops after six consecutive complete frames, without search. */
+ * Fault/stale/sensor anomaly stops immediately. A weak but valid ADC8 position
+ * remains in closed-loop control. Invalid ADC8 geometry holds the exact last
+ * wheel command until three consecutive valid positions reacquire the line. */
 void LF_Init(void);
 void LF_ReloadConfig(void);
 drivers::DriverStatus LF_CalibrateStart(void);
@@ -93,16 +113,18 @@ void LF_Update(void);
 const LFState *LF_GetState(void);
 
 /* True if the grayscale currently provides a fresh, explicitly valid,
- * anomaly-free tracking position. Callable any time (does not
- * require LF_FOLLOW); used by the action interpreter's LINE_DETECTED /
- * LINE_LOST conditions so action completion matches the stop policy. */
+ * anomaly-free tracking position, or ADC8 follow is actively holding its last
+ * command while searching. Callable any time; used by the action interpreter
+ * so a temporary ADC8 geometry loss does not abort the follow action. */
 bool LF_IsLineDetected(void);
 
-/* Runtime parameter setters. ConfigStore keeps the existing public surface;
- * lost timing setters are compatibility-only while stop-on-invalid is active. */
+/* Runtime parameter setters. ADC8 hold-until-valid does not use the lost
+ * timing parameters; they remain active for the existing IR3 loss policy. */
 void LF_SetKp(int32_t kp);
 void LF_SetKd(int32_t kd);
 void LF_SetMaxCorrection(int32_t max_correction_rpm);
+void LF_SetMaxSteeringRatio(uint32_t permille);
+void LF_SetDeadband(uint32_t deadband_mpos);
 void LF_SetCorrectionSlew(uint32_t permille_per_second);
 void LF_SetLostHold(uint32_t hold_ms);
 void LF_SetLostTimeout(uint32_t timeout_ms);

@@ -181,10 +181,11 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('gray all','立即读取全部八路原始值。'),
       ShellForm('gray data','读取周期任务缓存的八路原始值。'),
       ShellForm('gray process','输出归一化、位置、强度和线路判定。'),
-      ShellForm('gray calib show|status|reload|sweep [ms]','查看标定、重载参数或执行位置扫描。','W'),
-      ShellForm('gray calib white [frames]|black [frames]|commit|cancel','采集白/黑标定并提交或取消。','W'),
+      ShellForm('gray live','单行返回界面所需的有效性、帧年龄、八路原始值/归一化值和故障状态。'),
+      ShellForm('gray calib begin|show|status|preview|reload|sweep [ms]','开始新会话、查看进度/暂存值、重载参数或执行兼容扫描。','W'),
+      ShellForm('gray calib white [frames]|black [frames]|commit|cancel','采集白底/黑线，提交到RAM或取消；默认每阶段64帧。','W'),
       ShellForm('gray oled on [period_ms 50..5000]|off|status|once','控制灰度OLED页面。','W')
-    ],'calib commit 会更新ConfigStore RAM参数；需要param save才会写入FRAM。'),
+    ],'begin和每次采集要求200 ms内的有效完整帧；无新帧会自动timeout。calib commit只更新ConfigStore RAM参数，必须另行param save才写入FRAM。'),
 
   ShellCommand('linesensor','选择真实线路传感器','传感器',
     '在八路 ADC 灰度传感器与三路串口红外传感器之间切换统一循迹数据来源。','W',BOTH,[
@@ -305,6 +306,7 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('run add drive_if|follow_if <rpm> <source> <cmp> <value>','后续填写超时、稳定时间和跳转，运动期间持续判断通用条件。','W'),
       ShellForm('run add loop <count> 0 immediate <body_index> <done_index>','追加计数循环；循环体返回本节点，完成出口连接后续动作。','W'),
       ShellForm('run add road_nav <route> <rpm> <timeout_ms> <onsuccess> <onfailure>','循迹通过下一个路口；route 支持左/直/右及左右圆弧或原地掉头。','M'),
+      ShellForm('run add track_course <cruise_rpm> <approach_rpm> <lap_mm> <onsuccess> <onfailure>','按编码器里程循迹一圈，以中间六路横线或里程兜底停车。','M'),
       ShellForm('run add dm_position absolute|relative <target_mrad> <max_mrad_s> <timeout_ms> <onsuccess> <onfailure>','追加达妙绝对或相对定位动作。','M'),
       ShellForm('run add dm_speed <velocity_mrad_s> <duration_ms> <onsuccess> <onfailure>','追加达妙定速动作，到时减速并保持。','M'),
       ShellForm('run add dm_disable <onsuccess> <onfailure>','追加达妙失能动作。','W'),
@@ -323,9 +325,11 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('lf kp <val>','修改循迹比例增益。','W'),
       ShellForm('lf kd <val>','修改循迹微分增益。','W'),
       ShellForm('lf maxcorr <val>','修改最大差速修正RPM。','W'),
+      ShellForm('lf maxratio <permille 100..1000>','修改最终差速修正相对基础转速的比例上限。','W'),
+      ShellForm('lf deadband <mpos 0..500>','修改连续软死区并立即同步当前循迹控制器。','W'),
       ShellForm('lf slew <permille_per_s 1..65535>','修改修正量变化率。','W'),
-      ShellForm('lf losthold <ms> (compatibility only)','兼容入口：修改短时丢线保持时间。','W'),
-      ShellForm('lf losttimeout <ms> (compatibility only)','兼容入口：修改持续丢线停车时间。','W')
+      ShellForm('lf losthold <ms>','修改短时丢线保持时间。','W'),
+      ShellForm('lf losttimeout <ms>','修改持续丢线停车时间。','W')
     ]),
 
   ShellCommand('road','路口与弯道事件','运动',
@@ -348,6 +352,11 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('comp status','查看模式、槽位、步骤和结果。')
     ]),
 
+  ShellCommand('course','内置一圈任务','流程',
+    '查看任务0的一圈循迹里程、终点横线证据和完成来源。','R',BOTH,[
+      ShellForm('course status','查看阶段、里程、终点掩码、完成来源和失败原因。')
+    ]),
+
   ShellCommand('estop','软件全停','运动',
     '取消所有应用层运动控制器并强制停止底盘；不会清除锁存故障，也不能替代硬件断电。','M',BOTH,[
       ShellForm('estop','立即取消序列、航向、循迹和道路控制，并停止两个车轮。','M')
@@ -363,13 +372,13 @@ var SHELL_COMMAND_LIBRARY=[
     ]),
 
   ShellCommand('seq','FRAM动作序列槽','流程',
-    '列出、读写、删除或直接运行0到7号FRAM持久化动作序列。','M',BOTH,[
+    '列出、读写、删除或直接运行FRAM持久化动作序列；槽0由内置H2任务保留。','M',BOTH,[
       ShellForm('seq list','列出全部槽位有效性和指令数。'),
       ShellForm('seq dump <0..7>','导出指定槽的动作序列。'),
-      ShellForm('seq save <0..7>','把当前RAM动作序列保存到指定槽。','W'),
-      ShellForm('seq load <0..7>','把指定槽加载到RAM。','W'),
-      ShellForm('seq del <0..7>','删除指定FRAM序列槽。','W'),
-      ShellForm('seq run <0..7>','加载并立即执行指定序列。','M')
+      ShellForm('seq save <1..7>','把当前RAM动作序列保存到非保留槽。','W'),
+      ShellForm('seq load <1..7>','把非保留槽加载到RAM。','W'),
+      ShellForm('seq del <1..7>','删除非保留FRAM序列槽。','W'),
+      ShellForm('seq run <1..7>','加载并立即执行非保留序列。','M')
     ],'seq run可能立即产生运动；来源不明的序列应先dump检查。'),
 
   ShellCommand('i2c','通用I²C诊断','通信',

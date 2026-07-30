@@ -149,13 +149,111 @@ int main()
     assert(result.position_valid);
     assert(result.line_position == 0);
 
-    /* An already-active channel remains valid inside the hysteresis band. */
+    /* A single partial response can acquire a narrow line directly from a
+     * cold state. This mirrors the measured vehicle frame: normalized=530,
+     * signal=430, below threshold_on=650 but above the derived analogue
+     * acquisition minimum of 400. */
+    state = {};
     Fill(raw, 3900U);
-    raw[4] = 2200U;
+    raw[4] = 2092U; /* normalized=530, signal=430 */
+    result = Process(raw, calibration, &state);
+    assert(result.active_mask == 0U);
+    assert(result.selected_mask == 0x10U);
+    assert(result.line_strength == 430U);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
+    assert(result.position_valid);
+    assert(result.line_position == -1000);
+    assert(result.position_confidence >= 300U);
+
+    /* Two adjacent responses below threshold_off=350 combine through the
+     * continuous weighted centroid and acquire a centered line.  A physical
+     * sensor gap gets a lower, still geometry-bounded cold-start threshold. */
+    state = {};
+    Fill(raw, 3900U);
+    raw[3] = 2920U; /* normalized=300, signal=200 */
+    raw[4] = 2920U;
+    result = Process(raw, calibration, &state);
+    assert(result.active_mask == 0U);
+    assert(result.selected_mask == 0x18U);
+    assert(result.line_strength == 400U);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
+    assert(result.position_valid);
+    assert(result.line_position == 0);
+
+    /* Reproduce the measured start-line frame: normalized values are about
+     * 133 and 251, so the signals above the floor total only 184.  Because
+     * they are adjacent this must still acquire from a cold state. */
+    state = {};
+    Fill(raw, 3900U);
+    raw[2] = 3520U; /* normalized=133, signal=33 */
+    raw[3] = 3096U; /* normalized=251, signal=151 */
+    result = Process(raw, calibration, &state);
+    assert(result.active_mask == 0U);
+    assert(result.selected_mask == 0x0CU);
+    assert(result.line_strength == 184U);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
+    assert(result.line_detected);
+    assert(result.position_valid);
+    assert(result.position_confidence >= 300U);
+
+    /* Adjacent geometry alone is insufficient: total signal below the
+     * derived two-channel minimum (150 for this calibration) stays lost. */
+    state = {};
+    Fill(raw, 3900U);
+    raw[2] = 3370U; /* normalized=175, signal=75 */
+    raw[3] = 3374U; /* normalized=173, signal=73 */
+    result = Process(raw, calibration, &state);
+    assert(result.selected_mask == 0x0CU);
+    assert(result.line_strength == 148U);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_LOST);
+    assert(!result.position_valid);
+
+    /* Analogue acquisition remains bounded by total energy and narrow,
+     * contiguous geometry. */
+    state = {};
+    Fill(raw, 3900U);
+    raw[4] = 2204U; /* normalized=498, signal=398: below minimum */
+    result = Process(raw, calibration, &state);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_LOST);
+    assert(!result.position_valid);
+
+    state = {};
+    Fill(raw, 3900U);
+    raw[2] = 2920U;
+    raw[5] = 2920U;
+    result = Process(raw, calibration, &state);
+    assert(result.line_strength == 400U);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_LOST);
+    assert(!result.position_valid);
+
+    state = {};
+    Fill(raw, 3900U);
+    raw[2] = 3100U; /* normalized=250, signal=150 */
+    raw[3] = 3100U;
+    raw[4] = 3100U;
+    result = Process(raw, calibration, &state);
+    assert(result.line_strength == 450U);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_LOST);
+    assert(!result.position_valid);
+
+    state = {};
+    Fill(raw, 3900U);
+    result = Process(raw, calibration, &state);
+    assert(result.selected_mask == 0U);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_LOST);
+    assert(!result.position_valid);
+
+    /* An already-active channel remains valid inside the hysteresis band,
+     * even just below the cold analogue-acquisition minimum. */
+    Fill(raw, 3900U);
+    raw[4] = 800U;
+    result = Process(raw, calibration, &state);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
+    raw[4] = 2204U; /* normalized=498, signal=398 */
     result = Process(raw, calibration, &state);
     assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
 
-    /* The same isolated moderate evidence cannot start a new detection. */
+    /* The same sub-minimum isolated evidence cannot start a new detection. */
     state = {};
     result = Process(raw, calibration, &state);
     assert(result.track_state == drivers::GRAYSCALE_TRACK_LOST);

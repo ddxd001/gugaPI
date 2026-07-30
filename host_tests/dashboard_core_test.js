@@ -179,6 +179,26 @@ assert.strictEqual(
     'telem on heading 100'),
   false,
   'the command echo alone must not complete the response');
+assert.strictEqual(
+  core.isPromptlessShellResponseCandidate(
+    'valid=1 seq=42 age_ms=7 raw=1,2,3,4,5,6,7,8\n',
+    'gray live'),
+  true,
+  'a complete no-echo response may finish after the quiet interval');
+assert.strictEqual(
+  core.isPromptlessShellResponseCandidate(
+    'gray live\nvalid=1 seq=42\n',
+    'gray live'),
+  false,
+  'an echoed command still requires its following prompt');
+assert.strictEqual(
+  core.isPromptlessShellResponseCandidate('#t,mode\n', 'gray live'),
+  false,
+  'telemetry alone must never complete a shell transaction');
+assert.strictEqual(
+  core.isPromptlessShellResponseCandidate('first=1\nsecond=2\n', 'gray live'),
+  true,
+  'multi-line promptless responses remain supported');
 
 const csv=core.exportCsv(
   ['t','mode'],
