@@ -296,6 +296,32 @@ int main()
     DmG6220Controller_Update();
     assert(g_sent[g_sent_count - 1U].data[7] == 0xFEU);
 
+    /* The ball controller owns a continuous position reference exclusively. */
+    Reset();
+    AdvanceBootToReady();
+    Feed(100, 0, 1U);
+    assert(DmG6220Controller_ExternalAcquire(
+               DM_EXTERNAL_OWNER_BALL_BALANCE) == drivers::DRIVER_OK);
+    assert(DmG6220Controller_GetState()->mode ==
+           DM_CONTROL_EXTERNAL_POSITION);
+    assert(DmG6220Controller_GetState()->external_owner ==
+           DM_EXTERNAL_OWNER_BALL_BALANCE);
+    assert(DmG6220Controller_StartSpeed(100) ==
+           drivers::DRIVER_ERROR_BUSY);
+    assert(DmG6220Controller_ExternalSetPosition(
+               DM_EXTERNAL_OWNER_BALL_BALANCE, 350) ==
+           drivers::DRIVER_OK);
+    g_now += 10U;
+    Feed(100, 0, 1U);
+    DmG6220Controller_Update();
+    assert(DmG6220Controller_GetState()->reference_position_mrad > 100);
+    assert(DmG6220Controller_ExternalRelease(
+               DM_EXTERNAL_OWNER_BALL_BALANCE, false) ==
+           drivers::DRIVER_OK);
+    assert(DmG6220Controller_GetState()->mode == DM_CONTROL_HOLD);
+    assert(DmG6220Controller_GetState()->external_owner ==
+           DM_EXTERNAL_OWNER_NONE);
+
     puts("dm g6220 controller ok");
     return 0;
 }

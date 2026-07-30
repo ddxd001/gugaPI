@@ -24,7 +24,7 @@ function simple(type){
 
 assert.strictEqual(SC.FORMAT,'gugapi-sequence-project');
 assert.strictEqual(SC.VERSION,2);
-assert.strictEqual(Object.keys(SC.ACTIONS).length,19);
+assert.strictEqual(Object.keys(SC.ACTIONS).length,22);
 const fresh=SC.newProject('无中止节点',7);
 assert.deepStrictEqual(fresh.nodes.map(n=>n.type),['system_start']);
 assert(!fresh.nodes.some(n=>n.id==='abort'||n.type==='system_abort'));
@@ -204,6 +204,29 @@ assert.strictEqual(SC.compile(dmSpeedMax).instrs[0].p1,-20000);
 
 const dmDisableRaw=SC.compile(simple('dm_disable')).instrs;
 assert.strictEqual(dmDisableRaw[0].op,22);
+
+const ballHold=simple('ball_hold');
+ballHold.nodes.find(n=>n.id==='first').params.targetMm=-12.3;
+const ballHoldRaw=SC.compile(ballHold).instrs;
+assert.strictEqual(ballHoldRaw[0].op,23);
+assert.strictEqual(ballHoldRaw[0].p1,-123);
+assert.strictEqual(ballHoldRaw[0].p2,0);
+assert.deepStrictEqual(
+  SC.compile(SC.decompile(ballHoldRaw,{name:'滚球保持',slot:1})).instrs,
+  ballHoldRaw);
+
+const ballMove=simple('ball_move');
+const ballMoveNode=ballMove.nodes.find(n=>n.id==='first');
+ballMoveNode.params.targetMm=50;
+ballMoveNode.params.timeoutMs=5000;
+const ballMoveRaw=SC.compile(ballMove).instrs;
+assert.strictEqual(ballMoveRaw[0].op,24);
+assert.strictEqual(ballMoveRaw[0].p1,500);
+assert.strictEqual(ballMoveRaw[0].p2,5000);
+assert.deepStrictEqual(
+  SC.compile(SC.decompile(ballMoveRaw,{name:'滚球移动',slot:2})).instrs,
+  ballMoveRaw);
+assert.strictEqual(SC.compile(simple('ball_disable')).instrs[0].op,25);
 assert.deepStrictEqual(SC.compile(SC.decompile(dmDisableRaw)).instrs,
   dmDisableRaw,'dm disable round trip');
 
@@ -215,6 +238,9 @@ for(const [type,patch] of [
   ['dm_speed',{velocityDegS:0}],
   ['dm_speed',{velocityDegS:1146}],
   ['dm_speed',{durationMs:75}]
+  ,['ball_hold',{targetMm:100.1}]
+  ,['ball_move',{targetMm:-100.1}]
+  ,['ball_move',{timeoutMs:75}]
 ]){
   const invalid=simple(type);
   Object.assign(invalid.nodes.find(n=>n.id==='first').params,patch);
@@ -406,4 +432,4 @@ assert.strictEqual(migratedNode.params.value,0);
 assert(!migrated.nodes.some(n=>n.type==='system_abort'));
 assert(!migrated.edges.some(e=>e.target==='abort'));
 
-console.log('sequence core ok: implicit abort, legacy migration, 19 actions, road-nav, DM-G6220, counted/nested loops and round trips');
+console.log('sequence core ok: implicit abort, legacy migration, 22 actions, road-nav, DM-G6220, ball balance, counted/nested loops and round trips');

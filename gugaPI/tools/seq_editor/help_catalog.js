@@ -368,6 +368,53 @@ var ACTION_GUIDES={
     tips:['序列结束、取消、隐式终止、急停、故障和模式切换都会自动失能；该节点用于在序列中提前释放。'],
     risk:'motion'
   },
+  ball_hold:{
+    purpose:'启动钢球位置闭环并在后台保持指定位置，后续巡线和定距动作不会停止该闭环。',
+    parameters:['目标位置：-100.0..100.0 mm，相对轨道中心 O；正方向指向双连杆驱动端。'],
+    success:'视觉和达妙控制权建立后立即走“完成”出口，滚球闭环继续以 100 Hz 运行。',
+    failure:'启动时视觉无有效钢球、达妙反馈不新鲜或控制权被占用时走红色出口；运行中丢球会终止整个序列并停车。',
+    example:{title:'保持中心并同时巡线',paths:[
+      DemoFlow('正常路径',[
+        DemoNode('system_start'),DemoNode('ball_hold','保持 0 mm'),
+        DemoNode('follow','循迹 · 80 RPM'),DemoNode('ball_disable','释放滚球电机'),
+        DemoNode('end')
+      ],['success','success','success','success'])
+    ]},
+    tips:['先用 vision inject 和空载双连杆验证方向，再接入真实钢球。',
+      '保持节点完成不代表闭环停止；必须用滚球失能、急停或序列结束释放。'],
+    risk:'motion'
+  },
+  ball_move:{
+    purpose:'将钢球平滑移动到指定位置，并等待位置与速度连续稳定后完成。',
+    parameters:['目标位置：-100.0..100.0 mm，相对轨道中心 O。',
+      '整体超时：50..30000 ms，步进 50 ms。'],
+    success:'位置误差和速度满足阈值并连续稳定 200 ms 后走绿色出口，随后继续保持目标位置。',
+    failure:'超时、视觉超过 120 ms 无有效球、钢球接近端部或达妙控制异常时走红色出口或终止序列。',
+    example:{title:'H3：从中心移动到 +50 mm 再到 -50 mm',paths:[
+      DemoFlow('正常路径',[
+        DemoNode('system_start'),DemoNode('ball_move','移动到 +50 mm · 5000 ms'),
+        DemoNode('ball_move','移动到 -50 mm · 5000 ms'),
+        DemoNode('ball_disable','释放滚球电机'),DemoNode('end')
+      ],['success','success','success','success'])
+    ]},
+    tips:['首次测试应降低供电电流并确保钢球不会越过机械端部。',
+      '目标切换由控制器限角和限斜率处理，不要在两次移动之间插入达妙定位节点。'],
+    risk:'motion'
+  },
+  ball_disable:{
+    purpose:'停止滚球闭环并重复发送达妙失能命令，释放双连杆执行机构。',
+    parameters:['该动作没有可调参数。'],
+    success:'控制权释放后走绿色出口。',
+    failure:'控制权状态异常时走红色出口；急停仍会执行达妙失能兜底。',
+    example:{title:'任务完成后释放滚球机构',paths:[
+      DemoFlow('正常路径',[
+        DemoNode('ball_hold','保持 0 mm'),
+        DemoNode('ball_disable','释放滚球电机'),DemoNode('end')
+      ],['success','success'])
+    ]},
+    tips:['序列结束、取消、故障和模式切换也会自动失能；该节点用于提前释放。'],
+    risk:'motion'
+  },
   stop:{
     purpose:'立即停止底盘、航向、循迹和道路控制，然后继续执行序列。',
     parameters:['该动作没有可调参数。'],

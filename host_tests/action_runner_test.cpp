@@ -7,6 +7,7 @@
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
 #include "app/app_main.h"
+#include "app/ball_balance.h"
 #include "app/chassis.h"
 #include "app/dm_g6220_controller.h"
 #include "app/heading.h"
@@ -42,7 +43,10 @@ app::RoadControlState g_road = {};
 uint32_t g_road_start_calls = 0U;
 uint32_t g_road_cancel_calls = 0U;
 app::DmG6220ControlState g_dm = {};
+app::BallBalanceState g_ball = {};
 uint32_t g_dm_emergency_disable_calls = 0U;
+uint32_t g_ball_emergency_stop_calls = 0U;
+uint32_t g_ball_stop_calls = 0U;
 uint32_t g_dm_stop_speed_calls = 0U;
 
 void Reset()
@@ -90,7 +94,11 @@ void Reset()
     g_dm.initialized = true;
     g_dm.mode = app::DM_CONTROL_READY;
     g_dm.operation_result = app::DM_OPERATION_IDLE;
+    g_ball = app::BallBalanceState();
+    g_ball.mode = app::BALL_BALANCE_IDLE;
+    g_ball.result = app::BALL_BALANCE_RESULT_IDLE;
     g_dm_emergency_disable_calls = 0U;
+    g_ball_stop_calls = 0U;
     g_dm_stop_speed_calls = 0U;
     app::ActionRunner_Init();
 }
@@ -298,6 +306,40 @@ const DmG6220ControlState *DmG6220Controller_GetState(void)
 {
     return &g_dm;
 }
+drivers::DriverStatus BallBalance_StartHold(int16_t target_0p1mm)
+{
+    g_ball.mode = BALL_BALANCE_HOLD;
+    g_ball.result = BALL_BALANCE_RESULT_SUCCESS;
+    g_ball.target_position_0p1mm = target_0p1mm;
+    return drivers::DRIVER_OK;
+}
+drivers::DriverStatus BallBalance_StartMove(int16_t target_0p1mm,
+                                            uint32_t timeout_ms)
+{
+    g_ball.mode = BALL_BALANCE_MOVE;
+    g_ball.result = BALL_BALANCE_RESULT_RUNNING;
+    g_ball.target_position_0p1mm = target_0p1mm;
+    g_ball.timeout_ms = timeout_ms;
+    return drivers::DRIVER_OK;
+}
+drivers::DriverStatus BallBalance_Stop(bool disable)
+{
+    (void) disable;
+    g_ball_stop_calls++;
+    g_ball.mode = BALL_BALANCE_IDLE;
+    g_ball.result = BALL_BALANCE_RESULT_IDLE;
+    return drivers::DRIVER_OK;
+}
+void BallBalance_EmergencyStop(void)
+{
+    g_ball_emergency_stop_calls++;
+    g_ball.mode = BALL_BALANCE_IDLE;
+    g_ball.result = BALL_BALANCE_RESULT_IDLE;
+}
+const BallBalanceState *BallBalance_GetState(void)
+{
+    return &g_ball;
+}
 } /* namespace app */
 
 namespace board {
@@ -413,7 +455,10 @@ int main()
         { ACT_OP_LED_TOGGLE, 3, 0, ACT_COND_IMMEDIATE },
         { ACT_OP_BUZZER_ON, 0, 50, ACT_COND_IMMEDIATE },
         { ACT_OP_BUZZER_OFF, 0, 0, ACT_COND_IMMEDIATE },
-        { ACT_OP_BUZZER_TOGGLE, 0, 0, ACT_COND_IMMEDIATE }
+        { ACT_OP_BUZZER_TOGGLE, 0, 0, ACT_COND_IMMEDIATE },
+        { ACT_OP_BALL_HOLD, 0, 0, ACT_COND_IMMEDIATE },
+        { ACT_OP_BALL_MOVE, 500, 5000, ACT_COND_IMMEDIATE },
+        { ACT_OP_BALL_DISABLE, 0, 0, ACT_COND_IMMEDIATE }
     };
     for (uint32_t i = 0U; i < sizeof(cases) / sizeof(cases[0]); i++) {
         assert(ActionRunner_Clear() == drivers::DRIVER_OK);
@@ -694,6 +739,46 @@ int main()
     assert(ActionRunner_GetState()->current == 1U);
     assert(ActionRunner_Cancel() == drivers::DRIVER_OK);
     assert(g_dm_emergency_disable_calls == 1U);
+
+    /* A foreground ball-move failure follows the explicit red target and
+     * releases continuous control into a safe DM hold. */
+    Reset();
+    assert(ActionRunner_AddInstr(
+        ACT_OP_BALL_MOVE, 500, 5000, ACT_COND_IMMEDIATE,
+        1U, 1U) == drivers::DRIVER_OK);
+    AddEnd();
+    assert(ActionRunner_Start() == drivers::DRIVER_OK);
+    ActionRunner_Update();
+    g_ball.mode = BALL_BALANCE_FAILED;
+    g_ball.result = BALL_BALANCE_RESULT_VISION_LOST;
+    ActionRunner_Update();
+    assert(ActionRunner_GetState()->running);
+    assert(ActionRunner_GetState()->current == 1U);
+    assert(ActionRunner_GetState()->failure_reason ==
+           ACT_FAIL_BALL_VISION_LOST);
+    assert(g_ball_stop_calls == 1U);
+    ActionRunner_Update();
+    assert(ActionRunner_GetState()->result == ACT_RUN_SUCCESS);
+
+    /* Once ball_hold has handed control to a later action, loss of the
+     * background balance loop aborts the complete sequence. */
+    Reset();
+    assert(ActionRunner_AddInstr(
+        ACT_OP_BALL_HOLD, 0, 0, ACT_COND_IMMEDIATE,
+        1U, ACT_NEXT) == drivers::DRIVER_OK);
+    assert(ActionRunner_AddInstr(
+        ACT_OP_WAIT, 0, 1000, ACT_COND_TIMEOUT,
+        2U, ACT_NEXT) == drivers::DRIVER_OK);
+    AddEnd();
+    assert(ActionRunner_Start() == drivers::DRIVER_OK);
+    ActionRunner_Update();
+    assert(ActionRunner_GetState()->current == 1U);
+    g_ball.mode = BALL_BALANCE_FAILED;
+    g_ball.result = BALL_BALANCE_RESULT_ENDPOINT;
+    ActionRunner_Update();
+    assert(ActionRunner_GetState()->result == ACT_RUN_ABORTED);
+    assert(ActionRunner_GetState()->failure_reason ==
+           ACT_FAIL_BALL_ENDPOINT);
 
     /* Counted loop executes its body exactly N times; done is success. */
     Reset();

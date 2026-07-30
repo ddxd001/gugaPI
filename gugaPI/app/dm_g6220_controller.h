@@ -20,6 +20,7 @@ enum DmG6220ControlMode : uint8_t {
     DM_CONTROL_ENABLING,
     DM_CONTROL_HOLD,
     DM_CONTROL_POSITION,
+    DM_CONTROL_EXTERNAL_POSITION,
     DM_CONTROL_SPEED,
     DM_CONTROL_SPEED_STOPPING,
     DM_CONTROL_DISABLING,
@@ -41,6 +42,11 @@ enum DmG6220PositionFrame : uint8_t {
     DM_POSITION_RELATIVE
 };
 
+enum DmG6220ExternalOwner : uint8_t {
+    DM_EXTERNAL_OWNER_NONE = 0U,
+    DM_EXTERNAL_OWNER_BALL_BALANCE
+};
+
 struct DmG6220ControlState {
     bool initialized;
     DmG6220ControlMode mode;
@@ -59,6 +65,7 @@ struct DmG6220ControlState {
     uint32_t probe_count;
     uint8_t special_remaining;
     bool enabled;
+    DmG6220ExternalOwner external_owner;
 };
 
 void DmG6220Controller_Init(void);
@@ -80,6 +87,14 @@ drivers::DriverStatus DmG6220Controller_HoldCurrent(void);
 drivers::DriverStatus DmG6220Controller_Disable(void);
 drivers::DriverStatus DmG6220Controller_ClearError(void);
 drivers::DriverStatus DmG6220Controller_SetZero(void);
+drivers::DriverStatus DmG6220Controller_ExternalAcquire(
+    DmG6220ExternalOwner owner);
+drivers::DriverStatus DmG6220Controller_ExternalSetPosition(
+    DmG6220ExternalOwner owner,
+    int32_t target_mrad);
+drivers::DriverStatus DmG6220Controller_ExternalRelease(
+    DmG6220ExternalOwner owner,
+    bool disable);
 void DmG6220Controller_EmergencyDisable(void);
 bool DmG6220Controller_IsFeedbackFresh(uint32_t now_ms);
 bool DmG6220Controller_IsTxReserved(void);

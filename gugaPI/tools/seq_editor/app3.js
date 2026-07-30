@@ -128,6 +128,17 @@ function seqProperties(n){
     h+=seqField('持续时间','durationMs','number',{
       min:50,max:30000,step:50,unit:'ms'
     },'到时后斜坡减速并保持停止位置。');
+  }else if(n.type==='ball_hold'){
+    h+=seqField('目标位置','targetMm','number',{
+      min:-100,max:100,step:0.1,unit:'mm'
+    },'相对轨道中心 O；正方向指向双连杆驱动端。');
+  }else if(n.type==='ball_move'){
+    h+=seqField('目标位置','targetMm','number',{
+      min:-100,max:100,step:0.1,unit:'mm'
+    },'相对轨道中心 O；正方向指向双连杆驱动端。');
+    h+=seqField('整体超时','timeoutMs','number',{
+      min:50,max:30000,step:50,unit:'ms'
+    },'位置和速度连续稳定后完成；超时走红色端口。');
   }else if(n.type.indexOf('led_')===0){
     h+=seqField('LED 目标','target','select',[
       {value:0,label:'LED2 + LED3'},{value:2,label:'仅 LED2'},
@@ -224,6 +235,15 @@ function seqCommandForRaw(x){
   }
   if(x.op===22){
     return'run add dm_disable '+ons+' '+ont;
+  }
+  if(x.op===23){
+    return'run add ball_hold '+x.p1+' '+ons+' '+ont;
+  }
+  if(x.op===24){
+    return'run add ball_move '+x.p1+' '+x.p2+' '+ons+' '+ont;
+  }
+  if(x.op===25){
+    return'run add ball_disable '+ons+' '+ont;
   }
   return'run add '+OP[x.op]+' '+x.p1+' '+x.p2+' '+COND[x.until]+' '+
     ons+' '+ont;

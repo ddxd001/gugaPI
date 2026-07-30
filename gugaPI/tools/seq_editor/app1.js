@@ -1,7 +1,7 @@
 'use strict';
-const OP={0:'none',1:'drive',2:'turn',3:'follow',4:'wait',5:'stop',6:'branch',7:'end',8:'drive_mm',9:'led_on',10:'led_off',11:'led_toggle',12:'buzzer_on',13:'buzzer_off',14:'buzzer_toggle',15:'condition',16:'drive_if',17:'follow_if',18:'loop',19:'road_nav',20:'dm_position',21:'dm_speed',22:'dm_disable'};
-const OPL={1:'直行',2:'转向',3:'循迹',4:'等待',5:'停车',6:'条件分支',7:'结束',8:'定距行驶',9:'LED 点亮',10:'LED 熄灭',11:'LED 翻转',12:'蜂鸣器开启',13:'蜂鸣器关闭',14:'蜂鸣器翻转',15:'通用判断',16:'条件直行',17:'条件循迹',18:'循环',19:'循迹通过路口',20:'达妙定位',21:'达妙定速',22:'达妙失能'};
-const OPC={1:'#89b4fa',2:'#fab387',3:'#a6e3a1',4:'#9399b2',5:'#f38ba8',6:'#cba6f7',7:'#6c7086',8:'#74c7ec',9:'#f9e2af',10:'#7f849c',11:'#f5c2e7',12:'#f38ba8',13:'#7f849c',14:'#eba0ac',15:'#cba6f7',16:'#89b4fa',17:'#a6e3a1',18:'#7b74d6',19:'#32b8a0',20:'#d08b5b',21:'#c46e8f',22:'#8c788d'};
+const OP={0:'none',1:'drive',2:'turn',3:'follow',4:'wait',5:'stop',6:'branch',7:'end',8:'drive_mm',9:'led_on',10:'led_off',11:'led_toggle',12:'buzzer_on',13:'buzzer_off',14:'buzzer_toggle',15:'condition',16:'drive_if',17:'follow_if',18:'loop',19:'road_nav',20:'dm_position',21:'dm_speed',22:'dm_disable',23:'ball_hold',24:'ball_move',25:'ball_disable'};
+const OPL={1:'直行',2:'转向',3:'循迹',4:'等待',5:'停车',6:'条件分支',7:'结束',8:'定距行驶',9:'LED 点亮',10:'LED 熄灭',11:'LED 翻转',12:'蜂鸣器开启',13:'蜂鸣器关闭',14:'蜂鸣器翻转',15:'通用判断',16:'条件直行',17:'条件循迹',18:'循环',19:'循迹通过路口',20:'达妙定位',21:'达妙定速',22:'达妙失能',23:'滚球保持',24:'滚球移动',25:'滚球失能'};
+const OPC={1:'#89b4fa',2:'#fab387',3:'#a6e3a1',4:'#9399b2',5:'#f38ba8',6:'#cba6f7',7:'#6c7086',8:'#74c7ec',9:'#f9e2af',10:'#7f849c',11:'#f5c2e7',12:'#f38ba8',13:'#7f849c',14:'#eba0ac',15:'#cba6f7',16:'#89b4fa',17:'#a6e3a1',18:'#7b74d6',19:'#32b8a0',20:'#d08b5b',21:'#c46e8f',22:'#8c788d',23:'#4db6ac',24:'#26a69a',25:'#607d8b'};
 const COND=['timeout','heading_reached','line_detected','line_lost','button','immediate','distance_reached','absolute','relative'];
 const ROAD_ROUTE=['left','straight','right','uturn_left_arc','uturn_right_arc','uturn_left_pivot','uturn_right_pivot'];
 let port=null,reader=null,writer=null,readableClosed=null,writableClosed=null;
@@ -161,6 +161,18 @@ function parseRawInstruction(tokens,hasIndex){
     return{op:22,p1:0,p2:0,until:5,conditionValue:0,
       ons:rawTarget(p[1]),ont:rawTarget(p[2])};
   }
+  if(op===23&&p.length>=4){
+    return{op:23,p1:Number(p[1]),p2:0,until:5,conditionValue:0,
+      ons:rawTarget(p[2]),ont:rawTarget(p[3])};
+  }
+  if(op===24&&p.length>=5){
+    return{op:24,p1:Number(p[1]),p2:Number(p[2]),until:5,
+      conditionValue:0,ons:rawTarget(p[3]),ont:rawTarget(p[4])};
+  }
+  if(op===25&&p.length>=3){
+    return{op:25,p1:0,p2:0,until:5,conditionValue:0,
+      ons:rawTarget(p[1]),ont:rawTarget(p[2])};
+  }
   if(p.length<6)return null;
   return{op:op,p1:Number(p[1]),p2:Number(p[2]),
     until:COND.indexOf(p[3]),conditionValue:0,
@@ -189,6 +201,15 @@ function formatRawInstruction(x,includeIndex,index){
   }
   if(x.op===22){
     return prefix+'dm_disable '+x.ons+' '+x.ont;
+  }
+  if(x.op===23){
+    return prefix+'ball_hold '+x.p1+' '+x.ons+' '+x.ont;
+  }
+  if(x.op===24){
+    return prefix+'ball_move '+x.p1+' '+x.p2+' '+x.ons+' '+x.ont;
+  }
+  if(x.op===25){
+    return prefix+'ball_disable '+x.ons+' '+x.ont;
   }
   return prefix+OP[x.op]+' '+x.p1+' '+x.p2+' '+COND[x.until]+' '+
     x.ons+' '+x.ont;
@@ -224,6 +245,18 @@ function parseSimAdd(cmd){
     return{op:22,p1:0,p2:0,until:5,conditionValue:0,
       ons:rawTarget(p[3]),ont:rawTarget(p[4])};
   }
+  if(op==='ball_hold'){
+    return{op:23,p1:Number(p[3]),p2:0,until:5,conditionValue:0,
+      ons:rawTarget(p[4]),ont:rawTarget(p[5])};
+  }
+  if(op==='ball_move'){
+    return{op:24,p1:Number(p[3]),p2:Number(p[4]),until:5,
+      conditionValue:0,ons:rawTarget(p[5]),ont:rawTarget(p[6])};
+  }
+  if(op==='ball_disable'){
+    return{op:25,p1:0,p2:0,until:5,conditionValue:0,
+      ons:rawTarget(p[3]),ont:rawTarget(p[4])};
+  }
   var opKey=Object.keys(OP).find(function(k){return OP[k]===op});
   return{op:Number(opKey),p1:Number(p[3]),p2:Number(p[4]),
     until:COND.indexOf(p[5]),conditionValue:0,
@@ -251,7 +284,7 @@ function simResponse(cmd){
   }else if(cmd.indexOf('run add ')===0){
     simInstrs.push(parseSimAdd(cmd));resp='run add: ok\r\n> ';
   }else if(cmd==='run'){
-    resp='usage: run add ... loop|road_nav|dm_position|dm_speed|dm_disable\r\n> ';
+    resp='usage: run add ... loop|road_nav|dm_position|dm_speed|dm_disable|ball_hold|ball_move|ball_disable\r\n> ';
   }else if(cmd==='run validate'||cmd==='run validate competition'){
     resp=simInstrs.length?'run validate ok count='+simInstrs.length+
       '\r\n> ':'run validate error index=255 field=table reason=empty\r\n> ';

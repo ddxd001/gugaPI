@@ -7,6 +7,8 @@
 #include "app/app_large_timer.h"
 #include "app/app_can_bus.h"
 #include "app/app_lora.h"
+#include "app/ball_vision.h"
+#include "app/ball_balance.h"
 #include "app/app_shell.h"
 #include "app/action.h"
 #include "app/chassis.h"
@@ -178,6 +180,24 @@ void App_InfraredLineTask(void)
         app::LF_Update();
     }
 #endif
+}
+#endif
+
+#if FEATURE_ENABLE_BALL_VISION
+const uint32_t BALL_VISION_PERIOD_MS = 2U;
+
+void App_BallVisionTask(void)
+{
+    app::BallVision_Update();
+}
+#endif
+
+#if FEATURE_ENABLE_BALL_BALANCE
+const uint32_t BALL_BALANCE_PERIOD_MS = 10U;
+
+void App_BallBalanceTask(void)
+{
+    app::BallBalance_Update();
 }
 #endif
 
@@ -1062,6 +1082,16 @@ void App_Init(void)
         services::Fault_Set(services::FAULT_UNKNOWN);
     }
 #endif
+#if FEATURE_ENABLE_BALL_VISION
+    app::BallVision_Init();
+    if (services::Scheduler_AddTask("ball_vision",
+                                    App_BallVisionTask,
+                                    BALL_VISION_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
     app::LineSensor_Init();
     app::LF_Init();
@@ -1157,6 +1187,16 @@ void App_Init(void)
         services::Fault_Set(services::FAULT_UNKNOWN);
     }
 #endif
+#if FEATURE_ENABLE_BALL_BALANCE
+    app::BallBalance_Init();
+    if (services::Scheduler_AddTask("ball_balance",
+                                    App_BallBalanceTask,
+                                    BALL_BALANCE_PERIOD_MS,
+                                    0U,
+                                    0) != services::SCHEDULER_OK) {
+        services::Fault_Set(services::FAULT_UNKNOWN);
+    }
+#endif
 
 #if FEATURE_ENABLE_BUTTONS || FEATURE_ENABLE_STATUS_LED || \
     FEATURE_ENABLE_BUZZER || FEATURE_ENABLE_OLED
@@ -1218,6 +1258,9 @@ void App_Run(void)
 
     if (services::Fault_HasFault()) {
         g_appState.mode = APP_MODE_FAULT;
+#if FEATURE_ENABLE_BALL_BALANCE
+        BallBalance_EmergencyStop();
+#endif
 #if FEATURE_ENABLE_DM_G6220_CAN
         DmG6220Controller_EmergencyDisable();
 #endif
@@ -1338,6 +1381,9 @@ drivers::DriverStatus App_CompetitionArm(void)
     SetChassisTaskEnabled(false);
 #endif
     (void) ActionRunner_Cancel();
+#if FEATURE_ENABLE_BALL_BALANCE
+    BallBalance_EmergencyStop();
+#endif
 #if FEATURE_ENABLE_DM_G6220_CAN
     DmG6220Controller_EmergencyDisable();
 #endif
@@ -1463,6 +1509,9 @@ drivers::DriverStatus App_EmergencyStop(void)
 #if FEATURE_ENABLE_IMU && FEATURE_ENABLE_MOTOR_DRIVER
     record_error(ActionRunner_Cancel());
     record_error(Heading_Stop());
+#endif
+#if FEATURE_ENABLE_BALL_BALANCE
+    BallBalance_EmergencyStop();
 #endif
 #if FEATURE_ENABLE_DM_G6220_CAN
     DmG6220Controller_EmergencyDisable();

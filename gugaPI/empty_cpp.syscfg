@@ -36,6 +36,7 @@ const UART1  = UART.addInstance();
 const UART2  = UART.addInstance();
 const UART3  = UART.addInstance();
 const UART4  = UART.addInstance();
+const UART5  = UART.addInstance();
 
 /**
  * Write custom configuration values to the imported modules.
@@ -393,6 +394,28 @@ UART4.DMA_CHANNEL_RX.transferMode      = "FULL_CH_REPEAT_SINGLE";
 UART4.DMA_CHANNEL_RX.srcLength         = "BYTE";
 UART4.DMA_CHANNEL_RX.dstLength         = "BYTE";
 UART4.DMA_CHANNEL_RX.peripheral.$assign = "DMA_CH2";
+
+UART5.$name                            = "BALL_VISION_UART";
+UART5.interruptPriority                = "1";
+UART5.rxFifoThreshold                  = "DL_UART_RX_FIFO_LEVEL_ONE_ENTRY";
+UART5.targetBaudRate                   = 115200;
+UART5.enableFIFO                       = true;
+UART5.txFifoThreshold                  = "DL_UART_TX_FIFO_LEVEL_3_4_EMPTY";
+UART5.enableDMARX                      = false;
+UART5.enableDMATX                      = false;
+UART5.enabledInterrupts                = ["RX"];
+UART5.peripheral.$assign               = "UART4";
+UART5.peripheral.rxPin.$assign         = "PB22";
+UART5.peripheral.txPin.$assign         = "PB21";
+UART5.txPinConfig.direction            = scripting.forceWrite("OUTPUT");
+UART5.txPinConfig.hideOutputInversion  = scripting.forceWrite(false);
+UART5.txPinConfig.onlyInternalResistor = scripting.forceWrite(false);
+UART5.txPinConfig.passedPeripheralType = scripting.forceWrite("Digital");
+UART5.txPinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric18";
+UART5.rxPinConfig.hideOutputInversion  = scripting.forceWrite(false);
+UART5.rxPinConfig.onlyInternalResistor = scripting.forceWrite(false);
+UART5.rxPinConfig.passedPeripheralType = scripting.forceWrite("Digital");
+UART5.rxPinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric19";
 
 const ProjectConfig              = scripting.addModule("/ti/project_config/ProjectConfig", {}, false);
 ProjectConfig.migrationCondition = true;

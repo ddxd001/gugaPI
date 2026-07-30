@@ -14,6 +14,8 @@
 #include "app/battery_monitor.h"
 #include "app/app_lora.h"
 #include "app/app_large_timer.h"
+#include "app/ball_vision.h"
+#include "app/ball_balance.h"
 #include "app/action.h"
 #include "app/config_store.h"
 #include "app/heading.h"
@@ -875,6 +877,193 @@ void WriteStatusLine(const char *prefix, drivers::DriverStatus status)
     services::Shell_WriteString(DriverStatusText(status));
     services::Shell_WriteString("\r\n");
 }
+
+#if FEATURE_ENABLE_BALL_VISION
+void VisionCommand(int argc, const char * const argv[])
+{
+    const BallVisionData *data = BallVision_GetData();
+    const uint32_t now_ms = services::Time_Millis();
+    if ((argc == 2) && StrEqual(argv[1], "status")) {
+        services::Shell_WriteString("vision state=");
+        services::Shell_WriteString(BallVision_StateText(data->state));
+        services::Shell_WriteString(" online=");
+        services::Shell_WriteUInt32(
+            BallVision_IsCommunicationOnline(now_ms) ? 1U : 0U);
+        services::Shell_WriteString(" usable=");
+        services::Shell_WriteUInt32(BallVision_IsUsable(now_ms) ? 1U : 0U);
+        services::Shell_WriteString(" seq=");
+        services::Shell_WriteUInt32(data->frame.sequence);
+        services::Shell_WriteString(" flags=");
+        services::Shell_WriteUInt32(data->frame.flags);
+        services::Shell_WriteString(" position_0p1mm=");
+        WriteInt32(data->frame.position_0p1mm);
+        services::Shell_WriteString(" confidence=");
+        services::Shell_WriteUInt32(data->frame.confidence);
+        services::Shell_WriteString(" source_delay_ms=");
+        services::Shell_WriteUInt32(data->frame.source_delay_ms);
+        services::Shell_WriteString(" age_ms=");
+        services::Shell_WriteUInt32(data->frame_age_ms);
+        services::Shell_WriteString(" ball_age_ms=");
+        services::Shell_WriteUInt32(data->ball_age_ms);
+        services::Shell_WriteString(" injected=");
+        services::Shell_WriteUInt32(data->injected ? 1U : 0U);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "stats")) {
+        services::Shell_WriteString("vision stats bytes=");
+        services::Shell_WriteUInt32(data->parser_stats.bytes_received);
+        services::Shell_WriteString(" frames=");
+        services::Shell_WriteUInt32(data->parser_stats.valid_frames);
+        services::Shell_WriteString(" header_errors=");
+        services::Shell_WriteUInt32(data->parser_stats.header_errors);
+        services::Shell_WriteString(" crc_errors=");
+        services::Shell_WriteUInt32(data->parser_stats.crc_errors);
+        services::Shell_WriteString(" payload_errors=");
+        services::Shell_WriteUInt32(data->parser_stats.payload_errors);
+        services::Shell_WriteString(" sequence_gaps=");
+        services::Shell_WriteUInt32(data->parser_stats.sequence_gaps);
+        services::Shell_WriteString(" duplicates=");
+        services::Shell_WriteUInt32(data->parser_stats.duplicate_frames);
+        services::Shell_WriteString(" dropped=");
+        services::Shell_WriteUInt32(data->uart_dropped_bytes);
+        services::Shell_WriteString(" uart_errors=");
+        services::Shell_WriteUInt32(data->uart_errors);
+        services::Shell_WriteString(" irq=");
+        services::Shell_WriteUInt32(data->uart_irq_count);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "clear")) {
+        BallVision_Clear();
+        services::Shell_WriteLine("vision clear: ok");
+        return;
+    }
+    if ((argc == 4) && StrEqual(argv[1], "inject")) {
+        if (App_GetState()->mode != APP_MODE_RUNNING) {
+            services::Shell_WriteLine(
+                "vision inject: dev-running mode required");
+            return;
+        }
+        int32_t position = 0;
+        uint32_t confidence = 0U;
+        if ((!ParseInt32(argv[2], -1250, 1250, &position)) ||
+            (!ParseUint32(argv[3], 1000U, &confidence))) {
+            services::Shell_WriteLine(
+                "usage: vision inject <-1250..1250> <0..1000>");
+            return;
+        }
+        WriteStatusLine(
+            "vision inject: ",
+            BallVision_Inject(static_cast<int16_t>(position),
+                              static_cast<uint16_t>(confidence),
+                              now_ms));
+        return;
+    }
+    services::Shell_WriteLine(
+        "usage: vision status|stats|clear|inject <position_0p1mm> <confidence>");
+}
+#endif
+
+#if FEATURE_ENABLE_BALL_BALANCE
+void BallCommand(int argc, const char * const argv[])
+{
+    const BallBalanceState *state = BallBalance_GetState();
+    if ((argc == 2) && StrEqual(argv[1], "status")) {
+        services::Shell_WriteString("ball mode=");
+        services::Shell_WriteString(BallBalance_ModeText(state->mode));
+        services::Shell_WriteString(" result=");
+        services::Shell_WriteString(BallBalance_ResultText(state->result));
+        services::Shell_WriteString(" target_0p1mm=");
+        WriteInt32(state->target_position_0p1mm);
+        services::Shell_WriteString(" position_0p1mm=");
+        WriteInt32(state->estimated_position_0p1mm);
+        services::Shell_WriteString(" velocity_0p1mm_s=");
+        WriteInt32(state->estimated_velocity_0p1mm_s);
+        services::Shell_WriteString(" error_0p1mm=");
+        WriteInt32(state->position_error_0p1mm);
+        services::Shell_WriteString(" beam_mdeg=");
+        WriteInt32(state->beam_target_mdeg);
+        services::Shell_WriteString(" dm_mrad=");
+        WriteInt32(state->dm_target_mrad);
+        services::Shell_WriteString(" max_error_0p1mm=");
+        WriteInt32(state->maximum_abs_error_0p1mm);
+        services::Shell_WriteString(" status=");
+        services::Shell_WriteString(DriverStatusText(state->last_status));
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "params")) {
+        const BallBalanceParams *params = BallBalance_GetParams();
+        services::Shell_WriteString("ball params kp=");
+        WriteInt32(params->kp_mdeg_per_0p1mm);
+        services::Shell_WriteString(" kd=");
+        WriteInt32(params->kd_mdeg_per_0p1mm_s);
+        services::Shell_WriteString(" ki=");
+        WriteInt32(params->ki_mdeg_per_0p1mm_s);
+        services::Shell_WriteString(" pitch_gain_permille=");
+        WriteInt32(params->pitch_gain_permille);
+        services::Shell_WriteString(" max_angle_mdeg=");
+        WriteInt32(params->maximum_angle_mdeg);
+        services::Shell_WriteString(" degraded_angle_mdeg=");
+        WriteInt32(params->degraded_angle_mdeg);
+        services::Shell_WriteString(" slew_mdeg_s=");
+        WriteInt32(params->angle_slew_mdeg_s);
+        services::Shell_WriteString(" tolerance_0p1mm=");
+        WriteInt32(params->position_tolerance_0p1mm);
+        services::Shell_WriteString(" velocity_tolerance_0p1mm_s=");
+        WriteInt32(params->velocity_tolerance_0p1mm_s);
+        services::Shell_WriteString(" settle_ms=");
+        services::Shell_WriteUInt32(params->settle_ms);
+        services::Shell_WriteString("\r\n");
+        return;
+    }
+    if ((argc == 2) && StrEqual(argv[1], "stop")) {
+        WriteStatusLine("ball stop: ", BallBalance_Stop(true));
+        return;
+    }
+    if ((argc == 3) && StrEqual(argv[1], "hold")) {
+        if (App_GetState()->mode != APP_MODE_RUNNING) {
+            services::Shell_WriteLine(
+                "ball hold: dev-running mode required");
+            return;
+        }
+        int32_t target = 0;
+        if (!ParseInt32(argv[2], -1000, 1000, &target)) {
+            services::Shell_WriteLine(
+                "usage: ball hold <-1000..1000>");
+            return;
+        }
+        WriteStatusLine(
+            "ball hold: ",
+            BallBalance_StartHold(static_cast<int16_t>(target)));
+        return;
+    }
+    if ((argc == 4) && StrEqual(argv[1], "move")) {
+        if (App_GetState()->mode != APP_MODE_RUNNING) {
+            services::Shell_WriteLine(
+                "ball move: dev-running mode required");
+            return;
+        }
+        int32_t target = 0;
+        uint32_t timeout_ms = 0U;
+        if ((!ParseInt32(argv[2], -1000, 1000, &target)) ||
+            (!ParseUint32(argv[3], 30000U, &timeout_ms)) ||
+            (timeout_ms < 50U)) {
+            services::Shell_WriteLine(
+                "usage: ball move <-1000..1000> <50..30000>");
+            return;
+        }
+        WriteStatusLine(
+            "ball move: ",
+            BallBalance_StartMove(
+                static_cast<int16_t>(target), timeout_ms));
+        return;
+    }
+    services::Shell_WriteLine(
+        "usage: ball status|params|hold <target>|move <target> <timeout_ms>|stop");
+}
+#endif
 
 drivers::DriverStatus SchedulerStatusToDriverStatus(
     services::SchedulerStatus status)
@@ -6689,7 +6878,7 @@ void PrintRunUsage(void)
     services::Shell_WriteLine(
         "    op: drive|drive_mm|turn|follow|wait|stop|branch|loop|road_nav|end");
     services::Shell_WriteLine(
-        "        dm_position|dm_speed|dm_disable");
+        "        dm_position|dm_speed|dm_disable|ball_hold|ball_move|ball_disable");
     services::Shell_WriteLine(
         "        led_on|led_off|led_toggle|buzzer_on|buzzer_off|buzzer_toggle");
     services::Shell_WriteLine(
@@ -6714,6 +6903,12 @@ void PrintRunUsage(void)
         "  run add dm_speed <velocity_mrad_s> <duration_ms> <onsuccess> <onfailure>");
     services::Shell_WriteLine(
         "  run add dm_disable <onsuccess> <onfailure>");
+    services::Shell_WriteLine(
+        "  run add ball_hold <target_0p1mm> <onsuccess> <onfailure>");
+    services::Shell_WriteLine(
+        "  run add ball_move <target_0p1mm> <timeout_ms> <onsuccess> <onfailure>");
+    services::Shell_WriteLine(
+        "  run add ball_disable <onsuccess> <onfailure>");
     services::Shell_WriteLine(
         "    until: timeout|heading_reached|distance_reached|line_detected|line_lost|button|immediate");
     services::Shell_WriteLine(
@@ -6751,6 +6946,9 @@ bool ParseActionOp(const char *t, app::ActionOp *op)
     if (StrEqual(t, "dm_position")) { *op = app::ACT_OP_DM_POSITION; return true; }
     if (StrEqual(t, "dm_speed")) { *op = app::ACT_OP_DM_SPEED; return true; }
     if (StrEqual(t, "dm_disable")) { *op = app::ACT_OP_DM_DISABLE; return true; }
+    if (StrEqual(t, "ball_hold")) { *op = app::ACT_OP_BALL_HOLD; return true; }
+    if (StrEqual(t, "ball_move")) { *op = app::ACT_OP_BALL_MOVE; return true; }
+    if (StrEqual(t, "ball_disable")) { *op = app::ACT_OP_BALL_DISABLE; return true; }
     return false;
 }
 
@@ -6863,6 +7061,9 @@ const char *OpText(app::ActionOp op)
     case app::ACT_OP_DM_POSITION: return "dm_position";
     case app::ACT_OP_DM_SPEED: return "dm_speed";
     case app::ACT_OP_DM_DISABLE: return "dm_disable";
+    case app::ACT_OP_BALL_HOLD: return "ball_hold";
+    case app::ACT_OP_BALL_MOVE: return "ball_move";
+    case app::ACT_OP_BALL_DISABLE: return "ball_disable";
     default: return "none";
     }
 }
@@ -6916,6 +7117,12 @@ const char *ActionFailureText(app::ActionFailureReason reason)
         return "route_unavailable";
     case app::ACT_FAIL_ROUTE_REACQUIRE_FAILED:
         return "route_reacquire_failed";
+    case app::ACT_FAIL_BALL_VISION_LOST:
+        return "ball_vision_lost";
+    case app::ACT_FAIL_BALL_ENDPOINT:
+        return "ball_endpoint";
+    case app::ACT_FAIL_BALL_CONTROL:
+        return "ball_control";
     default: return "unknown";
     }
 }
@@ -7294,6 +7501,72 @@ void RunCommand(int argc, const char * const argv[])
                                                 timeout_ms,
                                                 ons,
                                                 onf));
+            return;
+        }
+        if ((argc >= 3) && StrEqual(argv[2], "ball_hold")) {
+            int32_t target_0p1mm = 0;
+            uint8_t ons = 0U;
+            uint8_t onf = 0U;
+            if ((argc != 6) ||
+                (!ParseInt32(argv[3], -1000, 1000,
+                             &target_0p1mm)) ||
+                (!ParseTarget(argv[4], &ons)) ||
+                (!ParseTarget(argv[5], &onf))) {
+                PrintRunUsage();
+                return;
+            }
+            WriteStatusLine(
+                "run add: ",
+                app::ActionRunner_AddInstr(app::ACT_OP_BALL_HOLD,
+                                           target_0p1mm,
+                                           0,
+                                           app::ACT_COND_IMMEDIATE,
+                                           ons,
+                                           onf));
+            return;
+        }
+        if ((argc >= 3) && StrEqual(argv[2], "ball_move")) {
+            int32_t target_0p1mm = 0;
+            int32_t timeout_ms = 0;
+            uint8_t ons = 0U;
+            uint8_t onf = 0U;
+            if ((argc != 7) ||
+                (!ParseInt32(argv[3], -1000, 1000,
+                             &target_0p1mm)) ||
+                (!ParseInt32(argv[4], 50, 30000, &timeout_ms)) ||
+                ((timeout_ms % 50) != 0) ||
+                (!ParseTarget(argv[5], &ons)) ||
+                (!ParseTarget(argv[6], &onf))) {
+                PrintRunUsage();
+                return;
+            }
+            WriteStatusLine(
+                "run add: ",
+                app::ActionRunner_AddInstr(app::ACT_OP_BALL_MOVE,
+                                           target_0p1mm,
+                                           timeout_ms,
+                                           app::ACT_COND_IMMEDIATE,
+                                           ons,
+                                           onf));
+            return;
+        }
+        if ((argc >= 3) && StrEqual(argv[2], "ball_disable")) {
+            uint8_t ons = 0U;
+            uint8_t onf = 0U;
+            if ((argc != 5) ||
+                (!ParseTarget(argv[3], &ons)) ||
+                (!ParseTarget(argv[4], &onf))) {
+                PrintRunUsage();
+                return;
+            }
+            WriteStatusLine(
+                "run add: ",
+                app::ActionRunner_AddInstr(app::ACT_OP_BALL_DISABLE,
+                                           0,
+                                           0,
+                                           app::ACT_COND_IMMEDIATE,
+                                           ons,
+                                           onf));
             return;
         }
         if ((argc >= 3) && StrEqual(argv[2], "dm_speed")) {
@@ -10590,6 +10863,18 @@ void AppShell_RegisterCommands(void)
         "irsensor",
         "Infrared UART line sensor: status|raw|stats|clear|calib",
         InfraredSensorCommand);
+#endif
+#if FEATURE_ENABLE_BALL_VISION
+    (void) services::Shell_RegisterCommand(
+        "vision",
+        "MaixCAM ball position: status|stats|clear|inject",
+        VisionCommand);
+#endif
+#if FEATURE_ENABLE_BALL_BALANCE
+    (void) services::Shell_RegisterCommand(
+        "ball",
+        "Ball balance: status|params|hold|move|stop",
+        BallCommand);
 #endif
 #if FEATURE_ENABLE_LORA
     (void) services::Shell_RegisterCommand(

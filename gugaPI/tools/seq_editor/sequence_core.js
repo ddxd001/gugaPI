@@ -181,6 +181,15 @@ var ACTIONS={
   dm_disable:{op:22,name:'达妙失能',group:'达妙电机',color:'#8c788d',
     help:'显式释放 DM-G6220；序列结束、取消、急停和故障也会自动失能。',
     defaults:{}},
+  ball_hold:{op:23,name:'滚球保持',group:'H题滚球控制',color:'#4db6ac',
+    help:'启动滚球闭环并保持目标位置；节点立即完成，闭环在后续巡线动作期间继续运行。',
+    defaults:{targetMm:0}},
+  ball_move:{op:24,name:'滚球移动',group:'H题滚球控制',color:'#26a69a',
+    help:'将钢球平滑移动到目标位置，并等待位置和速度连续稳定后完成。',
+    defaults:{targetMm:50,timeoutMs:5000}},
+  ball_disable:{op:25,name:'滚球失能',group:'H题滚球控制',color:'#607d8b',
+    help:'停止滚球闭环并失能达妙电机。',
+    defaults:{}},
   stop:{op:5,name:'停车',group:'流程控制',color:'#df647c',
     help:'停止底盘、航向和循迹控制，然后继续。',defaults:{}},
   end:{op:7,name:'结束',group:'流程控制',color:'#697081',
@@ -204,7 +213,8 @@ var OP_TYPES={
   1:'drive',2:'turn',3:'follow',4:'wait',5:'stop',7:'end',8:'drive_mm',
   9:'led_on',10:'led_off',11:'led_toggle',12:'buzzer_on',
   13:'buzzer_off',14:'buzzer_toggle',15:'condition',16:'drive',17:'follow',
-  18:'loop',19:'road_nav',20:'dm_position',21:'dm_speed',22:'dm_disable'
+  18:'loop',19:'road_nav',20:'dm_position',21:'dm_speed',22:'dm_disable',
+  23:'ball_hold',24:'ball_move',25:'ball_disable'
 };
 
 function clone(v){return JSON.parse(JSON.stringify(v))}
@@ -462,6 +472,17 @@ function validateParams(n,maxRpm,issues,options){
         '定速持续时间应为 50～30000 ms，步进 50 ms',
         n.id,'durationMs');
     }
+  }else if(t==='ball_hold'||t==='ball_move'){
+    range('targetMm',-100,100,'滚球目标位置',false);
+    if(t==='ball_move'){
+      var ballTimeout=Number(p.timeoutMs);
+      if(!Number.isInteger(ballTimeout)||ballTimeout<50||
+         ballTimeout>30000||ballTimeout%50!==0){
+        addIssue(issues,'error','ball_move_timeout',
+          '滚球移动超时应为 50～30000 ms，步进 50 ms',
+          n.id,'timeoutMs');
+      }
+    }
   }else if(t.indexOf('led_')===0){
     var target=Number(p.target);
     if([0,2,3].indexOf(target)<0)addIssue(issues,'error','target',
@@ -606,7 +627,7 @@ function validate(project,options){
   actions.forEach(function(n){
     var p2=n.params||{};
     if(['drive','turn','follow','wait','condition','road_nav',
-        'dm_position','dm_speed']
+        'dm_position','dm_speed','ball_move']
        .indexOf(n.type)>=0){
       if(n.type!=='condition'||p2.mode==='wait'){
         sum+=Math.max(0,Number(
@@ -662,6 +683,14 @@ function rawFor(n){
   }else if(type==='dm_speed'){
     r.p1=Math.round(Number(p.velocityDegS)*Math.PI*1000/180);
     r.p2=+p.durationMs;
+    r.until=5;
+  }else if(type==='ball_hold'){
+    r.p1=Math.round(Number(p.targetMm)*10);
+    r.p2=0;
+    r.until=5;
+  }else if(type==='ball_move'){
+    r.p1=Math.round(Number(p.targetMm)*10);
+    r.p2=+p.timeoutMs;
     r.until=5;
   }else if(type.indexOf('led_')===0){
     r.p1=+p.target||0;r.p2=type==='led_off'?0:(+p.durationMs||0);
@@ -742,6 +771,13 @@ function paramsFromRaw(type,r){
       velocityDegS:Number((Number(r.p1)*180/(Math.PI*1000)).toFixed(3)),
       durationMs:Number(r.p2)
     };
+  }
+  if(type==='ball_hold'){
+    return{targetMm:Number((Number(r.p1)/10).toFixed(1))};
+  }
+  if(type==='ball_move'){
+    return{targetMm:Number((Number(r.p1)/10).toFixed(1)),
+      timeoutMs:Number(r.p2)};
   }
   if(type.indexOf('led_')===0){
     var p={target:r.p1};if(type!=='led_off')p.durationMs=r.p2;return p;

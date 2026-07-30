@@ -20,7 +20,7 @@ struct BoardInitEntry {
     BoardInitSeverity severity;
 };
 
-static const uint8_t BOARD_INIT_MAX_ENTRIES = 12U;
+static const uint8_t BOARD_INIT_MAX_ENTRIES = 14U;
 
 struct BoardInitReport {
     BoardInitEntry entries[BOARD_INIT_MAX_ENTRIES];

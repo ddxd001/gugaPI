@@ -3,6 +3,7 @@
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
 #include "app/app_main.h"
+#include "app/ball_balance.h"
 #include "app/chassis.h"
 #include "app/dm_g6220_controller.h"
 #include "app/heading.h"
@@ -67,6 +68,7 @@ enum InstrResult {
     INSTR_UNAVAILABLE,
     INSTR_ROUTE_UNAVAILABLE,
     INSTR_ROUTE_REACQUIRE_FAILED,
+    INSTR_BALL_FAILURE,
     INSTR_FAULT
 };
 
@@ -374,6 +376,9 @@ void FinishSequence(void)
     g_state.failure_reason = ACT_FAIL_NONE;
     g_state.failure_index = ACT_NEXT;
     StopAll();
+#if FEATURE_ENABLE_BALL_BALANCE
+    BallBalance_EmergencyStop();
+#endif
 #if FEATURE_ENABLE_DM_G6220_CAN
     DmG6220Controller_EmergencyDisable();
 #endif
@@ -391,6 +396,9 @@ void AbortSequence(void)
         g_state.result = ACT_RUN_ABORTED;
     }
     StopAll();
+#if FEATURE_ENABLE_BALL_BALANCE
+    BallBalance_EmergencyStop();
+#endif
 #if FEATURE_ENABLE_DM_G6220_CAN
     DmG6220Controller_EmergencyDisable();
 #endif
@@ -734,6 +742,29 @@ bool StartOp(const Instr *instr)
 #else
         return false;
 #endif
+    case ACT_OP_BALL_HOLD:
+#if FEATURE_ENABLE_BALL_BALANCE
+        return BallBalance_StartHold(
+                   static_cast<int16_t>(instr->param1)) ==
+               drivers::DRIVER_OK;
+#else
+        return false;
+#endif
+    case ACT_OP_BALL_MOVE:
+#if FEATURE_ENABLE_BALL_BALANCE
+        return BallBalance_StartMove(
+                   static_cast<int16_t>(instr->param1),
+                   static_cast<uint32_t>(instr->param2)) ==
+               drivers::DRIVER_OK;
+#else
+        return false;
+#endif
+    case ACT_OP_BALL_DISABLE:
+#if FEATURE_ENABLE_BALL_BALANCE
+        return BallBalance_Stop(true) == drivers::DRIVER_OK;
+#else
+        return false;
+#endif
     case ACT_OP_WAIT:
         return true;
     case ACT_OP_STOP:
@@ -864,6 +895,30 @@ InstrResult EvalInstr(const Instr *instr, uint32_t now)
 #else
         return INSTR_FAULT;
 #endif
+    }
+    if (instr->op == ACT_OP_BALL_HOLD) {
+        return INSTR_SUCCESS;
+    }
+    if (instr->op == ACT_OP_BALL_MOVE) {
+#if FEATURE_ENABLE_BALL_BALANCE
+        const BallBalanceResult result =
+            BallBalance_GetState()->result;
+        if (result == BALL_BALANCE_RESULT_RUNNING) {
+            return INSTR_RUNNING;
+        }
+        if (result == BALL_BALANCE_RESULT_SUCCESS) {
+            return INSTR_SUCCESS;
+        }
+        if (result == BALL_BALANCE_RESULT_TIMEOUT) {
+            return INSTR_TIMEOUT;
+        }
+        return INSTR_BALL_FAILURE;
+#else
+        return INSTR_FAULT;
+#endif
+    }
+    if (instr->op == ACT_OP_BALL_DISABLE) {
+        return INSTR_SUCCESS;
     }
 
     const uint32_t elapsed = now - g_state.instr_start_ms;
@@ -998,7 +1053,7 @@ bool ValidateInstr(const Instr *instr,
     const int32_t max_rpm = static_cast<int32_t>(
         Chassis_GetState()->config.max_wheel_rpm);
     if ((instr->op <= ACT_OP_NONE) ||
-        (instr->op > ACT_OP_DM_DISABLE)) {
+        (instr->op > ACT_OP_BALL_DISABLE)) {
         SetValidationError(result, index, ACT_VALID_FIELD_OP,
                            ACT_VALID_UNKNOWN_OP);
         return false;
@@ -1230,6 +1285,44 @@ bool ValidateInstr(const Instr *instr,
             return false;
         }
     } else if (instr->op == ACT_OP_DM_DISABLE) {
+        if ((instr->param1 != 0) || (instr->param2 != 0)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_MUST_BE_ZERO);
+            return false;
+        }
+        if ((instr->until != ACT_COND_IMMEDIATE) ||
+            (instr->condition_value != 0)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+    } else if ((instr->op == ACT_OP_BALL_HOLD) ||
+               (instr->op == ACT_OP_BALL_MOVE)) {
+        if ((instr->param1 < -1000) || (instr->param1 > 1000)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if (instr->op == ACT_OP_BALL_HOLD) {
+            if (instr->param2 != 0) {
+                SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                                   ACT_VALID_MUST_BE_ZERO);
+                return false;
+            }
+        } else if ((instr->param2 < 50) ||
+                   (instr->param2 > 30000) ||
+                   ((instr->param2 % 50) != 0)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if ((instr->until != ACT_COND_IMMEDIATE) ||
+            (instr->condition_value != 0)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
+                               ACT_VALID_WRONG_CONDITION);
+            return false;
+        }
+    } else if (instr->op == ACT_OP_BALL_DISABLE) {
         if ((instr->param1 != 0) || (instr->param2 != 0)) {
             SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
                                ACT_VALID_MUST_BE_ZERO);
@@ -1712,6 +1805,26 @@ void ActionRunner_Update(void)
     if (!g_state.running) {
         return;
     }
+#if FEATURE_ENABLE_BALL_BALANCE
+    if ((BallBalance_GetState()->mode == BALL_BALANCE_FAILED) &&
+        (g_state.instrs[g_state.current].op != ACT_OP_BALL_MOVE)) {
+        const BallBalanceResult ball_result =
+            BallBalance_GetState()->result;
+        g_state.result = ACT_RUN_ABORTED;
+        g_state.last_success = false;
+        if (ball_result == BALL_BALANCE_RESULT_VISION_LOST) {
+            g_state.failure_reason = ACT_FAIL_BALL_VISION_LOST;
+        } else if (ball_result == BALL_BALANCE_RESULT_ENDPOINT) {
+            g_state.failure_reason = ACT_FAIL_BALL_ENDPOINT;
+        } else {
+            g_state.failure_reason = ACT_FAIL_BALL_CONTROL;
+        }
+        g_state.failure_index = g_state.current;
+        g_state.last_status = drivers::DRIVER_ERROR;
+        AbortSequence();
+        return;
+    }
+#endif
 
     const uint32_t now = services::Time_Millis();
 
@@ -1829,9 +1942,32 @@ void ActionRunner_Update(void)
         } else if (r == INSTR_UNAVAILABLE) {
             g_state.failure_reason = ACT_FAIL_CONDITION_UNAVAILABLE;
             g_state.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
+        } else if ((instr->op == ACT_OP_BALL_MOVE) &&
+                   (r == INSTR_TIMEOUT)) {
+            g_state.failure_reason = ACT_FAIL_INSTR_TIMEOUT;
+            g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;
+#if FEATURE_ENABLE_BALL_BALANCE
+            (void) BallBalance_Stop(false);
+#endif
         } else if (ActionCondition_IsCompareOp(instr->op)) {
             g_state.failure_reason = ACT_FAIL_CONDITION_TIMEOUT;
             g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;
+        } else if (r == INSTR_BALL_FAILURE) {
+#if FEATURE_ENABLE_BALL_BALANCE
+            const BallBalanceResult ball_result =
+                BallBalance_GetState()->result;
+            if (ball_result == BALL_BALANCE_RESULT_VISION_LOST) {
+                g_state.failure_reason = ACT_FAIL_BALL_VISION_LOST;
+            } else if (ball_result == BALL_BALANCE_RESULT_ENDPOINT) {
+                g_state.failure_reason = ACT_FAIL_BALL_ENDPOINT;
+            } else {
+                g_state.failure_reason = ACT_FAIL_BALL_CONTROL;
+            }
+            (void) BallBalance_Stop(false);
+#else
+            g_state.failure_reason = ACT_FAIL_BALL_CONTROL;
+#endif
+            g_state.last_status = drivers::DRIVER_ERROR;
         } else {
             g_state.failure_reason = ACT_FAIL_INSTR_TIMEOUT;
             g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;

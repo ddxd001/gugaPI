@@ -92,6 +92,7 @@ bool IsMotionMode(DmG6220ControlMode mode)
     return (mode == DM_CONTROL_ENABLING) ||
            (mode == DM_CONTROL_HOLD) ||
            (mode == DM_CONTROL_POSITION) ||
+           (mode == DM_CONTROL_EXTERNAL_POSITION) ||
            (mode == DM_CONTROL_SPEED) ||
            (mode == DM_CONTROL_SPEED_STOPPING);
 }
@@ -175,6 +176,7 @@ void StartProbe(bool invalidate_feedback)
 void SetGlobalFault(services::FaultCode code)
 {
     g_pendingMotion = {};
+    g_state.external_owner = DM_EXTERNAL_OWNER_NONE;
     g_state.enabled = false;
     g_state.operation_result = DM_OPERATION_FAULT;
     g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;
@@ -642,6 +644,9 @@ void DmG6220Controller_Update(void)
     case DM_CONTROL_POSITION:
         UpdatePosition(now_ms, false);
         break;
+    case DM_CONTROL_EXTERNAL_POSITION:
+        UpdatePosition(now_ms, true);
+        break;
     case DM_CONTROL_HOLD:
         UpdatePosition(now_ms, true);
         break;
@@ -834,6 +839,7 @@ drivers::DriverStatus DmG6220Controller_Disable(void)
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
     g_pendingMotion = {};
+    g_state.external_owner = DM_EXTERNAL_OWNER_NONE;
     g_state.enabled = false;
     g_state.operation_result = DM_OPERATION_RUNNING;
     BeginBurst(drivers::DM_G6220_COMMAND_DISABLE,
@@ -851,6 +857,7 @@ drivers::DriverStatus DmG6220Controller_ClearError(void)
         return drivers::DRIVER_ERROR_BUSY;
     }
     g_pendingMotion = {};
+    g_state.external_owner = DM_EXTERNAL_OWNER_NONE;
     g_state.operation_result = DM_OPERATION_RUNNING;
     BeginBurst(drivers::DM_G6220_COMMAND_CLEAR_ERROR,
                DM_CONTROL_BOOT_CLEAR,
@@ -875,6 +882,101 @@ drivers::DriverStatus DmG6220Controller_SetZero(void)
     return drivers::DRIVER_OK;
 }
 
+drivers::DriverStatus DmG6220Controller_ExternalAcquire(
+    DmG6220ExternalOwner owner)
+{
+    if (owner == DM_EXTERNAL_OWNER_NONE) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    if (services::Fault_HasFault() || !g_state.initialized) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    if (g_state.external_owner == owner) {
+        return ((g_state.mode == DM_CONTROL_EXTERNAL_POSITION) ||
+                ((g_state.mode == DM_CONTROL_ENABLING) &&
+                 (g_enableTargetMode == DM_CONTROL_EXTERNAL_POSITION)))
+            ? drivers::DRIVER_OK : drivers::DRIVER_ERROR_BUSY;
+    }
+    if ((g_state.external_owner != DM_EXTERNAL_OWNER_NONE) ||
+        ((g_state.mode != DM_CONTROL_READY) &&
+         (g_state.mode != DM_CONTROL_HOLD))) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+
+    const uint32_t now_ms = services::Time_Millis();
+    const drivers::DmG6220Feedback *feedback =
+        drivers::DmG6220_GetFeedback(&g_protocol);
+    const ConfigStoreParams *params = Params();
+    if ((!FeedbackFresh(now_ms)) || (feedback == 0) || (params == 0)) {
+        return drivers::DRIVER_ERROR_TIMEOUT;
+    }
+
+    g_state.external_owner = owner;
+    g_state.reference_position_mrad = feedback->position_mrad;
+    g_state.target_position_mrad = feedback->position_mrad;
+    g_positionMaxVelocityMradS = params->dm_max_velocity_mrad_s;
+    g_state.operation_start_ms = now_ms;
+    g_state.operation_result = DM_OPERATION_RUNNING;
+    if (feedback->state == 1U) {
+        EnterEnabledMode(DM_CONTROL_EXTERNAL_POSITION);
+    } else {
+        BeginEnable(DM_CONTROL_EXTERNAL_POSITION);
+    }
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus DmG6220Controller_ExternalSetPosition(
+    DmG6220ExternalOwner owner,
+    int32_t target_mrad)
+{
+    if ((owner == DM_EXTERNAL_OWNER_NONE) ||
+        (g_state.external_owner != owner)) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    if ((target_mrad < -drivers::DM_G6220_POSITION_LIMIT_MRAD) ||
+        (target_mrad > drivers::DM_G6220_POSITION_LIMIT_MRAD)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    if ((g_state.mode != DM_CONTROL_EXTERNAL_POSITION) &&
+        !((g_state.mode == DM_CONTROL_ENABLING) &&
+          (g_enableTargetMode == DM_CONTROL_EXTERNAL_POSITION))) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    g_state.target_position_mrad = target_mrad;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus DmG6220Controller_ExternalRelease(
+    DmG6220ExternalOwner owner,
+    bool disable)
+{
+    if ((owner == DM_EXTERNAL_OWNER_NONE) ||
+        (g_state.external_owner != owner)) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    if (disable) {
+        g_state.external_owner = DM_EXTERNAL_OWNER_NONE;
+        return DmG6220Controller_Disable();
+    }
+    if (g_state.mode != DM_CONTROL_EXTERNAL_POSITION) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    const uint32_t now_ms = services::Time_Millis();
+    const drivers::DmG6220Feedback *feedback =
+        drivers::DmG6220_GetFeedback(&g_protocol);
+    if ((!FeedbackFresh(now_ms)) || (feedback == 0)) {
+        g_state.external_owner = DM_EXTERNAL_OWNER_NONE;
+        DmG6220Controller_EmergencyDisable();
+        return drivers::DRIVER_ERROR_TIMEOUT;
+    }
+    g_state.external_owner = DM_EXTERNAL_OWNER_NONE;
+    g_state.reference_position_mrad = feedback->position_mrad;
+    g_state.target_position_mrad = feedback->position_mrad;
+    g_state.mode = DM_CONTROL_HOLD;
+    g_state.operation_result = DM_OPERATION_SUCCESS;
+    return drivers::DRIVER_OK;
+}
+
 void DmG6220Controller_EmergencyDisable(void)
 {
     if (!g_state.initialized ||
@@ -883,6 +985,7 @@ void DmG6220Controller_EmergencyDisable(void)
         return;
     }
     g_pendingMotion = {};
+    g_state.external_owner = DM_EXTERNAL_OWNER_NONE;
     g_state.enabled = false;
     BeginBurst(drivers::DM_G6220_COMMAND_DISABLE,
                DM_CONTROL_DISABLING,
@@ -926,6 +1029,7 @@ const char *DmG6220Controller_ModeText(DmG6220ControlMode mode)
     case DM_CONTROL_ENABLING: return "enabling";
     case DM_CONTROL_HOLD: return "hold";
     case DM_CONTROL_POSITION: return "position";
+    case DM_CONTROL_EXTERNAL_POSITION: return "external_position";
     case DM_CONTROL_SPEED: return "speed";
     case DM_CONTROL_SPEED_STOPPING: return "speed_stopping";
     case DM_CONTROL_DISABLING: return "disabling";

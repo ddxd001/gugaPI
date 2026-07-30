@@ -34,7 +34,7 @@ assert.deepStrictEqual(
   'catalog top-level names must match firmware registrations plus built-in help');
 
 const active=catalog.filter(entry=>entry.profiles.includes(meta.activeProfile));
-assert.strictEqual(active.length,30,'development profile top-level command count changed');
+assert.strictEqual(active.length,32,'development profile top-level command count changed');
 assert(!catalogNames.has('adc')&&!catalogNames.has('pwm'),
   'unregistered adc/pwm placeholders must not return to the catalog');
 

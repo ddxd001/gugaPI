@@ -37,7 +37,7 @@
 #define FEATURE_ENABLE_JYME02_CAN          (0U)
 #define FEATURE_ENABLE_DM_G6220_CAN        (1U)
 #define FEATURE_ENABLE_MOTOR_DRIVER        (1U)
-#define FEATURE_ENABLE_OLED                (0U)
+#define FEATURE_ENABLE_OLED                (1U)
 #define FEATURE_ENABLE_IMU                 (1U)
 #define FEATURE_ENABLE_MOTOR               (0U)
 #define FEATURE_ENABLE_ENCODER             (0U)
@@ -45,6 +45,8 @@
 #define FEATURE_ENABLE_BUTTON_CHASSIS_TEST (0U)
 #define FEATURE_ENABLE_GRAYSCALE           (1U)
 #define FEATURE_ENABLE_INFRARED_LINE_SENSOR (1U)
+#define FEATURE_ENABLE_BALL_VISION          (1U)
+#define FEATURE_ENABLE_BALL_BALANCE         (1U)
 
 #define FEATURE_ENABLE_BUTTON_EVENT_LOG    (0U)
 #define FEATURE_ENABLE_SCHEDULER_STATS     (1U)

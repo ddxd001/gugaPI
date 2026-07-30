@@ -151,6 +151,46 @@ dm zero confirm
 `dm zero confirm` 仅允许在失能、反馈新鲜、速度绝对值不超过
 50 mrad/s 且系统无故障时执行，零点写入具有持久影响。
 
+## H题滚球视觉
+
+MaixCAM通过UART4单向发送固定12字节位置帧。gugaPI使用PB22接收，
+通信在线阈值为100 ms；有效球位置不超过60 ms时正常控制，60～120 ms
+进入降级，超过120 ms会使正在运行的滚球任务失败。
+
+```text
+vision status
+vision stats
+vision clear
+vision inject <position_0p1mm> <confidence>
+```
+
+`vision status` 显示通信、球位置、帧序号、置信度、视觉延迟以及当前帧和
+最后有效球位置的年龄。`vision stats` 显示CRC、帧头重同步、序号跳变、
+重复帧、UART丢字节和中断统计。`vision clear` 清空解析器和统计状态。
+
+`vision inject` 仅允许在 `dev-running` 模式使用，位置范围
+`-1250..1250`，单位0.1 mm；置信度范围 `0..1000`。它用于MaixCAM
+尚未连接时验证滚球方向和控制链，不应作为比赛数据源。
+
+## H题滚球控制
+
+```text
+ball status
+ball params
+ball hold <-1000..1000>
+ball move <-1000..1000> <50..30000>
+ball stop
+```
+
+目标位置单位均为0.1 mm，因此 `500` 表示从中心O点沿正方向50.0 mm。
+`ball hold` 启动后台保持并立即返回；`ball move` 等待位置和速度连续稳定
+200 ms后完成。两条运动命令只允许在 `dev-running` 模式执行。
+`ball stop` 停止滚球闭环并失能达妙电机。
+
+`ball status` 显示目标、估计位置/速度、误差、梁角、DM目标和本次最大误差；
+`ball params` 显示当前编译期控制参数。现阶段参数尚未写入ConfigStore，
+双连杆五点映射也必须在实物安装后重新标定。
+
 ## LED
 
 ### `led status`
@@ -2024,6 +2064,22 @@ run add dm_disable <onsuccess> <onfailure>
 `-20000..20000 mrad/s` 且不能为 0，持续时间结束后斜坡减速并保持。
 定位或定速成功后的保持会跨普通后续节点继续；`dm_disable`、序列结束、
 取消、隐式终止、急停、系统故障和比赛/调试模式切换都会失能电机。
+
+滚球动作使用专用语义格式，位置单位均为0.1 mm：
+
+```text
+run add ball_hold <target_0p1mm> <onsuccess> <onfailure>
+run add ball_move <target_0p1mm> <timeout_ms> <onsuccess> <onfailure>
+run add ball_disable <onsuccess> <onfailure>
+```
+
+`ball_hold` 和 `ball_move` 的目标范围为 `-1000..1000`，对应
+`-100.0..100.0 mm`。`ball_move` 超时范围为 `50..30000 ms`，并按
+50 ms步进。视觉丢失、球进入端部保护区、控制失败或动作超时会走红色失败
+出口；未连接失败出口时隐式终止序列并安全停车。`ball_hold` 完成后闭环
+仍在普通后续节点和巡线动作后台运行；后台闭环失败会中止序列并停车。
+`ball_disable` 显式停止闭环并失能达妙电机，序列正常结束、取消、急停、
+故障和比赛/调试模式切换也会统一失能。
 
 通用条件使用语义化参数，不使用上表中的 `p1/p2/until`：
 

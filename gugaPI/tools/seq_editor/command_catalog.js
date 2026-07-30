@@ -207,6 +207,14 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('irsensor calib commit|cancel','校验并提交到RAM，或取消本次标定。','W')
     ],'传感器是真实硬件；上位机“模拟连接”只用于离线界面测试。commit 后仍需 param save 才会写入FRAM。'),
 
+  ShellCommand('vision','MaixCAM钢球位置','传感器',
+    '接收PB22/UART4上的固定12字节钢球位置帧，并查看新鲜度、CRC和丢帧统计。','W',BOTH,[
+      ShellForm('vision status','查看通信、有效钢球、位置、置信度、源延迟和数据年龄。'),
+      ShellForm('vision stats','查看字节、有效帧、CRC、语义、序号缺口和UART统计。'),
+      ShellForm('vision clear','清空接收缓冲与统计。','W'),
+      ShellForm('vision inject <position_0p1mm> <confidence>','仅在dev-running注入测试样本。','W')
+    ],'真实接线为MaixCAM TX→gugaPI PB22，双方共地且只允许3.3V TTL。'),
+
   ShellCommand('lora','LoRa串口与帧协议','通信',
     '诊断LoRa串口透传和带CRC/ACK的帧协议，仅开发配置启用。','W',DEV,[
       ShellForm('lora status','查看串口和协议统计。'),
@@ -299,6 +307,9 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('run add dm_position absolute|relative <target_mrad> <max_mrad_s> <timeout_ms> <onsuccess> <onfailure>','追加达妙绝对或相对定位动作。','M'),
       ShellForm('run add dm_speed <velocity_mrad_s> <duration_ms> <onsuccess> <onfailure>','追加达妙定速动作，到时减速并保持。','M'),
       ShellForm('run add dm_disable <onsuccess> <onfailure>','追加达妙失能动作。','W'),
+      ShellForm('run add ball_hold <target_0p1mm> <onsuccess> <onfailure>','启动滚球保持并立即继续后续动作。','M'),
+      ShellForm('run add ball_move <target_0p1mm> <timeout_ms> <onsuccess> <onfailure>','移动钢球并等待稳定。','M'),
+      ShellForm('run add ball_disable <onsuccess> <onfailure>','停止滚球闭环并失能达妙电机。','W'),
       ShellForm('run clear|validate|start|cancel|status|dump','清空、校验、启动、取消、查看状态或导出 RAM 动作序列；另支持 validate competition。','M')
     ],'start可能产生运动；建议先run dump核对每一步和跳转目标。'),
 
@@ -392,5 +403,14 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('dm disable','停止周期控制并重复发送失能。','M'),
       ShellForm('dm clear','只清除电机故障，不清除系统锁存故障。','W'),
       ShellForm('dm zero confirm','仅在已失能、反馈新鲜、低速且系统无故障时写零点。','M')
-    ],'零点写入具有持久影响；必须空载确认机械位置后执行。')
+    ],'零点写入具有持久影响；必须空载确认机械位置后执行。'),
+
+  ShellCommand('ball','滚球闭环控制','执行器',
+    '调试100 Hz滚球位置闭环和双连杆角度映射；运动命令只允许在dev-running执行。','M',BOTH,[
+      ShellForm('ball status','查看模式、结果、球位置/速度、梁角和达妙目标。'),
+      ShellForm('ball params','查看当前编译期滚球控制参数。'),
+      ShellForm('ball hold <-1000..1000>','按0.1 mm单位保持目标位置。','M'),
+      ShellForm('ball move <-1000..1000> <50..30000>','移动到目标并等待稳定。','M'),
+      ShellForm('ball stop','停止闭环并失能达妙电机。','M')
+    ],'当前参数尚未写入ConfigStore；首次联调必须空载、限流并用vision inject验证方向。')
 ];

@@ -1,5 +1,6 @@
 #include "board/board.h"
 
+#include "board/board_ball_vision.h"
 #include "board/board_button.h"
 
 #include "board/board_buzzer.h"
@@ -110,6 +111,11 @@ drivers::DriverStatus Board_Init(void)
 
 #if FEATURE_ENABLE_INFRARED_LINE_SENSOR
     TrackInit("infrared_line", Board_InfraredSensorInit(),
+              BOARD_INIT_DEGRADED);
+#endif
+
+#if FEATURE_ENABLE_BALL_VISION
+    TrackInit("ball_vision", Board_BallVisionInit(),
               BOARD_INIT_DEGRADED);
 #endif
 
