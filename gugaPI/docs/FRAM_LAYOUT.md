@@ -32,8 +32,10 @@ single-byte commit state.
 state byte last. Loading selects the newest valid generation with wrap-safe
 comparison. An interrupted save therefore leaves the previous bank usable.
 
-The current payload is 305 bytes and includes all chassis, sensor, infrared,
-DM-G6220, and ball-balance parameters.
+The current payload is 315 bytes and includes all chassis, sensor, infrared,
+DM-G6220, ball-balance, line-follow deadband, and built-in task 0 parameters.
+The deployed 305-byte base payload and 307-byte steering extension remain
+readable; fields absent from those records take current safe defaults.
 
 ## SeqStore
 
@@ -47,6 +49,10 @@ state(1) + count(1) + generation(4) + instructions(54 * 14) + CRC32(4)
 A slot save invalidates its state first, writes and verifies the record, and
 commits the state byte last. A power loss can invalidate the slot being saved,
 but cannot corrupt the other slots or ConfigStore.
+
+Physical slot 0 remains in the layout for compatibility, but application and
+Shell save/load/delete paths reject it. Competition task 0 is the protected
+built-in H2 one-lap task; user FRAM sequences use slots 1 through 7.
 
 When the `GSQ1` header is absent after a successful FRAM read, firmware
 invalidates all eight slots and creates the new header. Read errors never

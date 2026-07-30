@@ -18,8 +18,15 @@ enum CompetitionResult {
     COMP_RESULT_LOAD_ERROR
 };
 
+enum CompetitionTaskSource : uint8_t {
+    COMP_TASK_SOURCE_FRAM = 0U,
+    COMP_TASK_SOURCE_BUILTIN
+};
+
 struct CompetitionState {
     uint8_t selected_slot;
+    uint8_t problem_number;
+    CompetitionTaskSource task_source;
     bool slot_valid;
     bool any_valid_slot;
     uint8_t instruction_count;

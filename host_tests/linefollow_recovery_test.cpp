@@ -84,6 +84,7 @@ void ResetFixture(void)
     g_params.linefollow_kd = 600;
     g_params.linefollow_max_correction_rpm = 30U;
     g_params.linefollow_max_steering_permille = 400U;
+    g_params.linefollow_deadband_mpos = 20U;
     g_params.linefollow_correction_slew_permille_per_second = 25000U;
     g_params.linefollow_lost_hold_ms = 150U;
     g_params.linefollow_lost_stop_ms = 500U;
@@ -207,6 +208,39 @@ int main()
     assert(app::LF_GetState()->correction_rpm == 55);
     assert(g_chassis.left.target_rpm == 55);
     assert(g_chassis.right.target_rpm == 165);
+
+    /* Speed scaling occurs before division, so small useful corrections are
+     * rounded symmetrically instead of being truncated to zero. The soft
+     * deadband removes 20 mpos continuously on both signs. */
+    ResetFixture();
+    app::LF_SetKp(6400);
+    app::LF_SetKd(0);
+    app::LF_SetMaxCorrection(300);
+    app::LF_SetCorrectionSlew(UINT16_MAX);
+    MakeStrong(120);
+    PublishAt(1007U);
+    assert(app::LF_GetState()->deadband_mpos == 20U);
+    assert(app::LF_GetState()->correction_rpm == 2);
+
+    ResetFixture();
+    app::LF_SetKp(6400);
+    app::LF_SetKd(0);
+    app::LF_SetMaxCorrection(300);
+    app::LF_SetCorrectionSlew(UINT16_MAX);
+    MakeStrong(-120);
+    PublishAt(1007U);
+    assert(app::LF_GetState()->correction_rpm == -2);
+
+    ResetFixture();
+    app::LF_SetKp(100000);
+    app::LF_SetKd(0);
+    app::LF_SetCorrectionSlew(UINT16_MAX);
+    MakeStrong(20);
+    PublishAt(1007U);
+    assert(app::LF_GetState()->correction_rpm == 0);
+    MakeStrong(22);
+    PublishAt(1014U);
+    assert(app::LF_GetState()->correction_rpm == 1);
 
     /* A weak but explicitly valid position remains in normal PID control. It
      * must not start the hold state that caused the captured false stop. */

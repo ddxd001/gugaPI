@@ -10,6 +10,7 @@
 #include "app/linefollow.h"
 #include "app/line_sensor.h"
 #include "app/road_event_controller.h"
+#include "app/track_course.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
 #include "board/board_led.h"
@@ -69,6 +70,7 @@ enum InstrResult {
     INSTR_ROUTE_UNAVAILABLE,
     INSTR_ROUTE_REACQUIRE_FAILED,
     INSTR_BALL_FAILURE,
+    INSTR_COURSE_FAILURE,
     INSTR_FAULT
 };
 
@@ -212,6 +214,7 @@ bool CompareValue(int32_t actual, ActionCompareOp compare, int32_t expected)
  * (fixes drive->wait continuing to drive, drive->follow dual-commanding). */
 void StopAll(void)
 {
+    (void) TrackCourse_Cancel();
     (void) RoadEventController_Cancel();
     g_preserveRoadMotion = false;
 }
@@ -765,6 +768,12 @@ bool StartOp(const Instr *instr)
 #else
         return false;
 #endif
+    case ACT_OP_TRACK_COURSE:
+        return TrackCourse_Start(
+                   static_cast<uint32_t>(instr->param1),
+                   static_cast<uint32_t>(instr->param2),
+                   static_cast<uint32_t>(instr->condition_value)) ==
+               drivers::DRIVER_OK;
     case ACT_OP_WAIT:
         return true;
     case ACT_OP_STOP:
@@ -920,6 +929,16 @@ InstrResult EvalInstr(const Instr *instr, uint32_t now)
     if (instr->op == ACT_OP_BALL_DISABLE) {
         return INSTR_SUCCESS;
     }
+    if (instr->op == ACT_OP_TRACK_COURSE) {
+        const TrackCourseResult result = TrackCourse_GetState()->result;
+        if (result == TRACK_COURSE_RESULT_RUNNING) {
+            return INSTR_RUNNING;
+        }
+        if (result == TRACK_COURSE_RESULT_SUCCESS) {
+            return INSTR_SUCCESS;
+        }
+        return INSTR_COURSE_FAILURE;
+    }
 
     const uint32_t elapsed = now - g_state.instr_start_ms;
     if (instr->until == ACT_COND_TIMEOUT) {
@@ -1053,7 +1072,7 @@ bool ValidateInstr(const Instr *instr,
     const int32_t max_rpm = static_cast<int32_t>(
         Chassis_GetState()->config.max_wheel_rpm);
     if ((instr->op <= ACT_OP_NONE) ||
-        (instr->op > ACT_OP_BALL_DISABLE)) {
+        (instr->op > ACT_OP_TRACK_COURSE)) {
         SetValidationError(result, index, ACT_VALID_FIELD_OP,
                            ACT_VALID_UNKNOWN_OP);
         return false;
@@ -1328,10 +1347,22 @@ bool ValidateInstr(const Instr *instr,
                                ACT_VALID_MUST_BE_ZERO);
             return false;
         }
-        if ((instr->until != ACT_COND_IMMEDIATE) ||
-            (instr->condition_value != 0)) {
+    } else if (instr->op == ACT_OP_TRACK_COURSE) {
+        if ((instr->param1 < 20) || (instr->param1 > max_rpm)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM1,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if ((instr->param2 < 20) || (instr->param2 > instr->param1)) {
+            SetValidationError(result, index, ACT_VALID_FIELD_PARAM2,
+                               ACT_VALID_OUT_OF_RANGE);
+            return false;
+        }
+        if ((instr->condition_value < 3000) ||
+            (instr->condition_value > 8000) ||
+            (instr->until != ACT_COND_IMMEDIATE)) {
             SetValidationError(result, index, ACT_VALID_FIELD_CONDITION,
-                               ACT_VALID_WRONG_CONDITION);
+                               ACT_VALID_OUT_OF_RANGE);
             return false;
         }
     } else if (led_op || buzzer_op) {
@@ -1566,6 +1597,39 @@ drivers::DriverStatus ActionRunner_AddRoadNav(
         timeout_ms,
         ACT_COND_IMMEDIATE,
         route,
+        on_success,
+        on_failure
+    };
+    ActionValidationResult validation = {
+        true, 0U, ACT_VALID_FIELD_NONE, ACT_VALID_OK
+    };
+    if (!ValidateInstr(&candidate, g_state.count, &validation)) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
+    g_state.instrs[g_state.count] = candidate;
+    g_state.count++;
+    return drivers::DRIVER_OK;
+}
+
+drivers::DriverStatus ActionRunner_AddTrackCourse(
+    int32_t cruise_rpm,
+    int32_t approach_rpm,
+    int32_t lap_distance_mm,
+    uint8_t on_success,
+    uint8_t on_failure)
+{
+    if (g_state.running) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    if (g_state.count >= kMaxInstrs) {
+        return drivers::DRIVER_ERROR;
+    }
+    Instr candidate = {
+        ACT_OP_TRACK_COURSE,
+        cruise_rpm,
+        approach_rpm,
+        ACT_COND_IMMEDIATE,
+        lap_distance_mm,
         on_success,
         on_failure
     };
@@ -1968,6 +2032,9 @@ void ActionRunner_Update(void)
             g_state.failure_reason = ACT_FAIL_BALL_CONTROL;
 #endif
             g_state.last_status = drivers::DRIVER_ERROR;
+        } else if (r == INSTR_COURSE_FAILURE) {
+            g_state.failure_reason = ACT_FAIL_COURSE;
+            g_state.last_status = TrackCourse_GetState()->last_status;
         } else {
             g_state.failure_reason = ACT_FAIL_INSTR_TIMEOUT;
             g_state.last_status = drivers::DRIVER_ERROR_TIMEOUT;

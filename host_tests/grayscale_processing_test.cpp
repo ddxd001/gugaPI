@@ -166,7 +166,8 @@ int main()
     assert(result.position_confidence >= 300U);
 
     /* Two adjacent responses below threshold_off=350 combine through the
-     * continuous weighted centroid and acquire a centered line. */
+     * continuous weighted centroid and acquire a centered line.  A physical
+     * sensor gap gets a lower, still geometry-bounded cold-start threshold. */
     state = {};
     Fill(raw, 3900U);
     raw[3] = 2920U; /* normalized=300, signal=200 */
@@ -178,6 +179,34 @@ int main()
     assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
     assert(result.position_valid);
     assert(result.line_position == 0);
+
+    /* Reproduce the measured start-line frame: normalized values are about
+     * 133 and 251, so the signals above the floor total only 184.  Because
+     * they are adjacent this must still acquire from a cold state. */
+    state = {};
+    Fill(raw, 3900U);
+    raw[2] = 3520U; /* normalized=133, signal=33 */
+    raw[3] = 3096U; /* normalized=251, signal=151 */
+    result = Process(raw, calibration, &state);
+    assert(result.active_mask == 0U);
+    assert(result.selected_mask == 0x0CU);
+    assert(result.line_strength == 184U);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
+    assert(result.line_detected);
+    assert(result.position_valid);
+    assert(result.position_confidence >= 300U);
+
+    /* Adjacent geometry alone is insufficient: total signal below the
+     * derived two-channel minimum (150 for this calibration) stays lost. */
+    state = {};
+    Fill(raw, 3900U);
+    raw[2] = 3370U; /* normalized=175, signal=75 */
+    raw[3] = 3374U; /* normalized=173, signal=73 */
+    result = Process(raw, calibration, &state);
+    assert(result.selected_mask == 0x0CU);
+    assert(result.line_strength == 148U);
+    assert(result.track_state == drivers::GRAYSCALE_TRACK_LOST);
+    assert(!result.position_valid);
 
     /* Analogue acquisition remains bounded by total energy and narrow,
      * contiguous geometry. */

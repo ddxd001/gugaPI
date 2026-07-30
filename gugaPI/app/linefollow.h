@@ -20,7 +20,8 @@ enum LFControllerConstant {
     LF_DEFAULT_MAX_STEERING_PERMILLE = 400,
     LF_MIN_MAX_STEERING_PERMILLE = 100,
     LF_MAX_MAX_STEERING_PERMILLE = 1000,
-    LF_ERROR_DEADBAND_MPOS = 50,
+    LF_DEFAULT_ERROR_DEADBAND_MPOS = 20,
+    LF_MAX_ERROR_DEADBAND_MPOS = 500,
     LF_DERIVATIVE_FILTER_TAU_MS = 40,
     LF_DEFAULT_CORRECTION_SLEW_PERMILLE_PER_SECOND = 25000,
     /* Retain the historical diagnostic constant for source compatibility.
@@ -82,6 +83,7 @@ struct LFState {
     int32_t kd;
     int32_t max_correction_rpm;
     uint16_t max_steering_permille;
+    uint16_t deadband_mpos;
     uint32_t correction_slew_permille_per_second;
     uint32_t lost_hold_ms;
     uint32_t lost_timeout_ms;
@@ -122,6 +124,7 @@ void LF_SetKp(int32_t kp);
 void LF_SetKd(int32_t kd);
 void LF_SetMaxCorrection(int32_t max_correction_rpm);
 void LF_SetMaxSteeringRatio(uint32_t permille);
+void LF_SetDeadband(uint32_t deadband_mpos);
 void LF_SetCorrectionSlew(uint32_t permille_per_second);
 void LF_SetLostHold(uint32_t hold_ms);
 void LF_SetLostTimeout(uint32_t timeout_ms);

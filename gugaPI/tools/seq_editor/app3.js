@@ -107,6 +107,16 @@ function seqProperties(n){
     h+=seqField('整体超时','timeoutMs','number',{
       min:50,max:30000,step:50,unit:'ms'
     },'覆盖寻找路口、转向和重新捕线的全过程。');
+  }else if(n.type==='track_course'){
+    h+=seqField('巡航速度','cruiseRpm','number',{
+      min:20,max:seqMaxRpm,step:1,unit:'RPM'
+    },'正常循迹速度。');
+    h+=seqField('终点接近速度','approachRpm','number',{
+      min:20,max:seqMaxRpm,step:1,unit:'RPM'
+    },'距编码器终点约 900 mm 后切换，不能高于巡航速度。');
+    h+=seqField('一圈里程','lapMm','number',{
+      min:3000,max:8000,step:1,unit:'mm'
+    },'横线漏检时达到该里程仍按成功停车。');
   }else if(n.type==='dm_position'){
     h+=seqField('定位方式','frame','select',[
       {value:'relative',label:'相对当前位置'},
@@ -170,6 +180,10 @@ function seqRawCanonical(x){
   if(Number(x.op)===20){
     return[20,Number(x.p1),Number(x.p2),Number(x.until),
       Number(x.conditionValue),Number(x.ons),Number(x.ont)].join('|');
+  }
+  if(Number(x.op)===26){
+    return[26,Number(x.p1),Number(x.p2),Number(x.conditionValue),
+      Number(x.ons),Number(x.ont)].join('|');
   }
   return[Number(x.op),Number(x.p1),Number(x.p2),Number(x.until),
     Number(x.ons),Number(x.ont)].join('|');
@@ -244,6 +258,10 @@ function seqCommandForRaw(x){
   }
   if(x.op===25){
     return'run add ball_disable '+ons+' '+ont;
+  }
+  if(x.op===26){
+    return'run add track_course '+x.p1+' '+x.p2+' '+
+      x.conditionValue+' '+ons+' '+ont;
   }
   return'run add '+OP[x.op]+' '+x.p1+' '+x.p2+' '+COND[x.until]+' '+
     ons+' '+ont;
@@ -324,7 +342,7 @@ function seqRunStartError(response){
   return '启动失败：'+detail;
 }
 async function runSlot(){if((!writer&&!simMode)||!seqProject){seqShowNotice('请先连接串口或开启模拟模式','error');return}var backup=[];try{await seqWaitForEmergencyStop();var operationEpoch=seqOperationEpoch;var compiled=seqCompileCurrent();backup=seqParseRunDump(await send('run dump'));seqAssertOperationActive(operationEpoch);await seqUpload(compiled.instrs,operationEpoch);var start=await send('run start');seqAssertOperationActive(operationEpoch);if(!commandOk(start,'run start'))throw new Error(seqRunStartError(start));seqShowNotice('当前画布已在 RAM 中启动，未写入 FRAM','ok');seqStartPolling()}catch(e){try{await seqWaitForEmergencyStop()}catch(stopError){if(e.seqCancelled)e=stopError}await seqRestoreRam(backup);seqShowNotice(e.message,'error');logc('tx','[试运行失败] '+e.message)}}
-async function saveSlot(){if((!writer&&!simMode)||!seqProject){seqShowNotice('请先连接串口或开启模拟模式','error');return}var slot=Number(seqProject.slot);if(slots[slot]&&slots[slot].length&&!window.confirm('槽位 '+slot+' 已有 '+slots[slot].length+' 步，确认覆盖 FRAM？'))return;try{await seqWaitForEmergencyStop();var operationEpoch=seqOperationEpoch;var compiled=seqCompileCurrent(true);await seqUpload(compiled.instrs,operationEpoch,true);var r=await send('seq save '+slot,{timeoutMs:2500});seqAssertOperationActive(operationEpoch);var back=parse(await send('seq dump '+slot,{timeoutMs:2500}));seqAssertOperationActive(operationEpoch);if(!commandOk(r,'seq save')&&!seqRawEqual(compiled.instrs,back))throw new Error('FRAM 保存失败：'+(r.trim()||'设备无响应'));if(!seqRawEqual(compiled.instrs,back))throw new Error('FRAM 保存后的回读比对失败');slots[slot]=back;seqShowNotice('已保存到 FRAM 槽位 '+slot+'，并通过回读比对','ok');await refreshSlots()}catch(e){seqShowNotice(e.message,'error');logc('tx','[保存失败] '+e.message)}}
+async function saveSlot(){if((!writer&&!simMode)||!seqProject){seqShowNotice('请先连接串口或开启模拟模式','error');return}var slot=Number(seqProject.slot);if(slot===0){seqShowNotice('槽位 0 是受保护的内置 H2 任务，不能写入 FRAM','error');return}if(slots[slot]&&slots[slot].length&&!window.confirm('槽位 '+slot+' 已有 '+slots[slot].length+' 步，确认覆盖 FRAM？'))return;try{await seqWaitForEmergencyStop();var operationEpoch=seqOperationEpoch;var compiled=seqCompileCurrent(true);await seqUpload(compiled.instrs,operationEpoch,true);var r=await send('seq save '+slot,{timeoutMs:2500});seqAssertOperationActive(operationEpoch);var back=parse(await send('seq dump '+slot,{timeoutMs:2500}));seqAssertOperationActive(operationEpoch);if(!commandOk(r,'seq save')&&!seqRawEqual(compiled.instrs,back))throw new Error('FRAM 保存失败：'+(r.trim()||'设备无响应'));if(!seqRawEqual(compiled.instrs,back))throw new Error('FRAM 保存后的回读比对失败');slots[slot]=back;seqShowNotice('已保存到 FRAM 槽位 '+slot+'，并通过回读比对','ok');await refreshSlots()}catch(e){seqShowNotice(e.message,'error');logc('tx','[保存失败] '+e.message)}}
 function seqParseStatus(text){var m=String(text).match(/run\s+(\d+)\/(\d+)\s+running=(\d).*?result=([^\s]+)/s);return m?{current:+m[1],count:+m[2],running:m[3]==='1',result:m[4]}:null}
 function seqStartPolling(){clearInterval(seqPollTimer);seqPollTimer=setInterval(async function(){try{var s=seqParseStatus(await send('run status'));if(!s)return;if(seqLastCompile&&s.current<seqLastCompile.nodeOrder.length)seqActiveNode=seqLastCompile.nodeOrder[s.current];else seqActiveNode=null;render();if(!s.running){clearInterval(seqPollTimer);seqPollTimer=null;seqShowNotice(s.result==='success'?'序列执行完成':'序列已停止：'+s.result,s.result==='success'?'ok':'error')}}catch(e){}},500)}
 async function seqPerformEmergencyStop(){
@@ -358,6 +376,6 @@ async function seqEmergencyStop(){
 }
 function seqDownload(){var blob=new Blob([SC.serialize(seqProject)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=(seqProject.name||'gugapi-sequence').replace(/[\\/:*?"<>|]/g,'_')+'.json';a.click();setTimeout(function(){URL.revokeObjectURL(a.href)},1000)}
 function seqBindUi(){seqBuildPalette();seqInitCanvas();$('btnSeqUndo').onclick=seqUndo;$('btnSeqRedo').onclick=seqRedo;$('btnSeqFit').onclick=seqFit;$('btnSeqLayout').onclick=seqAutoLayout;$('btnSeqNew').onclick=function(){if(window.confirm('新建工程会替换当前本地画布，继续吗？'))setSeqProject(SC.newProject('未命名流程',curSlot>=0?curSlot:7))};$('btnSeqExport').onclick=seqDownload;$('btnSeqImport').onclick=function(){$('seqFileInput').click()};$('seqFileInput').onchange=async function(){try{var text=await this.files[0].text();setSeqProject(SC.normalizeProject(JSON.parse(text)));seqShowNotice('工程导入成功','ok')}catch(e){seqShowNotice('导入失败：'+e.message,'error')}this.value=''};$('seqProjectName').onchange=function(){var before=seqSnapshot();seqProject.name=this.value.trim()||'未命名流程';seqCommit('已修改工程名称',before)};$('seqProjectSlot').onchange=function(){var before=seqSnapshot();seqProject.slot=Number(this.value);curSlot=seqProject.slot;seqCommit('已绑定槽位 '+seqProject.slot,before)};$('seqTemplate').onchange=function(){if(this.value==='')return;var p=SC.templates()[Number(this.value)];if(p){p.slot=seqProject.slot;setSeqProject(p);seqShowNotice('已载入模板“'+p.name+'”','ok')}this.value=''};$('btnSeqRun').onclick=runSlot;$('btnSeqSave').onclick=saveSlot;$('btnEmergencyStop').onclick=seqEmergencyStop;$('btnSeqHelp').onclick=function(){if(typeof HelpPage_Open==='function')HelpPage_Open('sequence-basics');else $('seqGuide').classList.add('show')};$('btnGuideClose').onclick=function(){$('seqGuide').classList.remove('show');localStorage.setItem('gugapi-seq-guide-seen','1')};var saved=localStorage.getItem(seqStorageKey());try{setSeqProject(saved?JSON.parse(saved):SC.templates()[0])}catch(e){setSeqProject(SC.templates()[0])}if(!localStorage.getItem('gugapi-seq-guide-seen'))$('seqGuide').classList.add('show')}
-var oldRender=render;render=function(){oldRender();if(seqProject){$('seqProjectName').value=seqProject.name;$('seqProjectSlot').value=String(seqProject.slot)}};
+var oldRender=render;render=function(){oldRender();if(seqProject){$('seqProjectName').value=seqProject.name;$('seqProjectSlot').value=String(seqProject.slot);$('btnSeqSave').disabled=Number(seqProject.slot)===0;$('btnSeqSave').title=Number(seqProject.slot)===0?'槽位 0 是受保护的内置 H2 任务':''}};
 seqBindUi();
 seqFixWirePointerEvents();

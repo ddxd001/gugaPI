@@ -20,7 +20,7 @@ const descriptorNames=[...storeSource.matchAll(
   /\{\s*"([a-zA-Z0-9_]+)"\s*,\s*PARAM_(?:U8|U16|U32|I16|I32)\s*,/g
 )].map(match=>match[1]);
 
-assert.strictEqual(descriptorNames.length,137,
+assert.strictEqual(descriptorNames.length,141,
   'firmware parameter count changed; audit the host metadata');
 assert.strictEqual(new Set(descriptorNames).size,descriptorNames.length,
   'firmware parameter descriptors contain duplicates');
@@ -86,12 +86,31 @@ assert.deepStrictEqual(
   'host steering-ratio metadata must match firmware');
 assert(/command:'lf maxratio '\+value/.test(parameterSource),
   'host parameter writes must use the live lf maxratio command');
+assert.deepStrictEqual(
+  {
+    defaultValue:context.PARAM_META.lf_deadband_mpos.defaultValue,
+    min:context.PARAM_META.lf_deadband_mpos.min,
+    max:context.PARAM_META.lf_deadband_mpos.max,
+    restart:context.PARAM_META.lf_deadband_mpos.restart
+  },
+  {defaultValue:20,min:0,max:500,restart:false},
+  'host soft-deadband metadata must match firmware');
+assert(/command:'lf deadband '\+value/.test(parameterSource),
+  'host parameter writes must update the live soft deadband');
+assert.deepStrictEqual(
+  {
+    cruise:context.PARAM_META.task0_cruise_rpm.defaultValue,
+    approach:context.PARAM_META.task0_approach_rpm.defaultValue,
+    lap:context.PARAM_META.task0_lap_mm.defaultValue
+  },
+  {cruise:110,approach:60,lap:6142},
+  'host built-in task 0 defaults must match firmware');
 
 assert(/static const uint16_t kVersion = 1U;/.test(storeSource),
   'firmware ConfigStore version changed');
 assert(/kBallPayloadLength = 42U/.test(storeSource),
   'firmware ConfigStore payload length changed');
-assert(/len=307/.test(parameterSource),
+assert(/len=315/.test(parameterSource),
   'host simulator must report the clean-layout payload length');
 
 assert.strictEqual(context.PARAM_META.ball_kp_mdeg_per_0p1mm.defaultValue,10);
@@ -147,4 +166,4 @@ const invalidMap=Object.assign({},reverseMap,{ball_map_dm_3_mrad:200});
 assert.strictEqual(context.paramPlanImport(current,invalidMap,{}).ok,false,
   'non-monotonic ball mapping must be rejected');
 
-console.log('parameter catalog ok: 137 parameters, clean ConfigStore payload 307');
+console.log('parameter catalog ok: 141 parameters, clean ConfigStore payload 315');

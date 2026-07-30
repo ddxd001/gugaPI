@@ -52,22 +52,30 @@ bool HasAdjacentBits(uint8_t mask)
     return (mask & static_cast<uint8_t>(mask >> 1U)) != 0U;
 }
 
-uint16_t AnalogAcquisitionMinimum(
-    const GrayscaleCalibration *calibration)
+uint16_t DivideWithMinimumOne(uint16_t value, uint16_t divisor)
 {
-    uint16_t half_minimum = static_cast<uint16_t>(
-        calibration->min_line_strength / 2U);
-    if (half_minimum == 0U) {
-        half_minimum = 1U;
-    }
+    const uint16_t divided = static_cast<uint16_t>(value / divisor);
+    return (divided == 0U) ? 1U : divided;
+}
+
+uint16_t AnalogAcquisitionMinimum(
+    const GrayscaleCalibration *calibration,
+    uint8_t selected_count)
+{
+    const bool sensor_gap = selected_count == 2U;
+    const uint16_t strength_minimum = DivideWithMinimumOne(
+        calibration->min_line_strength, sensor_gap ? 4U : 2U);
 
     const uint16_t threshold_signal =
         (calibration->threshold > calibration->position_floor)
         ? static_cast<uint16_t>(calibration->threshold -
                                 calibration->position_floor)
         : 1U;
-    return (half_minimum > threshold_signal)
-        ? half_minimum : threshold_signal;
+    const uint16_t threshold_minimum = sensor_gap
+        ? DivideWithMinimumOne(threshold_signal, 3U)
+        : threshold_signal;
+    return (strength_minimum > threshold_minimum)
+        ? strength_minimum : threshold_minimum;
 }
 
 bool IsNarrowAnalogCandidate(uint8_t selected_mask,
@@ -78,7 +86,8 @@ bool IsNarrowAnalogCandidate(uint8_t selected_mask,
     return (selected_mask != 0U) &&
            (selected_count <= 2U) &&
            (CountRuns(selected_mask) == 1U) &&
-           (strength >= AnalogAcquisitionMinimum(calibration));
+           (strength >= AnalogAcquisitionMinimum(calibration,
+                                                  selected_count));
 }
 
 bool TouchesPreviousSegment(uint8_t current_mask, uint8_t previous_mask)

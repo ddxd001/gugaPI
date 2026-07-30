@@ -347,6 +347,27 @@ var ACTION_GUIDES={
       '滚动掉头需要单独验证场地空间，首次必须低速架空轮胎。'],
     risk:'motion'
   },
+  track_course:{
+    purpose:'按编码器里程完成一圈循迹，并用中间六路横线或里程兜底安全停车。',
+    parameters:['巡航速度：20..max_wheel_rpm。',
+      '接近速度：20..巡航速度，距标称终点约900 mm后切换。',
+      '一圈里程：3000..8000 mm；横线漏检时作为成功停车兜底。'],
+    success:'通过距离门控后连续两个灰度帧确认中间六路至少连续五黑，或达到一圈里程时，停车并走完成出口。',
+    failure:'灰度/编码器过期、通道异常、循迹恢复超过500 ms或运行超过30秒时停车并走红色出口。',
+    example:{title:'一圈循迹完成后结束',paths:[
+      DemoFlow('横线或编码器完成',[
+        DemoNode('system_start'),DemoNode('track_course','6142 mm · 110>60 RPM'),
+        DemoNode('end')
+      ],['success','success']),
+      DemoFlow('传感器或控制失败',[
+        DemoNode('track_course','6142 mm · 110>60 RPM'),
+        DemoNode('stop'),DemoNode('end')
+      ],['failure','success'])
+    ]},
+    tips:['A线只检查CH1～CH6的连续五路证据，不要求最外侧CH0/CH7变黑。',
+      '槽0固定使用本动作；用户自定义序列应保存到槽1..7。'],
+    risk:'motion'
+  },
   dm_position:{
     purpose:'让单台 DM-G6220 按限速参考轨迹到达绝对或相对角度，并在成功后保持目标位置。',
     parameters:['定位方式：相对当前位置或相对电机绝对零位。',

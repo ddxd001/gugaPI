@@ -31,9 +31,10 @@ MUX 地址切换。
 - `confidence`：0..1000 的诊断量，不再单独决定是否停车。
 
 冷启动既接受越过开启阈值的强数字证据，也接受窄模拟证据：`selected_mask` 必须只有
-一个连续段且最多包含两路，总强度至少为
-`max(min_line_strength/2, max(threshold-position_floor, 1))`。因此黑线位于单个探头
-边缘或相邻探头之间时，可以用两路较弱黑度的总能量取得连续加权位置；数字
+一个连续段且最多包含两路。单路证据继续使用较严格的
+`max(min_line_strength/2, threshold-position_floor)`门槛；两路相邻证据按探头间隙
+响应使用`max(min_line_strength/4, (threshold-position_floor)/3)`门槛。因此黑线位于
+单个探头边缘或相邻探头之间时，可以用两路较弱黑度的总能量取得连续加权位置；数字
 `active_mask` 仍独立负责道路类型和路口判定。分离弱峰、三路及以上弱响应和总强度
 不足均不能从冷状态获取线路。
 

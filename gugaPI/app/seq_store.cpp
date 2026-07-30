@@ -232,6 +232,14 @@ drivers::DriverStatus AddDecodedInstr(const Instr &instr)
             instr.on_success,
             instr.on_timeout);
     }
+    if (instr.op == ACT_OP_TRACK_COURSE) {
+        return ActionRunner_AddTrackCourse(
+            instr.param1,
+            instr.param2,
+            instr.condition_value,
+            instr.on_success,
+            instr.on_timeout);
+    }
     return ActionRunner_AddInstr(
         instr.op, instr.param1, instr.param2, instr.until,
         instr.on_success, instr.on_timeout);
@@ -282,7 +290,7 @@ drivers::DriverStatus SeqStore_GetInfo(uint8_t slot,
 
 drivers::DriverStatus SeqStore_Save(uint8_t slot)
 {
-    if (slot >= FRAM_SEQ_SLOT_COUNT) {
+    if ((slot == 0U) || (slot >= FRAM_SEQ_SLOT_COUNT)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
     const drivers::DriverStatus layout = EnsureLayout();
@@ -365,6 +373,9 @@ drivers::DriverStatus SeqStore_Read(uint8_t slot,
 
 drivers::DriverStatus SeqStore_Load(uint8_t slot)
 {
+    if (slot == 0U) {
+        return drivers::DRIVER_ERROR_INVALID_ARG;
+    }
     uint8_t count = 0U;
     const drivers::DriverStatus read =
         SeqStore_Read(slot, g_instrScratch, &count);
@@ -385,7 +396,7 @@ drivers::DriverStatus SeqStore_Load(uint8_t slot)
 
 drivers::DriverStatus SeqStore_Delete(uint8_t slot)
 {
-    if (slot >= FRAM_SEQ_SLOT_COUNT) {
+    if ((slot == 0U) || (slot >= FRAM_SEQ_SLOT_COUNT)) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
     const drivers::DriverStatus layout = EnsureLayout();

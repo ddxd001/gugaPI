@@ -113,8 +113,12 @@ int main(void)
 
     (void) memset(g_fram, 0xCC, sizeof(g_fram));
     ConfigStore_ResetDefaults();
-    assert(ConfigStore_ParamCount() == 137U);
+    assert(ConfigStore_ParamCount() == 141U);
     assert(ConfigStore_Get()->linefollow_max_steering_permille == 400U);
+    assert(ConfigStore_Get()->linefollow_deadband_mpos == 20U);
+    assert(ConfigStore_Get()->task0_cruise_rpm == 110U);
+    assert(ConfigStore_Get()->task0_approach_rpm == 60U);
+    assert(ConfigStore_Get()->task0_lap_mm == 6142U);
     assert(ConfigStore_Get()->ball_kp_mdeg_per_0p1mm == 10);
     assert(ConfigStore_Get()->ball_map_angle_mdeg[0] == -8000);
     assert(ConfigStore_Get()->ball_map_dm_mrad[4] == 1000);
@@ -130,12 +134,27 @@ int main(void)
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
     assert(ReadU32(&g_fram[0]) == 0x31464347U);
     assert(ReadU16(&g_fram[4]) == 1U);
-    assert(ReadU16(&g_fram[6]) == 307U);
+    assert(ReadU16(&g_fram[6]) == 315U);
     assert(ReadU32(&g_fram[8]) == 1U);
     assert(g_fram[12] == 0xA5U);
     assert(ConfigStore_GetStatus()->active_bank == 0U);
     assert(ConfigStore_GetStatus()->generation == 1U);
     assert(ConfigStore_GetStatus()->payload_capacity == 1004U);
+
+    /* The preceding steering-only 307-byte extension remains readable; new
+     * soft-deadband and task 0 fields receive current defaults. */
+    g_fram[6] = 307U & 0xFFU;
+    g_fram[7] = 307U >> 8U;
+    WriteU32(&g_fram[16U + 307U], ConfigBankCrc(&g_fram[0], 307U));
+    ConfigStore_ResetDefaults();
+    assert(ConfigStore_Load() == drivers::DRIVER_OK);
+    assert(ConfigStore_GetStatus()->stored_length == 307U);
+    assert(ConfigStore_Get()->heading_kp == 4321);
+    assert(ConfigStore_Get()->linefollow_max_steering_permille == 400U);
+    assert(ConfigStore_Get()->linefollow_deadband_mpos == 20U);
+    assert(ConfigStore_Get()->task0_cruise_rpm == 110U);
+    assert(ConfigStore_Get()->task0_approach_rpm == 60U);
+    assert(ConfigStore_Get()->task0_lap_mm == 6142U);
 
     /* The deployed 305-byte layout remains readable. Its missing extension
      * receives the safe historical 400-permille steering limit. */
@@ -147,6 +166,8 @@ int main(void)
     assert(ConfigStore_GetStatus()->stored_length == 305U);
     assert(ConfigStore_Get()->heading_kp == 4321);
     assert(ConfigStore_Get()->linefollow_max_steering_permille == 400U);
+    assert(ConfigStore_Get()->linefollow_deadband_mpos == 20U);
+    assert(ConfigStore_Get()->task0_lap_mm == 6142U);
 
     /* Atomic mapping accepts a reversed mechanism. */
     const int16_t angles[5] = { -8000, -4000, 0, 4000, 8000 };
@@ -159,7 +180,7 @@ int main(void)
            drivers::DRIVER_OK);
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
     assert(ReadU32(&g_fram[0x0408]) == 2U);
-    assert(ReadU16(&g_fram[0x0406]) == 307U);
+    assert(ReadU16(&g_fram[0x0406]) == 315U);
     assert(g_fram[0x040CU] == 0xA5U);
     assert(ConfigStore_GetStatus()->active_bank == 1U);
 
@@ -170,6 +191,8 @@ int main(void)
     assert(ConfigStore_Get()->ball_map_dm_mrad[0] == 1000);
     assert(ConfigStore_Get()->ball_map_dm_mrad[4] == -1000);
     assert(ConfigStore_Get()->linefollow_max_steering_permille == 500U);
+    assert(ConfigStore_Get()->linefollow_deadband_mpos == 20U);
+    assert(ConfigStore_Get()->task0_cruise_rpm == 110U);
     assert(ConfigStore_GetStatus()->active_bank == 1U);
     assert(!ConfigStore_GetStatus()->dirty);
 
@@ -177,8 +200,8 @@ int main(void)
     WriteU32(&g_fram[8], 0xFFFFFFFFU);
     WriteU32(&g_fram[16U + 305U], ConfigBankCrc(&g_fram[0], 305U));
     WriteU32(&g_fram[0x0408U], 0U);
-    WriteU32(&g_fram[0x0400U + 16U + 307U],
-             ConfigBankCrc(&g_fram[0x0400U], 307U));
+    WriteU32(&g_fram[0x0400U + 16U + 315U],
+             ConfigBankCrc(&g_fram[0x0400U], 315U));
     ConfigStore_ResetDefaults();
     assert(ConfigStore_Load() == drivers::DRIVER_OK);
     assert(ConfigStore_GetStatus()->active_bank == 1U);

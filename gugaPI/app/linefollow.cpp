@@ -87,6 +87,7 @@ void LoadConfig(void)
         g_state.max_correction_rpm = 30;
         g_state.max_steering_permille =
             LF_DEFAULT_MAX_STEERING_PERMILLE;
+        g_state.deadband_mpos = LF_DEFAULT_ERROR_DEADBAND_MPOS;
         g_state.correction_slew_permille_per_second =
             LF_DEFAULT_CORRECTION_SLEW_PERMILLE_PER_SECOND;
         g_state.lost_hold_ms = 150U;
@@ -111,6 +112,7 @@ void LoadConfig(void)
     }
     g_state.max_steering_permille =
         params->linefollow_max_steering_permille;
+    g_state.deadband_mpos = params->linefollow_deadband_mpos;
     g_state.lost_hold_ms = params->linefollow_lost_hold_ms;
     g_state.lost_timeout_ms = params->linefollow_lost_stop_ms;
 }
@@ -154,6 +156,26 @@ int32_t ClampToMagnitude(int32_t value, int32_t magnitude)
     return value;
 }
 
+int32_t ApplySoftDeadband(int32_t value, uint16_t deadband)
+{
+    const int32_t magnitude = AbsoluteInt32(value);
+    if (magnitude <= static_cast<int32_t>(deadband)) {
+        return 0;
+    }
+    const int32_t reduced = magnitude - static_cast<int32_t>(deadband);
+    return (value < 0) ? -reduced : reduced;
+}
+
+int32_t DivideRoundedSymmetric(int64_t numerator, int64_t denominator)
+{
+    if (numerator >= 0) {
+        return static_cast<int32_t>(
+            (numerator + denominator / 2LL) / denominator);
+    }
+    return static_cast<int32_t>(
+        (numerator - denominator / 2LL) / denominator);
+}
+
 int32_t ApplyCorrectionSlew(int32_t requested,
                             int32_t base_rpm,
                             uint32_t dt_ms,
@@ -191,9 +213,7 @@ int32_t CalculateCorrection(const LineSensorSnapshot *data,
 {
     const int32_t measured_error = data->line_position;
     const int32_t error =
-        (AbsoluteInt32(measured_error) <= LF_ERROR_DEADBAND_MPOS)
-        ? 0
-        : measured_error;
+        ApplySoftDeadband(measured_error, g_state.deadband_mpos);
     const bool first_frame = (g_state.last_frame_ms == 0U);
     uint32_t dt_ms = 0U;
     int32_t derivative = 0;
@@ -228,23 +248,25 @@ int32_t CalculateCorrection(const LineSensorSnapshot *data,
     const int64_t differential =
         static_cast<int64_t>(g_state.derivative_mpos_per_s) *
         static_cast<int64_t>(g_state.kd);
-    const int64_t combined = (proportional + differential) / kControlScale;
-
-    int32_t reference_correction;
-    if (combined > g_state.max_correction_rpm) {
-        reference_correction = g_state.max_correction_rpm;
-    } else if (combined < -g_state.max_correction_rpm) {
-        reference_correction = -g_state.max_correction_rpm;
-    } else {
-        reference_correction = static_cast<int32_t>(combined);
+    int64_t combined_numerator = proportional + differential;
+    const int64_t maximum_numerator =
+        static_cast<int64_t>(g_state.max_correction_rpm) *
+        static_cast<int64_t>(kControlScale);
+    if (combined_numerator > maximum_numerator) {
+        combined_numerator = maximum_numerator;
+    } else if (combined_numerator < -maximum_numerator) {
+        combined_numerator = -maximum_numerator;
     }
 
     const int32_t base_magnitude = AbsoluteInt32(base_rpm);
     const int64_t speed_scaled =
-        static_cast<int64_t>(reference_correction) *
+        combined_numerator *
         static_cast<int64_t>(base_magnitude);
-    int32_t requested = static_cast<int32_t>(
-        speed_scaled / static_cast<int64_t>(LF_REFERENCE_RPM));
+    const int64_t speed_scale_denominator =
+        static_cast<int64_t>(kControlScale) *
+        static_cast<int64_t>(LF_REFERENCE_RPM);
+    int32_t requested =
+        DivideRoundedSymmetric(speed_scaled, speed_scale_denominator);
     const int32_t ratio_limit = static_cast<int32_t>(
         (static_cast<int64_t>(base_magnitude) *
          static_cast<int64_t>(g_state.max_steering_permille)) / 1000LL);
@@ -621,6 +643,15 @@ void LF_SetMaxSteeringRatio(uint32_t permille)
             static_cast<uint16_t>(permille);
         (void) ConfigStore_Set("lf_max_ratio_permille",
                                static_cast<int32_t>(permille));
+    }
+}
+
+void LF_SetDeadband(uint32_t deadband_mpos)
+{
+    if (deadband_mpos <= LF_MAX_ERROR_DEADBAND_MPOS) {
+        g_state.deadband_mpos = static_cast<uint16_t>(deadband_mpos);
+        (void) ConfigStore_Set("lf_deadband_mpos",
+                               static_cast<int32_t>(deadband_mpos));
     }
 }
 

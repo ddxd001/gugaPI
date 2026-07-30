@@ -15,6 +15,7 @@
 #include "app/line_sensor.h"
 #include "app/road_event_controller.h"
 #include "app/seq_store.h"
+#include "app/track_course.h"
 #include "board/board_button.h"
 #include "board/board_buzzer.h"
 #include "board/board_fram.h"
@@ -44,6 +45,7 @@ uint32_t g_road_start_calls = 0U;
 uint32_t g_road_cancel_calls = 0U;
 app::DmG6220ControlState g_dm = {};
 app::BallBalanceState g_ball = {};
+app::TrackCourseState g_course = {};
 uint32_t g_dm_emergency_disable_calls = 0U;
 uint32_t g_ball_emergency_stop_calls = 0U;
 uint32_t g_ball_stop_calls = 0U;
@@ -97,6 +99,8 @@ void Reset()
     g_ball = app::BallBalanceState();
     g_ball.mode = app::BALL_BALANCE_IDLE;
     g_ball.result = app::BALL_BALANCE_RESULT_IDLE;
+    g_course = app::TrackCourseState();
+    g_course.result = app::TRACK_COURSE_RESULT_IDLE;
     g_dm_emergency_disable_calls = 0U;
     g_ball_stop_calls = 0U;
     g_dm_stop_speed_calls = 0U;
@@ -298,6 +302,27 @@ void BallBalance_EmergencyStop(void)
 const BallBalanceState *BallBalance_GetState(void)
 {
     return &g_ball;
+}
+drivers::DriverStatus TrackCourse_Start(uint32_t cruise_rpm,
+                                        uint32_t approach_rpm,
+                                        uint32_t lap_distance_mm)
+{
+    g_course.result = TRACK_COURSE_RESULT_RUNNING;
+    g_course.cruise_rpm = static_cast<uint16_t>(cruise_rpm);
+    g_course.approach_rpm = static_cast<uint16_t>(approach_rpm);
+    g_course.lap_distance_mm = static_cast<uint16_t>(lap_distance_mm);
+    return drivers::DRIVER_OK;
+}
+drivers::DriverStatus TrackCourse_Cancel(void)
+{
+    if (g_course.result == TRACK_COURSE_RESULT_RUNNING) {
+        g_course.result = TRACK_COURSE_RESULT_CANCELLED;
+    }
+    return drivers::DRIVER_OK;
+}
+const TrackCourseState *TrackCourse_GetState(void)
+{
+    return &g_course;
 }
 } /* namespace app */
 
@@ -1054,6 +1079,23 @@ int main()
     assert(ActionRunner_GetState()->instrs[0].condition_value == 5000);
     assert(ActionRunner_GetState()->instrs[1].op == ACT_OP_DM_SPEED);
     assert(ActionRunner_GetState()->instrs[2].op == ACT_OP_DM_DISABLE);
+
+    /* Opcode 26 preserves cruise, approach and lap distance, while slot 0
+     * remains reserved for the built-in H2 task. */
+    assert(ActionRunner_Clear() == drivers::DRIVER_OK);
+    assert(ActionRunner_AddTrackCourse(
+        110, 60, 6142, 1U, ACT_NEXT) == drivers::DRIVER_OK);
+    AddEnd();
+    assert(SeqStore_Save(4U) == drivers::DRIVER_OK);
+    assert(ActionRunner_Clear() == drivers::DRIVER_OK);
+    assert(SeqStore_Load(4U) == drivers::DRIVER_OK);
+    assert(ActionRunner_GetState()->instrs[0].op == ACT_OP_TRACK_COURSE);
+    assert(ActionRunner_GetState()->instrs[0].param1 == 110);
+    assert(ActionRunner_GetState()->instrs[0].param2 == 60);
+    assert(ActionRunner_GetState()->instrs[0].condition_value == 6142);
+    assert(SeqStore_Save(0U) == drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(SeqStore_Load(0U) == drivers::DRIVER_ERROR_INVALID_ARG);
+    assert(SeqStore_Delete(0U) == drivers::DRIVER_ERROR_INVALID_ARG);
 
     /* Former layouts are deliberately discarded, with all slots invalid. */
     Reset();

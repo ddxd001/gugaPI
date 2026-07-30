@@ -18,8 +18,11 @@ static const uint16_t kBallPayloadLength = 42U;
 static const uint16_t kLegacyPayloadLength =
     kMainPayloadLength + kInfraredPayloadLength + kBallPayloadLength;
 static const uint16_t kSteeringPayloadLength = 2U;
-static const uint16_t kPayloadLength =
+static const uint16_t kSteeringPayloadTotalLength =
     kLegacyPayloadLength + kSteeringPayloadLength;
+static const uint16_t kCoursePayloadLength = 8U;
+static const uint16_t kPayloadLength =
+    kSteeringPayloadTotalLength + kCoursePayloadLength;
 static const uint16_t kHeaderLength = 16U;
 static const uint16_t kCrcLength = 4U;
 static const uint16_t kPayloadCapacity =
@@ -31,6 +34,10 @@ static_assert(kPayloadLength <= kPayloadCapacity,
 static const uint32_t kCrc32Init = 0xFFFFFFFFU;
 static const uint8_t kDefaultGrayscaleTrackMask = 0x7EU;
 static const uint16_t kDefaultLinefollowMaxSteeringPermille = 400U;
+static const uint16_t kDefaultLinefollowDeadbandMpos = 20U;
+static const uint16_t kDefaultTask0CruiseRpm = 110U;
+static const uint16_t kDefaultTask0ApproachRpm = 60U;
+static const uint16_t kDefaultTask0LapMm = 6142U;
 
 ConfigStoreParams g_params;
 ConfigStoreParams g_candidateA;
@@ -324,6 +331,8 @@ static const ParamDescriptor kParamDescriptors[] = {
       PARAM_OFFSET(linefollow_max_correction_rpm), 0, 500 },
     { "lf_max_ratio_permille", PARAM_U16,
       PARAM_OFFSET(linefollow_max_steering_permille), 100, 1000 },
+    { "lf_deadband_mpos", PARAM_U16,
+      PARAM_OFFSET(linefollow_deadband_mpos), 0, 500 },
     { "lf_lost_hold_ms", PARAM_U16,
       PARAM_OFFSET(linefollow_lost_hold_ms), 0, 10000 },
     { "lf_lost_stop_ms", PARAM_U16,
@@ -331,6 +340,12 @@ static const ParamDescriptor kParamDescriptors[] = {
     { "lf_slew_permille_s", PARAM_U16,
       PARAM_OFFSET(linefollow_correction_slew_permille_per_second),
       1, 65535 },
+    { "task0_cruise_rpm", PARAM_U16,
+      PARAM_OFFSET(task0_cruise_rpm), 20, 1000 },
+    { "task0_approach_rpm", PARAM_U16,
+      PARAM_OFFSET(task0_approach_rpm), 20, 1000 },
+    { "task0_lap_mm", PARAM_U16,
+      PARAM_OFFSET(task0_lap_mm), 3000, 8000 },
     { "line_sensor_source", PARAM_U8,
       PARAM_OFFSET(line_sensor_source),
       LINE_SENSOR_SOURCE_ADC8, LINE_SENSOR_SOURCE_IR3 },
@@ -546,9 +561,13 @@ void SetDefaults(ConfigStoreParams *params)
     params->linefollow_max_correction_rpm = 30U;
     params->linefollow_max_steering_permille =
         kDefaultLinefollowMaxSteeringPermille;
+    params->linefollow_deadband_mpos = kDefaultLinefollowDeadbandMpos;
     params->linefollow_lost_hold_ms = 150U;
     params->linefollow_lost_stop_ms = 500U;
     params->linefollow_correction_slew_permille_per_second = 25000U;
+    params->task0_cruise_rpm = kDefaultTask0CruiseRpm;
+    params->task0_approach_rpm = kDefaultTask0ApproachRpm;
+    params->task0_lap_mm = kDefaultTask0LapMm;
 
     /* The new real sensor is the requested default, but zero calibration
      * values deliberately inhibit motion until the five-step wizard commits
@@ -980,6 +999,26 @@ void DecodeSteeringPayload(const uint8_t *payload,
                        &params->linefollow_max_steering_permille);
 }
 
+void EncodeCoursePayload(const ConfigStoreParams &params,
+                         uint8_t *payload)
+{
+    uint8_t *cursor = payload;
+    cursor = AppendU16(cursor, params.linefollow_deadband_mpos);
+    cursor = AppendU16(cursor, params.task0_cruise_rpm);
+    cursor = AppendU16(cursor, params.task0_approach_rpm);
+    (void) AppendU16(cursor, params.task0_lap_mm);
+}
+
+void DecodeCoursePayload(const uint8_t *payload,
+                         ConfigStoreParams *params)
+{
+    const uint8_t *cursor = payload;
+    cursor = ReadU16Field(cursor, &params->linefollow_deadband_mpos);
+    cursor = ReadU16Field(cursor, &params->task0_cruise_rpm);
+    cursor = ReadU16Field(cursor, &params->task0_approach_rpm);
+    (void) ReadU16Field(cursor, &params->task0_lap_mm);
+}
+
 bool ValidateParams(const ConfigStoreParams &params)
 {
     g_validationSaved = g_params;
@@ -1017,6 +1056,10 @@ bool ValidateParams(const ConfigStoreParams &params)
     }
     if ((params.distance_creep_rpm > params.max_wheel_rpm) ||
         (params.distance_settle_rpm > params.distance_creep_rpm)) {
+        return false;
+    }
+    if ((params.task0_approach_rpm > params.task0_cruise_rpm) ||
+        (params.task0_cruise_rpm > params.max_wheel_rpm)) {
         return false;
     }
     if (params.ina219_undervoltage_release_mv <=
@@ -1191,6 +1234,7 @@ bool DecodeBank(const uint8_t *image,
     if ((ReadU32(&image[0]) != kMagic) ||
         (ReadU16(&image[4]) != kVersion) ||
         ((length != kLegacyPayloadLength) &&
+         (length != kSteeringPayloadTotalLength) &&
          (length != kPayloadLength)) ||
         (image[12] != kBankValid)) {
         return false;
@@ -1212,13 +1256,18 @@ bool DecodeBank(const uint8_t *image,
         &image[kHeaderLength + kMainPayloadLength +
                kInfraredPayloadLength],
         params);
-    if (length >= kPayloadLength) {
+    if (length >= kSteeringPayloadTotalLength) {
         DecodeSteeringPayload(
             &image[kHeaderLength + kLegacyPayloadLength],
             params);
     } else {
         params->linefollow_max_steering_permille =
             kDefaultLinefollowMaxSteeringPermille;
+    }
+    if (length >= kPayloadLength) {
+        DecodeCoursePayload(
+            &image[kHeaderLength + kSteeringPayloadTotalLength],
+            params);
     }
     if (!ValidateParams(*params)) {
         return false;
@@ -1234,6 +1283,11 @@ bool DecodeBank(const uint8_t *image,
 drivers::DriverStatus ConfigStore_Load(void)
 {
     ConfigStore_ResetDefaults();
+    /* Decode legacy-compatible shorter payloads on top of current defaults.
+     * Candidate buffers are static scratch and must not inherit fields from a
+     * previous load attempt. */
+    g_candidateA = g_params;
+    g_candidateB = g_params;
 
 #if FEATURE_ENABLE_FRAM
     if (!board::Board_FramIsReady()) {
@@ -1344,6 +1398,9 @@ drivers::DriverStatus ConfigStore_Save(void)
     EncodeSteeringPayload(
         g_params,
         &g_bankScratch[kHeaderLength + kLegacyPayloadLength]);
+    EncodeCoursePayload(
+        g_params,
+        &g_bankScratch[kHeaderLength + kSteeringPayloadTotalLength]);
     const uint32_t crc = BankCrc(g_bankScratch, kPayloadLength);
     WriteU32(&g_bankScratch[kHeaderLength + kPayloadLength], crc);
 

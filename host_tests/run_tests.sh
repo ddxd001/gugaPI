@@ -82,6 +82,9 @@ build_and_run linefollow_road_handoff \
 build_and_run linefollow_recovery \
     host_tests/linefollow_recovery_test.cpp \
     gugaPI/app/linefollow.cpp
+build_and_run track_course \
+    host_tests/track_course_test.cpp \
+    gugaPI/app/track_course.cpp
 build_and_run mode_switch_chord \
     host_tests/mode_switch_chord_test.cpp
 build_and_run road_event_controller \
