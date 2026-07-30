@@ -199,6 +199,7 @@ enum TelemProfile {
     TELEM_PROFILE_GRAY_HEALTH,
     TELEM_PROFILE_GRAY_AGE,
     TELEM_PROFILE_IR_LINE,
+    TELEM_PROFILE_BALL,
     TELEM_PROFILE_FAULT,
     TELEM_PROFILE_UART
 };
@@ -10050,6 +10051,7 @@ const char *TelemProfileText(TelemProfile profile)
         case TELEM_PROFILE_GRAY_HEALTH: return "gray_health";
         case TELEM_PROFILE_GRAY_AGE: return "gray_age";
         case TELEM_PROFILE_IR_LINE: return "ir_line";
+        case TELEM_PROFILE_BALL: return "ball";
         case TELEM_PROFILE_FAULT: return "fault";
         case TELEM_PROFILE_UART: return "uart";
         case TELEM_PROFILE_FULL:
@@ -10126,6 +10128,8 @@ bool ParseTelemProfile(const char *text, TelemProfile *profile)
         *profile = TELEM_PROFILE_GRAY_AGE;
     } else if (StrEqual(text, "ir_line")) {
         *profile = TELEM_PROFILE_IR_LINE;
+    } else if (StrEqual(text, "ball")) {
+        *profile = TELEM_PROFILE_BALL;
     } else if (StrEqual(text, "fault")) {
         *profile = TELEM_PROFILE_FAULT;
     } else if (StrEqual(text, "uart")) {
@@ -10257,6 +10261,19 @@ void TelemSendHeader(void)
                 "ir_dma_lag,ir_dma_max_lag,ir_dma_overwrites,"
                 "ir_dma_faults,ir_latency_us,ir_latency_max_us\n");
             return;
+        case TELEM_PROFILE_BALL:
+            services::DebugUart_WriteString(
+                "#t,app_mode,action_running,ball_mode,ball_result,"
+                "ball_status,ball_target_0p1mm,ball_position_0p1mm,"
+                "ball_velocity_0p1mm_s,ball_error_0p1mm,"
+                "ball_beam_mdeg,ball_dm_target_mrad,"
+                "ball_max_error_0p1mm,ball_settling,vision_state,"
+                "vision_confidence,vision_frame_age_ms,"
+                "vision_ball_age_ms,vision_injected,dm_mode,"
+                "dm_enabled,dm_online,dm_fresh,dm_state,"
+                "dm_position_mrad,dm_velocity_mrad_s,pitch_mdeg,"
+                "fault_code\n");
+            return;
         case TELEM_PROFILE_FAULT:
             services::DebugUart_WriteString("#t,fault_code,fault_count\n");
             return;
@@ -10318,6 +10335,12 @@ void TelemSendSelectedData(void)
     const app::ConfigStoreParams *params = app::ConfigStore_Get();
     const app::AppInfraredSensorData *infrared =
         app::App_InfraredSensorGetData();
+    const app::BallBalanceState *ball = app::BallBalance_GetState();
+    const app::BallVisionData *vision = app::BallVision_GetData();
+    const app::DmG6220ControlState *dm =
+        app::DmG6220Controller_GetState();
+    const drivers::DmG6220Feedback *dm_feedback =
+        app::DmG6220Controller_GetFeedback();
 
     services::Shell_WriteUInt32(now);
     switch (g_telemProfile) {
@@ -10492,6 +10515,41 @@ void TelemSendSelectedData(void)
                 ? infrared->control_latency_us : 0U);
             TelemWriteUInt32((infrared != 0)
                 ? infrared->maximum_control_latency_us : 0U);
+            break;
+        case TELEM_PROFILE_BALL:
+            TelemWriteUInt32(static_cast<uint32_t>(app_state->mode));
+            TelemWriteUInt32(action->running ? 1U : 0U);
+            TelemWriteUInt32(static_cast<uint32_t>(ball->mode));
+            TelemWriteUInt32(static_cast<uint32_t>(ball->result));
+            TelemWriteUInt32(static_cast<uint32_t>(ball->last_status));
+            TelemWriteInt32(ball->target_position_0p1mm);
+            TelemWriteInt32(ball->estimated_position_0p1mm);
+            TelemWriteInt32(ball->estimated_velocity_0p1mm_s);
+            TelemWriteInt32(ball->position_error_0p1mm);
+            TelemWriteInt32(ball->beam_target_mdeg);
+            TelemWriteInt32(ball->dm_target_mrad);
+            TelemWriteInt32(ball->maximum_abs_error_0p1mm);
+            TelemWriteUInt32(ball->settling ? 1U : 0U);
+            TelemWriteUInt32(static_cast<uint32_t>(vision->state));
+            TelemWriteUInt32(vision->frame.confidence);
+            TelemWriteUInt32(vision->frame_age_ms);
+            TelemWriteUInt32(vision->ball_age_ms);
+            TelemWriteUInt32(vision->injected ? 1U : 0U);
+            TelemWriteUInt32(static_cast<uint32_t>(dm->mode));
+            TelemWriteUInt32(dm->enabled ? 1U : 0U);
+            TelemWriteUInt32(
+                ((dm_feedback != 0) && dm_feedback->valid) ? 1U : 0U);
+            TelemWriteUInt32(
+                app::DmG6220Controller_IsFeedbackFresh(now) ? 1U : 0U);
+            TelemWriteUInt32(
+                (dm_feedback != 0) ? dm_feedback->state : 0U);
+            TelemWriteInt32(
+                (dm_feedback != 0) ? dm_feedback->position_mrad : 0);
+            TelemWriteInt32(
+                (dm_feedback != 0) ? dm_feedback->velocity_mrad_s : 0);
+            TelemWriteInt32((imu != 0) ? imu->pitch_mdeg : 0);
+            TelemWriteUInt32(
+                static_cast<uint32_t>(services::Fault_Get()));
             break;
         case TELEM_PROFILE_FAULT:
             TelemWriteUInt32(static_cast<uint32_t>(services::Fault_Get()));
@@ -10784,6 +10842,7 @@ void PrintTelemUsage(void)
     services::Shell_WriteLine("usage:");
     services::Shell_WriteLine("  telem on [period_ms 50..5000]");
     services::Shell_WriteLine("  telem on <profile> [period_ms 50..5000]");
+    services::Shell_WriteLine("  telem on ball [period_ms 20..5000]");
     services::Shell_WriteLine(
         "  profiles: runtime competition motor heading heading_output");
     services::Shell_WriteLine(
@@ -10795,7 +10854,7 @@ void PrintTelemUsage(void)
     services::Shell_WriteLine(
         "    turn_timing turn_speed accel gyro attitude imu_temperature");
     services::Shell_WriteLine(
-        "    imu_state imu_age gray_raw gray_health gray_age fault uart");
+        "    imu_state imu_age gray_raw gray_health gray_age ball fault uart");
     services::Shell_WriteLine("  telem off");
     services::Shell_WriteLine("  telem status");
 }
@@ -10824,11 +10883,16 @@ void TelemCommand(int argc, const char * const argv[])
             }
         } else if (argc == 4) {
             if ((!ParseTelemProfile(argv[2], &profile)) ||
-                (!ParseUint32(argv[3], 5000U, &period)) ||
-                (period < 50U)) {
+                (!ParseUint32(argv[3], 5000U, &period))) {
                 PrintTelemUsage();
                 return;
             }
+        }
+        const uint32_t minimum_period =
+            (profile == TELEM_PROFILE_BALL) ? 20U : 50U;
+        if (period < minimum_period) {
+            PrintTelemUsage();
+            return;
         }
         const drivers::DriverStatus status = TelemStart(profile, period);
         services::Shell_WriteString("telem: ");

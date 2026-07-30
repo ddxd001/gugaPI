@@ -186,6 +186,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <link rel="stylesheet" href="dashboard.css?v=20260728-three-columns">
 <link rel="stylesheet" href="help.css?v=20260729-help-v2">
 <link rel="stylesheet" href="line_sensor.css?v=20260730-ir3-ui-v2">
+<link rel="stylesheet" href="ball.css?v=20260730-ball-lab-v1">
 </head>
 <body>
 <header>
@@ -200,6 +201,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <button class="tab active" id="tabEditor" type="button">序列编辑器</button>
 <button class="tab" id="tabDashboard" type="button">实时仪表盘</button>
 <button class="tab" id="tabLineSensor" type="button">线路传感器</button>
+<button class="tab" id="tabBall" type="button">滚球系统</button>
 <button class="tab" id="tabTerminal" type="button">串口终端</button>
 <button class="tab" id="tabParameters" type="button">参数</button>
 <button class="tab" id="tabCommands" type="button">命令库</button>
@@ -304,6 +306,83 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 </aside>
 </div>
 <div id="lineSensorToast" role="status" aria-live="polite"></div>
+</div>
+</div>
+<div id="ballView" class="main" hidden>
+<div id="ballShell">
+<div id="ballToolbar">
+<div><strong>滚球系统联调与标定</strong><span>50 Hz专用遥测 · 参数快照在下次启动生效</span></div>
+<span id="ballConnection">未连接</span>
+<span id="ballTelemetry">遥测未启动</span>
+<span id="ballSamples">0个样本</span>
+<button id="btnBallRecord" type="button" disabled>开始记录</button>
+<button id="btnBallExport" type="button" disabled>导出CSV</button>
+<button id="btnBallClear" type="button">清空数据</button>
+</div>
+<div id="ballWorkspace">
+<aside class="ball-panel ball-status-panel">
+<h2>系统状态</h2>
+<div class="ball-status-grid">
+<div><span>运行模式</span><b id="ballAppMode">--</b></div>
+<div><span>序列状态</span><b id="ballActionState">--</b></div>
+<div><span>滚球模式</span><b id="ballMode">--</b></div>
+<div><span>滚球结果</span><b id="ballResult">--</b></div>
+<div><span>目标位置</span><b id="ballTargetNow">--</b></div>
+<div><span>最大误差</span><b id="ballMaximumError">--</b></div>
+<div><span>稳定判定</span><b id="ballSettling">--</b></div>
+<div><span>车体俯仰</span><b id="ballPitch">--</b></div>
+<div><span>全局故障</span><b id="ballFault">--</b></div>
+</div>
+<h3>MaixCAM</h3>
+<div class="ball-status-grid">
+<div><span>视觉状态</span><b id="ballVisionState">--</b></div>
+<div><span>置信度</span><b id="ballVisionConfidence">--</b></div>
+<div><span>帧年龄</span><b id="ballVisionFrameAge">--</b></div>
+<div><span>球样本年龄</span><b id="ballVisionBallAge">--</b></div>
+</div>
+<h3>DM-G6220</h3>
+<div class="ball-status-grid">
+<div><span>控制阶段</span><b id="ballDmMode">--</b></div>
+<div><span>使能/状态码</span><b id="ballDmState">--</b></div>
+<div><span>在线/新鲜</span><b id="ballDmHealth">--</b></div>
+<div><span>反馈位置</span><b id="ballDmPosition">--</b></div>
+<div><span>反馈速度</span><b id="ballDmVelocity">--</b></div>
+</div>
+</aside>
+<section class="ball-panel ball-charts">
+<div class="ball-chart"><header><b>钢球位置</b><span>目标 / 位置 / 误差 · mm</span></header><canvas id="ballPositionChart"></canvas></div>
+<div class="ball-chart"><header><b>钢球速度</b><span>mm/s</span></header><canvas id="ballVelocityChart"></canvas></div>
+<div class="ball-chart"><header><b>横梁与车体姿态</b><span>横梁目标 / pitch · deg</span></header><canvas id="ballAngleChart"></canvas></div>
+<div class="ball-chart"><header><b>达妙位置</b><span>目标 / 反馈 · rad</span></header><canvas id="ballDmChart"></canvas></div>
+</section>
+<aside class="ball-panel ball-controls">
+<h2>手动控制</h2>
+<label class="ball-unlock"><input id="ballSafetyUnlock" type="checkbox">机构已固定且运动区域安全</label>
+<div id="ballGateReason">请先连接设备</div>
+<label>目标位置（mm）<input id="ballTargetInput" type="number" min="-100" max="100" step="0.1" value="0"></label>
+<label>移动超时（ms）<input id="ballTimeoutInput" type="number" min="50" max="30000" step="50" value="5000"></label>
+<div class="ball-button-row"><button id="btnBallHold" class="primary" type="button" disabled>保持目标</button><button id="btnBallMove" class="primary" type="button" disabled>移动到目标</button></div>
+<button id="btnBallStop" class="danger" type="button" disabled>停止并失能</button>
+<h3>视觉单帧注入</h3>
+<label>位置（mm）<input id="ballInjectPosition" type="number" min="-125" max="125" step="0.1" value="0"></label>
+<label>置信度（0..1000）<input id="ballInjectConfidence" type="number" min="0" max="1000" step="1" value="900"></label>
+<button id="btnBallInject" type="button" disabled>注入单帧</button>
+<p class="ball-note">注入只生成一个视觉样本，不代替MaixCAM连续位置流。紧急情况请使用页面顶部“紧急停止”。</p>
+</aside>
+</div>
+<div id="ballTuning">
+<section class="ball-panel">
+<header class="ball-section-head"><div><h2>滚球参数</h2><span>应用到RAM后，下次hold/move生效</span></div><div><button id="btnBallParamsReload" type="button" disabled>重新读取</button><button id="btnBallParamsApply" class="primary" type="button" disabled>应用到RAM</button><button id="btnBallParamsSave" type="button" disabled>保存到FRAM</button></div></header>
+<div id="ballParamGrid"></div>
+</section>
+<section class="ball-panel">
+<header class="ball-section-head"><div><h2>五点双连杆标定</h2><span>横梁角由外部工具测量，达妙位置从新鲜反馈捕获</span></div><div><button id="btnBallCalStart" type="button" disabled>开始采点</button><button id="btnBallCalCancel" type="button" disabled>取消并失能</button><button id="btnBallMapApply" class="primary" type="button" disabled>提交映射到RAM</button></div></header>
+<div class="ball-cal-controls"><label>点动步长<select id="ballJogStep"><option value="10">10 mrad</option><option value="50" selected>50 mrad</option><option value="100">100 mrad</option></select></label><label>最大速度<input id="ballJogVelocity" type="number" min="1" max="20000" value="200"> mrad/s</label><button id="btnBallJogNegative" type="button" disabled>向负方向点动</button><button id="btnBallJogPositive" type="button" disabled>向正方向点动</button></div>
+<table class="ball-map-table"><thead><tr><th>点</th><th>实测横梁角（mdeg）</th><th>DM位置（mrad）</th><th>采点</th></tr></thead><tbody id="ballMapRows"></tbody></table>
+<p id="ballMapNotice" class="ball-note">开始采点前会停止滚球并使能达妙保持。映射提交后不会自动保存到FRAM。</p>
+</section>
+</div>
+<div id="ballToast" role="status" aria-live="polite"></div>
 </div>
 </div>
 <div id="editorView" class="main">
@@ -416,6 +495,7 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <script src="sequence_core.js?v=20260729-implicit-abort"></script>
 <script src="help_catalog.js?v=20260729-help-v2"></script>
 <script src="dashboard_core.js?v=20260728-grouped"></script>
+<script src="ball_core.js?v=20260730-ball-lab-v1"></script>
 <script src="app1.js?v=20260728-seq-dashboard"></script>
 <script src="app2.js?v=20260729-implicit-abort"></script>
 <script src="app3.js?v=20260729-help-v1"></script>
@@ -426,5 +506,6 @@ button.danger{background:#f38ba8;color:#1e1e2e;border:none}
 <script src="app7.js?v=20260728-grouped"></script>
 <script src="app8.js?v=20260729-help-v2"></script>
 <script src="app9.js?v=20260730-ir3-ui-v2"></script>
+<script src="app10.js?v=20260730-ball-lab-v1"></script>
 </body>
 </html>

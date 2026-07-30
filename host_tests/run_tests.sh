@@ -105,4 +105,7 @@ echo "[host-test] help_catalog"
 echo "[host-test] dashboard_core"
 "${node_bin}" host_tests/dashboard_core_test.js
 
+echo "[host-test] ball_page"
+"${node_bin}" host_tests/ball_page_test.js
+
 echo "[host-test] all tests passed"

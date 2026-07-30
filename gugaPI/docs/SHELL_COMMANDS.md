@@ -2481,7 +2481,9 @@ FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接�
 
 ### `telem on [profile] [period_ms]`
 
-开启遥测输出。默认周期 100ms（10Hz），范围 `50..5000`ms。开启时先发送通道名行（`#` 开头），然后周期输出数据行。
+开启遥测输出。默认周期 100ms（10Hz）。除 `ball` 外的 profile 范围为
+`50..5000`ms；`ball` 专用 profile 范围为 `20..5000`ms，可用于50 Hz滚球
+联调。开启时先发送通道名行（`#` 开头），然后周期输出数据行。
 
 不指定 profile 时保持旧版全字段模式，兼容 VOFA+ 和现有 Python
 采集脚本。仪表盘使用按组模式，只发送当前折线图需要的字段：
@@ -2505,16 +2507,28 @@ FireWater 协议周期输出 CSV 数据，可被 VOFA+ 串口示波器直接接�
 | `imu_state` / `imu_age` | IMU 有效性与错误计数，或数据年龄 |
 | `gray_raw` / `gray_health` / `gray_age` | 八路原始值、健康状态或数据年龄 |
 | `fault` / `uart` | 系统故障，或调试串口队列与丢弃计数 |
+| `ball` | 滚球、视觉、DM、IMU俯仰、应用模式和全局故障的专用联调字段 |
 
 旧 `line` profile 继续输出 `t,gray_pos,lf_err,lf_corr`，用于兼容已经使用
 该组合格式的工具。实时仪表盘改用按量纲拆开的 `line_position` 与
 `line_output`。
+
+`ball` 的表头固定为：
+
+```text
+t,app_mode,action_running,ball_mode,ball_result,ball_status,ball_target_0p1mm,ball_position_0p1mm,ball_velocity_0p1mm_s,ball_error_0p1mm,ball_beam_mdeg,ball_dm_target_mrad,ball_max_error_0p1mm,ball_settling,vision_state,vision_confidence,vision_frame_age_ms,vision_ball_age_ms,vision_injected,dm_mode,dm_enabled,dm_online,dm_fresh,dm_state,dm_position_mrad,dm_velocity_mrad_s,pitch_mdeg,fault_code
+```
+
+该 profile 只读取100 Hz控制任务已经缓存的状态，不发起额外设备查询，也不向
+旧版全字段遥测追加列。上位机进入“滚球系统”栏目时使用
+`telem off` → `telem on ball 20`，离开栏目时执行 `telem off`。
 
 ```text
 telem on
 telem on 200
 telem on motor
 telem on heading 100
+telem on ball 20
 ```
 
 `telem status` 同时返回 `enabled`、`profile` 和 `period_ms`。复位后遥测

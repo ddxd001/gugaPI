@@ -31,6 +31,9 @@ function telemetryReceived(event,raw){
   if(typeof DashboardTelemetry_OnEvent==='function'){
     DashboardTelemetry_OnEvent(event,raw);
   }
+  if(typeof BallTelemetry_OnEvent==='function'){
+    BallTelemetry_OnEvent(event,raw);
+  }
   if(typeof Terminal_ShouldShowTelemetry==='function'&&
      Terminal_ShouldShowTelemetry()&&typeof onSerialData==='function'){
     onSerialData(raw,'telemetry');
@@ -48,6 +51,7 @@ function routeSerialData(data){
 }
 async function disconnectSerial(){
   try{
+    if(typeof BallPage_BeforeDisconnect==='function')await BallPage_BeforeDisconnect();
     if(typeof Dashboard_BeforeDisconnect==='function')await Dashboard_BeforeDisconnect();
     if(reader){await reader.cancel();if(readableClosed)await readableClosed.catch(function(){});reader.releaseLock()}
     if(writer){await writer.close();if(writableClosed)await writableClosed.catch(function(){});writer.releaseLock()}
@@ -338,6 +342,11 @@ function simResponse(cmd){
            (cmd==='linesensor'||cmd.indexOf('linesensor ')===0||
             cmd==='irsensor'||cmd.indexOf('irsensor ')===0)){
     resp=lineSensorSimCommand(cmd);
+  }else if(typeof ballSimCommand==='function'&&
+           (cmd==='ball'||cmd.indexOf('ball ')===0||
+            cmd==='vision'||cmd.indexOf('vision ')===0||
+            cmd==='dm'||cmd.indexOf('dm ')===0)){
+    resp=ballSimCommand(cmd);
   }else if(cmd==='help'){
     resp='commands: version reset sched led buzzer param gray imu motor '+
       'chassis heading run lf road comp seq linesensor irsensor estop\r\n> ';

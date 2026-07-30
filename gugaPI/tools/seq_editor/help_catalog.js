@@ -10,6 +10,7 @@ var CATEGORIES=[
   {id:'sequence',label:'序列编辑器',description:'工程、连线、校验、RAM 与 FRAM'},
   {id:'modules',label:'模块说明',description:'全部动作模块的参数与接线案例'},
   {id:'dashboard',label:'实时仪表盘',description:'遥测、记录、曲线和数据导出'},
+  {id:'ball',label:'滚球系统',description:'闭环联调、参数快调、视觉诊断和五点标定'},
   {id:'parameters',label:'参数管理',description:'RAM 参数、默认值和持久化'},
   {id:'terminal',label:'终端与命令',description:'Shell、命令库和风险标记'},
   {id:'troubleshooting',label:'故障排查',description:'常见报错、原因与处理步骤'}
@@ -103,6 +104,30 @@ var ARTICLES=[
         '显示“数据超时”时先检查串口、固件 telemetry 支持和传感器数据新鲜度。'
       ]}
     ]),
+  Article('ball-workbench','ball','滚球系统联调与五点标定',
+    '使用专用50 Hz遥测观察滚球闭环、MaixCAM、DM-G6220和车体姿态，并完成安全的手动控制与双连杆标定。',
+    ['滚球系统','BallBalance','MaixCAM','DM-G6220','50 Hz','五点标定','安全解锁','CSV'],[
+      {title:'联调流程',steps:[
+        '连接串口并切换到dev-running；进入“滚球系统”后，上位机会按顺序停止其他遥测并启动telem on ball 20。',
+        '确认机构已固定、运动区域无人和限流供电，再勾选安全确认；FAULT、比赛模式或序列运行时运动按钮保持禁用。',
+        '先观察视觉新鲜度、DM在线/新鲜度和全局故障，再用“保持目标”或“移动到目标”做低幅度测试。',
+        '需要保存证据时开始记录并导出CSV；记录包含主机时间、MCU时间和全部滚球原始遥测字段。'
+      ]},
+      {title:'参数与快照',body:[
+        'Kp/Kd/Ki、pitch补偿、角度限制、变化率、容差和稳定时间提交后只更新RAM；正在运行的闭环继续使用启动时的参数快照。',
+        '修改值在下一次hold/move启动时生效。只有显式点击“保存到FRAM”才会执行param save并跨复位保留。'
+      ]},
+      {title:'五点采样',steps:[
+        '开始采点会先执行ball stop和dm enable；使用10、50或100 mrad相对点动让机构到达采样位置。',
+        '用外部量角工具填写横梁角；DM反馈在线、新鲜且绝对速度不超过50 mrad/s时才允许捕获当前位置。',
+        '五个横梁角必须严格递增；五个DM位置必须整体严格递增或严格递减。',
+        '提交会用一条ball map命令原子更新RAM，不会自动保存FRAM；取消、切页或断开连接会结束采点并失能DM。'
+      ]},
+      {title:'安全边界',body:[
+        '“停止并失能”不受安全解锁限制；页面顶部“紧急停止”始终具有最高优先级。',
+        '视觉注入只生成一个诊断样本，不能替代MaixCAM连续数据，也不能用于比赛闭环。普通hold/move切页后由固件继续运行，采点会话切页则自动失能。'
+      ]}
+    ],'danger'),
   Article('parameter-use','parameters','参数的读取、修改与持久化',
     '区分当前 RAM 值、源码默认值、dirty 状态、FRAM 保存以及需要重启生效的参数。',
     ['参数','dirty','默认值','param save','FRAM','重启'],[

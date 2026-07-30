@@ -49,6 +49,7 @@ function switchTab(name){
   var editor=name==='editor';
   var dashboard=name==='dashboard';
   var lineSensor=name==='linesensor';
+  var ball=name==='ball';
   var terminal=name==='terminal';
   var parameters=name==='parameters';
   var commands=name==='commands';
@@ -56,6 +57,7 @@ function switchTab(name){
   $('editorView').hidden=!editor;
   $('dashboardView').hidden=!dashboard;
   $('lineSensorView').hidden=!lineSensor;
+  $('ballView').hidden=!ball;
   $('termView').hidden=!terminal;
   $('paramView').hidden=!parameters;
   $('commandView').hidden=!commands;
@@ -64,17 +66,20 @@ function switchTab(name){
   $('tabEditor').classList.toggle('active',editor);
   $('tabDashboard').classList.toggle('active',dashboard);
   $('tabLineSensor').classList.toggle('active',lineSensor);
+  $('tabBall').classList.toggle('active',ball);
   $('tabTerminal').classList.toggle('active',terminal);
   $('tabParameters').classList.toggle('active',parameters);
   $('tabCommands').classList.toggle('active',commands);
   $('tabHelp').classList.toggle('active',help);
   if(terminal&&!$('termInput').disabled)$('termInput').focus();
-  if(dashboard&&typeof Dashboard_OnShow==='function')Dashboard_OnShow();
   if(!dashboard&&typeof Dashboard_OnHide==='function')Dashboard_OnHide();
-  if(lineSensor&&typeof LineSensorPage_OnShow==='function')LineSensorPage_OnShow();
   if(!lineSensor&&typeof LineSensorPage_OnHide==='function')LineSensorPage_OnHide();
-  if(parameters&&typeof ParamPage_OnShow==='function')ParamPage_OnShow();
+  if(!ball&&typeof BallPage_OnHide==='function')BallPage_OnHide();
   if(!parameters&&typeof ParamPage_OnHide==='function')ParamPage_OnHide();
+  if(dashboard&&typeof Dashboard_OnShow==='function')Dashboard_OnShow();
+  if(lineSensor&&typeof LineSensorPage_OnShow==='function')LineSensorPage_OnShow();
+  if(ball&&typeof BallPage_OnShow==='function')BallPage_OnShow();
+  if(parameters&&typeof ParamPage_OnShow==='function')ParamPage_OnShow();
   if(commands&&typeof CommandLibrary_OnShow==='function')CommandLibrary_OnShow();
   if(help&&typeof HelpPage_OnShow==='function')HelpPage_OnShow();
 }
@@ -114,6 +119,7 @@ function terminalComplete(){
 $('tabEditor').addEventListener('click',function(){switchTab('editor')});
 $('tabDashboard').addEventListener('click',function(){switchTab('dashboard')});
 $('tabLineSensor').addEventListener('click',function(){switchTab('linesensor')});
+$('tabBall').addEventListener('click',function(){switchTab('ball')});
 $('tabTerminal').addEventListener('click',function(){switchTab('terminal')});
 $('tabParameters').addEventListener('click',function(){switchTab('parameters')});
 $('tabCommands').addEventListener('click',function(){switchTab('commands')});
