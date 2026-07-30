@@ -36,7 +36,7 @@ void WriteU32(uint8_t *data, uint32_t value)
     data[3] = static_cast<uint8_t>(value >> 24U);
 }
 
-uint32_t ConfigBankCrc(const uint8_t *image)
+uint32_t ConfigBankCrc(const uint8_t *image, uint16_t payload_length)
 {
     uint32_t crc = 0xFFFFFFFFU;
     for (uint16_t i = 0U; i < 12U; i++) {
@@ -47,7 +47,9 @@ uint32_t ConfigBankCrc(const uint8_t *image)
                 : crc << 1U;
         }
     }
-    for (uint16_t i = 13U; i < 16U + 305U; i++) {
+    for (uint16_t i = 13U;
+         i < static_cast<uint16_t>(16U + payload_length);
+         i++) {
         crc ^= static_cast<uint32_t>(image[i]) << 24U;
         for (uint8_t bit = 0U; bit < 8U; bit++) {
             crc = ((crc & 0x80000000U) != 0U)
@@ -111,7 +113,8 @@ int main(void)
 
     (void) memset(g_fram, 0xCC, sizeof(g_fram));
     ConfigStore_ResetDefaults();
-    assert(ConfigStore_ParamCount() == 136U);
+    assert(ConfigStore_ParamCount() == 137U);
+    assert(ConfigStore_Get()->linefollow_max_steering_permille == 400U);
     assert(ConfigStore_Get()->ball_kp_mdeg_per_0p1mm == 10);
     assert(ConfigStore_Get()->ball_map_angle_mdeg[0] == -8000);
     assert(ConfigStore_Get()->ball_map_dm_mrad[4] == 1000);
@@ -127,12 +130,23 @@ int main(void)
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
     assert(ReadU32(&g_fram[0]) == 0x31464347U);
     assert(ReadU16(&g_fram[4]) == 1U);
-    assert(ReadU16(&g_fram[6]) == 305U);
+    assert(ReadU16(&g_fram[6]) == 307U);
     assert(ReadU32(&g_fram[8]) == 1U);
     assert(g_fram[12] == 0xA5U);
     assert(ConfigStore_GetStatus()->active_bank == 0U);
     assert(ConfigStore_GetStatus()->generation == 1U);
     assert(ConfigStore_GetStatus()->payload_capacity == 1004U);
+
+    /* The deployed 305-byte layout remains readable. Its missing extension
+     * receives the safe historical 400-permille steering limit. */
+    g_fram[6] = 305U & 0xFFU;
+    g_fram[7] = 305U >> 8U;
+    WriteU32(&g_fram[16U + 305U], ConfigBankCrc(&g_fram[0], 305U));
+    ConfigStore_ResetDefaults();
+    assert(ConfigStore_Load() == drivers::DRIVER_OK);
+    assert(ConfigStore_GetStatus()->stored_length == 305U);
+    assert(ConfigStore_Get()->heading_kp == 4321);
+    assert(ConfigStore_Get()->linefollow_max_steering_permille == 400U);
 
     /* Atomic mapping accepts a reversed mechanism. */
     const int16_t angles[5] = { -8000, -4000, 0, 4000, 8000 };
@@ -141,8 +155,11 @@ int main(void)
            drivers::DRIVER_OK);
     assert(ConfigStore_Set("ball_kp_mdeg_per_0p1mm", 25) ==
            drivers::DRIVER_OK);
+    assert(ConfigStore_Set("lf_max_ratio_permille", 500) ==
+           drivers::DRIVER_OK);
     assert(ConfigStore_Save() == drivers::DRIVER_OK);
     assert(ReadU32(&g_fram[0x0408]) == 2U);
+    assert(ReadU16(&g_fram[0x0406]) == 307U);
     assert(g_fram[0x040CU] == 0xA5U);
     assert(ConfigStore_GetStatus()->active_bank == 1U);
 
@@ -152,20 +169,22 @@ int main(void)
     assert(ConfigStore_Get()->ball_kp_mdeg_per_0p1mm == 25);
     assert(ConfigStore_Get()->ball_map_dm_mrad[0] == 1000);
     assert(ConfigStore_Get()->ball_map_dm_mrad[4] == -1000);
+    assert(ConfigStore_Get()->linefollow_max_steering_permille == 500U);
     assert(ConfigStore_GetStatus()->active_bank == 1U);
     assert(!ConfigStore_GetStatus()->dirty);
 
     /* Generation zero is newer than UINT32_MAX after wraparound. */
     WriteU32(&g_fram[8], 0xFFFFFFFFU);
-    WriteU32(&g_fram[16U + 305U], ConfigBankCrc(&g_fram[0]));
+    WriteU32(&g_fram[16U + 305U], ConfigBankCrc(&g_fram[0], 305U));
     WriteU32(&g_fram[0x0408U], 0U);
-    WriteU32(&g_fram[0x0400U + 16U + 305U],
-             ConfigBankCrc(&g_fram[0x0400U]));
+    WriteU32(&g_fram[0x0400U + 16U + 307U],
+             ConfigBankCrc(&g_fram[0x0400U], 307U));
     ConfigStore_ResetDefaults();
     assert(ConfigStore_Load() == drivers::DRIVER_OK);
     assert(ConfigStore_GetStatus()->active_bank == 1U);
     assert(ConfigStore_GetStatus()->generation == 0U);
     assert(ConfigStore_Get()->ball_kp_mdeg_per_0p1mm == 25);
+    assert(ConfigStore_Get()->linefollow_max_steering_permille == 500U);
 
     /* Corrupting the newest bank falls back to the prior valid copy. */
     g_fram[0x0410U] ^= 0x01U;
@@ -174,6 +193,7 @@ int main(void)
     assert(ConfigStore_GetStatus()->active_bank == 0U);
     assert(ConfigStore_Get()->heading_kp == 4321);
     assert(ConfigStore_Get()->ball_kp_mdeg_per_0p1mm == 10);
+    assert(ConfigStore_Get()->linefollow_max_steering_permille == 400U);
 
     /* A failed inactive-bank write leaves the active bank loadable. */
     assert(ConfigStore_Set("heading_kp", 9999) ==

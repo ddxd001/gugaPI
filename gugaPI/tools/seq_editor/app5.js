@@ -123,6 +123,7 @@ addParamMeta('gray_track_mask','循迹通道掩码','gray_proc',126,1,255,'bitma
 addParamMeta('lf_kp','循迹 Kp','linefollow',10000,0,1000000,'scaled','线位置误差的比例修正增益。',true);
 addParamMeta('lf_kd','循迹 Kd','linefollow',0,0,1000000,'scaled','线位置误差变化率的微分修正增益。',true);
 addParamMeta('lf_maxcorr','循迹最大差速修正','linefollow',30,0,500,'RPM','循迹控制允许施加的最大左右差速。',true);
+addParamMeta('lf_max_ratio_permille','循迹最大转向比例','linefollow',400,100,1000,'permille','最终差速修正相对基础转速的上限；400表示单侧修正最多为基础RPM的40%。参数页会通过专用命令同步更新当前控制器。',false);
 addParamMeta('lf_lost_hold_ms','丢线保持时间','linefollow',150,0,10000,'ms','短时丢线时保持最近修正的时间。',true,'number','ms');
 addParamMeta('lf_lost_stop_ms','丢线停车时间','linefollow',500,1,10000,'ms','持续丢线达到该时间后停车；必须不小于保持时间。',true,'number','ms');
 addParamMeta('lf_slew_permille_s','循迹修正变化率','linefollow',25000,1,65535,'permille/s','限制左右差速修正的变化速度；数值越大响应越快。',true);
@@ -340,6 +341,12 @@ function paramParseMode(text){
   return m?m[1]:'unknown';
 }
 function paramResponseOk(text,prefix){return text.indexOf(prefix+': ok')>=0}
+function paramWriteSpec(name,value){
+  if(name==='lf_max_ratio_permille'){
+    return{command:'lf maxratio '+value,prefix:'lf maxratio'};
+  }
+  return{command:'param set '+name+' '+value,prefix:'param set'};
+}
 async function paramRequireWritable(){
   var response=await send('comp status',{timeoutMs:2500});
   paramPageState.mode=paramParseMode(response);
@@ -581,13 +588,14 @@ async function paramApplySelected(){
   paramPageState.busy=true;paramUpdateControls();
   try{
     await paramRequireWritable();
-    var response=await send('param set '+name+' '+value,{timeoutMs:2800});
-    if(!paramResponseOk(response,'param set'))throw new Error('固件拒绝该值，请检查关联参数约束');
+    var writeSpec=paramWriteSpec(name,value);
+    var response=await send(writeSpec.command,{timeoutMs:2800});
+    if(!paramResponseOk(response,writeSpec.prefix))throw new Error('固件拒绝该值，请检查关联参数约束');
     await paramRefreshOne(name);
     paramPageState.sessionChanged[name]=true;
     if(meta.restart)paramPageState.restartPending=true;
     paramRenderAll();
-    paramToast(meta.restart?'已写入 RAM，重启后生效':'已写入 RAM','ok');
+    paramToast(name==='lf_max_ratio_permille'?'已写入 RAM，并同步更新循迹转向上限':(meta.restart?'已写入 RAM，重启后生效':'已写入 RAM'),'ok');
   }catch(error){paramToast('应用失败：'+error.message,'error')}
   finally{paramPageState.busy=false;paramUpdateControls()}
 }
@@ -702,8 +710,9 @@ async function paramImportFile(file){
         applied+=10;
         BALL_MAP_NAMES.forEach(function(name){paramPageState.sessionChanged[name]=true});
       }else{
-        response=await send('param set '+item.name+' '+item.value,{timeoutMs:2800});
-        if(!paramResponseOk(response,'param set')){failed=item.name;break}
+        var itemWriteSpec=paramWriteSpec(item.name,item.value);
+        response=await send(itemWriteSpec.command,{timeoutMs:2800});
+        if(!paramResponseOk(response,itemWriteSpec.prefix)){failed=item.name;break}
         applied++;paramPageState.sessionChanged[item.name]=true;
         if(paramMeta(item.name).restart)paramPageState.restartPending=true;
       }
@@ -776,7 +785,13 @@ function paramSimCommand(cmd){
   paramSimInit();
   if(cmd==='comp status')return'comp mode=dev-running slot=0 valid=1 any_valid=1 count=5 step=0 result=none last=ok\r\n> ';
   if(cmd==='reset'){simParamValues=Object.assign({},simPersistedValues);simParamDirty=false;return'resetting...\r\n> '}
-  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=305 crc=0x5C758F1C load=ok save=ok layout=1 bank='+simParamBank+' generation='+simParamGeneration+' capacity=1004 free=699\r\n> ';
+  if(cmd.startsWith('lf maxratio ')){
+    var ratioParts=cmd.split(/\s+/),ratioValue=Number(ratioParts[2]),ratioMeta=PARAM_META.lf_max_ratio_permille;
+    if(ratioParts.length!==3||!Number.isInteger(ratioValue)||ratioValue<ratioMeta.min||ratioValue>ratioMeta.max)return'lf maxratio: invalid-arg\r\n> ';
+    simParamValues=paramCandidateWithValue(simParamValues,'lf_max_ratio_permille',ratioValue);
+    simParamDirty=true;return'lf maxratio: ok\r\n> ';
+  }
+  if(cmd==='param status')return'param loaded=1 dirty='+(simParamDirty?1:0)+' len=307 crc=0x5C758F1C load=ok save=ok layout=1 bank='+simParamBank+' generation='+simParamGeneration+' capacity=1004 free=697\r\n> ';
   if(cmd==='param export'||cmd.startsWith('param export ')){
     var exportParts=cmd.split(/\s+/),start=exportParts.length>=3?Number(exportParts[2]):0;
     var requested=exportParts.length>=4?Number(exportParts[3]):PARAM_EXPORT_BATCH_SIZE;

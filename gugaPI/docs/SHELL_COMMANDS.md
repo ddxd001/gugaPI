@@ -1014,10 +1014,14 @@ gray process
 推荐使用白、黑两阶段多帧平均标定：
 
 ```text
+gray live
+gray calib begin
 gray calib white
 gray calib status
+gray calib preview
 gray calib black
 gray calib status
+gray calib preview
 gray calib commit
 param save
 ```
@@ -1025,6 +1029,12 @@ param save
 `white`/`black` 默认采集 64 个位置帧，可设为 1..128。两个阶段都完成后执行
 `commit`；去掉两端各 1/8 样本后求均值，每个通道的黑白跨度必须至少为 400 ADC counts，且至少为采集噪声的 8 倍。`commit` 更新标定值和推荐处理参数，并
 将 ConfigStore 标记为 dirty，断电保存还需执行 `param save`。
+
+`begin` 明确清除上一会话的暂存白/黑样本。`begin` 和每次 `white`/`black` 前要求
+存在年龄不超过 200 ms 的有效完整八路帧，否则返回 `not-initialized`。采集中只消费
+序号递增的完整帧；500 ms 没有新帧或超过采集总期限时自动返回 `timeout` 并释放
+`running/busy`。`preview` 以单行键值形式返回八路 `white`、`black`、
+`white_noise`、`black_noise`、`span` 和失败通道 `fault`，供图形界面逐路显示。
 
 辅助命令：
 
@@ -1039,6 +1049,19 @@ gray calib cancel
 `show` 查看当前白点、黑点和处理参数；`reload` 从 ConfigStore 重新装载；`sweep`
 是在黑线和白底间扫动的兼容标定方式，默认 2000 ms，并假定白色 ADC 值高于黑色；
 极性相反时必须使用显式 `white`/`black` 标定。`cancel` 终止尚未完成的采集。
+
+### `gray live`
+
+返回适合图形界面轮询的单行快照，不发起阻塞式 ADC 读取：
+
+```text
+gray live
+```
+
+字段包含 `valid`、`seq`、`age_ms`、八路 `raw`、八路 `normalized`、
+`position`、`strength`、`fault`、`anomaly`、`status` 和 `process_status`。
+界面用 `valid=1` 且 `age_ms<=200` 判断当前数据可否开始标定；日常页面轮询应使用
+此命令，不应使用会与异步扫描竞争的 `gray read/all`。
 
 ### `gray oled on [period_ms]`
 
@@ -1775,9 +1798,9 @@ heading stop
 
 ## 循迹控制
 
-8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间六路位置帧约 7 ms；10 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置由 `track_mask=0x7E` 的中间六路插值，全八路迟滞位图独立识别道路类型，最外侧 0、7 路不拉动循迹质心。
+8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间六路位置帧约 7 ms；10 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置由 `track_mask=0x7E` 的中间六路插值，全八路迟滞位图独立识别道路类型，最外侧 0、7 路不拉动循迹质心。除强迟滞位外，冷启动也接受最多两路、单一连续段的窄模拟证据；其总强度门槛为 `max(min_line_strength/2, max(threshold-position_floor, 1))`，使黑线落在探头边缘或相邻探头之间时仍能通过模拟总能量取得位置，同时拒绝分离弱峰和宽弱响应。
 
-安全机制：灰度数据无效或超过 200 ms、通道诊断异常 → 立即停车。强线之后允许短暂全白间隙，并可在相邻单段弱模拟信号重新出现时继续位置插值；全白与弱跟踪共享最多 8 个完整帧（约 56 ms）的恢复预算。每个全白帧同时计入独立的连续异常计数，相邻弱线恢复会将该计数清零；`lost/multiple/wide` 连续 6 个完整帧（约 42 ms）仍异常即停车。因此连续全白不会等待完整 56 ms，也不进行无限保持或盲目搜线。`confidence` 只作诊断，不再独立决定停车。正常跟踪期间始终使用命令指定的基础速度，不根据位置误差自动降速。
+安全机制：灰度原始数据无效或超过 200 ms、通道诊断异常、底盘通信失败或全局故障 → 立即停车。弱但仍满足 `line_detected=1、position_valid=1、track_state=valid` 的位置继续参与正常 PID，不再被巡线层当作丢线。ADC8 几何真正变为 `lost/multiple/wide` 时，锁存并持续重发丢线前最后一组左右轮目标，不减速、不受 `losttimeout` 限制；连续 3 个有效位置帧重新捕线后清除微分历史并恢复 PID。人工 `lf stop`、动作时限结束和上述硬件故障仍可结束这种搜索运动。
 
 ### `lf status`
 
@@ -1808,9 +1831,12 @@ lf status
 | `track_state` | `valid` / `lost` / `multiple` / `wide` / `sensor_fault` |
 | `weak_frames` | 有界弱模拟跟踪的连续帧数，0 表示当前使用正常强度证据，最大 8 |
 | `invalid_frames` | 连续几何异常完整帧数 |
-| `invalid_policy` | `confirm6` 表示连续 6 个几何异常完整帧（约 42 ms）后停车；路口分类器处于有界`observing`窗口时暂缓到事件发布，硬件、过期和通道异常仍立即停车 |
+| `invalid_policy` | `hold-last-until-valid` 表示 ADC8 几何丢失后保持最后左右轮目标，连续 3 个有效位置帧后恢复 PID；硬件、过期和通道异常仍立即停车 |
+| `recovery` | `none` / `hold`；`hold` 表示正在按最后轮速搜索线路 |
+| `recovery_ms` | 本次保持搜索已经持续的时间，仅作诊断，不触发 ADC8 超时停车 |
+| `last_strong_pos` | 丢线前最后一次有效位置，用于诊断恢复方向 |
 | `ref_rpm` | 转向比例换算的参考速度，当前为 40 RPM |
-| `max_ratio_permille` | 修正量相对基础速度的硬限幅，当前为 400‰ |
+| `max_ratio_permille` | 修正量相对基础速度的可调限幅，默认 400‰ |
 | `deadband` | 中心误差死区，单位为位置刻度 |
 
 ### `lf cal`
@@ -1829,7 +1855,7 @@ lf cal
 lf start 80 10000
 ```
 
-修正先在 40 RPM 参考速度计算：`reference_correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，再按 `abs(base_rpm) / 40` 缩放并限制在基础速度的 40%。中心 `±50` 位置刻度使用死区，微分滤波时间常数为 40 ms。修正量变化率由 `lf_slew_permille_s` 限制，默认 25000；从最大左修正切换到最大右修正的理论斜率时间约 32 ms。`left = base - correction`，`right = base + correction`。
+修正先在 40 RPM 参考速度计算：`reference_correction = (error_mpos * kp + filtered_derivative * kd) / 1e6`，再按 `abs(base_rpm) / 40` 缩放并限制在基础速度的 `lf_max_ratio_permille/1000`。中心 `±50` 位置刻度使用死区，微分滤波时间常数为 40 ms。修正量变化率由 `lf_slew_permille_s` 限制，默认 25000。`left = base - correction`，`right = base + correction`。
 
 左右轮目标RPM占用MotorDriver连续寄存器，正常循迹更新使用一次4字节I²C块写入和一次4字节读回校验，避免两轮分开发送产生的时间差并减少总线事务。
 
@@ -1860,10 +1886,19 @@ lf kd 600
 
 ### `lf maxcorr <val>`
 
-设置 40 RPM 参考速度下的最大修正 RPM（范围 `0..500`）。实际修正按基础速度同比缩放，并额外受 40% 转向比例硬限幅。默认 30。
+设置 40 RPM 参考速度下的最大修正 RPM（范围 `0..500`）。实际修正按基础速度同比缩放，并额外受 `lf_max_ratio_permille` 限制。默认 30。
 
 ```text
 lf maxcorr 50
+```
+
+### `lf maxratio <permille>`
+
+设置最终差速修正相对基础转速的比例上限（范围 `100..1000`，默认400）。例如基础速度110 RPM、比例500时，单侧最大修正为55 RPM，对应极限轮速目标为55/165 RPM。命令立即更新RAM并将ConfigStore标记为dirty；持久化仍需显式执行`param save`。
+
+```text
+lf maxratio 500
+param save
 ```
 
 ### `lf slew <permille_per_s>`
@@ -1877,7 +1912,7 @@ param save
 
 ### `lf losthold <ms>`
 
-兼容旧配置的保留命令，必须不大于 `losttimeout`。当前策略为硬件异常立即停车、几何异常确认 6 帧，此参数不再产生丢线搜索运动。默认值仍为 150 ms。
+设置 IR3 来源丢线后的保持时间，必须不大于 `losttimeout`。ADC8 使用“保持最后双轮速度直到重新捕线”策略，不读取此参数。默认值为 150 ms。
 
 ```text
 lf losthold 150
@@ -1885,7 +1920,7 @@ lf losthold 150
 
 ### `lf losttimeout <ms>`
 
-兼容旧配置的保留命令（`0..10000` ms），必须不小于 `losthold`。当前策略为硬件异常立即停车、几何异常确认 6 帧，此参数不再控制停车延迟。默认值仍为 500 ms。
+设置 IR3 来源持续丢线后的停车时间（`1..10000` ms），必须不小于 `losthold`。ADC8 几何丢失不会因该时间到期而停车；仍可由人工停止、动作时限、硬件异常或全局故障终止。默认值为 500 ms。
 
 ```text
 lf losttimeout 1000
@@ -2319,6 +2354,7 @@ param left_counts_per_rev=1456 range=1..100000000
 | `heading_tolerance_mdeg` | 0..90000 | 3000 | 转弯容差（mdeg，3000=3°） |
 | `heading_settle_ms` | 0..5000 | 300 | 转弯到位保持时间（ms） |
 | `lf_slew_permille_s` | 1..65535 | 25000 | 循迹差速修正变化率（基础RPM的千分之一/秒） |
+| `lf_max_ratio_permille` | 100..1000 | 400 | 循迹最终差速修正相对基础RPM的千分比上限 |
 
 ### `param set <name> <value>`
 

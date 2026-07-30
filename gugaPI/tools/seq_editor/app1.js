@@ -7,6 +7,7 @@ const ROAD_ROUTE=['left','straight','right','uturn_left_arc','uturn_right_arc','
 let port=null,reader=null,writer=null,readableClosed=null,writableClosed=null;
 let curSlot=-1,instrs=[],selIdx=-1,slots=Array(8).fill(null);
 let rxBuf='',rxResolve=null,rxExpectedCommand='',simMode=false;
+let rxQuietTimer=null;
 var onSerialData=null,onSerialStateChange=null,commandQueue=Promise.resolve();
 var serialRouter=null;
 let simSlots=Array(8).fill(null),simInstrs=[],simRun={running:false,current:0,started:0,result:'idle'};
@@ -25,6 +26,11 @@ function shellTextReceived(text){
       (/(?:^|\n)> $/.test(rxBuf)||rxBuf==='> ');
   if(responseComplete){
     if(rxResolve)rxResolve(rxBuf);
+  }else if(rxResolve&&typeof DashboardCore!=='undefined'&&
+           typeof DashboardCore.isPromptlessShellResponseCandidate==='function'&&
+           DashboardCore.isPromptlessShellResponseCandidate(rxBuf,rxExpectedCommand)){
+    clearTimeout(rxQuietTimer);
+    rxQuietTimer=setTimeout(function(){if(rxResolve)rxResolve(rxBuf)},90);
   }
 }
 function telemetryReceived(event,raw){
@@ -46,6 +52,7 @@ if(typeof DashboardCore!=='undefined'){
   });
 }
 function routeSerialData(data){
+  if(typeof SerialLog_Record==='function')SerialLog_Record('rx',data);
   if(serialRouter)serialRouter.push(data);
   else shellTextReceived(String(data).replace(/\r/g,''));
 }
@@ -57,6 +64,7 @@ async function disconnectSerial(){
     if(writer){await writer.close();if(writableClosed)await writableClosed.catch(function(){});writer.releaseLock()}
     if(port)await port.close();
   }catch(e){logc('tx','[断开异常] '+e.message)}
+  if(typeof SerialLog_Stop==='function')await SerialLog_Stop('serial-disconnect');
   reader=null;writer=null;readableClosed=null;writableClosed=null;port=null;
   if(serialRouter)serialRouter.reset();
   $('btnConnect').textContent='连接串口';$('btnRefresh').disabled=true;
@@ -85,6 +93,7 @@ $('btnConnect').onclick=async function(){
 };
 $('btnSim').onclick=async function(){
   if(simMode){
+    if(typeof SerialLog_Stop==='function')await SerialLog_Stop('simulator-disconnect');
     simMode=false;port=null;writer=null;$('btnSim').textContent='模拟设备';
     $('btnConnect').disabled=false;$('btnRefresh').disabled=true;$('statusText').textContent='';
     logc('tx','[退出模拟]');
@@ -102,17 +111,23 @@ async function sendNow(cmd,options){
   if(!writer)return'';
   logc('tx','> '+cmd);
   if(typeof onSerialData==='function')onSerialData('> '+cmd+'\n','tx');
-  if(simMode)return simResponse(cmd);
+  if(simMode){
+    if(typeof SerialLog_Record==='function')SerialLog_Record('tx',cmd+'\r\n');
+    return simResponse(cmd);
+  }
   rxBuf='';
   rxExpectedCommand=cmd;
+  clearTimeout(rxQuietTimer);rxQuietTimer=null;
   await writer.write(cmd+'\r\n');
+  if(typeof SerialLog_Record==='function')SerialLog_Record('tx',cmd+'\r\n');
   var timeoutMs=options&&options.timeoutMs?options.timeoutMs:1500;
-  return new Promise(function(resolve){
+  return new Promise(function(resolve,reject){
     var settled=false,timer;
     function finish(text){
       if(settled)return;
       settled=true;
       clearTimeout(timer);
+      clearTimeout(rxQuietTimer);rxQuietTimer=null;
       if(rxResolve===finish){
         rxResolve=null;
         rxExpectedCommand='';
@@ -120,11 +135,22 @@ async function sendNow(cmd,options){
       resolve(text);
     }
     rxResolve=finish;
-    timer=setTimeout(function(){finish(rxBuf)},timeoutMs);
+    timer=setTimeout(function(){
+      if(settled)return;
+      settled=true;
+      clearTimeout(rxQuietTimer);rxQuietTimer=null;
+      if(rxResolve===finish){rxResolve=null;rxExpectedCommand=''}
+      var detail=rxBuf.trim();
+      reject(new Error('命令超时：'+cmd+(detail?'；已收到：'+detail:'')));
+    },timeoutMs);
     if(typeof DashboardCore!=='undefined'&&
        typeof DashboardCore.isShellCommandResponseComplete==='function'&&
        DashboardCore.isShellCommandResponseComplete(rxBuf,cmd)){
       finish(rxBuf);
+    }else if(typeof DashboardCore!=='undefined'&&
+             typeof DashboardCore.isPromptlessShellResponseCandidate==='function'&&
+             DashboardCore.isPromptlessShellResponseCandidate(rxBuf,cmd)){
+      rxQuietTimer=setTimeout(function(){finish(rxBuf)},90);
     }
   });
 }
@@ -336,11 +362,13 @@ function simResponse(cmd){
     resp='max_wheel_rpm = 1000\r\n> ';
   }else if(typeof paramSimCommand==='function'&&
            (cmd==='param'||cmd.indexOf('param ')===0||
-            cmd==='comp status'||cmd==='reset')){
+            cmd==='comp status'||cmd==='reset'||
+            cmd.indexOf('lf maxratio ')===0)){
     resp=paramSimCommand(cmd);
   }else if(typeof lineSensorSimCommand==='function'&&
            (cmd==='linesensor'||cmd.indexOf('linesensor ')===0||
-            cmd==='irsensor'||cmd.indexOf('irsensor ')===0)){
+            cmd==='irsensor'||cmd.indexOf('irsensor ')===0||
+            cmd==='gray'||cmd.indexOf('gray ')===0)){
     resp=lineSensorSimCommand(cmd);
   }else if(typeof ballSimCommand==='function'&&
            (cmd==='ball'||cmd.indexOf('ball ')===0||
@@ -355,6 +383,7 @@ function simResponse(cmd){
   }
   logc('rx',resp.replace(/\r/g,''));
   if(typeof onSerialData==='function')onSerialData(resp.replace(/\r/g,''),'rx');
+  if(typeof SerialLog_Record==='function')SerialLog_Record('rx',resp);
   return new Promise(function(resolve){
     setTimeout(function(){resolve(resp)},35);
   });

@@ -181,10 +181,11 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('gray all','立即读取全部八路原始值。'),
       ShellForm('gray data','读取周期任务缓存的八路原始值。'),
       ShellForm('gray process','输出归一化、位置、强度和线路判定。'),
-      ShellForm('gray calib show|status|reload|sweep [ms]','查看标定、重载参数或执行位置扫描。','W'),
-      ShellForm('gray calib white [frames]|black [frames]|commit|cancel','采集白/黑标定并提交或取消。','W'),
+      ShellForm('gray live','单行返回界面所需的有效性、帧年龄、八路原始值/归一化值和故障状态。'),
+      ShellForm('gray calib begin|show|status|preview|reload|sweep [ms]','开始新会话、查看进度/暂存值、重载参数或执行兼容扫描。','W'),
+      ShellForm('gray calib white [frames]|black [frames]|commit|cancel','采集白底/黑线，提交到RAM或取消；默认每阶段64帧。','W'),
       ShellForm('gray oled on [period_ms 50..5000]|off|status|once','控制灰度OLED页面。','W')
-    ],'calib commit 会更新ConfigStore RAM参数；需要param save才会写入FRAM。'),
+    ],'begin和每次采集要求200 ms内的有效完整帧；无新帧会自动timeout。calib commit只更新ConfigStore RAM参数，必须另行param save才写入FRAM。'),
 
   ShellCommand('linesensor','选择真实线路传感器','传感器',
     '在八路 ADC 灰度传感器与三路串口红外传感器之间切换统一循迹数据来源。','W',BOTH,[
@@ -323,9 +324,10 @@ var SHELL_COMMAND_LIBRARY=[
       ShellForm('lf kp <val>','修改循迹比例增益。','W'),
       ShellForm('lf kd <val>','修改循迹微分增益。','W'),
       ShellForm('lf maxcorr <val>','修改最大差速修正RPM。','W'),
+      ShellForm('lf maxratio <permille 100..1000>','修改最终差速修正相对基础转速的比例上限。','W'),
       ShellForm('lf slew <permille_per_s 1..65535>','修改修正量变化率。','W'),
-      ShellForm('lf losthold <ms> (compatibility only)','兼容入口：修改短时丢线保持时间。','W'),
-      ShellForm('lf losttimeout <ms> (compatibility only)','兼容入口：修改持续丢线停车时间。','W')
+      ShellForm('lf losthold <ms>','修改短时丢线保持时间。','W'),
+      ShellForm('lf losttimeout <ms>','修改持续丢线停车时间。','W')
     ]),
 
   ShellCommand('road','路口与弯道事件','运动',

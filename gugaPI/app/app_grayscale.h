@@ -62,6 +62,7 @@ enum AppGrayscaleCalibrationMode : uint8_t {
 
 struct AppGrayscaleCalibrationStatus {
     AppGrayscaleCalibrationMode mode;
+    bool session_active;
     bool running;
     bool white_ready;
     bool black_ready;
@@ -69,6 +70,15 @@ struct AppGrayscaleCalibrationStatus {
     uint16_t target_samples;
     uint8_t fault_mask;
     drivers::DriverStatus last_status;
+};
+
+struct AppGrayscaleCalibrationPreview {
+    uint16_t white[drivers::GRAYSCALE_CHANNEL_COUNT];
+    uint16_t black[drivers::GRAYSCALE_CHANNEL_COUNT];
+    uint16_t white_noise[drivers::GRAYSCALE_CHANNEL_COUNT];
+    uint16_t black_noise[drivers::GRAYSCALE_CHANNEL_COUNT];
+    uint16_t span[drivers::GRAYSCALE_CHANNEL_COUNT];
+    uint8_t fault_mask;
 };
 
 void App_GrayscaleInit(void);
@@ -80,12 +90,14 @@ drivers::DriverStatus App_GrayscaleSetCalibration(
     const drivers::GrayscaleCalibration *calibration);
 const drivers::GrayscaleCalibration *App_GrayscaleGetCalibration(void);
 bool App_GrayscaleCalibrationIsCommissioned(void);
+drivers::DriverStatus App_GrayscaleBeginCalibration(void);
 drivers::DriverStatus App_GrayscaleStartSweepCalibration(uint32_t duration_ms);
 drivers::DriverStatus App_GrayscaleStartWhiteCalibration(uint16_t frames);
 drivers::DriverStatus App_GrayscaleStartBlackCalibration(uint16_t frames);
 drivers::DriverStatus App_GrayscaleCommitCalibration(void);
 void App_GrayscaleCancelCalibration(void);
 const AppGrayscaleCalibrationStatus *App_GrayscaleGetCalibrationStatus(void);
+const AppGrayscaleCalibrationPreview *App_GrayscaleGetCalibrationPreview(void);
 
 } /* namespace app */
 

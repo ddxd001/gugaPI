@@ -52,6 +52,35 @@ bool HasAdjacentBits(uint8_t mask)
     return (mask & static_cast<uint8_t>(mask >> 1U)) != 0U;
 }
 
+uint16_t AnalogAcquisitionMinimum(
+    const GrayscaleCalibration *calibration)
+{
+    uint16_t half_minimum = static_cast<uint16_t>(
+        calibration->min_line_strength / 2U);
+    if (half_minimum == 0U) {
+        half_minimum = 1U;
+    }
+
+    const uint16_t threshold_signal =
+        (calibration->threshold > calibration->position_floor)
+        ? static_cast<uint16_t>(calibration->threshold -
+                                calibration->position_floor)
+        : 1U;
+    return (half_minimum > threshold_signal)
+        ? half_minimum : threshold_signal;
+}
+
+bool IsNarrowAnalogCandidate(uint8_t selected_mask,
+                             uint32_t strength,
+                             const GrayscaleCalibration *calibration)
+{
+    const uint8_t selected_count = CountBits(selected_mask);
+    return (selected_mask != 0U) &&
+           (selected_count <= 2U) &&
+           (CountRuns(selected_mask) == 1U) &&
+           (strength >= AnalogAcquisitionMinimum(calibration));
+}
+
 bool TouchesPreviousSegment(uint8_t current_mask, uint8_t previous_mask)
 {
     const uint8_t expanded_previous = static_cast<uint8_t>(
@@ -208,10 +237,16 @@ DriverStatus CalculateCorePosition(
     result->selected_mask = selected_mask;
     result->line_strength = ClampStrength(strength);
 
+    const bool adjacent_moderate_candidate =
+        HasAdjacentBits(moderate_mask) &&
+        (strength >= calibration->min_line_strength);
+    const bool narrow_analog_candidate =
+        IsNarrowAnalogCandidate(selected_mask, strength, calibration);
+
     GrayscaleTrackState track_state = GRAYSCALE_TRACK_VALID;
     if ((evidence_mask == 0U) &&
-        (!HasAdjacentBits(moderate_mask) ||
-         (strength < calibration->min_line_strength))) {
+        !adjacent_moderate_candidate &&
+        !narrow_analog_candidate) {
         track_state = GRAYSCALE_TRACK_LOST;
     } else if (CountRuns(evidence_mask) > 1U) {
         track_state = GRAYSCALE_TRACK_MULTIPLE;
@@ -222,11 +257,11 @@ DriverStatus CalculateCorePosition(
     }
 
     /* The reference implementation continuously interpolates analogue core
-     * values and effectively retains tracking through the physical gap
-     * between sensors. Keep that useful behavior through a short intervening
-     * blank interval, but only while the total recovery window is bounded and
-     * the weak segment is spatially connected to the last strong line. A cold
-     * weak signal cannot acquire a line. */
+     * values. The narrow analogue candidate above adopts that useful behavior
+     * for cold acquisition without treating broad or separated low-level
+     * responses as a line. After acquisition, keep interpolation through a
+     * short intervening blank interval only while the recovery window is
+     * bounded and the weak segment remains spatially connected. */
     const bool weak_tracking =
         (track_state == GRAYSCALE_TRACK_LOST) &&
         CanContinueWeakTracking(selected_mask,

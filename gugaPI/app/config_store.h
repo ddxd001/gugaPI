@@ -98,6 +98,8 @@ struct ConfigStoreParams {
     int32_t linefollow_kp;
     int32_t linefollow_kd;
     uint16_t linefollow_max_correction_rpm;
+    /* Final correction clamp as a fraction of absolute base RPM. */
+    uint16_t linefollow_max_steering_permille;
     uint16_t linefollow_lost_hold_ms;
     uint16_t linefollow_lost_stop_ms;
     /* Maximum differential-correction change, relative to base RPM. */

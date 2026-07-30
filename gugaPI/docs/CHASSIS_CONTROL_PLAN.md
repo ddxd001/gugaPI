@@ -416,8 +416,8 @@ right_rpm = base_rpm + correction
 实现内容（`linefollow.cpp` `LF_FOLLOW` 模式）：
 
 - `track_mask=0x7E` 的中间六路按连续黑度计算位置，最外侧 0、7 通道只参与路口位图，避免支路拉偏巡线质心。
-- 在 40 RPM 参考速度计算 `reference_correction = (error * kp + filtered_derivative * kd) / 1e6`，随后按基础速度同比缩放，并限制在基础速度的 40%；中心 `±50` 使用死区，微分滤波使用 40 ms 时间常数，按灰度完整帧序号更新。
-- 差速修正斜率由 `lf_slew_permille_s` 配置，默认25000；40%转向限幅下理论全幅反向时间由旧默认的约80 ms缩短到约32 ms。
+- 在 40 RPM 参考速度计算 `reference_correction = (error * kp + filtered_derivative * kd) / 1e6`，随后按基础速度同比缩放，并由 `lf_max_ratio_permille` 限制最终转向比例；默认400，即基础速度的40%。中心 `±50` 使用死区，微分滤波使用 40 ms 时间常数，按灰度完整帧序号更新。
+- 差速修正斜率由 `lf_slew_permille_s` 配置，默认25000；最终转向比例由 `lf_max_ratio_permille` 在100..1000范围内运行时配置。
 - 左右目标RPM按M1/M2连续寄存器一次4字节I²C写入并一次读回校验；左轮=M2、右轮=M1的物理映射在打包函数中显式处理。
 - 灰度硬件故障、数据超时或通道异常时立即停车；强线之后的短暂全白间隙与连续相邻弱模拟线段共享最多 8 个位置帧（约 56 ms）的恢复预算。全白帧同时计入连续异常计数，相邻弱线恢复会将其清零；`lost/multiple/wide` 连续 6 个完整位置帧（约 42 ms）仍异常即停车。因此连续全白不会等待完整 56 ms。可信度仅作诊断，不执行无限保持或原地搜索。`lost_hold_ms`/`lost_stop_ms` 仅为旧配置兼容字段。
 - 持续时间到达 `follow_duration_ms` 后自动停车。
@@ -429,6 +429,7 @@ Shell 在线调参：
 lf kp <val>           # 设置 kp（0..1000000）
 lf kd <val>           # 设置 kd（0..1000000）
 lf maxcorr <val>      # 设置 40 RPM 参考速度下的最大修正 RPM（0..500）
+lf maxratio <val>     # 设置最终修正相对基础RPM的千分比上限（100..1000）
 lf slew <val>         # 设置差速修正斜率（1..65535 permille/s）
 lf losthold <ms>      # 兼容旧配置，当前不参与运动
 lf losttimeout <ms>   # 兼容旧配置，当前不延迟停车

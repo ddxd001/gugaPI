@@ -321,9 +321,28 @@
     var normalized=String(buffer||'').replace(/\r/g,'');
     var expected=String(command||'').trim();
     if(!expected||!/(?:^|\n)>\s*$/.test(normalized))return false;
+    return hasShellCommandEcho(normalized,expected);
+  }
+
+  function hasShellCommandEcho(buffer,command){
+    var normalized=String(buffer||'').replace(/\r/g,'');
+    var expected=String(command||'').trim();
+    if(!expected)return false;
     return normalized.split('\n').some(function(line){
       var candidate=line.trim().replace(/^>\s*/,'');
       return candidate===expected;
+    });
+  }
+
+  function isPromptlessShellResponseCandidate(buffer,command){
+    var normalized=String(buffer||'').replace(/\r/g,'');
+    var expected=String(command||'').trim();
+    if(!expected||!/\n$/.test(normalized)||
+       hasShellCommandEcho(normalized,expected))return false;
+    return normalized.split('\n').some(function(line){
+      var candidate=line.trim();
+      return candidate&&candidate!=='> '&&candidate!=='>'&&
+        candidate.indexOf('#t,')!==0;
     });
   }
 
@@ -393,6 +412,8 @@
     TelemetryParser:TelemetryParser,
     SerialRouter:SerialRouter,
     isShellCommandResponseComplete:isShellCommandResponseComplete,
+    hasShellCommandEcho:hasShellCommandEcho,
+    isPromptlessShellResponseCandidate:isPromptlessShellResponseCandidate,
     findNearestSample:findNearestSample,
     buildTimeline:buildTimeline,
     trimTimelineSamples:trimTimelineSamples,

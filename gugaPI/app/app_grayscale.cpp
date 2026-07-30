@@ -13,6 +13,11 @@ static const uint16_t kMinimumCalibrationSpan = 400U;
 static const uint16_t kDefaultCaptureFrames = 64U;
 static const uint16_t kMaximumCaptureFrames = 128U;
 static const uint16_t kCalibrationNoiseMultiplier = 8U;
+static const uint32_t kCalibrationMaximumFrameAgeMs = 200U;
+static const uint32_t kCalibrationNoProgressTimeoutMs = 500U;
+static const uint32_t kCalibrationMinimumDeadlineMs = 2000U;
+static const uint32_t kCalibrationPerFrameDeadlineMs = 25U;
+static const uint32_t kCalibrationDeadlineMarginMs = 500U;
 static const uint16_t kDefaultThreshold = 500U;
 static const uint16_t kDefaultHysteresis = 300U;
 static const uint16_t kDefaultPositionFloor = 100U;
@@ -40,8 +45,11 @@ static const GrayscaleRoadClassifierConfig kRoadConfig = {
     24U    /* bounded observation window */
 };
 AppGrayscaleCalibrationStatus g_calibrationStatus = {};
+AppGrayscaleCalibrationPreview g_calibrationPreview = {};
 uint32_t g_calibrationStartMs = 0U;
 uint32_t g_calibrationDurationMs = 0U;
+uint32_t g_calibrationLastProgressMs = 0U;
+uint32_t g_calibrationLastSequence = 0U;
 uint16_t g_calibrationSamples[drivers::GRAYSCALE_CHANNEL_COUNT]
                              [kMaximumCaptureFrames];
 uint16_t g_calibrationMin[drivers::GRAYSCALE_CHANNEL_COUNT] = {};
@@ -282,6 +290,32 @@ void ResetCalibrationAccumulator(void)
     g_calibrationStatus.fault_mask = 0U;
 }
 
+bool HasFreshRawFrame(uint32_t now)
+{
+    return g_data.valid && (g_data.sequence != 0U) &&
+        ((now - g_data.last_update_ms) <= kCalibrationMaximumFrameAgeMs);
+}
+
+void ResetPointCalibrationSession(void)
+{
+    g_calibrationStatus.session_active = true;
+    g_calibrationStatus.running = false;
+    g_calibrationStatus.mode = APP_GRAYSCALE_CAL_IDLE;
+    g_calibrationStatus.white_ready = false;
+    g_calibrationStatus.black_ready = false;
+    g_calibrationStatus.sample_count = 0U;
+    g_calibrationStatus.target_samples = 0U;
+    g_calibrationStatus.fault_mask = 0U;
+    g_calibrationStatus.last_status = drivers::DRIVER_OK;
+    g_calibrationPreview = {};
+    for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+        g_stagedWhite[i] = 0U;
+        g_stagedBlack[i] = 0U;
+        g_stagedWhiteNoise[i] = 0U;
+        g_stagedBlackNoise[i] = 0U;
+    }
+}
+
 void ApplyProcessingDefaults(drivers::GrayscaleCalibration *calibration)
 {
     calibration->threshold = kDefaultThreshold;
@@ -365,6 +399,21 @@ uint8_t ValidatePointCalibration(void)
     return fault_mask;
 }
 
+void UpdateCalibrationPreview(void)
+{
+    for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+        g_calibrationPreview.white[i] = g_stagedWhite[i];
+        g_calibrationPreview.black[i] = g_stagedBlack[i];
+        g_calibrationPreview.white_noise[i] = g_stagedWhiteNoise[i];
+        g_calibrationPreview.black_noise[i] = g_stagedBlackNoise[i];
+        g_calibrationPreview.span[i] = AbsoluteDifference(g_stagedWhite[i],
+                                                           g_stagedBlack[i]);
+    }
+    g_calibrationPreview.fault_mask =
+        (g_calibrationStatus.white_ready && g_calibrationStatus.black_ready)
+        ? ValidatePointCalibration() : 0U;
+}
+
 void FinishCalibration(drivers::DriverStatus status, uint8_t fault_mask)
 {
     g_calibrationStatus.running = false;
@@ -421,6 +470,12 @@ void UpdateCalibration(void)
         return;
     }
 
+    if (g_data.sequence == g_calibrationLastSequence) {
+        return;
+    }
+    g_calibrationLastSequence = g_data.sequence;
+    g_calibrationLastProgressMs = services::Time_Millis();
+
     const uint16_t sample_index = g_calibrationStatus.sample_count;
     for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
         g_calibrationSamples[i][sample_index] = g_data.raw[i];
@@ -442,7 +497,32 @@ void UpdateCalibration(void)
                                g_calibrationStatus.sample_count);
         g_calibrationStatus.black_ready = true;
     }
+    UpdateCalibrationPreview();
     FinishCalibration(drivers::DRIVER_OK, 0U);
+}
+
+void CheckCalibrationTimeout(void)
+{
+    if (!g_calibrationStatus.running) {
+        return;
+    }
+    const uint32_t now = services::Time_Millis();
+    if (g_calibrationStatus.mode == APP_GRAYSCALE_CAL_SWEEP) {
+        if ((now - g_calibrationStartMs) < g_calibrationDurationMs) {
+            return;
+        }
+        if (g_calibrationStatus.sample_count == 0U) {
+            FinishCalibration(drivers::DRIVER_ERROR_TIMEOUT, 0xFFU);
+        } else {
+            ApplySweepCalibration();
+        }
+        return;
+    }
+    if (((now - g_calibrationLastProgressMs) >=
+         kCalibrationNoProgressTimeoutMs) ||
+        ((now - g_calibrationStartMs) >= g_calibrationDurationMs)) {
+        FinishCalibration(drivers::DRIVER_ERROR_TIMEOUT, 0xFFU);
+    }
 }
 
 drivers::DriverStatus StartPointCalibration(
@@ -452,17 +532,33 @@ drivers::DriverStatus StartPointCalibration(
     if (g_calibrationStatus.running) {
         return drivers::DRIVER_ERROR_BUSY;
     }
+    const uint32_t now = services::Time_Millis();
+    if (!HasFreshRawFrame(now)) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
     if (frames == 0U) {
         frames = kDefaultCaptureFrames;
     }
     if (frames > kMaximumCaptureFrames) {
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
+    if (!g_calibrationStatus.session_active) {
+        ResetPointCalibrationSession();
+    }
     ResetCalibrationAccumulator();
     g_calibrationStatus.mode = mode;
     g_calibrationStatus.running = true;
     g_calibrationStatus.target_samples = frames;
     g_calibrationStatus.last_status = drivers::DRIVER_ERROR_BUSY;
+    g_calibrationStartMs = now;
+    g_calibrationLastProgressMs = now;
+    g_calibrationLastSequence = g_data.sequence;
+    const uint32_t calculated_deadline =
+        (static_cast<uint32_t>(frames) * kCalibrationPerFrameDeadlineMs) +
+        kCalibrationDeadlineMarginMs;
+    g_calibrationDurationMs =
+        (calculated_deadline < kCalibrationMinimumDeadlineMs)
+        ? kCalibrationMinimumDeadlineMs : calculated_deadline;
     return drivers::DRIVER_OK;
 }
 
@@ -482,6 +578,7 @@ void App_GrayscaleInit(void)
     ResetChannelDiagnostics();
     ResetProcessingState();
     g_calibrationStatus = {};
+    g_calibrationPreview = {};
     g_calibrationStatus.mode = APP_GRAYSCALE_CAL_IDLE;
     g_calibrationStatus.last_status = drivers::DRIVER_ERROR_NOT_INITIALIZED;
     g_calibrationCommissioned = false;
@@ -491,6 +588,7 @@ void App_GrayscaleInit(void)
 
 void App_GrayscaleUpdate(void)
 {
+    CheckCalibrationTimeout();
     if (!board::Board_GrayscaleIsReady()) {
         MarkFailure(drivers::DRIVER_ERROR_NOT_INITIALIZED);
         return;
@@ -666,6 +764,18 @@ bool App_GrayscaleCalibrationIsCommissioned(void)
     return g_calibrationCommissioned;
 }
 
+drivers::DriverStatus App_GrayscaleBeginCalibration(void)
+{
+    if (g_calibrationStatus.running) {
+        return drivers::DRIVER_ERROR_BUSY;
+    }
+    if (!HasFreshRawFrame(services::Time_Millis())) {
+        return drivers::DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    ResetPointCalibrationSession();
+    return drivers::DRIVER_OK;
+}
+
 drivers::DriverStatus App_GrayscaleStartSweepCalibration(uint32_t duration_ms)
 {
     if (g_calibrationStatus.running) {
@@ -678,6 +788,9 @@ drivers::DriverStatus App_GrayscaleStartSweepCalibration(uint32_t duration_ms)
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
     ResetCalibrationAccumulator();
+    g_calibrationStatus.session_active = false;
+    g_calibrationStatus.white_ready = false;
+    g_calibrationStatus.black_ready = false;
     g_calibrationStatus.mode = APP_GRAYSCALE_CAL_SWEEP;
     g_calibrationStatus.running = true;
     g_calibrationStatus.target_samples = 0U;
@@ -702,7 +815,8 @@ drivers::DriverStatus App_GrayscaleCommitCalibration(void)
     if (g_calibrationStatus.running) {
         return drivers::DRIVER_ERROR_BUSY;
     }
-    if ((!g_calibrationStatus.white_ready) ||
+    if ((!g_calibrationStatus.session_active) ||
+        (!g_calibrationStatus.white_ready) ||
         (!g_calibrationStatus.black_ready)) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
@@ -724,6 +838,9 @@ drivers::DriverStatus App_GrayscaleCommitCalibration(void)
     g_calibrationStatus.last_status = status;
     g_calibrationStatus.fault_mask =
         (status == drivers::DRIVER_OK) ? 0U : 0xFFU;
+    if (status == drivers::DRIVER_OK) {
+        g_calibrationStatus.session_active = false;
+    }
     return status;
 }
 
@@ -732,11 +849,24 @@ void App_GrayscaleCancelCalibration(void)
     if (g_calibrationStatus.running) {
         FinishCalibration(drivers::DRIVER_ERROR, 0U);
     }
+    g_calibrationStatus.session_active = false;
+    g_calibrationStatus.white_ready = false;
+    g_calibrationStatus.black_ready = false;
+    g_calibrationStatus.sample_count = 0U;
+    g_calibrationStatus.target_samples = 0U;
+    g_calibrationStatus.fault_mask = 0U;
+    g_calibrationPreview = {};
 }
 
 const AppGrayscaleCalibrationStatus *App_GrayscaleGetCalibrationStatus(void)
 {
     return &g_calibrationStatus;
+}
+
+const AppGrayscaleCalibrationPreview *App_GrayscaleGetCalibrationPreview(void)
+{
+    UpdateCalibrationPreview();
+    return &g_calibrationPreview;
 }
 
 } /* namespace app */
