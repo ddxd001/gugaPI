@@ -1,4 +1,5 @@
-#ballShell{height:100%;display:flex;flex-direction:column;background:#11131a;color:#d8dee9}
+#ballView{min-height:0;overflow-x:hidden;overflow-y:auto}
+#ballShell{width:100%;min-height:100%;height:auto;display:block;background:#11131a;color:#d8dee9}
 #ballToolbar{min-height:52px;display:flex;align-items:center;gap:10px;padding:7px 12px;background:#191d27;border-bottom:1px solid #303744}
 #ballToolbar>div:first-child{display:flex;flex-direction:column;margin-right:auto}
 #ballToolbar strong{font-size:15px}#ballToolbar span{font-size:11px;color:#8993a4}
@@ -12,10 +13,10 @@
 .ball-status-grid div{background:#121620;border:1px solid #29303c;border-radius:5px;padding:7px}
 .ball-status-grid span{display:block;font-size:10px;color:#788497;margin-bottom:3px}
 .ball-status-grid b{font-size:12px;font-weight:600;overflow-wrap:anywhere}
-.ball-charts{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:9px}
-.ball-chart{min-height:225px;display:flex;flex-direction:column;background:#121620;border:1px solid #29303c;border-radius:6px;padding:8px}
+.ball-charts{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:repeat(2,minmax(225px,1fr));gap:9px;min-height:0}
+.ball-chart{min-height:0;box-sizing:border-box;display:flex;flex-direction:column;background:#121620;border:1px solid #29303c;border-radius:6px;padding:8px}
 .ball-chart header{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#7f8b9e}
-.ball-chart header b{color:#cbd3df;font-size:12px}.ball-chart canvas{width:100%;height:100%;min-height:180px}
+.ball-chart header b{color:#cbd3df;font-size:12px}.ball-chart canvas{flex:1;width:100%;height:180px;min-height:0}
 .ball-controls{display:flex;flex-direction:column;gap:8px}.ball-controls label{font-size:11px;color:#9aa5b5}
 .ball-controls input,.ball-cal-controls input,.ball-cal-controls select,#ballParamGrid input{width:100%;margin-top:4px;background:#10141c;color:#d8dee9;border:1px solid #394150;border-radius:4px;padding:6px;box-sizing:border-box}
 .ball-unlock{padding:9px;background:#2b2418;border:1px solid #6f5831;border-radius:5px;color:#f0c879!important}

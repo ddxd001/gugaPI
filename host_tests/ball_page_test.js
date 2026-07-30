@@ -9,6 +9,7 @@ const shell=fs.readFileSync(path.join(root,'gugaPI/app/app_shell.cpp'),'utf8');
 const html=fs.readFileSync(path.join(root,'gugaPI/tools/seq_editor/index.html'),'utf8');
 const app=fs.readFileSync(path.join(root,'gugaPI/tools/seq_editor/app10.js'),'utf8');
 const tabs=fs.readFileSync(path.join(root,'gugaPI/tools/seq_editor/app4.js'),'utf8');
+const css=fs.readFileSync(path.join(root,'gugaPI/tools/seq_editor/ball.css'),'utf8');
 
 assert.strictEqual(core.FIELDS.length,28);
 assert.deepStrictEqual(core.FIELDS.slice(0,3),['t','app_mode','action_running']);
@@ -78,5 +79,11 @@ assert(app.includes("$('btnBallStop').disabled=!ballState.connected"),
   'stop must remain available regardless of unlock or operation busy state');
 assert(html.indexOf('ball_core.js')<html.indexOf('app1.js'));
 assert(html.indexOf('app10.js')>html.indexOf('app9.js'));
+assert(/#ballView\{[^}]*overflow-y:auto/.test(css),
+  'ball page must scroll instead of clipping lower charts and tuning panels');
+assert(/#ballShell\{[^}]*height:auto[^}]*display:block/.test(css),
+  'ball page sections must keep normal document flow instead of shrinking');
+assert(/\.ball-chart canvas\{[^}]*flex:1[^}]*height:180px[^}]*min-height:0/.test(css),
+  'chart canvas must fit its grid cell without overflowing into tuning panels');
 
 console.log('ball page ok: 50 Hz telemetry, safety gate, controls, capture and CSV');
