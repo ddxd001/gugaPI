@@ -22,6 +22,10 @@ static const int32_t kStictionRampMdegS = 3000;
 static const int32_t kStictionReleaseMdegS = 60000;
 static const uint32_t kStationaryConfirmMs = 400U;
 static const int32_t kPdCorrectionLimitMdeg = 4500;
+static const int32_t kIntegralCaptureError0p1mm = 300;
+static const int32_t kIntegralCaptureVelocity0p1mmS = 50;
+static const int32_t kIntegralUnwindVelocity0p1mmS = 150;
+static const int32_t kIntegralDeadband0p1mm = 10;
 static const uint8_t kVelocityHistoryCount = 5U;
 static const int32_t kEstimatorScale = 256;
 /* Temporary bench comparison: keep the calibrated table in FRAM/Shell, but
@@ -58,6 +62,58 @@ int32_t StepToward(int32_t current, int32_t target, int32_t step)
         return current - ((remaining < step) ? remaining : step);
     }
     return current;
+}
+
+void UpdateStaticErrorTrim(BallState *state,
+                           const HConfig *config,
+                           uint32_t elapsed_ms,
+                           bool degraded)
+{
+    const int32_t ki = config->ball_pid_ki_mdeg_per_mm_s;
+    const int32_t output_limit =
+        config->ball_pid_integral_limit_mdeg;
+    if ((ki <= 0) || (output_limit <= 0)) {
+        state->integral_error_0p1mm_ms = 0;
+        state->pid_i_mdeg = 0;
+        return;
+    }
+
+    int32_t trim_error = state->position_error_0p1mm;
+    if (Abs32(trim_error) <= kIntegralDeadband0p1mm) {
+        trim_error = 0;
+    } else if (trim_error > 0) {
+        trim_error -= kIntegralDeadband0p1mm;
+    } else {
+        trim_error += kIntegralDeadband0p1mm;
+    }
+
+    const int32_t abs_velocity =
+        Abs32(state->estimated_velocity_0p1mm_s);
+    const bool captured =
+        (Abs32(state->position_error_0p1mm) <=
+         kIntegralCaptureError0p1mm) &&
+        (abs_velocity <= kIntegralCaptureVelocity0p1mmS);
+    const bool unwinding =
+        ((state->integral_error_0p1mm_ms > 0) &&
+         (trim_error < 0)) ||
+        ((state->integral_error_0p1mm_ms < 0) &&
+         (trim_error > 0));
+    if (!degraded && (trim_error != 0) &&
+        (captured ||
+         (unwinding &&
+          (abs_velocity <= kIntegralUnwindVelocity0p1mmS)))) {
+        const int32_t accumulator_limit = static_cast<int32_t>(
+            (static_cast<int64_t>(output_limit) * 10000LL) / ki);
+        state->integral_error_0p1mm_ms = Clamp32(
+            state->integral_error_0p1mm_ms +
+            static_cast<int32_t>(
+                static_cast<int64_t>(trim_error) * elapsed_ms),
+            -accumulator_limit,
+            accumulator_limit);
+    }
+    state->pid_i_mdeg = static_cast<int32_t>(
+        (static_cast<int64_t>(state->integral_error_0p1mm_ms) *
+         ki) / 10000LL);
 }
 
 bool InputReady(const BallInput *input)
@@ -464,6 +520,7 @@ bool Start(BallState *state,
     state->timeout_ms = timeout_ms;
     state->settle_start_ms = 0U;
     state->integral_error_0p1mm_ms = 0;
+    state->pid_i_mdeg = 0;
     UpdateEstimator(state, input, config);
     return true;
 }
@@ -476,6 +533,8 @@ BallOutput Fail(BallState *state,
     state->result = result;
     state->beam_target_mdeg = 0;
     state->dm_target_mrad = Ball_MapBeamToDm(config, 0);
+    state->integral_error_0p1mm_ms = 0;
+    state->pid_i_mdeg = 0;
     BallOutput output = {};
     output.command_valid = true;
     output.stop_chassis = true;
@@ -536,6 +595,7 @@ void Ball_Level(BallState *state)
     state->result = BALL_RESULT_IDLE;
     state->target_position_0p1mm = 0;
     state->integral_error_0p1mm_ms = 0;
+    state->pid_i_mdeg = 0;
 }
 
 BallOutput Ball_Update(BallState *state,
@@ -602,19 +662,19 @@ BallOutput Ball_Update(BallState *state,
     state->target_velocity_0p1mm_s = 0;
     state->velocity_error_0p1mm_s =
         -state->estimated_velocity_0p1mm_s;
-    /* The ball-beam plant already contains the integrations from beam angle
-     * to velocity and position.  Keep the outer loop strictly PD: position
-     * error requests slope and the model-observed velocity supplies damping. */
-    state->integral_error_0p1mm_ms = 0;
+    /* P requests slope and the model-observed velocity supplies damping.
+     * A separately gated, slow integral learns only the persistent beam
+     * bias that PD cannot remove; it is frozen during normal travel. */
     state->pid_p_mdeg = static_cast<int32_t>(
         (static_cast<int64_t>(state->position_error_0p1mm) *
          config->ball_pid_kp_mdeg_per_mm) / 10LL);
-    state->pid_i_mdeg = 0;
+    UpdateStaticErrorTrim(state, config, elapsed_ms, degraded);
     state->pid_d_mdeg = static_cast<int32_t>(
         (-static_cast<int64_t>(state->estimated_velocity_0p1mm_s) *
          config->ball_pid_kd_mdeg_per_mm_s) / 10LL);
     state->pid_correction_mdeg = Clamp32(
-        state->pid_p_mdeg + state->pid_d_mdeg,
+        state->pid_p_mdeg + state->pid_i_mdeg +
+        state->pid_d_mdeg,
         -kPdCorrectionLimitMdeg,
         kPdCorrectionLimitMdeg);
     state->desired_acceleration_0p1mm_s2 =

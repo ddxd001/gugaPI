@@ -9,7 +9,7 @@
 namespace gugah {
 
 static const uint32_t H_CONFIG_MAGIC = 0x48475547UL; /* "GUGH" */
-static const uint16_t H_CONFIG_SCHEMA_VERSION = 7U;
+static const uint16_t H_CONFIG_SCHEMA_VERSION = 8U;
 static const uint16_t H_CONFIG_FRAM_ADDRESS = 0x0000U;
 
 struct HConfig {
@@ -84,7 +84,8 @@ struct HConfig {
     uint16_t ball_observer_alpha_permille;
     uint16_t ball_observer_beta_permille;
 
-    /* Full-travel ball position PD.  Ki/limit remain stored but are ignored. */
+    /* Full-travel ball position PID.  The integral path is a slow, gated
+     * static-error trim rather than an unrestricted conventional integral. */
     int16_t ball_pid_kp_mdeg_per_mm;
     int16_t ball_pid_ki_mdeg_per_mm_s;
     int16_t ball_pid_kd_mdeg_per_mm_s;

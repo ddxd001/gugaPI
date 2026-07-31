@@ -199,9 +199,9 @@ void HConfig_Defaults(HConfig *config)
     config->ball_observer_alpha_permille = 500U;
     config->ball_observer_beta_permille = 80U;
     config->ball_pid_kp_mdeg_per_mm = 40;
-    config->ball_pid_ki_mdeg_per_mm_s = 0;
+    config->ball_pid_ki_mdeg_per_mm_s = 20;
     config->ball_pid_kd_mdeg_per_mm_s = 20;
-    config->ball_pid_integral_limit_mdeg = 0;
+    config->ball_pid_integral_limit_mdeg = 1500;
     config->ball_curve_origin_0p1mm = 148;
     const int16_t hold_positions[5] = {
         -1000, -500, 0, 500, 1000
@@ -364,6 +364,7 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
     const bool schema4 = record->schema_version == 4U;
     const bool schema5 = record->schema_version == 5U;
     const bool schema6 = record->schema_version == 6U;
+    const bool schema7 = record->schema_version == 7U;
     if ((record->schema_version == H_CONFIG_SCHEMA_VERSION) &&
         (record->payload_length ==
          static_cast<uint16_t>(sizeof(HConfig))) &&
@@ -380,13 +381,19 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
                ((record->schema_version == 5U) &&
                 (record->payload_length == kSchema5PayloadLength)) ||
                ((record->schema_version == 6U) &&
+                (record->payload_length == kSchema6PayloadLength)) ||
+               ((record->schema_version == 7U) &&
                 (record->payload_length == kSchema6PayloadLength))) {
-        const uint16_t legacy_length = schema2
-            ? kSchema2PayloadLength
-            : (schema3 ? kSchema3PayloadLength
-                       : (schema4 ? kSchema4PayloadLength
-                                  : (schema5 ? kSchema5PayloadLength
-                                             : kSchema6PayloadLength)));
+        uint16_t legacy_length = kSchema6PayloadLength;
+        if (schema2) {
+            legacy_length = kSchema2PayloadLength;
+        } else if (schema3) {
+            legacy_length = kSchema3PayloadLength;
+        } else if (schema4) {
+            legacy_length = kSchema4PayloadLength;
+        } else if (schema5) {
+            legacy_length = kSchema5PayloadLength;
+        }
         const uint8_t *payload =
             reinterpret_cast<const uint8_t *>(&record->payload);
         uint32_t stored_crc = 0U;
@@ -429,9 +436,18 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
         config->ball_observer_alpha_permille = 500U;
         config->ball_observer_beta_permille = 80U;
         config->ball_pid_kp_mdeg_per_mm = 40;
-        config->ball_pid_ki_mdeg_per_mm_s = 0;
+        config->ball_pid_ki_mdeg_per_mm_s = 20;
         config->ball_pid_kd_mdeg_per_mm_s = 20;
-        config->ball_pid_integral_limit_mdeg = 0;
+        config->ball_pid_integral_limit_mdeg = 1500;
+    }
+    if (schema7 &&
+        (config->ball_pid_ki_mdeg_per_mm_s == 0) &&
+        (config->ball_pid_integral_limit_mdeg == 0)) {
+        /* Schema 7 deliberately disabled I while commissioning the model
+         * observer.  Schema 8 enables a bounded low-speed trim so existing
+         * cars receive the static-error fix without losing other tuning. */
+        config->ball_pid_ki_mdeg_per_mm_s = 20;
+        config->ball_pid_integral_limit_mdeg = 1500;
     }
     const bool legacy_pid =
         ((config->ball_kp_mdeg_per_0p1mm == 50) &&

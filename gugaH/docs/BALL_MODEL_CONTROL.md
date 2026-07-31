@@ -4,12 +4,12 @@
 
 ## 控制结构
 
-控制器采用串级结构：DM-G6220 自身负责快速位置环，gugaH 负责球的位置外环。外环不使用积分：
+控制器采用串级结构：DM-G6220 自身负责快速位置环，gugaH 负责球的位置外环。外环的积分仅作为受限的慢速静差补偿：
 
 ```text
 50 Hz 视觉位置
   -> 500 Hz 物理模型预测 + 视觉位置残差校正
-  -> 位置 P + 观测速度 D
+  -> 位置 P + 慢速静差 I + 观测速度 D
   -> 五点静态保持角 + 车体加速度/俯仰前馈
   -> 五点机构映射
   -> DM 位置环
@@ -40,8 +40,9 @@ theta_effective = theta_actual + pitch - theta_hold(x)
 | `observer_alpha` | 500 | 视觉位置残差对位置状态的校正，千分数 |
 | `observer_beta` | 80 | 位置残差对速度状态的校正，千分数；不是视觉差分速度权重 |
 | `ball_pid_kp` | 40 | 位置外环 P，mdeg/mm |
-| `ball_pid_ki` | 0 | 保留字段；控制器强制不使用积分 |
+| `ball_pid_ki` | 20 | 低速静差补偿 I，mdeg/(mm·s) |
 | `ball_pid_kd` | 20 | 速度阻尼 D，mdeg/(mm/s) |
+| `ball_pid_ilim` | 1500 | 静差补偿最大绝对角，mdeg |
 | `model_breakaway` | 2300 | 静止超过 400 ms 后的最大启滚补偿角，mdeg |
 | `model_rolling_friction` | 0 | 运动时的方向性摩擦前馈，mdeg |
 | `pitch_gain` | 0 | 车体俯仰补偿比例；完成 IMU 零偏标定前保持 0 |
@@ -71,7 +72,7 @@ config save
 
 1. 确认水平机械零位约对应 DM `-570 mrad`。
 2. 先在 0、±50 mm、±100 mm 标定五个静态保持角。
-3. 保持 `ball_pid_ki=0`，用 `ball hold 0` 测试；先调 Kp，再增加 Kd 抑制越过目标。
+3. 先用 `ball_pid_ki=0` 调好 Kp/Kd，再恢复 `ball_pid_ki=20` 消除静差；若低频往返，每次降低 Ki 5。
 4. 若观测速度追随位置噪声，减小 `observer_beta`；若真实运动明显滞后，再小步增大。
 5. ±10 mm 内不会施加大启滚脉冲，但 P/D 会持续微调；允许球和杆持续小幅动作。
 6. 静态稳定后再测 H3 的 `0 -> +50 mm -> -50 mm`，最后测试底盘加减速前馈。

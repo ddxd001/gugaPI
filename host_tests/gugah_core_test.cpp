@@ -121,9 +121,9 @@ void TestConfigRecord()
     assert(config.ball_observer_alpha_permille == 500U);
     assert(config.ball_observer_beta_permille == 80U);
     assert(config.ball_pid_kp_mdeg_per_mm == 40);
-    assert(config.ball_pid_ki_mdeg_per_mm_s == 0);
+    assert(config.ball_pid_ki_mdeg_per_mm_s == 20);
     assert(config.ball_pid_kd_mdeg_per_mm_s == 20);
-    assert(config.ball_pid_integral_limit_mdeg == 0);
+    assert(config.ball_pid_integral_limit_mdeg == 1500);
     assert(config.ball_curve_origin_0p1mm == 148);
     assert(config.ball_hold_position_0p1mm[0] == -1000);
     assert(config.ball_hold_position_0p1mm[4] == 1000);
@@ -183,9 +183,9 @@ void TestConfigRecord()
     assert(parsed.ball_model_response_ms ==
            config.ball_model_response_ms);
     assert(parsed.ball_pid_kp_mdeg_per_mm == 40);
-    assert(parsed.ball_pid_ki_mdeg_per_mm_s == 0);
+    assert(parsed.ball_pid_ki_mdeg_per_mm_s == 20);
     assert(parsed.ball_pid_kd_mdeg_per_mm_s == 20);
-    assert(parsed.ball_pid_integral_limit_mdeg == 0);
+    assert(parsed.ball_pid_integral_limit_mdeg == 1500);
     assert(parsed.ball_curve_origin_0p1mm == 148);
 
     /* Schema-5 records receive the new holding-angle table and the new
@@ -228,6 +228,22 @@ void TestConfigRecord()
     assert(parsed.dm_position_mrad[0] == 230);
     assert(parsed.dm_position_mrad[2] == -570);
     assert(parsed.dm_position_mrad[4] == -1490);
+
+    /* Schema 7 commissioned the observer with integral disabled.  Upgrade
+     * that exact state to the bounded static-error trim introduced by 8. */
+    gugah::HConfigRecord schema7 = {};
+    schema7.magic = gugah::H_CONFIG_MAGIC;
+    schema7.schema_version = 7U;
+    schema7.payload_length = static_cast<uint16_t>(sizeof(gugah::HConfig));
+    schema7.payload = config;
+    schema7.payload.ball_pid_ki_mdeg_per_mm_s = 0;
+    schema7.payload.ball_pid_integral_limit_mdeg = 0;
+    schema7.payload_crc32 = gugah::HConfig_Crc32(
+        reinterpret_cast<const uint8_t *>(&schema7.payload),
+        schema7.payload_length);
+    assert(gugah::HConfig_ParseRecord(&schema7, &parsed));
+    assert(parsed.ball_pid_ki_mdeg_per_mm_s == 20);
+    assert(parsed.ball_pid_integral_limit_mdeg == 1500);
 
     /* Schema-4 records contain the residual PID but predate the adjustable
      * curvature origin. */
@@ -765,6 +781,56 @@ void TestBallPidCorrectsInsideAcceptedBand()
     assert(state.stiction_compensation_mdeg == 0);
 }
 
+void TestBallIntegralRemovesStaticErrorWithoutWindup()
+{
+    gugah::HConfig config = DefaultConfig();
+    config.vision_position_invert = 0U;
+    config.ball_observer_alpha_permille = 1000U;
+    gugah::BallState state = {};
+    gugah::Ball_Init(&state);
+    gugah::BallInput input = BallInput(10U, 90);
+    input.dm.position_mrad = -570;
+    assert(gugah::Ball_StartHold(&state, 0, &input, &config));
+
+    /* A stationary 9 mm residual should learn a persistent correction. */
+    for (uint16_t i = 1U; i <= 200U; i++) {
+        input.now_ms = 10U + static_cast<uint32_t>(i) * 10U;
+        input.vision.frame.received_ms = input.now_ms;
+        input.vision.frame.sequence++;
+        input.imu.received_ms = input.now_ms;
+        input.dm.received_ms = input.now_ms;
+        (void)gugah::Ball_Update(&state, &input, &config);
+    }
+    assert(state.pid_i_mdeg < -250);
+    assert(state.pid_i_mdeg > -400);
+    const int32_t learned_integral =
+        state.integral_error_0p1mm_ms;
+
+    /* Camera noise inside 1 mm must not keep winding the trim. */
+    input.vision.frame.position_0p1mm = CameraPositionForPhysical(5);
+    for (uint8_t i = 0U; i < 20U; i++) {
+        input.now_ms += 10U;
+        input.vision.frame.received_ms = input.now_ms;
+        input.vision.frame.sequence++;
+        input.imu.received_ms = input.now_ms;
+        input.dm.received_ms = input.now_ms;
+        (void)gugah::Ball_Update(&state, &input, &config);
+    }
+    assert(state.integral_error_0p1mm_ms == learned_integral);
+
+    /* Opposite low-speed error unloads the learned bias. */
+    input.vision.frame.position_0p1mm = CameraPositionForPhysical(-90);
+    for (uint16_t i = 0U; i < 200U; i++) {
+        input.now_ms += 10U;
+        input.vision.frame.received_ms = input.now_ms;
+        input.vision.frame.sequence++;
+        input.imu.received_ms = input.now_ms;
+        input.dm.received_ms = input.now_ms;
+        (void)gugah::Ball_Update(&state, &input, &config);
+    }
+    assert(state.pid_i_mdeg > -50);
+}
+
 void TestBallDampingWorksAcrossFullTravel()
 {
     gugah::HConfig config = DefaultConfig();
@@ -977,6 +1043,7 @@ int main()
     TestBallOuterPdHasZeroVelocityTarget();
     TestBallPredictedVelocityDoesNotCancelBreakaway();
     TestBallPidCorrectsInsideAcceptedBand();
+    TestBallIntegralRemovesStaticErrorWithoutWindup();
     TestBallDampingWorksAcrossFullTravel();
     TestBallDampingWorksNearTarget();
     TestH3CentersFromArbitraryInitialPosition();
