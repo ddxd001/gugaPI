@@ -386,7 +386,6 @@ function simResponse(cmd){
     resp=paramSimCommand(cmd);
   }else if(typeof lineSensorSimCommand==='function'&&
            (cmd==='linesensor'||cmd.indexOf('linesensor ')===0||
-            cmd==='irsensor'||cmd.indexOf('irsensor ')===0||
             cmd==='gray'||cmd.indexOf('gray ')===0)){
     resp=lineSensorSimCommand(cmd);
   }else if(typeof ballSimCommand==='function'&&
@@ -396,7 +395,7 @@ function simResponse(cmd){
     resp=ballSimCommand(cmd);
   }else if(cmd==='help'){
     resp='commands: version reset sched led buzzer param gray imu motor '+
-      'chassis heading run lf road comp seq linesensor irsensor estop\r\n> ';
+      'chassis heading run lf road comp seq linesensor estop\r\n> ';
   }else{
     resp=cmd+': simulated\r\n> ';
   }

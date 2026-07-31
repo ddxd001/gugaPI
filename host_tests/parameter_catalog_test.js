@@ -20,7 +20,7 @@ const descriptorNames=[...storeSource.matchAll(
   /\{\s*"([a-zA-Z0-9_]+)"\s*,\s*PARAM_(?:U8|U16|U32|I16|I32)\s*,/g
 )].map(match=>match[1]);
 
-assert.strictEqual(descriptorNames.length,141,
+assert.strictEqual(descriptorNames.length,130,
   'firmware parameter count changed; audit the host metadata');
 assert.strictEqual(new Set(descriptorNames).size,descriptorNames.length,
   'firmware parameter descriptors contain duplicates');
@@ -166,4 +166,4 @@ const invalidMap=Object.assign({},reverseMap,{ball_map_dm_3_mrad:200});
 assert.strictEqual(context.paramPlanImport(current,invalidMap,{}).ok,false,
   'non-monotonic ball mapping must be rejected');
 
-console.log('parameter catalog ok: 141 parameters, clean ConfigStore payload 315');
+console.log('parameter catalog ok: 130 parameters, compatible payload 315');

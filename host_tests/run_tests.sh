@@ -48,9 +48,6 @@ build_and_run app_grayscale_calibration \
     gugaPI/app/app_grayscale.cpp \
     gugaPI/app/grayscale_road.cpp \
     gugaPI/drivers/grayscale/grayscale_processing.cpp
-build_and_run infrared_line_protocol \
-    host_tests/infrared_line_protocol_test.cpp \
-    gugaPI/drivers/infrared_line/infrared_line_protocol.cpp
 build_and_run ball_vision_protocol \
     host_tests/ball_vision_protocol_test.cpp \
     gugaPI/drivers/ball_vision/ball_vision_protocol.cpp
@@ -61,12 +58,6 @@ build_and_run ball_vision \
 build_and_run ball_balance \
     host_tests/ball_balance_test.cpp \
     gugaPI/app/ball_balance.cpp
-build_and_run infrared_line_dma_cursor \
-    host_tests/infrared_line_dma_cursor_test.cpp
-build_and_run infrared_calibration \
-    host_tests/infrared_calibration_test.cpp \
-    gugaPI/app/app_infrared_sensor.cpp \
-    gugaPI/drivers/infrared_line/infrared_line_protocol.cpp
 build_and_run grayscale_road \
     host_tests/grayscale_road_test.cpp \
     gugaPI/app/grayscale_road.cpp

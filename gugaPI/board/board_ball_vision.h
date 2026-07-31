@@ -9,6 +9,8 @@
 namespace board {
 
 drivers::DriverStatus Board_BallVisionInit(void);
+drivers::DriverStatus Board_BallVisionWrite(const uint8_t *data,
+                                            uint16_t length);
 bool Board_BallVisionReadByte(uint8_t *data);
 void Board_BallVisionClear(void);
 bool Board_BallVisionIsReady(void);

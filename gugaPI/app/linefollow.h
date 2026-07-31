@@ -53,7 +53,6 @@ struct LFState {
     int32_t base_rpm;
     uint32_t follow_start_ms;
     uint32_t follow_duration_ms;
-    uint32_t lost_since_ms;
     uint32_t last_sequence;
     uint32_t last_frame_ms;
     uint32_t processed_frame_count;
@@ -77,16 +76,13 @@ struct LFState {
     /* Tunable parameters are loaded from ConfigStore and remain runtime-settable.
      * max_correction_rpm is the ceiling at LF_REFERENCE_RPM; the controller
      * scales it with the requested speed before applying the configurable
-     * steering-ratio safety limit. Lost-line timing remains configurable for
-     * IR3; ADC8 geometry loss holds the last wheel command until reacquired. */
+     * steering-ratio safety limit. */
     int32_t kp;
     int32_t kd;
     int32_t max_correction_rpm;
     uint16_t max_steering_permille;
     uint16_t deadband_mpos;
     uint32_t correction_slew_permille_per_second;
-    uint32_t lost_hold_ms;
-    uint32_t lost_timeout_ms;
     drivers::DriverStatus last_status;
 };
 
@@ -118,16 +114,13 @@ const LFState *LF_GetState(void);
  * so a temporary ADC8 geometry loss does not abort the follow action. */
 bool LF_IsLineDetected(void);
 
-/* Runtime parameter setters. ADC8 hold-until-valid does not use the lost
- * timing parameters; they remain active for the existing IR3 loss policy. */
+/* Runtime parameter setters. */
 void LF_SetKp(int32_t kp);
 void LF_SetKd(int32_t kd);
 void LF_SetMaxCorrection(int32_t max_correction_rpm);
 void LF_SetMaxSteeringRatio(uint32_t permille);
 void LF_SetDeadband(uint32_t deadband_mpos);
 void LF_SetCorrectionSlew(uint32_t permille_per_second);
-void LF_SetLostHold(uint32_t hold_ms);
-void LF_SetLostTimeout(uint32_t timeout_ms);
 
 } /* namespace app */
 

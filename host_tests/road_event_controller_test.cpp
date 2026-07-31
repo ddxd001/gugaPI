@@ -120,11 +120,6 @@ bool Fault_HasFault(void)
 
 namespace app {
 
-bool LineSensor_IsRoadCapable(void)
-{
-    return true;
-}
-
 const AppGrayscaleData *App_GrayscaleGetData(void)
 {
     return &g_gray;

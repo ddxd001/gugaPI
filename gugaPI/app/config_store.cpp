@@ -13,10 +13,11 @@ namespace {
 static const uint32_t kMagic = 0x31464347U; /* "GCF1" little-endian */
 static const uint16_t kVersion = 1U;
 static const uint16_t kMainPayloadLength = 243U;
-static const uint16_t kInfraredPayloadLength = 20U;
+static const uint16_t kReservedLegacyInfraredPayloadLength = 20U;
 static const uint16_t kBallPayloadLength = 42U;
 static const uint16_t kLegacyPayloadLength =
-    kMainPayloadLength + kInfraredPayloadLength + kBallPayloadLength;
+    kMainPayloadLength + kReservedLegacyInfraredPayloadLength +
+    kBallPayloadLength;
 static const uint16_t kSteeringPayloadLength = 2U;
 static const uint16_t kSteeringPayloadTotalLength =
     kLegacyPayloadLength + kSteeringPayloadLength;
@@ -333,10 +334,6 @@ static const ParamDescriptor kParamDescriptors[] = {
       PARAM_OFFSET(linefollow_max_steering_permille), 100, 1000 },
     { "lf_deadband_mpos", PARAM_U16,
       PARAM_OFFSET(linefollow_deadband_mpos), 0, 500 },
-    { "lf_lost_hold_ms", PARAM_U16,
-      PARAM_OFFSET(linefollow_lost_hold_ms), 0, 10000 },
-    { "lf_lost_stop_ms", PARAM_U16,
-      PARAM_OFFSET(linefollow_lost_stop_ms), 1, 10000 },
     { "lf_slew_permille_s", PARAM_U16,
       PARAM_OFFSET(linefollow_correction_slew_permille_per_second),
       1, 65535 },
@@ -345,28 +342,7 @@ static const ParamDescriptor kParamDescriptors[] = {
     { "task0_approach_rpm", PARAM_U16,
       PARAM_OFFSET(task0_approach_rpm), 20, 1000 },
     { "task0_lap_mm", PARAM_U16,
-      PARAM_OFFSET(task0_lap_mm), 3000, 8000 },
-    { "line_sensor_source", PARAM_U8,
-      PARAM_OFFSET(line_sensor_source),
-      LINE_SENSOR_SOURCE_ADC8, LINE_SENSOR_SOURCE_IR3 },
-    { "ir_position_invert", PARAM_U8,
-      PARAM_OFFSET(infrared_position_invert), 0, 1 },
-    { "ir_position_span_raw", PARAM_U16,
-      PARAM_OFFSET(infrared_position_span_raw), 0, 32767 },
-    { "ir_adc_threshold", PARAM_U16,
-      PARAM_OFFSET(infrared_adc_threshold), 0, 4095 },
-    { "ir_adc_hysteresis", PARAM_U16,
-      PARAM_OFFSET(infrared_adc_hysteresis), 0, 1000 },
-    { "ir_lf_kp", PARAM_I32,
-      PARAM_OFFSET(infrared_linefollow_kp), 0, 1000000 },
-    { "ir_lf_kd", PARAM_I32,
-      PARAM_OFFSET(infrared_linefollow_kd), 0, 1000000 },
-    { "ir_lf_maxcorr", PARAM_U16,
-      PARAM_OFFSET(infrared_linefollow_max_correction_rpm), 0, 500 },
-    { "ir_lf_slew_permille_s", PARAM_U16,
-      PARAM_OFFSET(
-          infrared_linefollow_correction_slew_permille_per_second),
-      1, 65535 }
+      PARAM_OFFSET(task0_lap_mm), 3000, 8000 }
 };
 
 #undef PARAM_OFFSET
@@ -562,25 +538,10 @@ void SetDefaults(ConfigStoreParams *params)
     params->linefollow_max_steering_permille =
         kDefaultLinefollowMaxSteeringPermille;
     params->linefollow_deadband_mpos = kDefaultLinefollowDeadbandMpos;
-    params->linefollow_lost_hold_ms = 150U;
-    params->linefollow_lost_stop_ms = 500U;
     params->linefollow_correction_slew_permille_per_second = 25000U;
     params->task0_cruise_rpm = kDefaultTask0CruiseRpm;
     params->task0_approach_rpm = kDefaultTask0ApproachRpm;
     params->task0_lap_mm = kDefaultTask0LapMm;
-
-    /* The new real sensor is the requested default, but zero calibration
-     * values deliberately inhibit motion until the five-step wizard commits
-     * measured thresholds and position span. */
-    params->line_sensor_source = LINE_SENSOR_SOURCE_IR3;
-    params->infrared_position_invert = 0U;
-    params->infrared_position_span_raw = 0U;
-    params->infrared_adc_threshold = 0U;
-    params->infrared_adc_hysteresis = 0U;
-    params->infrared_linefollow_kp = 3800;
-    params->infrared_linefollow_kd = 600;
-    params->infrared_linefollow_max_correction_rpm = 30U;
-    params->infrared_linefollow_correction_slew_permille_per_second = 25000U;
 
     params->ball_kp_mdeg_per_0p1mm = 10;
     params->ball_kd_mdeg_per_0p1mm_s = 3;
@@ -729,8 +690,9 @@ void EncodePayload(const ConfigStoreParams &params, uint8_t *payload)
     cursor = AppendI32(cursor, params.linefollow_kp);
     cursor = AppendI32(cursor, params.linefollow_kd);
     cursor = AppendU16(cursor, params.linefollow_max_correction_rpm);
-    cursor = AppendU16(cursor, params.linefollow_lost_hold_ms);
-    cursor = AppendU16(cursor, params.linefollow_lost_stop_ms);
+    /* Preserve the two retired lost-line timing fields in the v1 layout. */
+    cursor = AppendU16(cursor, 0U);
+    cursor = AppendU16(cursor, 0U);
     cursor = AppendU32(cursor, params.wheel_radius_um);
     cursor = AppendU8(cursor, params.distance_speed_mode);
     cursor = AppendU16(cursor, params.distance_accel_rpm_s);
@@ -847,8 +809,8 @@ void DecodeMainPayload(const uint8_t *payload, ConfigStoreParams *params)
     cursor = ReadI32Field(cursor, &params->linefollow_kd);
     cursor = ReadU16Field(cursor,
                           &params->linefollow_max_correction_rpm);
-    cursor = ReadU16Field(cursor, &params->linefollow_lost_hold_ms);
-    cursor = ReadU16Field(cursor, &params->linefollow_lost_stop_ms);
+    /* Skip the two retired lost-line timing fields in legacy v1 images. */
+    cursor += 4U;
     cursor = ReadU32Field(cursor, &params->wheel_radius_um);
     cursor = ReadU8Field(cursor, &params->distance_speed_mode);
     cursor = ReadU16Field(cursor, &params->distance_accel_rpm_s);
@@ -904,39 +866,9 @@ void DecodeMainPayload(const uint8_t *payload, ConfigStoreParams *params)
     (void) cursor;
 }
 
-void EncodeInfraredPayload(const ConfigStoreParams &params, uint8_t *payload)
+void EncodeReservedLegacyInfraredPayload(uint8_t *payload)
 {
-    uint8_t *cursor = payload;
-    cursor = AppendU8(cursor, params.line_sensor_source);
-    cursor = AppendU8(cursor, params.infrared_position_invert);
-    cursor = AppendU16(cursor, params.infrared_position_span_raw);
-    cursor = AppendU16(cursor, params.infrared_adc_threshold);
-    cursor = AppendU16(cursor, params.infrared_adc_hysteresis);
-    cursor = AppendI32(cursor, params.infrared_linefollow_kp);
-    cursor = AppendI32(cursor, params.infrared_linefollow_kd);
-    cursor = AppendU16(
-        cursor, params.infrared_linefollow_max_correction_rpm);
-    (void) AppendU16(
-        cursor,
-        params.infrared_linefollow_correction_slew_permille_per_second);
-}
-
-void DecodeInfraredPayload(const uint8_t *payload,
-                           ConfigStoreParams *params)
-{
-    const uint8_t *cursor = payload;
-    cursor = ReadU8Field(cursor, &params->line_sensor_source);
-    cursor = ReadU8Field(cursor, &params->infrared_position_invert);
-    cursor = ReadU16Field(cursor, &params->infrared_position_span_raw);
-    cursor = ReadU16Field(cursor, &params->infrared_adc_threshold);
-    cursor = ReadU16Field(cursor, &params->infrared_adc_hysteresis);
-    cursor = ReadI32Field(cursor, &params->infrared_linefollow_kp);
-    cursor = ReadI32Field(cursor, &params->infrared_linefollow_kd);
-    cursor = ReadU16Field(
-        cursor, &params->infrared_linefollow_max_correction_rpm);
-    (void) ReadU16Field(
-        cursor,
-        &params->infrared_linefollow_correction_slew_permille_per_second);
+    (void) memset(payload, 0, kReservedLegacyInfraredPayloadLength);
 }
 
 void EncodeBallPayload(const ConfigStoreParams &params, uint8_t *payload)
@@ -1081,21 +1013,8 @@ bool ValidateParams(const ConfigStoreParams &params)
         (params.grayscale_hysteresis + 1U) / 2U);
     if ((params.grayscale_threshold <= lower_half) ||
         ((static_cast<uint32_t>(params.grayscale_threshold) + upper_half) >=
-         1000U) ||
-        (params.linefollow_lost_stop_ms < params.linefollow_lost_hold_ms)) {
+         1000U)) {
         return false;
-    }
-    if (params.infrared_adc_threshold != 0U) {
-        const uint16_t ir_lower = static_cast<uint16_t>(
-            params.infrared_adc_hysteresis / 2U);
-        const uint16_t ir_upper = static_cast<uint16_t>(
-            (params.infrared_adc_hysteresis + 1U) / 2U);
-        if ((params.infrared_adc_threshold <= ir_lower) ||
-            ((static_cast<uint32_t>(params.infrared_adc_threshold) +
-              ir_upper) > 4095U) ||
-            (params.infrared_position_span_raw == 0U)) {
-            return false;
-        }
     }
     if (params.ball_degraded_angle_mdeg >
         params.ball_max_angle_mdeg) {
@@ -1249,12 +1168,9 @@ bool DecodeBank(const uint8_t *image,
     }
 
     DecodeMainPayload(&image[kHeaderLength], params);
-    DecodeInfraredPayload(
-        &image[kHeaderLength + kMainPayloadLength],
-        params);
     DecodeBallPayload(
         &image[kHeaderLength + kMainPayloadLength +
-               kInfraredPayloadLength],
+               kReservedLegacyInfraredPayloadLength],
         params);
     if (length >= kSteeringPayloadTotalLength) {
         DecodeSteeringPayload(
@@ -1388,13 +1304,12 @@ drivers::DriverStatus ConfigStore_Save(void)
     WriteU32(&g_bankScratch[8], generation);
     g_bankScratch[12] = 0U;
     EncodePayload(g_params, &g_bankScratch[kHeaderLength]);
-    EncodeInfraredPayload(
-        g_params,
+    EncodeReservedLegacyInfraredPayload(
         &g_bankScratch[kHeaderLength + kMainPayloadLength]);
     EncodeBallPayload(
         g_params,
         &g_bankScratch[kHeaderLength + kMainPayloadLength +
-                       kInfraredPayloadLength]);
+                       kReservedLegacyInfraredPayloadLength]);
     EncodeSteeringPayload(
         g_params,
         &g_bankScratch[kHeaderLength + kLegacyPayloadLength]);
@@ -1526,30 +1441,6 @@ drivers::DriverStatus ConfigStore_SetGrayscaleCalibration(
         g_params.grayscale_position_floor,
         g_params.grayscale_min_line_strength,
         g_params.grayscale_track_mask);
-}
-
-drivers::DriverStatus ConfigStore_SetInfraredCalibration(
-    uint8_t invert,
-    uint16_t span_raw,
-    uint16_t adc_threshold,
-    uint16_t adc_hysteresis)
-{
-    if ((invert > 1U) || (span_raw == 0U) || (span_raw > 32767U) ||
-        (adc_threshold == 0U) || (adc_threshold > 4095U) ||
-        (adc_hysteresis > 1000U)) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-    g_updateScratch = g_params;
-    g_updateScratch.infrared_position_invert = invert;
-    g_updateScratch.infrared_position_span_raw = span_raw;
-    g_updateScratch.infrared_adc_threshold = adc_threshold;
-    g_updateScratch.infrared_adc_hysteresis = adc_hysteresis;
-    if (!ValidateParams(g_updateScratch)) {
-        return drivers::DRIVER_ERROR_INVALID_ARG;
-    }
-    g_params = g_updateScratch;
-    g_status.dirty = true;
-    return drivers::DRIVER_OK;
 }
 
 drivers::DriverStatus ConfigStore_SetBallMap(

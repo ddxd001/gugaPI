@@ -1,7 +1,6 @@
 #include "app/linefollow.h"
 
 #include "app/app_grayscale.h"
-#include "app/app_infrared_sensor.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
 #include "app/line_sensor.h"
@@ -67,10 +66,6 @@ drivers::DriverStatus ApplyWheelCommand(int32_t base_rpm,
         g_state.recovery_base_rpm = base_rpm;
         g_state.recovery_correction_rpm = correction_rpm;
     }
-    if (LineSensor_GetSource() == LINE_SENSOR_IR3) {
-        App_InfraredSensorRecordControlLatency(
-            LineSensor_GetSnapshot()->sequence);
-    }
     g_state.last_status = status;
     if (status != drivers::DRIVER_OK) {
         SafetyStop(services::FAULT_NONE);
@@ -90,31 +85,17 @@ void LoadConfig(void)
         g_state.deadband_mpos = LF_DEFAULT_ERROR_DEADBAND_MPOS;
         g_state.correction_slew_permille_per_second =
             LF_DEFAULT_CORRECTION_SLEW_PERMILLE_PER_SECOND;
-        g_state.lost_hold_ms = 150U;
-        g_state.lost_timeout_ms = 500U;
         return;
     }
-    if (LineSensor_GetSource() == LINE_SENSOR_IR3) {
-        g_state.kp = params->infrared_linefollow_kp;
-        g_state.kd = params->infrared_linefollow_kd;
-        g_state.max_correction_rpm = static_cast<int32_t>(
-            params->infrared_linefollow_max_correction_rpm);
-        g_state.correction_slew_permille_per_second =
-            params->
-                infrared_linefollow_correction_slew_permille_per_second;
-    } else {
-        g_state.kp = params->linefollow_kp;
-        g_state.kd = params->linefollow_kd;
-        g_state.max_correction_rpm =
-            static_cast<int32_t>(params->linefollow_max_correction_rpm);
-        g_state.correction_slew_permille_per_second =
-            params->linefollow_correction_slew_permille_per_second;
-    }
+    g_state.kp = params->linefollow_kp;
+    g_state.kd = params->linefollow_kd;
+    g_state.max_correction_rpm =
+        static_cast<int32_t>(params->linefollow_max_correction_rpm);
+    g_state.correction_slew_permille_per_second =
+        params->linefollow_correction_slew_permille_per_second;
     g_state.max_steering_permille =
         params->linefollow_max_steering_permille;
     g_state.deadband_mpos = params->linefollow_deadband_mpos;
-    g_state.lost_hold_ms = params->linefollow_lost_hold_ms;
-    g_state.lost_timeout_ms = params->linefollow_lost_stop_ms;
 }
 
 void UpdateCalibrationMode(void)
@@ -292,7 +273,6 @@ void BeginAdcRecovery(uint32_t now)
     g_state.recovery_start_ms = now;
     g_state.recovery_elapsed_ms = 0U;
     g_state.recovery_confirm_frames = 0U;
-    g_state.lost_since_ms = now;
 }
 
 bool ApplyAdcRecovery(uint32_t now, uint32_t frame_ms)
@@ -339,7 +319,6 @@ void LF_ReloadConfig(void)
         g_state.derivative_mpos_per_s = 0;
         g_state.correction_rpm = 0;
         g_state.error_mpos = 0;
-        g_state.lost_since_ms = 0U;
         g_state.lost = true;
         g_state.last_sequence = 0U;
         g_state.last_frame_ms = 0U;
@@ -351,9 +330,6 @@ drivers::DriverStatus LF_CalibrateStart(void)
 {
     if (g_state.mode != LF_IDLE) {
         return drivers::DRIVER_ERROR_BUSY;
-    }
-    if (LineSensor_GetSource() != LINE_SENSOR_ADC8) {
-        return drivers::DRIVER_ERROR_UNSUPPORTED;
     }
     const drivers::DriverStatus status =
         App_GrayscaleStartSweepCalibration(kCalDurationMs);
@@ -389,7 +365,7 @@ drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms)
         (data->channel_anomaly_mask != 0U)) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
-    if ((data->source == LINE_SENSOR_ADC8) && !IsStrongTrack(data)) {
+    if (!IsStrongTrack(data)) {
         return drivers::DRIVER_ERROR_NOT_INITIALIZED;
     }
 
@@ -404,7 +380,6 @@ drivers::DriverStatus LF_Start(int32_t base_rpm, uint32_t duration_ms)
     g_state.last_sequence = 0U;
     g_state.last_frame_ms = 0U;
     g_state.processed_frame_count = 0U;
-    g_state.lost_since_ms = 0U;
     g_state.lost = false;
     g_state.road_type = data->road_type;
     g_state.position_valid = data->position_valid;
@@ -486,11 +461,7 @@ void LF_Update(void)
 
     const LineSensorSnapshot *data = LineSensor_GetSnapshot();
     if (!IsSensorFresh(data)) {
-        /* IR transport health is recoverable and already retained in its
-         * diagnostics. Stop motion, but do not latch the global vehicle fault
-         * for a transient disconnect; the operator must restart LF manually. */
-        SafetyStop((data != 0) && (data->source == LINE_SENSOR_IR3)
-            ? services::FAULT_NONE : services::FAULT_SENSOR_LOST);
+        SafetyStop(services::FAULT_SENSOR_LOST);
         return;
     }
     if (data->sequence == g_state.last_sequence) {
@@ -522,7 +493,6 @@ void LF_Update(void)
             linefollow_road_handoff::ShouldHoldForPendingRoadEvent(
                 data->road_phase)) {
             g_state.lost = false;
-            g_state.lost_since_ms = 0U;
             g_state.error_mpos = 0;
             g_state.correction_rpm = 0;
             ClearRecovery();
@@ -531,35 +501,17 @@ void LF_Update(void)
         }
         g_state.lost = true;
         g_state.error_mpos = 0;
-        if (data->source == LINE_SENSOR_ADC8) {
-            if (g_state.recovery_mode == LF_RECOVERY_NONE) {
-                BeginAdcRecovery(now);
-            } else {
-                g_state.recovery_confirm_frames = 0U;
-            }
-            (void) ApplyAdcRecovery(now, data->last_update_ms);
-            return;
+        if (g_state.recovery_mode == LF_RECOVERY_NONE) {
+            BeginAdcRecovery(now);
+        } else {
+            g_state.recovery_confirm_frames = 0U;
         }
-        if (g_state.lost_since_ms == 0U) {
-            g_state.lost_since_ms = now;
-        }
-        if (data->source == LINE_SENSOR_IR3) {
-            const uint32_t lost_ms = now - g_state.lost_since_ms;
-            if (lost_ms < g_state.lost_hold_ms) {
-                return;
-            }
-            if (lost_ms < g_state.lost_timeout_ms) {
-                (void) ApplyWheelCommand(g_state.base_rpm, 0);
-                return;
-            }
-        }
-        (void) LF_Stop();
+        (void) ApplyAdcRecovery(now, data->last_update_ms);
         return;
     }
 
     bool reset_derivative = false;
-    if ((data->source == LINE_SENSOR_ADC8) &&
-        (g_state.recovery_mode != LF_RECOVERY_NONE)) {
+    if (g_state.recovery_mode != LF_RECOVERY_NONE) {
         if (g_state.recovery_confirm_frames < UINT8_MAX) {
             g_state.recovery_confirm_frames++;
         }
@@ -572,7 +524,6 @@ void LF_Update(void)
     }
 
     g_state.lost = false;
-    g_state.lost_since_ms = 0U;
     const int32_t correction =
         CalculateCorrection(data, g_state.base_rpm, reset_derivative);
     if (ApplyWheelCommand(g_state.base_rpm, correction) == drivers::DRIVER_OK) {
@@ -592,7 +543,6 @@ bool LF_IsLineDetected(void)
         return false;
     }
     if ((g_state.mode == LF_FOLLOW) &&
-        (data->source == LINE_SENSOR_ADC8) &&
         (g_state.recovery_mode != LF_RECOVERY_NONE)) {
         return true;
     }
@@ -606,10 +556,7 @@ void LF_SetKp(int32_t kp)
 {
     if (kp >= 0) {
         g_state.kp = kp;
-        (void) ConfigStore_Set(
-            (LineSensor_GetSource() == LINE_SENSOR_IR3)
-                ? "ir_lf_kp" : "lf_kp",
-            kp);
+        (void) ConfigStore_Set("lf_kp", kp);
     }
 }
 
@@ -617,10 +564,7 @@ void LF_SetKd(int32_t kd)
 {
     if (kd >= 0) {
         g_state.kd = kd;
-        (void) ConfigStore_Set(
-            (LineSensor_GetSource() == LINE_SENSOR_IR3)
-                ? "ir_lf_kd" : "lf_kd",
-            kd);
+        (void) ConfigStore_Set("lf_kd", kd);
     }
 }
 
@@ -628,10 +572,7 @@ void LF_SetMaxCorrection(int32_t max_correction_rpm)
 {
     if (max_correction_rpm >= 0) {
         g_state.max_correction_rpm = max_correction_rpm;
-        (void) ConfigStore_Set(
-            (LineSensor_GetSource() == LINE_SENSOR_IR3)
-                ? "ir_lf_maxcorr" : "lf_maxcorr",
-            max_correction_rpm);
+        (void) ConfigStore_Set("lf_maxcorr", max_correction_rpm);
     }
 }
 
@@ -661,27 +602,8 @@ void LF_SetCorrectionSlew(uint32_t permille_per_second)
         (permille_per_second <= UINT16_MAX)) {
         g_state.correction_slew_permille_per_second = permille_per_second;
         (void) ConfigStore_Set(
-            (LineSensor_GetSource() == LINE_SENSOR_IR3)
-                ? "ir_lf_slew_permille_s" : "lf_slew_permille_s",
+            "lf_slew_permille_s",
             static_cast<int32_t>(permille_per_second));
-    }
-}
-
-void LF_SetLostHold(uint32_t hold_ms)
-{
-    if (hold_ms <= g_state.lost_timeout_ms) {
-        g_state.lost_hold_ms = hold_ms;
-        (void) ConfigStore_Set("lf_lost_hold_ms",
-                               static_cast<int32_t>(hold_ms));
-    }
-}
-
-void LF_SetLostTimeout(uint32_t timeout_ms)
-{
-    if (timeout_ms >= g_state.lost_hold_ms) {
-        g_state.lost_timeout_ms = timeout_ms;
-        (void) ConfigStore_Set("lf_lost_stop_ms",
-                               static_cast<int32_t>(timeout_ms));
     }
 }
 

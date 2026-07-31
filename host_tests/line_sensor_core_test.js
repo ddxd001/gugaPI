@@ -3,26 +3,19 @@
 const assert=require('assert');
 const core=require('../gugaPI/tools/seq_editor/line_sensor_core.js');
 
-assert.deepStrictEqual(core.pollCommands('adc8',false),
+assert.deepStrictEqual(core.pollCommands(false),
   ['linesensor status','gray live','gray calib status']);
-assert.deepStrictEqual(core.pollCommands('adc8',true),
+assert.deepStrictEqual(core.pollCommands(true),
   ['linesensor status','gray live','gray calib status',
     'gray calib preview','param status']);
-assert(core.pollCommands('adc8',true).every(command=>
-  !command.startsWith('irsensor ')),
-  'adc8 polling must never send infrared commands');
-assert(core.pollCommands('ir3',true).every(command=>
-  !command.startsWith('gray ')),
-  'ir3 polling must never send grayscale commands');
+assert(core.pollCommands(true).every(command=>!command.startsWith('ir')),
+  'polling must expose only ADC8 commands');
 
-assert.strictEqual(core.calibrationCommand('adc8','begin'),'gray calib begin');
-assert.strictEqual(core.calibrationCommand('adc8','white'),'gray calib white 64');
-assert.strictEqual(core.calibrationCommand('adc8','black'),'gray calib black 64');
-assert.strictEqual(core.calibrationCommand('adc8','preview'),'gray calib preview');
-assert.strictEqual(core.calibrationCommand('ir3','white'),
-  'irsensor calib capture white');
-assert.strictEqual(core.calibrationCommand('ir3','center'),
-  'irsensor calib capture center');
+assert.strictEqual(core.calibrationCommand('begin'),'gray calib begin');
+assert.strictEqual(core.calibrationCommand('white'),'gray calib white 64');
+assert.strictEqual(core.calibrationCommand('black'),'gray calib black 64');
+assert.strictEqual(core.calibrationCommand('preview'),'gray calib preview');
+assert.strictEqual(core.calibrationCommand('center'),'');
 
 const values=core.parseKv(
   'valid=1 seq=9 raw=1,2,3,4,5,6,7,8 status=ok');

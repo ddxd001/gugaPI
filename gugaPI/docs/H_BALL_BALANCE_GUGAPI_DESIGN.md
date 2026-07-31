@@ -65,7 +65,7 @@ ActionRunner 20 Hz
 - `board/board_ball_vision`：UART4资源绑定，PB22作为RX连接MaixCAM TX；
 - `app/ball_vision`：固定帧解析、CRC、统计、新鲜度和有效性。
 
-建议使用UART RX中断和256字节环形缓冲。数据量较小，不占用当前已经用于调试串口、OLED和IR3的DMA资源。ISR只搬运字节和记录错误，协议解析在1～2 ms前台任务中完成。
+建议使用UART RX中断和256字节环形缓冲。数据量较小，不占用当前已经用于调试串口和OLED的DMA资源。ISR只搬运字节和记录错误，协议解析在1～2 ms前台任务中完成。
 
 调试接口：
 
@@ -214,12 +214,7 @@ competition profile当前关闭OLED，H题版本必须重新开启。OLED至少�
 滚球参数先提交RAM并在下一次 `hold/move` 采用，五点映射通过单条
 `ball map` 原子提交，二者均只有显式 `param save` 才写入FRAM。
 
-最新代码默认线路传感器为IR3。若比赛实车使用8路ADC板，必须明确执行并保存：
-
-```text
-param set line_sensor_source 0
-param save
-```
+线路传感器固定使用八路 ADC 灰度板，无需配置来源。
 
 ## 7. 实施顺序
 

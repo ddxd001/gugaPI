@@ -80,7 +80,6 @@ void Reset()
     g_gray.position_valid = true;
     g_gray.last_update_ms = g_now;
     g_line_sensor = app::LineSensorSnapshot();
-    g_line_sensor.source = app::LINE_SENSOR_ADC8;
     g_line_sensor.valid = true;
     g_line_sensor.fresh = true;
     g_line_sensor.calibrated = true;

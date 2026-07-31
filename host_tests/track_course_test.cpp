@@ -64,7 +64,6 @@ void Reset()
     g_chassis.last_feedback_status = drivers::DRIVER_OK;
 
     g_line = app::LineSensorSnapshot();
-    g_line.source = app::LINE_SENSOR_ADC8;
     g_line.valid = true;
     g_line.fresh = true;
     g_line.calibrated = true;
@@ -110,7 +109,6 @@ namespace app {
 
 const ChassisState *Chassis_GetState(void) { return &g_chassis; }
 const LineSensorSnapshot *LineSensor_GetSnapshot(void) { return &g_line; }
-LineSensorSource LineSensor_GetSource(void) { return g_line.source; }
 bool LineSensor_IsReadyForMotion(void)
 {
     return g_line.valid && g_line.fresh && g_line.calibrated &&

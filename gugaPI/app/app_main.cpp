@@ -2,7 +2,6 @@
 
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
-#include "app/app_infrared_sensor.h"
 #include "app/app_jyme02_can.h"
 #include "app/app_large_timer.h"
 #include "app/app_can_bus.h"
@@ -145,43 +144,17 @@ void App_ActionTask(void)
 #endif
 
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
-/* The real UART sensor publishes a complete frame in about 1.30 ms. Polling
- * the unified sequence at 2 ms keeps last-byte-to-wheel-command latency below
- * 5 ms without running PID or chassis code inside the UART ISR. Duplicate
- * sequence numbers remain no-ops for the slower 8-channel ADC source. */
+/* Poll the processed ADC8 sequence at 2 ms. Duplicate sequence numbers remain
+ * no-ops until the next complete grayscale frame is published. */
 const uint32_t LINEFOLLOW_PERIOD_MS = 2U;
 
 void App_LineFollowTask(void)
 {
 #if FEATURE_ENABLE_IMU
-    if (app::LineSensor_IsRoadCapable()) {
-        app::RoadEventController_Update();
-    }
+    app::RoadEventController_Update();
 #endif
     app::LF_Update();
     app::TrackCourse_Update();
-}
-#endif
-
-#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
-void App_InfraredLineTask(void)
-{
-    app::App_InfraredSensorUpdate();
-#if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
-    /* IR3 frames are already decoded in this foreground task. Let an active
-     * line follower consume the newly published sequence immediately instead
-     * of waiting for the independent 2 ms safety/control task. LF_Update()
-     * ignores duplicate sequence numbers, so the regular task remains the
-     * watchdog path without issuing a second wheel command. */
-    const app::LFState *linefollow = app::LF_GetState();
-    const app::AppInfraredSensorData *infrared =
-        app::App_InfraredSensorGetData();
-    if ((app::LineSensor_GetSource() == app::LINE_SENSOR_IR3) &&
-        (linefollow->mode == app::LF_FOLLOW) &&
-        (infrared->frame.sequence != linefollow->last_sequence)) {
-        app::LF_Update();
-    }
-#endif
 }
 #endif
 
@@ -1118,16 +1091,6 @@ void App_Init(void)
 #endif
     CompetitionSelectInitialSlot();
     AppShell_DisableOledStreams();
-#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
-    app::App_InfraredSensorInit();
-    if (services::Scheduler_AddTask("infrared_line",
-                                    App_InfraredLineTask,
-                                    1U,
-                                    0U,
-                                    0) != services::SCHEDULER_OK) {
-        services::Fault_Set(services::FAULT_UNKNOWN);
-    }
-#endif
 #if FEATURE_ENABLE_BALL_VISION
     app::BallVision_Init();
     if (services::Scheduler_AddTask("ball_vision",

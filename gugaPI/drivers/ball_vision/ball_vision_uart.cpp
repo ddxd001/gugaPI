@@ -30,6 +30,18 @@ void PushFromIsr(BallVisionUartContext *context, uint8_t data)
     context->rx_head = next;
 }
 
+bool WaitTxFifoSpace(const BallVisionUartConfig *config)
+{
+    uint32_t timeout = config->tx_timeout_iterations;
+    while (DL_UART_Main_isTXFIFOFull(config->uart)) {
+        if (timeout == 0U) {
+            return false;
+        }
+        timeout--;
+    }
+    return true;
+}
+
 } /* namespace */
 
 DriverStatus BallVisionUart_Init(BallVisionUartContext *context,
@@ -37,6 +49,9 @@ DriverStatus BallVisionUart_Init(BallVisionUartContext *context,
 {
     if ((context == 0) || (config == 0) || (config->uart == 0) ||
         (config->rx_buffer == 0) || (config->rx_buffer_size < 2U)) {
+        return DRIVER_ERROR_INVALID_ARG;
+    }
+    if (config->tx_timeout_iterations == 0U) {
         return DRIVER_ERROR_INVALID_ARG;
     }
 
@@ -51,6 +66,26 @@ DriverStatus BallVisionUart_Init(BallVisionUartContext *context,
     NVIC_ClearPendingIRQ(config->irq);
     context->initialized = true;
     NVIC_EnableIRQ(config->irq);
+    return DRIVER_OK;
+}
+
+DriverStatus BallVisionUart_Write(BallVisionUartContext *context,
+                                  const uint8_t *data,
+                                  uint16_t length)
+{
+    if ((context == 0) || (!context->initialized) ||
+        (context->config == 0)) {
+        return DRIVER_ERROR_NOT_INITIALIZED;
+    }
+    if ((data == 0) && (length != 0U)) {
+        return DRIVER_ERROR_INVALID_ARG;
+    }
+    for (uint16_t i = 0U; i < length; i++) {
+        if (!WaitTxFifoSpace(context->config)) {
+            return DRIVER_ERROR_TIMEOUT;
+        }
+        DL_UART_Main_transmitData(context->config->uart, data[i]);
+    }
     return DRIVER_OK;
 }
 

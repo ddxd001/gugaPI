@@ -32,8 +32,12 @@ single-byte commit state.
 state byte last. Loading selects the newest valid generation with wrap-safe
 comparison. An interrupted save therefore leaves the previous bank usable.
 
-The current payload is 315 bytes and includes all chassis, sensor, infrared,
+The current payload is 315 bytes and includes all chassis, ADC8 sensor,
 DM-G6220, ball-balance, line-follow deadband, and built-in task 0 parameters.
+The retired three-channel infrared region remains a 20-byte zero-filled
+reserved slot, and the retired loss-policy fields remain a 4-byte zero-filled
+reserved slot, preserving all following v1 offsets. Legacy nonzero values in
+those slots are ignored while loading.
 The deployed 305-byte base payload and 307-byte steering extension remain
 readable; fields absent from those records take current safe defaults.
 

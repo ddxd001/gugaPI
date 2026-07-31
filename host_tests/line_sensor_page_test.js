@@ -10,8 +10,8 @@ const page=fs.readFileSync(path.join(root,'gugaPI/tools/seq_editor/app9.js'),'ut
 const shell=fs.readFileSync(path.join(root,'gugaPI/app/app_shell.cpp'),'utf8');
 const ids=new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(match=>match[1]));
 
-for(const id of ['lineIrCalibration','lineAdcCalibration','lineIrLive',
-  'lineAdcLive','lineSourcePending','grayChannelBars','grayPreviewRows',
+for(const id of ['lineAdcCalibration','lineAdcLive','lineSensorReady',
+  'lineSensorValid','lineSensorAge','grayChannelBars','grayPreviewRows',
   'grayCalProgress','grayCalNotice','btnGrayCalBegin','btnGrayCalWhite',
   'btnGrayCalBlack','btnGrayCalCommit','btnGrayCalCancel','btnLineSave',
   'graySimControls','btnGraySimFailure','btnGraySimTimeout']){
@@ -19,16 +19,13 @@ for(const id of ['lineIrCalibration','lineAdcCalibration','lineIrLive',
 }
 assert(html.indexOf('line_sensor_core.js')<html.indexOf('app9.js'),
   'line sensor core must load before its page controller');
-assert(/var source=lineSensorState\.active\|\|'ir3'/.test(page),
-  'the visible pane must follow the applied source');
-assert(/selected!==lineSensorState\.active/.test(page)&&
-       page.includes('请先应用到 RAM'),
-  'a selected but unapplied source needs an explicit warning');
+assert(!/irsensor|ir3|lineIr|三路串口红外/i.test(html+page),
+  'the ADC8-only page must not expose retired infrared controls');
 assert(page.includes("values.valid==='1'&&Number.isFinite(age)&&age<=200"),
   'ADC8 calibration controls must require a fresh valid frame');
 assert(page.includes("gray.last==='timeout'")&&page.includes('500 ms'),
   'the UI must explain stalled ADC8 capture');
-assert(page.includes("lineSensorCommand('adc8','commit')")&&
+assert(page.includes("lineSensorCommand('commit')")&&
        page.includes('提交到 RAM')&&page.includes("lineSensorAction('param save'"),
   'RAM commit and FRAM save must remain separate actions');
 assert(page.includes('btnGraySimFailure')&&page.includes('btnGraySimTimeout'),

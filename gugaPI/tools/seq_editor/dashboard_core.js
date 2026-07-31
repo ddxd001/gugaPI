@@ -43,7 +43,6 @@
     {key:'turn',label:'转向过程'},
     {key:'imu',label:'IMU'},
     {key:'gray',label:'灰度传感器'},
-    {key:'infrared',label:'三路串口红外'},
     {key:'system',label:'系统健康'}
   ];
   var CHARTS=[
@@ -145,26 +144,6 @@
       s('gray_error_count','灰度错误计数','次','灰度采样累计错误次数。',{step:true})]),
     chart('gray','gray_age','灰度数据年龄','距离最近采样的时间','ms',[
       s('gray_age_ms','灰度数据年龄','ms','当前时刻距离最近有效灰度采样的时间。')]),
-
-    chart('infrared','ir_line','红外线路数据','模块偏差、三路 ADC 与通信状态','裸值',[
-      s('ir_offset_raw','模块原始偏差','raw','红外模块已经计算好的有符号线路偏差。'),
-      s('ir_position_mpos','标准化位置','mpos','标定方向和量程后换算到循迹控制器的位置。'),
-      s('ir_all_black','全黑标志','0/1','模块回传值 1 表示三路处于全黑；全黑不会被当作丢线。',{step:true,enumType:'boolean'}),
-      s('ir_adc1','左路 ADC','ADC','三路红外传感器的左侧裸 ADC，黑色为高值。'),
-      s('ir_adc2','中路 ADC','ADC','三路红外传感器的中间裸 ADC，黑色为高值。'),
-      s('ir_adc3','右路 ADC','ADC','三路红外传感器的右侧裸 ADC，黑色为高值。'),
-      s('ir_valid','数据有效','0/1','当前快照未过期且最近帧 CRC 正确。',{step:true,enumType:'boolean'}),
-      s('ir_age_ms','数据年龄','ms','距离最近一帧有效数据的时间。'),
-      s('ir_period_ms','实测帧周期','ms','根据有效帧间隔自动估算的发送周期。'),
-      s('ir_crc_errors','CRC 错误累计','次','Modbus CRC16 校验失败的累计帧数。',{step:true}),
-      s('ir_dropped','接收丢弃累计','字节','DMA 循环缓冲被覆盖时丢弃的字节数。',{step:true}),
-      s('ir_comm','通信状态','状态码','0 启动中、1 正常、2 降级、3 故障；保留裸状态码用于诊断。',{step:true}),
-      s('ir_dma_lag','DMA 当前积压','字节','DMA 已接收但前台尚未消费的字节数。'),
-      s('ir_dma_max_lag','DMA 最大积压','字节','本次统计周期观察到的最大接收积压。'),
-      s('ir_dma_overwrites','DMA 覆盖累计','次','前台超过 128 字节未消费导致循环缓冲覆盖的次数。',{step:true}),
-      s('ir_dma_faults','DMA 故障累计','次','DMA 地址或数据错误触发接收链路重建的次数。',{step:true}),
-      s('ir_latency_us','控制延迟','us','最近有效帧完成解包到循迹轮速目标下发的时间。'),
-      s('ir_latency_max_us','最大控制延迟','us','本次统计周期观察到的最大控制延迟。')]),
 
     chart('system','fault','系统故障','故障码与累计次数','状态/次',[
       s('fault_code','当前故障码','状态码','系统当前锁存的 FaultCode。',{step:true}),

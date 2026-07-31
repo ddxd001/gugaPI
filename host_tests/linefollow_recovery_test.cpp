@@ -4,7 +4,6 @@
 #include <stdint.h>
 
 #include "app/app_grayscale.h"
-#include "app/app_infrared_sensor.h"
 #include "app/chassis.h"
 #include "app/config_store.h"
 #include "app/line_sensor.h"
@@ -77,7 +76,6 @@ void ResetFixture(void)
 {
     g_now = 1000U;
     g_line = {};
-    g_line.source = app::LINE_SENSOR_ADC8;
     g_chassis = {};
     g_params = {};
     g_params.linefollow_kp = 4000;
@@ -86,12 +84,6 @@ void ResetFixture(void)
     g_params.linefollow_max_steering_permille = 400U;
     g_params.linefollow_deadband_mpos = 20U;
     g_params.linefollow_correction_slew_permille_per_second = 25000U;
-    g_params.linefollow_lost_hold_ms = 150U;
-    g_params.linefollow_lost_stop_ms = 500U;
-    g_params.infrared_linefollow_kp = 4000;
-    g_params.infrared_linefollow_kd = 600;
-    g_params.infrared_linefollow_max_correction_rpm = 30U;
-    g_params.infrared_linefollow_correction_slew_permille_per_second = 25000U;
     g_calibration = {};
     g_fault = services::FAULT_NONE;
     g_stop_count = 0U;
@@ -142,11 +134,6 @@ drivers::DriverStatus ConfigStore_Set(const char *, int32_t)
     return drivers::DRIVER_OK;
 }
 
-LineSensorSource LineSensor_GetSource(void)
-{
-    return g_line.source;
-}
-
 const LineSensorSnapshot *LineSensor_GetSnapshot(void)
 {
     return &g_line;
@@ -184,10 +171,6 @@ drivers::DriverStatus App_GrayscaleStartSweepCalibration(uint32_t)
 }
 
 void App_GrayscaleCancelCalibration(void)
-{
-}
-
-void App_InfraredSensorRecordControlLatency(uint32_t)
 {
 }
 

@@ -187,7 +187,6 @@ drivers::DriverStatus TrackCourse_CheckStartReady(
         return drivers::DRIVER_ERROR_INVALID_ARG;
     }
     if (services::Fault_HasFault() ||
-        (LineSensor_GetSource() != LINE_SENSOR_ADC8) ||
         !LineSensor_IsReadyForMotion() ||
         !ChassisFeedbackFresh(chassis, now) || (line == 0) ||
         !line->valid || !line->fresh || !line->calibrated ||

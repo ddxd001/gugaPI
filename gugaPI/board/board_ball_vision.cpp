@@ -11,6 +11,7 @@ uint8_t g_rxBuffer[BOARD_BALL_VISION_RX_BUFFER_SIZE];
 const drivers::BallVisionUartConfig g_config = {
     BOARD_BALL_VISION_UART_INST,
     BOARD_BALL_VISION_UART_IRQN,
+    BOARD_BALL_VISION_TX_TIMEOUT_ITERATIONS,
     g_rxBuffer,
     BOARD_BALL_VISION_RX_BUFFER_SIZE
 };
@@ -34,6 +35,12 @@ drivers::DriverStatus Board_BallVisionInit(void)
 {
     ConfigureRxPullUp();
     return drivers::BallVisionUart_Init(&g_context, &g_config);
+}
+
+drivers::DriverStatus Board_BallVisionWrite(const uint8_t *data,
+                                            uint16_t length)
+{
+    return drivers::BallVisionUart_Write(&g_context, data, length);
 }
 
 bool Board_BallVisionReadByte(uint8_t *data)

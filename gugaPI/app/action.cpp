@@ -514,15 +514,13 @@ bool ReadConditionValue(const ActionConditionConfig &condition,
         *value = line_sensor->position_confidence;
         return true;
     case ACT_SOURCE_ROAD_TYPE:
-        if (!IsLineSensorFresh(line_sensor) ||
-            !line_sensor->road_capable) {
+        if (!IsLineSensorFresh(line_sensor)) {
             return false;
         }
         *value = static_cast<int32_t>(line_sensor->road_type);
         return true;
     case ACT_SOURCE_ROAD_EVENT_TYPE:
-        if (!IsLineSensorFresh(line_sensor) ||
-            !line_sensor->road_capable) {
+        if (!IsLineSensorFresh(line_sensor)) {
             return false;
         }
         *value = (wait_for_new_event &&
@@ -532,8 +530,7 @@ bool ReadConditionValue(const ActionConditionConfig &condition,
             static_cast<int32_t>(line_sensor->road_event_type);
         return true;
     case ACT_SOURCE_ROAD_EVENT_PATHS:
-        if (!IsLineSensorFresh(line_sensor) ||
-            !line_sensor->road_capable) {
+        if (!IsLineSensorFresh(line_sensor)) {
             return false;
         }
         *value = (wait_for_new_event &&
@@ -633,7 +630,7 @@ void PrepareCondition(const Instr *instr)
             chassis->right.encoder_count;
     }
     const LineSensorSnapshot *line_sensor = LineSensor_GetSnapshot();
-    if ((line_sensor != 0) && line_sensor->road_capable) {
+    if (line_sensor != 0) {
         g_conditionRuntime.start_road_event_sequence =
             line_sensor->road_event_sequence;
     }

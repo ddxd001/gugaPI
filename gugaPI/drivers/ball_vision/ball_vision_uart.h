@@ -12,6 +12,7 @@ namespace drivers {
 struct BallVisionUartConfig {
     UART_Regs *uart;
     IRQn_Type irq;
+    uint32_t tx_timeout_iterations;
     uint8_t *rx_buffer;
     uint16_t rx_buffer_size;
 };
@@ -28,6 +29,9 @@ struct BallVisionUartContext {
 
 DriverStatus BallVisionUart_Init(BallVisionUartContext *context,
                                  const BallVisionUartConfig *config);
+DriverStatus BallVisionUart_Write(BallVisionUartContext *context,
+                                  const uint8_t *data,
+                                  uint16_t length);
 bool BallVisionUart_ReadByte(BallVisionUartContext *context, uint8_t *data);
 void BallVisionUart_Clear(BallVisionUartContext *context);
 void BallVisionUart_IrqHandler(BallVisionUartContext *context);

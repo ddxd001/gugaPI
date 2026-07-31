@@ -113,7 +113,7 @@ int main(void)
 
     (void) memset(g_fram, 0xCC, sizeof(g_fram));
     ConfigStore_ResetDefaults();
-    assert(ConfigStore_ParamCount() == 141U);
+    assert(ConfigStore_ParamCount() == 130U);
     assert(ConfigStore_Get()->linefollow_max_steering_permille == 400U);
     assert(ConfigStore_Get()->linefollow_deadband_mpos == 20U);
     assert(ConfigStore_Get()->task0_cruise_rpm == 110U);
@@ -140,6 +140,18 @@ int main(void)
     assert(ConfigStore_GetStatus()->active_bank == 0U);
     assert(ConfigStore_GetStatus()->generation == 1U);
     assert(ConfigStore_GetStatus()->payload_capacity == 1004U);
+
+    /* The retired 20-byte infrared payload remains reserved so every later
+     * field keeps its deployed v1 offset. New images always zero the slot. */
+    for (uint16_t i = 0U; i < 20U; i++) {
+        assert(g_fram[16U + 243U + i] == 0U);
+        g_fram[16U + 243U + i] = static_cast<uint8_t>(0x80U + i);
+    }
+    WriteU32(&g_fram[16U + 315U], ConfigBankCrc(&g_fram[0], 315U));
+    ConfigStore_ResetDefaults();
+    assert(ConfigStore_Load() == drivers::DRIVER_OK);
+    assert(ConfigStore_Get()->heading_kp == 4321);
+    assert(ConfigStore_Get()->ball_kp_mdeg_per_0p1mm == 10);
 
     /* The preceding steering-only 307-byte extension remains readable; new
      * soft-deadband and task 0 fields receive current defaults. */
@@ -182,6 +194,9 @@ int main(void)
     assert(ReadU32(&g_fram[0x0408]) == 2U);
     assert(ReadU16(&g_fram[0x0406]) == 315U);
     assert(g_fram[0x040CU] == 0xA5U);
+    for (uint16_t i = 0U; i < 20U; i++) {
+        assert(g_fram[0x0400U + 16U + 243U + i] == 0U);
+    }
     assert(ConfigStore_GetStatus()->active_bank == 1U);
 
     ConfigStore_ResetDefaults();

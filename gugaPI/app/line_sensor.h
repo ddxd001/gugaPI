@@ -10,21 +10,12 @@
 
 namespace app {
 
-enum LineSensorSource : uint8_t {
-    LINE_SENSOR_ADC8 = 0U,
-    LINE_SENSOR_IR3 = 1U
-};
-
 struct LineSensorSnapshot {
-    LineSensorSource source;
     bool valid;
     bool fresh;
     bool calibrated;
     bool line_detected;
-    bool all_black;
     bool position_valid;
-    bool road_capable;
-    int16_t raw_offset;
     int16_t line_position;
     uint16_t line_strength;
     uint16_t position_confidence;
@@ -48,13 +39,8 @@ struct LineSensorSnapshot {
 };
 
 void LineSensor_Init(void);
-drivers::DriverStatus LineSensor_SetSource(LineSensorSource source);
-drivers::DriverStatus LineSensor_ApplyConfiguredSource(void);
-LineSensorSource LineSensor_GetSource(void);
 const LineSensorSnapshot *LineSensor_GetSnapshot(void);
-bool LineSensor_IsRoadCapable(void);
 bool LineSensor_IsReadyForMotion(void);
-const char *LineSensor_SourceText(LineSensorSource source);
 
 } /* namespace app */
 

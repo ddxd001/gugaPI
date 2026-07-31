@@ -1800,7 +1800,7 @@ heading stop
 
 8 路灰度循迹。需先标定再循迹。灰度任务周期为 1 ms，中间六路位置帧约 7 ms；2 ms 周期任务 `LF_Update` 只在帧序号变化时消费结果。连续位置由 `track_mask=0x7E` 的中间六路插值，全八路迟滞位图独立识别道路类型，最外侧 0、7 路不拉动循迹质心。除强迟滞位外，冷启动也接受最多两路、单一连续段的窄模拟证据。单路继续使用`max(min_line_strength/2, threshold-position_floor)`门槛；两路相邻的探头间隙响应使用`max(min_line_strength/4, (threshold-position_floor)/3)`门槛，使当前实机约184的相邻总强度可以获取，同时仍拒绝低能量、分离弱峰和宽弱响应。
 
-安全机制：灰度原始数据无效或超过 200 ms、通道诊断异常、底盘通信失败或全局故障 → 立即停车。弱但仍满足 `line_detected=1、position_valid=1、track_state=valid` 的位置继续参与正常 PID，不再被巡线层当作丢线。ADC8 几何真正变为 `lost/multiple/wide` 时，锁存并持续重发丢线前最后一组左右轮目标，不减速、不受 `losttimeout` 限制；连续 3 个有效位置帧重新捕线后清除微分历史并恢复 PID。人工 `lf stop`、动作时限结束和上述硬件故障仍可结束这种搜索运动。
+安全机制：灰度原始数据无效或超过 200 ms、通道诊断异常、底盘通信失败或全局故障 → 立即停车。弱但仍满足 `line_detected=1、position_valid=1、track_state=valid` 的位置继续参与正常 PID，不再被巡线层当作丢线。ADC8 几何真正变为 `lost/multiple/wide` 时，锁存并持续重发丢线前最后一组左右轮目标；连续 3 个有效位置帧重新捕线后清除微分历史并恢复 PID。人工 `lf stop`、动作时限结束和上述硬件故障仍可结束这种搜索运动。
 
 ### `lf status`
 
@@ -1917,22 +1917,6 @@ param save
 ```text
 lf slew 25000
 param save
-```
-
-### `lf losthold <ms>`
-
-设置 IR3 来源丢线后的保持时间，必须不大于 `losttimeout`。ADC8 使用“保持最后双轮速度直到重新捕线”策略，不读取此参数。默认值为 150 ms。
-
-```text
-lf losthold 150
-```
-
-### `lf losttimeout <ms>`
-
-设置 IR3 来源持续丢线后的停车时间（`1..10000` ms），必须不小于 `losthold`。ADC8 几何丢失不会因该时间到期而停车；仍可由人工停止、动作时限、硬件异常或全局故障终止。默认值为 500 ms。
-
-```text
-lf losttimeout 1000
 ```
 
 ## 路口事件

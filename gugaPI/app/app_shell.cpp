@@ -7,7 +7,6 @@
 #include "app/chassis.h"
 #include "app/app_grayscale.h"
 #include "app/app_imu.h"
-#include "app/app_infrared_sensor.h"
 #include "app/app_ina219.h"
 #include "app/app_jyme02_can.h"
 #include "app/dm_g6220_controller.h"
@@ -27,13 +26,13 @@
 #include "app/track_course.h"
 #include "board/board_buzzer.h"
 #include "board/board_button.h"
+#include "board/board_ball_vision.h"
 #include "board/board_can.h"
 #include "board/board_config.h"
 #include "board/board_fram.h"
 #include "board/board_gy931.h"
 #include "board/board_grayscale.h"
 #include "board/board_ina219.h"
-#include "board/board_infrared_sensor.h"
 #include "board/board_imu.h"
 #include "board/board_i2c_bus.h"
 #include "board/board_led.h"
@@ -199,7 +198,6 @@ enum TelemProfile {
     TELEM_PROFILE_GRAY_RAW,
     TELEM_PROFILE_GRAY_HEALTH,
     TELEM_PROFILE_GRAY_AGE,
-    TELEM_PROFILE_IR_LINE,
     TELEM_PROFILE_BALL,
     TELEM_PROFILE_FAULT,
     TELEM_PROFILE_UART
@@ -244,37 +242,8 @@ uint8_t CountTextCells(const char *text, uint8_t max_cells)
 }
 #endif
 
-#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
 const char *DriverStatusText(drivers::DriverStatus status);
-void WriteInt32(int32_t value);
 void WriteStatusLine(const char *prefix, drivers::DriverStatus status);
-
-void PrintLineSensorStatus(void)
-{
-    const LineSensorSnapshot *snapshot = LineSensor_GetSnapshot();
-    const ConfigStoreParams *params = ConfigStore_Get();
-    services::Shell_WriteString("linesensor active=");
-    services::Shell_WriteString(LineSensor_SourceText(snapshot->source));
-    services::Shell_WriteString(" configured=");
-    services::Shell_WriteString(LineSensor_SourceText(
-        (params->line_sensor_source == LINE_SENSOR_SOURCE_ADC8)
-            ? LINE_SENSOR_ADC8 : LINE_SENSOR_IR3));
-    services::Shell_WriteString(" ready=");
-    services::Shell_WriteUInt32(LineSensor_IsReadyForMotion() ? 1U : 0U);
-    services::Shell_WriteString(" valid=");
-    services::Shell_WriteUInt32(snapshot->valid ? 1U : 0U);
-    services::Shell_WriteString(" fresh=");
-    services::Shell_WriteUInt32(snapshot->fresh ? 1U : 0U);
-    services::Shell_WriteString(" calibrated=");
-    services::Shell_WriteUInt32(snapshot->calibrated ? 1U : 0U);
-    services::Shell_WriteString(" road_capable=");
-    services::Shell_WriteUInt32(snapshot->road_capable ? 1U : 0U);
-    services::Shell_WriteString(" age_ms=");
-    services::Shell_WriteUInt32(snapshot->age_ms);
-    services::Shell_WriteString(" status=");
-    services::Shell_WriteString(DriverStatusText(snapshot->last_status));
-    services::Shell_WriteString("\r\n");
-}
 
 bool StrStartsWith(const char *text, const char *prefix)
 {
@@ -291,305 +260,32 @@ bool StrStartsWith(const char *text, const char *prefix)
     return true;
 }
 
+#if FEATURE_ENABLE_GRAYSCALE
+void PrintLineSensorStatus(void)
+{
+    const LineSensorSnapshot *snapshot = LineSensor_GetSnapshot();
+    services::Shell_WriteString("linesensor source=adc8 ready=");
+    services::Shell_WriteUInt32(LineSensor_IsReadyForMotion() ? 1U : 0U);
+    services::Shell_WriteString(" valid=");
+    services::Shell_WriteUInt32(snapshot->valid ? 1U : 0U);
+    services::Shell_WriteString(" fresh=");
+    services::Shell_WriteUInt32(snapshot->fresh ? 1U : 0U);
+    services::Shell_WriteString(" calibrated=");
+    services::Shell_WriteUInt32(snapshot->calibrated ? 1U : 0U);
+    services::Shell_WriteString(" age_ms=");
+    services::Shell_WriteUInt32(snapshot->age_ms);
+    services::Shell_WriteString(" status=");
+    services::Shell_WriteString(DriverStatusText(snapshot->last_status));
+    services::Shell_WriteString("\r\n");
+}
+
 void LineSensorCommand(int argc, const char * const argv[])
 {
     if ((argc == 2) && StrEqual(argv[1], "status")) {
         PrintLineSensorStatus();
         return;
     }
-    if ((argc == 3) && StrEqual(argv[1], "source")) {
-        LineSensorSource source;
-        if (StrEqual(argv[2], "adc8")) {
-            source = LINE_SENSOR_ADC8;
-        } else if (StrEqual(argv[2], "ir3")) {
-            source = LINE_SENSOR_IR3;
-        } else {
-            services::Shell_WriteLine(
-                "usage: linesensor status|source <adc8|ir3>");
-            return;
-        }
-        const drivers::DriverStatus status = LineSensor_SetSource(source);
-        services::Shell_WriteString("linesensor source: ");
-        services::Shell_WriteString(DriverStatusText(status));
-        services::Shell_WriteString(" active=");
-        services::Shell_WriteString(LineSensor_SourceText(
-            LineSensor_GetSource()));
-        services::Shell_WriteString(" dirty=");
-        services::Shell_WriteUInt32(ConfigStore_GetStatus()->dirty ? 1U : 0U);
-        services::Shell_WriteString("\r\n");
-        return;
-    }
-    services::Shell_WriteLine(
-        "usage: linesensor status|source <adc8|ir3>");
-}
-
-InfraredCalibrationStep ParseInfraredCalibrationStep(const char *text)
-{
-    if (StrEqual(text, "white")) return IR_CAL_STEP_WHITE;
-    if (StrEqual(text, "black")) return IR_CAL_STEP_BLACK;
-    if (StrEqual(text, "center")) return IR_CAL_STEP_CENTER;
-    if (StrEqual(text, "left")) return IR_CAL_STEP_LEFT;
-    if (StrEqual(text, "right")) return IR_CAL_STEP_RIGHT;
-    return IR_CAL_STEP_NONE;
-}
-
-void PrintInfraredCalibrationStatus(void)
-{
-    const AppInfraredCalibrationStatus *status =
-        App_InfraredCalibrationGetStatus();
-    services::Shell_WriteString("irsensor calib active=");
-    services::Shell_WriteUInt32(status->active ? 1U : 0U);
-    services::Shell_WriteString(" step=");
-    services::Shell_WriteString(
-        App_InfraredCalibrationStepText(status->capturing));
-    services::Shell_WriteString(" samples=");
-    services::Shell_WriteUInt32(status->sample_count);
-    services::Shell_WriteString("/");
-    services::Shell_WriteUInt32(status->target_samples);
-    services::Shell_WriteString(" ready=");
-    services::Shell_WriteUInt32(status->white_ready ? 1U : 0U);
-    services::Shell_WriteUInt32(status->black_ready ? 1U : 0U);
-    services::Shell_WriteUInt32(status->center_ready ? 1U : 0U);
-    services::Shell_WriteUInt32(status->left_ready ? 1U : 0U);
-    services::Shell_WriteUInt32(status->right_ready ? 1U : 0U);
-    services::Shell_WriteString(" white=");
-    services::Shell_WriteUInt32(status->white_level);
-    services::Shell_WriteString(" black=");
-    services::Shell_WriteUInt32(status->black_level);
-    services::Shell_WriteString(" center=");
-    WriteInt32(status->center_offset);
-    services::Shell_WriteString(" left=");
-    WriteInt32(status->left_offset);
-    services::Shell_WriteString(" right=");
-    WriteInt32(status->right_offset);
-    services::Shell_WriteString(" status=");
-    services::Shell_WriteString(DriverStatusText(status->last_status));
-    services::Shell_WriteString("\r\n");
-}
-
-void InfraredSensorCommand(int argc, const char * const argv[])
-{
-    const AppInfraredSensorData *data = App_InfraredSensorGetData();
-    const uint32_t now = services::Time_Millis();
-    if ((argc == 2) && StrEqual(argv[1], "status")) {
-        services::Shell_WriteString("irsensor ready=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorIsReady() ? 1U : 0U);
-        services::Shell_WriteString(" valid=");
-        services::Shell_WriteUInt32(data->valid ? 1U : 0U);
-        services::Shell_WriteString(" fresh=");
-        services::Shell_WriteUInt32(
-            App_InfraredSensorIsFresh(now) ? 1U : 0U);
-        services::Shell_WriteString(" calibrated=");
-        services::Shell_WriteUInt32(data->calibrated ? 1U : 0U);
-        services::Shell_WriteString(" line=");
-        services::Shell_WriteUInt32(data->line_detected ? 1U : 0U);
-        services::Shell_WriteString(" all_black=");
-        services::Shell_WriteUInt32(data->all_black ? 1U : 0U);
-        services::Shell_WriteString(" age_ms=");
-        services::Shell_WriteUInt32(data->valid
-            ? static_cast<uint32_t>(now - data->frame.received_ms) : 0U);
-        services::Shell_WriteString(" timeout_ms=");
-        services::Shell_WriteUInt32(data->stale_timeout_ms);
-        services::Shell_WriteString(" status=");
-        services::Shell_WriteString(DriverStatusText(data->last_status));
-        services::Shell_WriteString("\r\n");
-        return;
-    }
-    if ((argc == 2) && StrEqual(argv[1], "raw")) {
-        services::Shell_WriteString("irsensor raw seq=");
-        services::Shell_WriteUInt32(data->frame.sequence);
-        services::Shell_WriteString(" offset_raw=");
-        WriteInt32(data->frame.offset);
-        services::Shell_WriteString(" position_mpos=");
-        WriteInt32(data->position_mpos);
-        services::Shell_WriteString(" all_black=");
-        services::Shell_WriteUInt32(data->frame.all_black);
-        for (uint8_t i = 0U; i < 3U; i++) {
-            services::Shell_WriteString(" adc");
-            services::Shell_WriteUInt32(i + 1U);
-            services::Shell_WriteString("=");
-            services::Shell_WriteUInt32(data->frame.adc[i]);
-        }
-        services::Shell_WriteString(" on=");
-        services::Shell_WriteUInt32(data->threshold_on);
-        services::Shell_WriteString(" off=");
-        services::Shell_WriteUInt32(data->threshold_off);
-        services::Shell_WriteString("\r\n");
-        return;
-    }
-    if ((argc == 2) && StrEqual(argv[1], "stats")) {
-        const uint64_t candidate_frames =
-            static_cast<uint64_t>(data->parser_stats.valid_frames) +
-            data->parser_stats.crc_errors;
-        const uint32_t valid_permille = (candidate_frames == 0U) ? 0U :
-            static_cast<uint32_t>(
-                (static_cast<uint64_t>(data->parser_stats.valid_frames) *
-                 1000U) / candidate_frames);
-        const uint32_t crc_error_permille = (candidate_frames == 0U) ? 0U :
-            static_cast<uint32_t>(
-                (static_cast<uint64_t>(data->parser_stats.crc_errors) *
-                 1000U) / candidate_frames);
-        services::Shell_WriteString("irsensor stats bytes=");
-        services::Shell_WriteUInt32(data->parser_stats.bytes_received);
-        services::Shell_WriteString(" frames=");
-        services::Shell_WriteUInt32(data->parser_stats.valid_frames);
-        services::Shell_WriteString(" header_errors=");
-        services::Shell_WriteUInt32(data->parser_stats.header_errors);
-        services::Shell_WriteString(" crc_errors=");
-        services::Shell_WriteUInt32(data->parser_stats.crc_errors);
-        services::Shell_WriteString(" uart_errors=");
-        services::Shell_WriteUInt32(data->uart_error_count);
-        services::Shell_WriteString(" rx_timeouts=");
-        services::Shell_WriteUInt32(data->rx_timeout_count);
-        services::Shell_WriteString(" overrun_errors=");
-        services::Shell_WriteUInt32(data->overrun_error_count);
-        services::Shell_WriteString(" framing_errors=");
-        services::Shell_WriteUInt32(data->framing_error_count);
-        services::Shell_WriteString(" parity_errors=");
-        services::Shell_WriteUInt32(data->parity_error_count);
-        services::Shell_WriteString(" noise_errors=");
-        services::Shell_WriteUInt32(data->noise_error_count);
-        services::Shell_WriteString(" dropped=");
-        services::Shell_WriteUInt32(data->uart_dropped_count);
-        services::Shell_WriteString(" period_ms=");
-        services::Shell_WriteUInt32(data->parser_stats.last_period_ms);
-        services::Shell_WriteString(" average_ms=");
-        services::Shell_WriteUInt32(data->parser_stats.average_period_ms);
-        services::Shell_WriteString(" valid_permille=");
-        services::Shell_WriteUInt32(valid_permille);
-        services::Shell_WriteString(" crc_error_permille=");
-        services::Shell_WriteUInt32(crc_error_permille);
-        services::Shell_WriteString(" payload_errors=");
-        services::Shell_WriteUInt32(data->parser_stats.payload_errors);
-        services::Shell_WriteString(" resync_bytes=");
-        services::Shell_WriteUInt32(data->parser_stats.resync_bytes);
-        services::Shell_WriteString(" dma_wraps=");
-        services::Shell_WriteUInt32(data->dma_wrap_count);
-        services::Shell_WriteString(" dma_produced=");
-        services::Shell_WriteUInt32(data->dma_produced_count);
-        services::Shell_WriteString(" dma_consumed=");
-        services::Shell_WriteUInt32(data->dma_consumed_count);
-        services::Shell_WriteString(" dma_lag=");
-        services::Shell_WriteUInt32(data->dma_current_lag);
-        services::Shell_WriteString(" dma_max_lag=");
-        services::Shell_WriteUInt32(data->dma_maximum_lag);
-        services::Shell_WriteString(" dma_overwrites=");
-        services::Shell_WriteUInt32(data->dma_overwrite_count);
-        services::Shell_WriteString(" dma_faults=");
-        services::Shell_WriteUInt32(data->dma_fault_count);
-        services::Shell_WriteString(" comm=");
-        services::Shell_WriteString(
-            App_InfraredCommStateText(data->communication_state));
-        services::Shell_WriteString(" error_streak=");
-        services::Shell_WriteUInt32(data->error_streak);
-        services::Shell_WriteString(" age_ms=");
-        services::Shell_WriteUInt32(data->frame.sequence != 0U
-            ? static_cast<uint32_t>(now - data->frame.received_ms) : 0U);
-        services::Shell_WriteString(" latency_us=");
-        services::Shell_WriteUInt32(data->control_latency_us);
-        services::Shell_WriteString(" latency_max_us=");
-        services::Shell_WriteUInt32(data->maximum_control_latency_us);
-        services::Shell_WriteString("\r\n");
-        return;
-    }
-    if ((argc == 2) && StrEqual(argv[1], "diag")) {
-        services::Shell_WriteString("irsensor diag power=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorIsPowered() ? 1U : 0U);
-        services::Shell_WriteString(" enabled=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorIsUartEnabled() ? 1U : 0U);
-        services::Shell_WriteString(" rx_pin=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorIsRxPinHigh() ? 1U : 0U);
-        services::Shell_WriteString(" fifo_empty=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorIsRxFifoEmpty() ? 1U : 0U);
-        services::Shell_WriteString(" irq=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetIrqCount());
-        services::Shell_WriteString(" fifo_bytes=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetFifoByteCount());
-        services::Shell_WriteString(" polled_bytes=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetPolledByteCount());
-        services::Shell_WriteString(" dma_enabled=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorIsDmaEnabled() ? 1U : 0U);
-        services::Shell_WriteString(" dma_blocks=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetDmaBlockCount());
-        services::Shell_WriteString(" dma_bytes=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetDmaByteCount());
-        services::Shell_WriteString(" dma_overwrites=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetDmaOverwriteCount());
-        services::Shell_WriteString(" dma_buffer=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetDmaBufferSize());
-        services::Shell_WriteString(" dma_remaining=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetDmaRemaining());
-        services::Shell_WriteString(" dma_produced=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetDmaProducedCount());
-        services::Shell_WriteString(" dma_consumed=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetDmaConsumedCount());
-        services::Shell_WriteString(" dma_lag=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetDmaCurrentLag());
-        services::Shell_WriteString(" dma_max_lag=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetDmaMaximumLag());
-        services::Shell_WriteString(" dma_faults=");
-        services::Shell_WriteUInt32(
-            board::Board_InfraredSensorGetDmaFaultCount());
-        services::Shell_WriteString("\r\n");
-        return;
-    }
-    if ((argc == 2) && StrEqual(argv[1], "clear")) {
-        App_InfraredSensorClearStats();
-        services::Shell_WriteLine("irsensor clear: ok");
-        return;
-    }
-    if ((argc >= 3) && StrEqual(argv[1], "calib")) {
-        if ((argc == 3) && StrEqual(argv[2], "begin")) {
-            WriteStatusLine("irsensor calib begin: ",
-                            App_InfraredCalibrationBegin());
-            return;
-        }
-        if ((argc == 3) && StrEqual(argv[2], "status")) {
-            PrintInfraredCalibrationStatus();
-            return;
-        }
-        if ((argc == 4) && StrEqual(argv[2], "capture")) {
-            const InfraredCalibrationStep step =
-                ParseInfraredCalibrationStep(argv[3]);
-            WriteStatusLine("irsensor calib capture: ",
-                            App_InfraredCalibrationCapture(step));
-            return;
-        }
-        if ((argc == 3) && StrEqual(argv[2], "commit")) {
-            WriteStatusLine("irsensor calib commit: ",
-                            App_InfraredCalibrationCommit());
-            LF_ReloadConfig();
-            return;
-        }
-        if ((argc == 3) && StrEqual(argv[2], "cancel")) {
-            App_InfraredCalibrationCancel();
-            services::Shell_WriteLine("irsensor calib cancel: ok");
-            return;
-        }
-    }
-    services::Shell_WriteLine("usage:");
-    services::Shell_WriteLine("  irsensor status|raw|stats|diag|clear");
-    services::Shell_WriteLine("  irsensor calib begin|status|commit|cancel");
-    services::Shell_WriteLine(
-        "  irsensor calib capture <white|black|center|left|right>");
+    services::Shell_WriteLine("usage: linesensor status");
 }
 #endif
 
@@ -881,6 +577,9 @@ void WriteStatusLine(const char *prefix, drivers::DriverStatus status)
 }
 
 #if FEATURE_ENABLE_BALL_VISION
+static const uint8_t kVisionUartTestMessage[] =
+    "GUGAPI_UART4_TEST\r\n";
+
 void VisionCommand(int argc, const char * const argv[])
 {
     const BallVisionData *data = BallVision_GetData();
@@ -941,6 +640,14 @@ void VisionCommand(int argc, const char * const argv[])
         services::Shell_WriteLine("vision clear: ok");
         return;
     }
+    if ((argc == 2) && StrEqual(argv[1], "test")) {
+        WriteStatusLine(
+            "vision test: ",
+            board::Board_BallVisionWrite(
+                kVisionUartTestMessage,
+                static_cast<uint16_t>(sizeof(kVisionUartTestMessage) - 1U)));
+        return;
+    }
     if ((argc == 4) && StrEqual(argv[1], "inject")) {
         if (App_GetState()->mode != APP_MODE_RUNNING) {
             services::Shell_WriteLine(
@@ -963,7 +670,7 @@ void VisionCommand(int argc, const char * const argv[])
         return;
     }
     services::Shell_WriteLine(
-        "usage: vision status|stats|clear|inject <position_0p1mm> <confidence>");
+        "usage: vision status|stats|clear|test|inject <position_0p1mm> <confidence>");
 }
 #endif
 
@@ -3504,23 +3211,12 @@ void ParamCommand(int argc, const char * const argv[])
             return;
         }
 
-        drivers::DriverStatus status;
-#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
-        if (StrEqual(argv[2], "line_sensor_source")) {
-            status = LineSensor_SetSource(
-                (value == LINE_SENSOR_SOURCE_ADC8)
-                    ? LINE_SENSOR_ADC8 : LINE_SENSOR_IR3);
-        } else {
-            status = ConfigStore_Set(argv[2], value);
-            if ((status == drivers::DRIVER_OK) &&
-                (StrStartsWith(argv[2], "ir_lf_") ||
-                 StrStartsWith(argv[2], "lf_"))) {
-                LF_ReloadConfig();
-            }
+        const drivers::DriverStatus status =
+            ConfigStore_Set(argv[2], value);
+        if ((status == drivers::DRIVER_OK) &&
+            StrStartsWith(argv[2], "lf_")) {
+            LF_ReloadConfig();
         }
-#else
-        status = ConfigStore_Set(argv[2], value);
-#endif
         WriteStatusLine("param set: ", status);
         return;
     }
@@ -3542,12 +3238,6 @@ void ParamCommand(int argc, const char * const argv[])
         }
         const drivers::DriverStatus status = ConfigStore_Load();
         WriteStatusLine("param load: ", status);
-#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
-        if (status == drivers::DRIVER_OK) {
-            WriteStatusLine("linesensor reload: ",
-                            LineSensor_ApplyConfiguredSource());
-        }
-#endif
         return;
     }
 
@@ -3557,9 +3247,6 @@ void ParamCommand(int argc, const char * const argv[])
             return;
         }
         ConfigStore_ResetDefaults();
-#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
-        (void) LineSensor_ApplyConfiguredSource();
-#endif
         services::Shell_WriteLine("param reset: ok");
         return;
     }
@@ -7869,8 +7556,6 @@ void PrintLFUsage(void)
     services::Shell_WriteLine("  lf maxratio <permille 100..1000>");
     services::Shell_WriteLine("  lf deadband <mpos 0..500>");
     services::Shell_WriteLine("  lf slew <permille_per_s 1..65535>");
-    services::Shell_WriteLine("  lf losthold <ms>");
-    services::Shell_WriteLine("  lf losttimeout <ms>");
 }
 
 const char *GrayscalePositionSourceText(
@@ -7953,10 +7638,6 @@ void LFCommand(int argc, const char * const argv[])
         services::Shell_WriteString(" slew=");
         services::Shell_WriteUInt32(
             st->correction_slew_permille_per_second);
-        services::Shell_WriteString(" lost_hold=");
-        services::Shell_WriteUInt32(st->lost_hold_ms);
-        services::Shell_WriteString(" lost_stop=");
-        services::Shell_WriteUInt32(st->lost_timeout_ms);
         services::Shell_WriteString(" seq=");
         services::Shell_WriteUInt32(st->last_sequence);
         services::Shell_WriteString(" road=");
@@ -8111,36 +7792,6 @@ void LFCommand(int argc, const char * const argv[])
         }
         app::LF_SetCorrectionSlew(value);
         services::Shell_WriteLine("lf slew: ok");
-        return;
-    }
-
-    if (StrEqual(argv[1], "losthold")) {
-        uint32_t value = 0U;
-        if ((argc != 3) || (!ParseUint32(argv[2], 10000U, &value))) {
-            PrintLFUsage();
-            return;
-        }
-        if (value > app::LF_GetState()->lost_timeout_ms) {
-            services::Shell_WriteLine("lf losthold: invalid_arg");
-            return;
-        }
-        app::LF_SetLostHold(value);
-        services::Shell_WriteLine("lf losthold: ok");
-        return;
-    }
-
-    if (StrEqual(argv[1], "losttimeout")) {
-        uint32_t v = 0U;
-        if ((argc != 3) || (!ParseUint32(argv[2], 10000U, &v))) {
-            PrintLFUsage();
-            return;
-        }
-        if (v < app::LF_GetState()->lost_hold_ms) {
-            services::Shell_WriteLine("lf losttimeout: invalid_arg");
-            return;
-        }
-        app::LF_SetLostTimeout(v);
-        services::Shell_WriteLine("lf losttimeout: ok");
         return;
     }
 
@@ -10291,7 +9942,6 @@ const char *TelemProfileText(TelemProfile profile)
         case TELEM_PROFILE_GRAY_RAW: return "gray_raw";
         case TELEM_PROFILE_GRAY_HEALTH: return "gray_health";
         case TELEM_PROFILE_GRAY_AGE: return "gray_age";
-        case TELEM_PROFILE_IR_LINE: return "ir_line";
         case TELEM_PROFILE_BALL: return "ball";
         case TELEM_PROFILE_FAULT: return "fault";
         case TELEM_PROFILE_UART: return "uart";
@@ -10367,8 +10017,6 @@ bool ParseTelemProfile(const char *text, TelemProfile *profile)
         *profile = TELEM_PROFILE_GRAY_HEALTH;
     } else if (StrEqual(text, "gray_age")) {
         *profile = TELEM_PROFILE_GRAY_AGE;
-    } else if (StrEqual(text, "ir_line")) {
-        *profile = TELEM_PROFILE_IR_LINE;
     } else if (StrEqual(text, "ball")) {
         *profile = TELEM_PROFILE_BALL;
     } else if (StrEqual(text, "fault")) {
@@ -10494,14 +10142,6 @@ void TelemSendHeader(void)
         case TELEM_PROFILE_GRAY_AGE:
             services::DebugUart_WriteString("#t,gray_age_ms\n");
             return;
-        case TELEM_PROFILE_IR_LINE:
-            services::DebugUart_WriteString(
-                "#t,ir_offset_raw,ir_position_mpos,ir_all_black,"
-                "ir_adc1,ir_adc2,ir_adc3,ir_valid,ir_age_ms,"
-                "ir_period_ms,ir_crc_errors,ir_dropped,ir_comm,"
-                "ir_dma_lag,ir_dma_max_lag,ir_dma_overwrites,"
-                "ir_dma_faults,ir_latency_us,ir_latency_max_us\n");
-            return;
         case TELEM_PROFILE_BALL:
             services::DebugUart_WriteString(
                 "#t,app_mode,action_running,ball_mode,ball_result,"
@@ -10574,8 +10214,6 @@ void TelemSendSelectedData(void)
     const app::AppImuData *imu = app::App_ImuGetData();
     const app::AppGrayscaleData *gray = app::App_GrayscaleGetData();
     const app::ConfigStoreParams *params = app::ConfigStore_Get();
-    const app::AppInfraredSensorData *infrared =
-        app::App_InfraredSensorGetData();
     const app::BallBalanceState *ball = app::BallBalance_GetState();
     const app::BallVisionData *vision = app::BallVision_GetData();
     const app::DmG6220ControlState *dm =
@@ -10720,42 +10358,6 @@ void TelemSendSelectedData(void)
         case TELEM_PROFILE_GRAY_AGE:
             TelemWriteUInt32(((gray != 0) && (gray->sequence != 0U))
                 ? static_cast<uint32_t>(now - gray->last_update_ms) : 0U);
-            break;
-        case TELEM_PROFILE_IR_LINE:
-            TelemWriteInt32((infrared != 0) ? infrared->frame.offset : 0);
-            TelemWriteInt32((infrared != 0)
-                ? infrared->position_mpos : 0);
-            TelemWriteUInt32((infrared != 0)
-                ? infrared->frame.all_black : 0U);
-            for (uint8_t channel = 0U; channel < 3U; channel++) {
-                TelemWriteUInt32((infrared != 0)
-                    ? infrared->frame.adc[channel] : 0U);
-            }
-            TelemWriteUInt32(((infrared != 0) && infrared->valid) ? 1U : 0U);
-            TelemWriteUInt32(((infrared != 0) &&
-                              (infrared->frame.sequence != 0U))
-                ? static_cast<uint32_t>(now - infrared->frame.received_ms)
-                : 0U);
-            TelemWriteUInt32((infrared != 0)
-                ? infrared->parser_stats.last_period_ms : 0U);
-            TelemWriteUInt32((infrared != 0)
-                ? infrared->parser_stats.crc_errors : 0U);
-            TelemWriteUInt32((infrared != 0)
-                ? infrared->uart_dropped_count : 0U);
-            TelemWriteUInt32((infrared != 0)
-                ? static_cast<uint32_t>(infrared->communication_state) : 0U);
-            TelemWriteUInt32((infrared != 0)
-                ? infrared->dma_current_lag : 0U);
-            TelemWriteUInt32((infrared != 0)
-                ? infrared->dma_maximum_lag : 0U);
-            TelemWriteUInt32((infrared != 0)
-                ? infrared->dma_overwrite_count : 0U);
-            TelemWriteUInt32((infrared != 0)
-                ? infrared->dma_fault_count : 0U);
-            TelemWriteUInt32((infrared != 0)
-                ? infrared->control_latency_us : 0U);
-            TelemWriteUInt32((infrared != 0)
-                ? infrared->maximum_control_latency_us : 0U);
             break;
         case TELEM_PROFILE_BALL:
             TelemWriteUInt32(static_cast<uint32_t>(app_state->mode));
@@ -11265,20 +10867,16 @@ void AppShell_RegisterCommands(void)
         "Grayscale: status|read <0..7>|all|data|oled",
         GrayCommand);
 #endif
-#if FEATURE_ENABLE_INFRARED_LINE_SENSOR
+#if FEATURE_ENABLE_GRAYSCALE
     (void) services::Shell_RegisterCommand(
         "linesensor",
-        "Real line sensor: status|source <adc8|ir3>",
+        "ADC8 line sensor: status",
         LineSensorCommand);
-    (void) services::Shell_RegisterCommand(
-        "irsensor",
-        "Infrared UART line sensor: status|raw|stats|clear|calib",
-        InfraredSensorCommand);
 #endif
 #if FEATURE_ENABLE_BALL_VISION
     (void) services::Shell_RegisterCommand(
         "vision",
-        "MaixCAM ball position: status|stats|clear|inject",
+        "MaixCAM ball position: status|stats|clear|test|inject",
         VisionCommand);
 #endif
 #if FEATURE_ENABLE_BALL_BALANCE
@@ -11328,7 +10926,7 @@ void AppShell_RegisterCommands(void)
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER
     (void) services::Shell_RegisterCommand(
         "lf",
-        "LineFollow: status|cal|start|stop|kp|kd|maxcorr|maxratio|slew|losthold|losttimeout",
+        "LineFollow: status|cal|start|stop|kp|kd|maxcorr|maxratio|slew",
         LFCommand);
 #endif
 #if FEATURE_ENABLE_GRAYSCALE && FEATURE_ENABLE_MOTOR_DRIVER && \

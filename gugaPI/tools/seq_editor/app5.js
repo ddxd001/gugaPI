@@ -20,7 +20,6 @@ var PARAM_GROUPS=[
   {id:'gray_proc',section:'灰度与循迹',label:'灰度判定'},
   {id:'linefollow',section:'灰度与循迹',label:'八路 ADC 循迹'},
   {id:'task0',section:'比赛任务',label:'H2 内置任务 0'},
-  {id:'infrared',section:'灰度与循迹',label:'三路串口红外'},
   {id:'other',section:'其他',label:'未分类参数'}
 ];
 
@@ -126,8 +125,6 @@ addParamMeta('lf_kd','循迹 Kd','linefollow',0,0,1000000,'scaled','线位置误
 addParamMeta('lf_maxcorr','循迹最大差速修正','linefollow',30,0,500,'RPM','循迹控制允许施加的最大左右差速。',true);
 addParamMeta('lf_max_ratio_permille','循迹最大转向比例','linefollow',400,100,1000,'permille','最终差速修正相对基础转速的上限；400表示单侧修正最多为基础RPM的40%。参数页会通过专用命令同步更新当前控制器。',false);
 addParamMeta('lf_deadband_mpos','循迹连续软死区','linefollow',20,0,500,'mpos','误差绝对值不超过该值时不修正；超过后只减去死区宽度，避免传统硬死区边缘的修正跳变。参数页会同步更新当前控制器。',false);
-addParamMeta('lf_lost_hold_ms','丢线保持时间','linefollow',150,0,10000,'ms','短时丢线时保持最近修正的时间。',true,'number','ms');
-addParamMeta('lf_lost_stop_ms','丢线停车时间','linefollow',500,1,10000,'ms','持续丢线达到该时间后停车；必须不小于保持时间。',true,'number','ms');
 addParamMeta('lf_slew_permille_s','循迹修正变化率','linefollow',25000,1,65535,'permille/s','限制左右差速修正的变化速度；数值越大响应越快。',true);
 addParamMeta('road_align_distance_mm','路口对齐距离','linefollow',0,0,300,'mm','识别直角弯后继续按编码器前进的距离；该值直接改变实际转弯位置，0表示直接进入滚动圆弧转弯。',false);
 addParamMeta('road_align_rpm','路口转弯基础速度','linefollow',30,1,300,'RPM','对齐、圆弧转弯和未确认线路时移动捕线的基础速度上限；实际不超过进入路口时的循迹基础速度。转弯末段会提前确认新线路，到达目标航向后尽快交还循迹并恢复原循迹速度。',false);
@@ -138,15 +135,6 @@ addParamMeta('task0_cruise_rpm','任务0巡航速度','task0',110,20,1000,'RPM',
 addParamMeta('task0_approach_rpm','任务0终点接近速度','task0',60,20,1000,'RPM','距编码器终点约900 mm后使用的速度，不得高于巡航速度。',false);
 addParamMeta('task0_lap_mm','任务0一圈里程','task0',6142,3000,8000,'mm','编码器一圈标称距离，同时作为横线漏检时的成功停车兜底。',false);
 
-addParamMeta('line_sensor_source','默认线路传感器','infrared',1,0,1,'enum','FRAM 中保存的真实线路传感器来源：0 为八路 ADC，1 为三路串口红外。运行时请在线路传感器页面切换；仅执行 param save 才会持久化。',false);
-addParamMeta('ir_position_invert','红外偏差方向反转','infrared',0,0,1,'bool','由五步标定自动确定。1 表示把模块回传的偏差取反后用于循迹。',false,'bool');
-addParamMeta('ir_position_span_raw','红外偏差满量程','infrared',0,0,32767,'raw','五步标定得到的原始偏差有效半量程；为 0 表示尚未完成标定，禁止启动红外循迹。',false);
-addParamMeta('ir_adc_threshold','红外黑白阈值','infrared',0,0,4095,'ADC','三路 ADC 共用的黑白边界，由白底和全黑样本自动计算。',false);
-addParamMeta('ir_adc_hysteresis','红外判定滞回','infrared',0,0,1000,'ADC','三路 ADC 线路判定的滞回宽度，由有效黑白区间自动计算。',false);
-addParamMeta('ir_lf_kp','红外循迹 Kp','infrared',3800,0,1000000,'scaled','仅在三路串口红外为当前来源时使用的比例增益，不覆盖八路 ADC 的 lf_kp。',false);
-addParamMeta('ir_lf_kd','红外循迹 Kd','infrared',600,0,1000000,'scaled','仅在三路串口红外为当前来源时使用的微分增益，不覆盖八路 ADC 的 lf_kd。',false);
-addParamMeta('ir_lf_maxcorr','红外最大差速修正','infrared',30,0,500,'RPM','三路串口红外循迹允许施加的最大左右轮差速修正。',false);
-addParamMeta('ir_lf_slew_permille_s','红外修正变化率','infrared',25000,1,65535,'permille/s','三路串口红外循迹修正量变化速度；数值越大响应越快。',false);
 addParamMeta('dm_position_kp_milli','达妙定位 Kp','dm',4000,0,10000,'milli','MIT 定位比例增益，4000 表示 4.000。',false);
 addParamMeta('dm_position_kd_milli','达妙定位 Kd','dm',400,0,2000,'milli','MIT 定位微分增益，400 表示 0.400。',false);
 addParamMeta('dm_speed_kd_milli','达妙定速 Kd','dm',500,0,2000,'milli','MIT 定速阻尼增益，500 表示 0.500。',false);
@@ -234,8 +222,6 @@ function paramCandidateError(candidate,ranges){
     var lower=Math.floor(candidate.gray_hysteresis/2),upper=Math.floor((candidate.gray_hysteresis+1)/2);
     return candidate.gray_threshold<=lower||candidate.gray_threshold+upper>=1000;
   },'灰度阈值与回差组合无效');
-  if(error)return error;
-  error=invalid(['lf_lost_stop_ms','lf_lost_hold_ms'],function(){return candidate.lf_lost_stop_ms<candidate.lf_lost_hold_ms},'丢线停车时间不能小于保持时间');
   if(error)return error;
   error=invalid(['task0_approach_rpm','task0_cruise_rpm'],function(){return candidate.task0_approach_rpm>candidate.task0_cruise_rpm},'任务0接近速度不能高于巡航速度');
   if(error)return error;
