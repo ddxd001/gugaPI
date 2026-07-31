@@ -287,8 +287,9 @@ int32_t ChassisFeedforwardMdeg(const BallInput *input,
         static_cast<int64_t>(kGravity0p1mmS2PerMdegMilli) *
         config->ball_model_roll_gain_permille;
     return static_cast<int32_t>(
-        (static_cast<int64_t>(chassis_component) * 1000000LL) /
-        denominator);
+        (static_cast<int64_t>(chassis_component) * 1000000LL *
+         config->ball_chassis_ff_permille) /
+        (denominator * 1000LL));
 }
 
 void UpdateEstimator(BallState *state,
@@ -735,10 +736,12 @@ BallOutput Ball_Update(BallState *state,
     const int32_t pitch_compensation_mdeg = static_cast<int32_t>(
         (static_cast<int64_t>(config->ball_pitch_gain_permille) *
          input->imu.pitch_mdeg) / 1000LL);
+    state->chassis_feedforward_mdeg =
+        ChassisFeedforwardMdeg(input, config);
     const int32_t angle = Clamp32(
         state->rail_compensation_mdeg +
         state->pid_correction_mdeg +
-        ChassisFeedforwardMdeg(input, config) -
+        state->chassis_feedforward_mdeg -
         pitch_compensation_mdeg +
         friction_feedforward_mdeg +
         state->stiction_compensation_mdeg,

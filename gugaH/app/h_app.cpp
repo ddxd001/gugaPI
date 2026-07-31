@@ -5,6 +5,13 @@ namespace {
 
 static const int16_t kH6Minimum0p1mm = -1000;
 static const int16_t kH6Maximum0p1mm = 1000;
+static const int16_t kH3CenterTarget0p1mm = 0;
+static const int16_t kH3PositiveTarget0p1mm = 500;
+static const int16_t kH3NegativeTarget0p1mm = -500;
+/* Five seconds is a performance target, not a reason to release the ball.
+ * Keep each transfer alive long enough to diagnose a genuinely stuck plant;
+ * after the final transfer BALL_HOLD has no timeout. */
+static const uint32_t kH3StageTimeoutMs = 30000U;
 
 bool LineReady(const HAppInput *input)
 {
@@ -22,7 +29,18 @@ BallInput MakeBallInput(const HAppState *state, const HAppInput *input)
     ball_input.vision = input->vision;
     ball_input.imu = input->imu;
     ball_input.dm = input->dm;
-    ball_input.chassis_accel_mm_s2 = state->chassis_accel_mm_s2;
+    if ((state->selected_problem == H_PROBLEM_4) &&
+        (state->course.kind == COURSE_H4)) {
+        ball_input.chassis_accel_mm_s2 =
+            state->course.h4_commanded_accel_mm_s2;
+    } else if ((state->selected_problem == H_PROBLEM_5) &&
+               (state->course.kind == COURSE_H5)) {
+        ball_input.chassis_accel_mm_s2 =
+            state->course.h5_commanded_accel_mm_s2;
+    } else {
+        ball_input.chassis_accel_mm_s2 =
+            state->chassis_accel_mm_s2;
+    }
     return ball_input;
 }
 
@@ -33,11 +51,16 @@ void UpdateChassisAcceleration(HAppState *state,
     if (!input->chassis.valid) {
         return;
     }
+    if (input->chassis.received_ms ==
+        state->last_chassis_feedback_ms) {
+        return;
+    }
     const int16_t average_rpm = static_cast<int16_t>(
         (static_cast<int32_t>(input->chassis.left_rpm) +
          input->chassis.right_rpm) /
         2);
-    const uint32_t elapsed_ms = input->now_ms - state->last_accel_ms;
+    const uint32_t elapsed_ms = input->chassis.received_ms -
+        state->last_chassis_feedback_ms;
     if ((state->last_accel_ms != 0U) &&
         (elapsed_ms >= 5U) && (elapsed_ms <= 100U)) {
         const int32_t delta_rpm =
@@ -53,7 +76,8 @@ void UpdateChassisAcceleration(HAppState *state,
             (state->chassis_accel_mm_s2 * 3 + raw_accel) / 4;
     }
     state->last_average_rpm = average_rpm;
-    state->last_accel_ms = input->now_ms;
+    state->last_accel_ms = input->chassis.received_ms;
+    state->last_chassis_feedback_ms = input->chassis.received_ms;
 }
 
 HFailure BallPreflightFailure(const HAppState *state,
@@ -81,6 +105,7 @@ HFailure BallRuntimeFailure(const BallState *ball)
         return H_FAILURE_BALL;
     }
     switch (ball->result) {
+    case BALL_RESULT_TIMEOUT: return H_FAILURE_TIMEOUT;
     case BALL_RESULT_VISION_LOST: return H_FAILURE_VISION;
     case BALL_RESULT_DM_STALE: return H_FAILURE_DM;
     case BALL_RESULT_IMU_STALE: return H_FAILURE_IMU;
@@ -112,13 +137,18 @@ bool StartRunning(HAppState *state,
         state->selected_problem != H_PROBLEM_3;
     const bool needs_ball =
         state->selected_problem != H_PROBLEM_2;
+    const bool needs_line =
+        (state->selected_problem == H_PROBLEM_2) ||
+        (state->selected_problem == H_PROBLEM_5) ||
+        (state->selected_problem == H_PROBLEM_6);
     HFailure preflight_failure = H_FAILURE_NONE;
     if (input->hardware_fault) {
         preflight_failure = H_FAILURE_HARDWARE;
     } else if (needs_course && input->chassis_fault) {
         preflight_failure = H_FAILURE_CHASSIS;
-    } else if (needs_course &&
-               (!LineReady(input) || !input->chassis.valid)) {
+    } else if (needs_course && !input->chassis.valid) {
+        preflight_failure = H_FAILURE_PREFLIGHT;
+    } else if (needs_line && !LineReady(input)) {
         preflight_failure = H_FAILURE_PREFLIGHT;
     } else if (needs_ball) {
         preflight_failure = BallPreflightFailure(state, input);
@@ -133,11 +163,11 @@ bool StartRunning(HAppState *state,
     BallInput ball_input = MakeBallInput(state, input);
     if (state->selected_problem == H_PROBLEM_3) {
         /* Accept any safe initial ball position and settle at O first. */
-        state->active_ball_target_0p1mm = 0;
+        state->active_ball_target_0p1mm = kH3CenterTarget0p1mm;
         state->h3_stage = 0U;
         if (!Ball_StartMove(&state->ball,
-                            0,
-                            2400U,
+                            kH3CenterTarget0p1mm,
+                            kH3StageTimeoutMs,
                             &ball_input,
                             config)) {
             state->run_state = H_STATE_FAIL;
@@ -319,39 +349,40 @@ HAppOutput HApp_Update(HAppState *state,
     }
 
     if (state->selected_problem == H_PROBLEM_3) {
-        if ((input->now_ms - state->run_start_ms) > 5000U) {
-            SetFailure(state, H_FAILURE_TIMEOUT, input->now_ms);
-            output.motion.mode = MOTION_COMMAND_STOP;
-            output.result_changed = true;
-            return output;
-        }
         if ((state->h3_stage == 0U) &&
             (state->ball.result == BALL_RESULT_SUCCESS)) {
             if (!Ball_StartMove(&state->ball,
-                                500,
-                                2400U,
+                                kH3PositiveTarget0p1mm,
+                                kH3StageTimeoutMs,
                                 &ball_input,
                                 config)) {
                 SetFailure(state, H_FAILURE_BALL, input->now_ms);
+                output.result_changed = true;
             } else {
                 state->h3_stage = 1U;
-                state->active_ball_target_0p1mm = 500;
+                state->active_ball_target_0p1mm =
+                    kH3PositiveTarget0p1mm;
             }
         } else if ((state->h3_stage == 1U) &&
                    (state->ball.result == BALL_RESULT_SUCCESS)) {
             if (!Ball_StartMove(&state->ball,
-                                -500,
-                                2400U,
+                                kH3NegativeTarget0p1mm,
+                                kH3StageTimeoutMs,
                                 &ball_input,
                                 config)) {
                 SetFailure(state, H_FAILURE_BALL, input->now_ms);
+                output.result_changed = true;
             } else {
                 state->h3_stage = 2U;
-                state->active_ball_target_0p1mm = -500;
+                state->active_ball_target_0p1mm =
+                    kH3NegativeTarget0p1mm;
             }
         } else if ((state->h3_stage == 2U) &&
                    (state->ball.result == BALL_RESULT_SUCCESS)) {
             SetPass(state, input->now_ms - state->run_start_ms);
+            output.result_changed = true;
+        } else if (state->h3_stage > 2U) {
+            SetFailure(state, H_FAILURE_BALL, input->now_ms);
             output.result_changed = true;
         }
         output.motion.mode = MOTION_COMMAND_NONE;
@@ -363,12 +394,18 @@ HAppOutput HApp_Update(HAppState *state,
     course_input.line = input->line;
     course_input.chassis = &input->chassis;
     course_input.line_frame_new = input->line_frame_new;
+    course_input.imu = &input->imu;
     output.motion =
         Course_Update(&state->course, &course_input, config);
     if (state->course.phase == COURSE_FAILED) {
-        const HFailure failure =
-            (state->course.failure == COURSE_FAILURE_CHASSIS_STALE)
-                ? H_FAILURE_CHASSIS : H_FAILURE_COURSE;
+        HFailure failure = H_FAILURE_COURSE;
+        if (state->course.failure == COURSE_FAILURE_CHASSIS_STALE) {
+            failure = H_FAILURE_CHASSIS;
+        } else if (state->course.failure == COURSE_FAILURE_IMU_STALE) {
+            failure = H_FAILURE_IMU;
+        } else if (state->course.failure == COURSE_FAILURE_TIMEOUT) {
+            failure = H_FAILURE_TIMEOUT;
+        }
         SetFailure(state, failure, input->now_ms);
         output.motion.mode = MOTION_COMMAND_STOP;
         output.result_changed = true;
@@ -403,6 +440,22 @@ BallOutput HApp_UpdateBall2ms(HAppState *state,
         return output;
     }
     BallInput ball_input = MakeBallInput(state, input);
+    const bool recoverable_pass_hold =
+        (state->run_state == H_STATE_PASS) &&
+        (state->selected_problem != H_PROBLEM_2) &&
+        (state->ball.mode == BALL_FAILED) &&
+        ((state->ball.result == BALL_RESULT_VISION_LOST) ||
+         (state->ball.result == BALL_RESULT_DM_STALE) ||
+         (state->ball.result == BALL_RESULT_IMU_STALE));
+    if (recoverable_pass_hold &&
+        Ball_StartHold(&state->ball,
+                       state->active_ball_target_0p1mm,
+                       &ball_input,
+                       config)) {
+        /* A completed task must resume its final hold after a transient
+         * sensor/actuator gap.  Endpoint faults remain latched. */
+        return Ball_Update(&state->ball, &ball_input, config);
+    }
     return Ball_Update(&state->ball, &ball_input, config);
 }
 

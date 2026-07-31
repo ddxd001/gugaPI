@@ -35,9 +35,13 @@
 | `config defaults` | 恢复保守编译期默认值（未自动保存） |
 | `telem on` / `telem off` | 开关 50 ms 固定 CSV 遥测 |
 
-可修改参数名：`cruise`、`approach`、`h4_speed`、`h5_speed`、
-`h5_approach`、`h6_speed`、`h6_approach`、`finish_gate`、
-`approach_start`、`h5_finish_gate`、`h5_approach_start`、
+可修改参数名：`cruise`、`approach`、`h4_speed`、`h4_launch_ramp`、
+`h4_stop_ramp`、`h4_brake_distance`、`h4_heading_kp`、
+`h4_heading_max_corr`、`imu_gyro_bias_z`、`ball_chassis_ff`、`h5_speed`、
+`h5_launch_ramp`、`h5_stop_ramp`、`h5_brake_distance`、
+`h4_b_distance`、`h4_stop_distance`、
+`h6_speed`、`h6_approach`、`finish_gate`、
+`approach_start`、`h5_finish_gate`、
 `h6_finish_gate`、`h6_approach_start`、`finish_offset`、`line_kp`、
 `line_kd`、`gray_threshold`、`gray_hysteresis`、`gray_position_floor`、
 `gray_min_strength`、`gray_track_mask`、`speed_kp`、`speed_ki`、`speed_kd`、

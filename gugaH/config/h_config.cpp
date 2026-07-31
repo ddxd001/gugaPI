@@ -21,7 +21,26 @@ static const uint16_t kSchema5PayloadLength =
     static_cast<uint16_t>(offsetof(
         HConfig, ball_hold_position_0p1mm));
 static const uint16_t kSchema6PayloadLength =
-    static_cast<uint16_t>(sizeof(HConfig));
+    static_cast<uint16_t>(offsetof(
+        HConfig, h4_launch_ramp_rpm_s));
+static const uint16_t kSchema9PayloadLength =
+    static_cast<uint16_t>(offsetof(
+        HConfig, h4_stop_ramp_rpm_s));
+static const uint16_t kSchema10PayloadLength =
+    static_cast<uint16_t>(offsetof(
+        HConfig, h4_brake_distance_mm));
+static const uint16_t kSchema12PayloadLength =
+    static_cast<uint16_t>(offsetof(
+        HConfig, h4_heading_kp));
+static const uint16_t kSchema13PayloadLength =
+    static_cast<uint16_t>(offsetof(
+        HConfig, ball_chassis_ff_permille));
+static const uint16_t kSchema14PayloadLength =
+    static_cast<uint16_t>(offsetof(
+        HConfig, h5_launch_ramp_rpm_s));
+static const uint16_t kSchema15PayloadLength =
+    static_cast<uint16_t>(offsetof(
+        HConfig, h5_brake_distance_mm));
 
 void SetMeasuredDmMapping(HConfig *config)
 {
@@ -153,7 +172,7 @@ void HConfig_Defaults(HConfig *config)
     config->h6_finish_gate_mm = 5200U;
     config->h6_approach_start_mm = 5250U;
     config->h4_b_distance_mm = 1500U;
-    config->h4_stop_distance_mm = 1650U;
+    config->h4_stop_distance_mm = 1700U;
     config->sensor_to_reference_mm = 0;
 
     /* Legacy field reused as the measured static breakaway angle. */
@@ -213,6 +232,16 @@ void HConfig_Defaults(HConfig *config)
         config->ball_hold_position_0p1mm[i] = hold_positions[i];
         config->ball_hold_angle_mdeg[i] = hold_angles[i];
     }
+    config->h4_launch_ramp_rpm_s = 60U;
+    config->h4_stop_ramp_rpm_s = 60U;
+    config->h4_brake_distance_mm = 1100U;
+    config->h4_heading_kp = 1000;
+    config->h4_heading_max_correction_rpm = 30;
+    config->imu_gyro_bias_z_mdps = 0;
+    config->ball_chassis_ff_permille = 1000;
+    config->h5_launch_ramp_rpm_s = 60U;
+    config->h5_stop_ramp_rpm_s = 60U;
+    config->h5_brake_distance_mm = 5840U;
 }
 
 bool HConfig_Validate(const HConfig *config)
@@ -270,6 +299,8 @@ bool HConfig_Validate(const HConfig *config)
         (config->h6_finish_gate_mm >= config->lap_distance_mm) ||
         (config->h6_approach_start_mm >= config->lap_distance_mm) ||
         (config->h4_b_distance_mm < 1000U) ||
+        (config->h4_brake_distance_mm < 100U) ||
+        (config->h4_brake_distance_mm >= config->h4_b_distance_mm) ||
         (config->h4_stop_distance_mm <= config->h4_b_distance_mm) ||
         (config->ball_kp_mdeg_per_0p1mm < 0) ||
         (config->ball_kp_mdeg_per_0p1mm > 5000) ||
@@ -315,7 +346,25 @@ bool HConfig_Validate(const HConfig *config)
         (config->ball_pid_integral_limit_mdeg < 0) ||
         (config->ball_pid_integral_limit_mdeg > 3000) ||
         (config->ball_curve_origin_0p1mm < -1000) ||
-        (config->ball_curve_origin_0p1mm > 1000)) {
+        (config->ball_curve_origin_0p1mm > 1000) ||
+        (config->h4_launch_ramp_rpm_s < 10U) ||
+        (config->h4_launch_ramp_rpm_s > 1000U) ||
+        (config->h4_stop_ramp_rpm_s < 10U) ||
+        (config->h4_stop_ramp_rpm_s > 2000U) ||
+        (config->h4_heading_kp < 0) ||
+        (config->h4_heading_kp > 100000) ||
+        (config->h4_heading_max_correction_rpm < 0) ||
+        (config->h4_heading_max_correction_rpm > 500) ||
+        (config->imu_gyro_bias_z_mdps < -2000000) ||
+        (config->imu_gyro_bias_z_mdps > 2000000) ||
+        (config->ball_chassis_ff_permille < -2000) ||
+        (config->ball_chassis_ff_permille > 2000) ||
+        (config->h5_launch_ramp_rpm_s < 10U) ||
+        (config->h5_launch_ramp_rpm_s > 1000U) ||
+        (config->h5_stop_ramp_rpm_s < 10U) ||
+        (config->h5_stop_ramp_rpm_s > 2000U) ||
+        (config->h5_brake_distance_mm <= config->h5_finish_gate_mm) ||
+        (config->h5_brake_distance_mm >= config->lap_distance_mm)) {
         return false;
     }
     return MappingValid(config) && HoldTableValid(config);
@@ -365,6 +414,13 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
     const bool schema5 = record->schema_version == 5U;
     const bool schema6 = record->schema_version == 6U;
     const bool schema7 = record->schema_version == 7U;
+    const bool schema9 = record->schema_version == 9U;
+    const bool schema10 = record->schema_version == 10U;
+    const bool schema11 = record->schema_version == 11U;
+    const bool schema12 = record->schema_version == 12U;
+    const bool schema13 = record->schema_version == 13U;
+    const bool schema14 = record->schema_version == 14U;
+    const bool schema15 = record->schema_version == 15U;
     if ((record->schema_version == H_CONFIG_SCHEMA_VERSION) &&
         (record->payload_length ==
          static_cast<uint16_t>(sizeof(HConfig))) &&
@@ -383,8 +439,31 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
                ((record->schema_version == 6U) &&
                 (record->payload_length == kSchema6PayloadLength)) ||
                ((record->schema_version == 7U) &&
-                (record->payload_length == kSchema6PayloadLength))) {
-        uint16_t legacy_length = kSchema6PayloadLength;
+                (record->payload_length == kSchema6PayloadLength)) ||
+               ((record->schema_version == 8U) &&
+                (record->payload_length == kSchema6PayloadLength)) ||
+               ((record->schema_version == 9U) &&
+                (record->payload_length == kSchema9PayloadLength)) ||
+               ((record->schema_version == 10U) &&
+                (record->payload_length == kSchema10PayloadLength)) ||
+               ((record->schema_version == 11U) &&
+                (record->payload_length == kSchema10PayloadLength)) ||
+               ((record->schema_version == 12U) &&
+                (record->payload_length == kSchema12PayloadLength)) ||
+               ((record->schema_version == 13U) &&
+                (record->payload_length == kSchema13PayloadLength)) ||
+               ((record->schema_version == 14U) &&
+                (record->payload_length == kSchema14PayloadLength)) ||
+               ((record->schema_version == 15U) &&
+                (record->payload_length == kSchema15PayloadLength))) {
+        uint16_t legacy_length = schema15
+            ? kSchema15PayloadLength
+            : (schema14 ? kSchema14PayloadLength
+            : (schema13 ? kSchema13PayloadLength
+            : (schema12 ? kSchema12PayloadLength
+            : ((schema10 || schema11) ? kSchema10PayloadLength
+            : (schema9 ? kSchema9PayloadLength
+                       : kSchema6PayloadLength)))));
         if (schema2) {
             legacy_length = kSchema2PayloadLength;
         } else if (schema3) {
@@ -448,6 +527,23 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
          * cars receive the static-error fix without losing other tuning. */
         config->ball_pid_ki_mdeg_per_mm_s = 20;
         config->ball_pid_integral_limit_mdeg = 1500;
+    }
+    if ((record->schema_version <= 10U) &&
+        (config->h4_stop_distance_mm == 1650U) &&
+        (!schema10 ||
+         (config->h4_stop_ramp_rpm_s == 180U))) {
+        /* The first H4 soft-stop profile was still too abrupt on the car.
+         * Migrate only its exact defaults so commissioned custom values are
+         * preserved.  B timing remains at 1500 mm. */
+        config->h4_stop_ramp_rpm_s = 60U;
+        config->h4_stop_distance_mm = 2050U;
+    }
+    if ((record->schema_version <= 11U) &&
+        (config->h4_stop_ramp_rpm_s == 60U) &&
+        (config->h4_stop_distance_mm == 2050U)) {
+        /* Schema 11 began braking only after B.  Start about 400 mm before B
+         * and keep the post-B hard-stop boundary close to the target. */
+        config->h4_stop_distance_mm = 1700U;
     }
     const bool legacy_pid =
         ((config->ball_kp_mdeg_per_0p1mm == 50) &&

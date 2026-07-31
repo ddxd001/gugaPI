@@ -21,6 +21,7 @@ struct ChassisFeedback {
 struct ImuFeedback {
     bool valid;
     int32_t pitch_mdeg;
+    int32_t yaw_mdeg;
     int32_t accel_x_mg;
     int32_t accel_y_mg;
     int32_t accel_z_mg;

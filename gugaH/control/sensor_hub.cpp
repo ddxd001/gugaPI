@@ -21,6 +21,8 @@ drivers::BallVisionFrame g_vision_candidate = {};
 bool g_vision_candidate_valid = false;
 
 ImuFeedback g_imu = {};
+uint32_t g_last_imu_ms = 0U;
+int32_t g_yaw_remainder = 0;
 bool g_ready = false;
 uint32_t g_error_count = 0U;
 uint16_t g_vision_min_confidence = 500U;
@@ -54,6 +56,37 @@ int32_t Atan2MilliDeg(int32_t y, int32_t x)
     return angle_udeg / 1000;
 }
 
+int32_t WrapSigned180(int32_t angle_mdeg)
+{
+    while (angle_mdeg > 180000) {
+        angle_mdeg -= 360000;
+    }
+    while (angle_mdeg < -180000) {
+        angle_mdeg += 360000;
+    }
+    return angle_mdeg;
+}
+
+void UpdateYaw(uint32_t now_ms)
+{
+    if (g_last_imu_ms == 0U) {
+        g_last_imu_ms = now_ms;
+        return;
+    }
+    const uint32_t elapsed_ms = now_ms - g_last_imu_ms;
+    g_last_imu_ms = now_ms;
+    if ((elapsed_ms == 0U) || (elapsed_ms > 100U)) {
+        g_yaw_remainder = 0;
+        return;
+    }
+    const int64_t scaled_delta =
+        static_cast<int64_t>(g_imu.gyro_z_mdps) * elapsed_ms +
+        g_yaw_remainder;
+    const int32_t delta_mdeg = static_cast<int32_t>(scaled_delta / 1000LL);
+    g_yaw_remainder = static_cast<int32_t>(scaled_delta % 1000LL);
+    g_imu.yaw_mdeg = WrapSigned180(g_imu.yaw_mdeg + delta_mdeg);
+}
+
 } /* namespace */
 
 bool SensorHub_Init(const HConfig *config)
@@ -70,6 +103,9 @@ bool SensorHub_Init(const HConfig *config)
     g_gray_next_channel = 0U;
     g_line_valid = false;
     g_line_frame_ready = false;
+    g_imu = {};
+    g_last_imu_ms = 0U;
+    g_yaw_remainder = 0;
     const drivers::DriverStatus gray = board::Board_GrayscaleInit();
     const drivers::DriverStatus vision = board::Board_BallVisionInit();
     const drivers::DriverStatus imu = board::Board_ImuInit();
@@ -123,8 +159,11 @@ void SensorHub_Update1ms(uint32_t now_ms, const HConfig *config)
     }
 }
 
-void SensorHub_Update5ms(uint32_t now_ms)
+void SensorHub_Update5ms(uint32_t now_ms, const HConfig *config)
 {
+    if (config == 0) {
+        return;
+    }
     drivers::Icm45686SensorData raw = {};
     const drivers::DriverStatus status = board::Board_ImuRead(&raw);
     if (status != drivers::DRIVER_OK) {
@@ -145,10 +184,12 @@ void SensorHub_Update5ms(uint32_t now_ms)
     g_imu.gyro_y_mdps = drivers::Icm45686_GyroMilliDps(
         raw.gyro_y, drivers::ICM45686_GYRO_FS_1000DPS);
     g_imu.gyro_z_mdps = drivers::Icm45686_GyroMilliDps(
-        raw.gyro_z, drivers::ICM45686_GYRO_FS_1000DPS);
+        raw.gyro_z, drivers::ICM45686_GYRO_FS_1000DPS) -
+        config->imu_gyro_bias_z_mdps;
     g_imu.temperature_centi_c = drivers::Icm45686_TempCentiC(raw.temp);
     g_imu.valid = true;
     g_imu.pitch_mdeg = Atan2MilliDeg(-ax, az);
+    UpdateYaw(now_ms);
     g_imu.received_ms = now_ms;
 }
 

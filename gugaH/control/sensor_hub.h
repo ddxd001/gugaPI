@@ -11,7 +11,7 @@ namespace gugah {
 
 bool SensorHub_Init(const HConfig *config);
 void SensorHub_Update1ms(uint32_t now_ms, const HConfig *config);
-void SensorHub_Update5ms(uint32_t now_ms);
+void SensorHub_Update5ms(uint32_t now_ms, const HConfig *config);
 void SensorHub_ServiceVision(uint32_t now_ms, const HConfig *config);
 const drivers::GrayscaleProcessedData *SensorHub_GetLine(void);
 bool SensorHub_TakeLineFrameReady(void);

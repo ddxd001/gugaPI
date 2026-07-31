@@ -9,7 +9,7 @@
 namespace gugah {
 
 static const uint32_t H_CONFIG_MAGIC = 0x48475547UL; /* "GUGH" */
-static const uint16_t H_CONFIG_SCHEMA_VERSION = 8U;
+static const uint16_t H_CONFIG_SCHEMA_VERSION = 16U;
 static const uint16_t H_CONFIG_FRAM_ADDRESS = 0x0000U;
 
 struct HConfig {
@@ -98,6 +98,24 @@ struct HConfig {
      * represent a slightly warped beam. */
     int16_t ball_hold_position_0p1mm[5];
     int16_t ball_hold_angle_mdeg[5];
+
+    /* H4-only chassis launch ramp.  Appended to keep schemas 6-8 as a
+     * byte-for-byte prefix during FRAM migration. */
+    uint16_t h4_launch_ramp_rpm_s;
+    /* H4 deceleration rate. */
+    uint16_t h4_stop_ramp_rpm_s;
+    /* Encoder distance at which H4 begins braking before B. */
+    uint16_t h4_brake_distance_mm;
+    /* gugaPI-compatible yaw hold used by H4 straight driving. */
+    int32_t h4_heading_kp;
+    int16_t h4_heading_max_correction_rpm;
+    int32_t imu_gyro_bias_z_mdps;
+    /* Chassis-acceleration feedforward; 1000 = model, sign sets polarity. */
+    int16_t ball_chassis_ff_permille;
+    /* H5 runs at cruise through A, with symmetric ramps outside the lap. */
+    uint16_t h5_launch_ramp_rpm_s;
+    uint16_t h5_stop_ramp_rpm_s;
+    uint16_t h5_brake_distance_mm;
 };
 
 struct HConfigRecord {

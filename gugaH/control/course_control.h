@@ -33,6 +33,7 @@ enum CourseFailure : uint8_t {
     COURSE_FAILURE_INVALID_INPUT,
     COURSE_FAILURE_LINE_LOST,
     COURSE_FAILURE_CHASSIS_STALE,
+    COURSE_FAILURE_IMU_STALE,
     COURSE_FAILURE_FINISH_NOT_FOUND,
     COURSE_FAILURE_TIMEOUT
 };
@@ -42,6 +43,7 @@ struct CourseInput {
     const drivers::GrayscaleProcessedData *line;
     const ChassisFeedback *chassis;
     bool line_frame_new;
+    const ImuFeedback *imu;
 };
 
 struct CourseState {
@@ -54,12 +56,24 @@ struct CourseState {
     int32_t distance_mm;
     int32_t final_left_count;
     int32_t final_right_count;
+    int32_t h4_target_yaw_mdeg;
+    int32_t h4_yaw_error_mdeg;
+    int32_t h4_commanded_accel_mm_s2;
+    int32_t h5_commanded_accel_mm_s2;
+    int16_t h4_heading_correction_rpm;
     uint32_t start_ms;
     uint32_t pass_ms;
+    uint32_t h4_brake_start_ms;
+    uint32_t h5_brake_start_ms;
     uint32_t settle_start_ms;
     uint32_t last_line_frame_ms;
     uint8_t finish_confirm_frames;
+    uint16_t h4_brake_start_rpm;
+    uint16_t h5_brake_start_rpm;
     bool passed_b_or_a;
+    bool h4_braking;
+    bool h5_braking;
+    bool h4_heading_locked;
 };
 
 void Course_Init(CourseState *state);

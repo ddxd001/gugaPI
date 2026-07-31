@@ -80,6 +80,7 @@ struct HAppState {
     int32_t chassis_accel_mm_s2;
     int16_t last_average_rpm;
     uint32_t last_accel_ms;
+    uint32_t last_chassis_feedback_ms;
     uint32_t run_start_ms;
     uint32_t result_time_ms;
     int32_t maximum_ball_error_0p1mm;

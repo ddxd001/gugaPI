@@ -344,6 +344,10 @@ void BallCommand(int argc, const char * const argv[])
         services::Shell_WriteInt(ball->pid_i_mdeg);
         services::Shell_Write("/");
         services::Shell_WriteInt(ball->pid_d_mdeg);
+        services::Shell_Write(" chassis_ff_mdeg=");
+        services::Shell_WriteInt(ball->chassis_feedforward_mdeg);
+        services::Shell_Write(" beam_mdeg=");
+        services::Shell_WriteInt(ball->beam_target_mdeg);
         services::Shell_Write(" dm=");
         services::Shell_WriteInt(dm.position_mrad);
         services::Shell_Write("\r\n");
@@ -381,6 +385,8 @@ void ImuCommand(int argc, const char * const argv[])
     services::Shell_WriteInt(imu.temperature_centi_c);
     services::Shell_Write(" pitch_mdeg=");
     services::Shell_WriteInt(imu.pitch_mdeg);
+    services::Shell_Write(" yaw_mdeg=");
+    services::Shell_WriteInt(imu.yaw_mdeg);
     services::Shell_Write("\r\n");
 }
 
@@ -539,10 +545,30 @@ void PrintConfig(void)
     services::Shell_WriteInt(c->approach_rpm);
     services::Shell_Write(" h4=");
     services::Shell_WriteInt(c->h4_cruise_rpm);
+    services::Shell_Write("/ramp=");
+    services::Shell_WriteInt(c->h4_launch_ramp_rpm_s);
+    services::Shell_Write("/brake=");
+    services::Shell_WriteInt(c->h4_stop_ramp_rpm_s);
+    services::Shell_Write("/brake_at=");
+    services::Shell_WriteInt(c->h4_brake_distance_mm);
+    services::Shell_Write("/B=");
+    services::Shell_WriteInt(c->h4_b_distance_mm);
+    services::Shell_Write("/stop=");
+    services::Shell_WriteInt(c->h4_stop_distance_mm);
+    services::Shell_Write("/heading=");
+    services::Shell_WriteInt(c->h4_heading_kp);
+    services::Shell_Write("/");
+    services::Shell_WriteInt(c->h4_heading_max_correction_rpm);
+    services::Shell_Write("/ball_ff=");
+    services::Shell_WriteInt(c->ball_chassis_ff_permille);
     services::Shell_Write(" h5=");
     services::Shell_WriteInt(c->h5_cruise_rpm);
-    services::Shell_Write("/");
-    services::Shell_WriteInt(c->h5_approach_rpm);
+    services::Shell_Write("/ramp=");
+    services::Shell_WriteInt(c->h5_launch_ramp_rpm_s);
+    services::Shell_Write("/brake=");
+    services::Shell_WriteInt(c->h5_stop_ramp_rpm_s);
+    services::Shell_Write("/brake_at=");
+    services::Shell_WriteInt(c->h5_brake_distance_mm);
     services::Shell_Write(" h6=");
     services::Shell_WriteInt(c->h6_cruise_rpm);
     services::Shell_Write("/");
@@ -651,14 +677,48 @@ bool SetConfigValue(const char *name, int32_t value)
     if (Equal(name, "cruise")) c->cruise_rpm = value;
     else if (Equal(name, "approach")) c->approach_rpm = value;
     else if (Equal(name, "h4_speed")) c->h4_cruise_rpm = value;
+    else if (Equal(name, "h4_launch_ramp")) {
+        c->h4_launch_ramp_rpm_s = value;
+    }
+    else if (Equal(name, "h4_stop_ramp")) {
+        c->h4_stop_ramp_rpm_s = value;
+    }
+    else if (Equal(name, "h4_brake_distance")) {
+        c->h4_brake_distance_mm = value;
+    }
+    else if (Equal(name, "h4_b_distance")) {
+        c->h4_b_distance_mm = value;
+    }
+    else if (Equal(name, "h4_stop_distance")) {
+        c->h4_stop_distance_mm = value;
+    }
+    else if (Equal(name, "h4_heading_kp")) {
+        c->h4_heading_kp = value;
+    }
+    else if (Equal(name, "h4_heading_max_corr")) {
+        c->h4_heading_max_correction_rpm = value;
+    }
+    else if (Equal(name, "imu_gyro_bias_z")) {
+        c->imu_gyro_bias_z_mdps = value;
+    }
+    else if (Equal(name, "ball_chassis_ff")) {
+        c->ball_chassis_ff_permille = value;
+    }
     else if (Equal(name, "h5_speed")) c->h5_cruise_rpm = value;
-    else if (Equal(name, "h5_approach")) c->h5_approach_rpm = value;
+    else if (Equal(name, "h5_launch_ramp")) {
+        c->h5_launch_ramp_rpm_s = value;
+    }
+    else if (Equal(name, "h5_stop_ramp")) {
+        c->h5_stop_ramp_rpm_s = value;
+    }
+    else if (Equal(name, "h5_brake_distance")) {
+        c->h5_brake_distance_mm = value;
+    }
     else if (Equal(name, "h6_speed")) c->h6_cruise_rpm = value;
     else if (Equal(name, "h6_approach")) c->h6_approach_rpm = value;
     else if (Equal(name, "finish_gate")) c->finish_gate_mm = value;
     else if (Equal(name, "approach_start")) c->approach_start_mm = value;
     else if (Equal(name, "h5_finish_gate")) c->h5_finish_gate_mm = value;
-    else if (Equal(name, "h5_approach_start")) c->h5_approach_start_mm = value;
     else if (Equal(name, "h6_finish_gate")) c->h6_finish_gate_mm = value;
     else if (Equal(name, "h6_approach_start")) c->h6_approach_start_mm = value;
     else if (Equal(name, "finish_offset")) c->sensor_to_reference_mm = value;

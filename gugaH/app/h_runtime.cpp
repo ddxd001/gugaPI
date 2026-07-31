@@ -491,7 +491,7 @@ void HRuntime_Update2ms(uint32_t now_ms)
 
 void HRuntime_Update5ms(uint32_t now_ms)
 {
-    SensorHub_Update5ms(now_ms);
+    SensorHub_Update5ms(now_ms, &g_config);
     (void)Chassis_Update(now_ms);
     if (g_manual_chassis && (g_state.run_state == H_STATE_READY)) {
         (void)Chassis_SetWheelRpm(
@@ -514,7 +514,11 @@ void HRuntime_Update50ms(uint32_t now_ms)
         OledLine(1U, "TIME 0.1s ",
                  static_cast<int32_t>(
                      (now_ms - g_state.run_start_ms) / 100U));
-        OledLine(2U, "DIST mm ", g_state.course.distance_mm);
+        if (g_state.selected_problem == H_PROBLEM_3) {
+            OledLine(2U, "H3 STAGE ", g_state.h3_stage);
+        } else {
+            OledLine(2U, "DIST mm ", g_state.course.distance_mm);
+        }
     } else {
         OledText(1U, HApp_StateText(g_state.run_state));
         OledLine(2U, "TIME 0.1s ",
@@ -640,6 +644,28 @@ void HRuntime_PrintStatus(void)
     WriteUnsigned(g_state.result_time_ms);
     services::Shell_Write(" max_ball_0p1mm=");
     services::Shell_WriteInt(g_state.maximum_ball_error_0p1mm);
+    services::Shell_Write(" h3_stage=");
+    services::Shell_WriteInt(g_state.h3_stage);
+    services::Shell_Write(" ball_target0.1=");
+    services::Shell_WriteInt(g_state.active_ball_target_0p1mm);
+    services::Shell_Write(" course_phase=");
+    services::Shell_WriteInt(g_state.course.phase);
+    services::Shell_Write(" distance_mm=");
+    services::Shell_WriteInt(g_state.course.distance_mm);
+    services::Shell_Write(" course_pass_ms=");
+    WriteUnsigned(g_state.course.pass_ms);
+    services::Shell_Write(" h4_yaw_target=");
+    services::Shell_WriteInt(g_state.course.h4_target_yaw_mdeg);
+    services::Shell_Write(" h4_yaw_error=");
+    services::Shell_WriteInt(g_state.course.h4_yaw_error_mdeg);
+    services::Shell_Write(" h4_corr=");
+    services::Shell_WriteInt(g_state.course.h4_heading_correction_rpm);
+    services::Shell_Write(" h4_accel=");
+    services::Shell_WriteInt(
+        g_state.course.h4_commanded_accel_mm_s2);
+    services::Shell_Write(" h5_accel=");
+    services::Shell_WriteInt(
+        g_state.course.h5_commanded_accel_mm_s2);
     services::Shell_Write(" err_chassis=");
     WriteUnsigned(Chassis_GetErrorCount());
     services::Shell_Write(" err_dm=");
