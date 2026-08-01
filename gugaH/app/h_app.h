@@ -17,7 +17,8 @@ enum HProblem : uint8_t {
     H_PROBLEM_5 = 5U,
     H_PROBLEM_6 = 6U,
     H_PROBLEM_CAL_ZERO = 7U,
-    H_PROBLEM_CAL_H2_LOOP = 8U
+    H_PROBLEM_CAL_H2_LOOP = 8U,
+    H_PROBLEM_CAL_GRAY = 9U
 };
 
 enum HRunState : uint8_t {
@@ -73,6 +74,8 @@ struct HAppOutput {
     bool buzzer_pulse;
     int16_t ball_zero_delta_0p1mm;
     int16_t h2_loop_delta_mm;
+    bool gray_calibrate_white;
+    bool gray_calibrate_black;
     bool save_config;
 };
 
@@ -105,6 +108,7 @@ HAppOutput HApp_Update(HAppState *state,
 BallOutput HApp_UpdateBall2ms(HAppState *state,
                               const HAppInput *input,
                               const HConfig *config);
+int16_t HApp_ReadyBallTarget0p1mm(const HAppState *state);
 bool HApp_IsRunning(const HAppState *state);
 const char *HApp_StateText(HRunState state);
 const char *HApp_FailureText(HFailure failure);

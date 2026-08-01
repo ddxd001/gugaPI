@@ -9,7 +9,7 @@
 namespace gugah {
 
 static const uint32_t H_CONFIG_MAGIC = 0x48475547UL; /* "GUGH" */
-static const uint16_t H_CONFIG_SCHEMA_VERSION = 23U;
+static const uint16_t H_CONFIG_SCHEMA_VERSION = 24U;
 static const uint16_t H_CONFIG_FRAM_ADDRESS = 0x0000U;
 static const int16_t H_CONFIG_BALL_ZERO_LIMIT_0P1MM = 300;
 static const int16_t H_CONFIG_H2_LOOP_OFFSET_LIMIT_MM = 200;
@@ -45,13 +45,18 @@ struct HConfig {
     uint16_t h4_cruise_rpm;
     uint16_t h5_cruise_rpm;
     uint16_t h5_approach_rpm;
+    /* Retained for FRAM binary compatibility.  H6 chassis now uses the H5
+     * speed profile; runtime code must not consume these retired values. */
     uint16_t h6_cruise_rpm;
     uint16_t h6_approach_rpm;
     uint16_t lap_distance_mm;
-    uint16_t finish_gate_mm;
-    uint16_t approach_start_mm;
-    uint16_t h5_finish_gate_mm;
-    uint16_t h5_approach_start_mm;
+    /* H5/H6 straight-only gentle line-control profile.  These four fields
+     * reuse retired finish/approach gates without changing FRAM size. */
+    uint16_t course_straight_line_kp_milli;
+    uint16_t course_straight_line_kd_milli;
+    uint16_t course_straight_line_max_correction_rpm;
+    uint16_t course_straight_line_slew_rpm_s;
+    /* Retired H6 A-line fields retained only to preserve record layout. */
     uint16_t h6_finish_gate_mm;
     uint16_t h6_approach_start_mm;
     uint16_t h4_b_distance_mm;
@@ -143,6 +148,9 @@ typedef bool (*HConfigWriteFn)(uint16_t address,
 
 void HConfig_Defaults(HConfig *config);
 bool HConfig_Validate(const HConfig *config);
+bool HConfig_CaptureGrayscaleSurface(HConfig *config,
+                                     const uint16_t *raw,
+                                     bool white_surface);
 uint32_t HConfig_Crc32(const uint8_t *data, uint16_t length);
 void HConfig_BuildRecord(const HConfig *config, HConfigRecord *record);
 bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config);

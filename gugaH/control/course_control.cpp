@@ -3,9 +3,6 @@
 namespace gugah {
 namespace {
 
-static const uint8_t kFinishCenterMask = 0x7EU;
-static const uint8_t kFinishMinimumChannels = 5U;
-static const uint8_t kFinishConfirmFrames = 2U;
 static const uint32_t kChassisMaximumAgeMs = 100U;
 static const uint32_t kImuMaximumAgeMs = 100U;
 static const int32_t kMaximumHeadingErrorMdeg = 90000;
@@ -13,16 +10,9 @@ static const int32_t kH2FinalPositionDistanceMm = 200;
 static const int16_t kH2FinalMinimumRpm = 15;
 static const int32_t kH5OdometryFinishOffsetMm = 50;
 static const int32_t kH5CurvePreparationMarginMm = 50;
-
-uint8_t CountBits(uint8_t value)
-{
-    uint8_t count = 0U;
-    while (value != 0U) {
-        count = static_cast<uint8_t>(count + (value & 1U));
-        value = static_cast<uint8_t>(value >> 1U);
-    }
-    return count;
-}
+static const int32_t kCourseLineTransitionMm = 150;
+static const uint16_t kStraightDerivativeFilterPermille = 200U;
+static const uint16_t kCurveDerivativeFilterPermille = 1000U;
 
 int32_t CountsToMillimeters(int32_t counts,
                             uint32_t wheel_radius_um,
@@ -48,17 +38,6 @@ bool ChassisFresh(const ChassisFeedback *chassis, uint32_t now_ms)
            ((now_ms - chassis->received_ms) <= kChassisMaximumAgeMs);
 }
 
-bool FinishLineDetected(const drivers::GrayscaleProcessedData *line)
-{
-    if (line == 0) {
-        return false;
-    }
-    const uint8_t mask =
-        static_cast<uint8_t>(line->active_mask & kFinishCenterMask);
-    return (line->track_state == drivers::GRAYSCALE_TRACK_WIDE) &&
-           (CountBits(mask) >= kFinishMinimumChannels);
-}
-
 MotionCommand StopCommand(void)
 {
     MotionCommand command = {};
@@ -80,15 +59,9 @@ uint32_t TimeoutFor(CourseKind kind)
     return 30000U;
 }
 
-uint16_t FinishGateFor(CourseKind kind, const HConfig *config)
+bool UsesH5ChassisStrategy(CourseKind kind)
 {
-    if (kind == COURSE_H5) {
-        return config->h5_finish_gate_mm;
-    }
-    if (kind == COURSE_H6) {
-        return config->h6_finish_gate_mm;
-    }
-    return config->finish_gate_mm;
+    return (kind == COURSE_H5) || (kind == COURSE_H6);
 }
 
 uint16_t CruiseFor(CourseKind kind, const HConfig *config)
@@ -96,11 +69,8 @@ uint16_t CruiseFor(CourseKind kind, const HConfig *config)
     if (kind == COURSE_H4) {
         return config->h4_cruise_rpm;
     }
-    if (kind == COURSE_H5) {
+    if (UsesH5ChassisStrategy(kind)) {
         return config->h5_cruise_rpm;
-    }
-    if (kind == COURSE_H6) {
-        return config->h6_cruise_rpm;
     }
     return config->cruise_rpm;
 }
@@ -340,6 +310,112 @@ bool H5DistanceRequestsCurve(int32_t distance_mm,
             (distance_mm < config->lap_distance_mm));
 }
 
+uint16_t RampFactorPermille(int32_t distance_mm,
+                            int32_t start_mm,
+                            int32_t end_mm,
+                            bool increasing)
+{
+    if (distance_mm <= start_mm) {
+        return increasing ? 0U : 1000U;
+    }
+    if (distance_mm >= end_mm) {
+        return increasing ? 1000U : 0U;
+    }
+    const int32_t span_mm = end_mm - start_mm;
+    const uint16_t rising = static_cast<uint16_t>(
+        ((distance_mm - start_mm) * 1000) / span_mm);
+    return increasing ? rising
+                      : static_cast<uint16_t>(1000U - rising);
+}
+
+uint16_t CourseLineCurveFactorPermille(int32_t distance_mm,
+                                       const HConfig *config)
+{
+    const int32_t straight_mm = config->h4_b_distance_mm;
+    const int32_t curved_total_mm =
+        static_cast<int32_t>(config->lap_distance_mm) -
+        2 * straight_mm;
+    if (curved_total_mm <= 0) {
+        return 0U;
+    }
+    const int32_t semicircle_mm = curved_total_mm / 2;
+    const int32_t first_curve_start_mm = straight_mm;
+    const int32_t first_curve_end_mm =
+        first_curve_start_mm + semicircle_mm;
+    const int32_t second_curve_start_mm =
+        first_curve_end_mm + straight_mm;
+
+    if (distance_mm <
+        first_curve_start_mm - kCourseLineTransitionMm) {
+        return 0U;
+    }
+    if (distance_mm < first_curve_start_mm) {
+        return RampFactorPermille(
+            distance_mm,
+            first_curve_start_mm - kCourseLineTransitionMm,
+            first_curve_start_mm,
+            true);
+    }
+    if (distance_mm < first_curve_end_mm) {
+        return 1000U;
+    }
+    if (distance_mm < first_curve_end_mm + kCourseLineTransitionMm) {
+        return RampFactorPermille(
+            distance_mm,
+            first_curve_end_mm,
+            first_curve_end_mm + kCourseLineTransitionMm,
+            false);
+    }
+    if (distance_mm <
+        second_curve_start_mm - kCourseLineTransitionMm) {
+        return 0U;
+    }
+    if (distance_mm < second_curve_start_mm) {
+        return RampFactorPermille(
+            distance_mm,
+            second_curve_start_mm - kCourseLineTransitionMm,
+            second_curve_start_mm,
+            true);
+    }
+    return 1000U;
+}
+
+int32_t Interpolate(int32_t straight_value,
+                    int32_t curve_value,
+                    uint16_t curve_factor_permille)
+{
+    return straight_value + static_cast<int32_t>(
+        (static_cast<int64_t>(curve_value - straight_value) *
+         curve_factor_permille) / 1000LL);
+}
+
+LineControlTuning CourseLineTuning(const HConfig *config,
+                                   uint16_t curve_factor_permille)
+{
+    LineControlTuning tuning = {};
+    tuning.kp_milli = Interpolate(
+        config->course_straight_line_kp_milli,
+        config->line_kp_milli,
+        curve_factor_permille);
+    tuning.kd_milli = Interpolate(
+        config->course_straight_line_kd_milli,
+        config->line_kd_milli,
+        curve_factor_permille);
+    tuning.max_correction_rpm = static_cast<int16_t>(Interpolate(
+        config->course_straight_line_max_correction_rpm,
+        config->line_max_correction_rpm,
+        curve_factor_permille));
+    tuning.correction_slew_rpm_s = static_cast<uint16_t>(Interpolate(
+        config->course_straight_line_slew_rpm_s,
+        config->line_correction_slew_rpm_s,
+        curve_factor_permille));
+    tuning.derivative_filter_permille = static_cast<uint16_t>(Interpolate(
+        kStraightDerivativeFilterPermille,
+        kCurveDerivativeFilterPermille,
+        curve_factor_permille));
+    return tuning;
+}
+
 void H5UpdateRoadSpeedLimit(CourseState *state,
                             uint32_t now_ms,
                             const HConfig *config)
@@ -415,22 +491,6 @@ int32_t H5CommandedAccelerationMmS2(const CourseState *state,
         : 0;
 }
 
-uint16_t ApproachFor(CourseKind kind, const HConfig *config)
-{
-    if (kind == COURSE_H6) {
-        return config->h6_approach_rpm;
-    }
-    return config->approach_rpm;
-}
-
-uint16_t ApproachStartFor(CourseKind kind, const HConfig *config)
-{
-    if (kind == COURSE_H6) {
-        return config->h6_approach_start_mm;
-    }
-    return config->approach_start_mm;
-}
-
 } /* namespace */
 
 void Course_Init(CourseState *state)
@@ -496,7 +556,7 @@ MotionCommand Course_Update(CourseState *state,
     const bool timed_task_pending = (state->kind == COURSE_H2)
         ? false
         : (((state->kind == COURSE_H4) ||
-            (state->kind == COURSE_H5))
+            UsesH5ChassisStrategy(state->kind))
             ? score_not_frozen : true);
     if (timed_task_pending &&
         ((input->now_ms - state->start_ms) > TimeoutFor(state->kind))) {
@@ -551,7 +611,7 @@ MotionCommand Course_Update(CourseState *state,
             state->h4_commanded_accel_mm_s2 =
                 -RpmRateToAccelerationMmS2(
                     config->h4_stop_ramp_rpm_s, config);
-        } else if (state->kind == COURSE_H5) {
+        } else if (UsesH5ChassisStrategy(state->kind)) {
             state->h5_commanded_accel_mm_s2 =
                 -RpmRateToAccelerationMmS2(
                     config->h5_stop_ramp_rpm_s, config);
@@ -615,7 +675,7 @@ MotionCommand Course_Update(CourseState *state,
             return StopCommand();
         }
         return straight;
-    } else if ((state->kind == COURSE_H5) &&
+    } else if (UsesH5ChassisStrategy(state->kind) &&
                state->passed_b_or_a) {
         const int16_t base_rpm =
             H5RequestedRpm(state, input->now_ms, config);
@@ -633,7 +693,7 @@ MotionCommand Course_Update(CourseState *state,
         command.left_rpm = base_rpm;
         command.right_rpm = base_rpm;
         return command;
-    } else if (state->kind == COURSE_H5) {
+    } else if (UsesH5ChassisStrategy(state->kind)) {
         if (!state->h5_braking &&
             (state->distance_mm >= config->h5_brake_distance_mm)) {
             state->h5_brake_start_rpm = static_cast<uint16_t>(
@@ -649,9 +709,9 @@ MotionCommand Course_Update(CourseState *state,
         if (state->distance_mm >=
             static_cast<int32_t>(config->lap_distance_mm) +
                 kH5OdometryFinishOffsetMm) {
-            /* H5 completion is intentionally odometry-only.  Gray data is
-             * still used for tracking, but the physical A marker does not
-             * participate in the finish decision. */
+            /* H5 and H6 deliberately share the same odometry-only chassis
+             * completion.  Gray data remains a steering input, but the
+             * physical A marker does not participate in either finish. */
             state->passed_b_or_a = true;
             state->pass_ms = input->now_ms;
             state->h5_commanded_accel_mm_s2 =
@@ -667,12 +727,6 @@ MotionCommand Course_Update(CourseState *state,
         state->phase = COURSE_COMPLETE;
         state->pass_ms = input->now_ms;
         return StopCommand();
-    } else if ((state->kind == COURSE_H6) &&
-               (state->distance_mm >
-                static_cast<int32_t>(config->lap_distance_mm) + 300) &&
-               (state->finish_confirm_frames == 0U)) {
-        Fail(state, COURSE_FAILURE_FINISH_NOT_FOUND);
-        return StopCommand();
     }
 
     if (!input->line_frame_new) {
@@ -685,32 +739,19 @@ MotionCommand Course_Update(CourseState *state,
     }
     state->last_line_frame_ms = input->now_ms;
 
-    if ((state->kind == COURSE_H2) ||
-        (state->kind == COURSE_H5)) {
-        state->finish_confirm_frames = 0U;
-    } else {
-        const bool gate_open = state->distance_mm >=
-            FinishGateFor(state->kind, config);
-        if (gate_open && FinishLineDetected(input->line)) {
-            if (state->finish_confirm_frames < 0xFFU) {
-                state->finish_confirm_frames++;
-            }
-        } else {
-            state->finish_confirm_frames = 0U;
-        }
-    }
-
-    if ((state->kind == COURSE_H6) &&
-        (state->finish_confirm_frames >= kFinishConfirmFrames)) {
-        state->passed_b_or_a = true;
-        state->pass_ms = input->now_ms;
-        state->phase = COURSE_STOPPING;
-        return StopCommand();
-    }
+    /* H2/H5/H6 no longer use the wide A marker as a finish decision. */
+    state->finish_confirm_frames = 0U;
 
     int16_t base_rpm = static_cast<int16_t>(
         CruiseFor(state->kind, config));
-    if (state->kind == COURSE_H5) {
+    const bool segmented_line_control =
+        UsesH5ChassisStrategy(state->kind);
+    if (segmented_line_control) {
+        state->line_curve_factor_permille =
+            CourseLineCurveFactorPermille(
+                state->distance_mm, config);
+    }
+    if (UsesH5ChassisStrategy(state->kind)) {
         const int16_t profile_rpm =
             H5RequestedRpm(state, input->now_ms, config);
         if (!state->h5_braking) {
@@ -729,7 +770,7 @@ MotionCommand Course_Update(CourseState *state,
             target_distance_mm - state->distance_mm;
         if (remaining_mm <= kH2FinalPositionDistanceMm) {
             state->phase = COURSE_APPROACH;
-            int32_t maximum_rpm = ApproachFor(COURSE_H2, config);
+            int32_t maximum_rpm = config->approach_rpm;
             if (maximum_rpm < kH2FinalMinimumRpm) {
                 maximum_rpm = kH2FinalMinimumRpm;
             }
@@ -741,26 +782,19 @@ MotionCommand Course_Update(CourseState *state,
                  bounded_remaining) /
                     kH2FinalPositionDistanceMm);
         }
-    } else if (state->distance_mm >=
-               ApproachStartFor(state->kind, config)) {
-        state->phase = COURSE_APPROACH;
-        base_rpm = static_cast<int16_t>(
-            ApproachFor(state->kind, config));
     }
-    if ((state->kind == COURSE_H2) &&
-        !LineControl_IsTrackUsable(input->line) &&
+    if (!LineControl_IsTrackUsable(input->line) &&
         (input->line != 0) &&
         (input->line->calibration_fault_mask == 0U) &&
         (input->line->track_state !=
          drivers::GRAYSCALE_TRACK_SENSOR_FAULT)) {
-        /* A valid ADC frame with no usable line is a recoverable course
-         * condition.  Search forward-right at the conservative H2 approach
-         * speed until a usable line returns.  Missing frames and sensor
-         * faults still take the normal safe-stop paths. */
-        const int16_t search_rpm = static_cast<int16_t>(
-            ApproachFor(COURSE_H2, config));
+        /* Every line-following task treats a valid ADC frame with no usable
+         * track as recoverable.  Preserve the current speed-profile mean and
+         * search along a forward-right arc until the track returns.  A
+         * stalled ADC scan, calibration fault or sensor fault remains a
+         * hardware failure and follows the normal safe-stop path. */
         if (!LineControl_SearchRight(&state->line_control,
-                                     search_rpm,
+                                     base_rpm,
                                      input->now_ms)) {
             Fail(state, COURSE_FAILURE_LINE_LOST);
             return StopCommand();
@@ -770,18 +804,33 @@ MotionCommand Course_Update(CourseState *state,
         command.right_rpm = state->line_control.right_rpm;
         return command;
     }
-    if (!LineControl_Update(&state->line_control,
-                            input->line,
-                            base_rpm,
-                            input->now_ms,
-                            config)) {
+    bool line_control_ok = false;
+    if (segmented_line_control) {
+        const LineControlTuning tuning = CourseLineTuning(
+            config, state->line_curve_factor_permille);
+        line_control_ok = LineControl_UpdateTuned(
+            &state->line_control,
+            input->line,
+            base_rpm,
+            input->now_ms,
+            config,
+            &tuning);
+    } else {
+        line_control_ok = LineControl_Update(
+            &state->line_control,
+            input->line,
+            base_rpm,
+            input->now_ms,
+            config);
+    }
+    if (!line_control_ok) {
         Fail(state, COURSE_FAILURE_LINE_LOST);
         return StopCommand();
     }
     command.mode = MOTION_COMMAND_SPEED;
     command.left_rpm = state->line_control.left_rpm;
     command.right_rpm = state->line_control.right_rpm;
-    if ((state->kind == COURSE_H5) ||
+    if (UsesH5ChassisStrategy(state->kind) ||
         ((state->kind == COURSE_H2) &&
          (state->phase == COURSE_APPROACH))) {
         const int32_t correction_limit = base_rpm / 2;

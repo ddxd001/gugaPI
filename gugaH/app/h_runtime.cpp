@@ -35,13 +35,14 @@ int16_t g_manual_left_rpm = 0;
 int16_t g_manual_right_rpm = 0;
 bool g_manual_ball = false;
 BallState g_manual_ball_state = {};
-bool g_ready_center_enabled = true;
-bool g_ready_center_active = false;
-uint32_t g_ready_center_retry_ms = 0U;
+bool g_ready_hold_enabled = true;
+bool g_ready_hold_active = false;
+uint32_t g_ready_hold_retry_ms = 0U;
 bool g_dm_bench_control = false;
 uint32_t g_buzzer_off_ms = 0U;
 uint32_t g_last_vision_print_ms = 0U;
 bool g_vision_trace = false;
+uint8_t g_gray_calibration_status = 0U;
 static const uint32_t kBuzzerPulseMs = 80U;
 
 void UpdateBallControl2ms(uint32_t now_ms)
@@ -56,11 +57,13 @@ void UpdateBallControl2ms(uint32_t now_ms)
         HRuntime_ChassisStopTest();
     }
 
-    if (g_ready_center_enabled && !g_manual_ball &&
+    const int16_t ready_target_0p1mm =
+        HApp_ReadyBallTarget0p1mm(&g_state);
+    if (g_ready_hold_enabled && !g_manual_ball &&
         !g_dm_bench_control &&
         (g_state.run_state == H_STATE_READY) &&
         (static_cast<int32_t>(
-             now_ms - g_ready_center_retry_ms) >= 0)) {
+             now_ms - g_ready_hold_retry_ms) >= 0)) {
         const HAppInput app_input = HRuntime_GetInput(now_ms);
         BallInput input = {};
         input.now_ms = now_ms;
@@ -68,8 +71,9 @@ void UpdateBallControl2ms(uint32_t now_ms)
         input.imu = app_input.imu;
         input.dm = app_input.dm;
         g_manual_ball = Ball_StartHold(
-            &g_manual_ball_state, 0, &input, &g_config);
-        g_ready_center_active = g_manual_ball;
+            &g_manual_ball_state, ready_target_0p1mm,
+            &input, &g_config);
+        g_ready_hold_active = g_manual_ball;
     }
     if (g_manual_ball && (g_state.run_state == H_STATE_READY)) {
         BallInput input = {};
@@ -78,6 +82,16 @@ void UpdateBallControl2ms(uint32_t now_ms)
         input.vision = app_input.vision;
         input.imu = app_input.imu;
         input.dm = app_input.dm;
+        if (g_ready_hold_active &&
+            (g_manual_ball_state.target_position_0p1mm !=
+             ready_target_0p1mm)) {
+            /* B2/B3 retargets the already-running READY controller.  Start()
+             * preserves its observer and beam reference, so a 1 mm target
+             * step does not cause a DM position discontinuity. */
+            (void)Ball_StartHold(
+                &g_manual_ball_state, ready_target_0p1mm,
+                &input, &g_config);
+        }
         const BallOutput output =
             Ball_Update(&g_manual_ball_state, &input, &g_config);
         if (output.command_valid) {
@@ -85,11 +99,11 @@ void UpdateBallControl2ms(uint32_t now_ms)
         }
         if (output.stop_chassis) {
             HRuntime_ChassisStopTest();
-            if (g_ready_center_active) {
+            if (g_ready_hold_active) {
                 g_manual_ball = false;
-                g_ready_center_active = false;
+                g_ready_hold_active = false;
                 Ball_Init(&g_manual_ball_state);
-                g_ready_center_retry_ms = now_ms + 250U;
+                g_ready_hold_retry_ms = now_ms + 250U;
             }
         }
     }
@@ -227,6 +241,19 @@ void PrintCsv(uint32_t now_ms)
         static_cast<int32_t>(Chassis_GetErrorCount() +
                              DmActuator_GetErrorCount() +
                              SensorHub_GetErrorCount()));
+    services::Shell_Write(",");
+    services::Shell_WriteInt(
+        g_state.course.line_curve_factor_permille);
+    services::Shell_Write(",");
+    services::Shell_WriteInt(
+        g_state.course.line_control.last_correction_rpm);
+    services::Shell_Write(",");
+    services::Shell_WriteInt(
+        g_state.course.line_control.filtered_derivative_per_s);
+    services::Shell_Write(",");
+    services::Shell_WriteInt(g_last_motion.left_rpm);
+    services::Shell_Write(",");
+    services::Shell_WriteInt(g_last_motion.right_rpm);
     services::Shell_Write("\r\n");
 }
 
@@ -425,11 +452,12 @@ void HRuntime_Init(void)
     HApp_Init(&g_state);
     Ball_Init(&g_manual_ball_state);
     g_manual_ball = false;
-    g_ready_center_enabled = true;
-    g_ready_center_active = false;
-    g_ready_center_retry_ms = 0U;
+    g_ready_hold_enabled = true;
+    g_ready_hold_active = false;
+    g_ready_hold_retry_ms = 0U;
     g_b1_start_armed = false;
     g_config_save_pending = false;
+    g_gray_calibration_status = 0U;
     g_hardware_fault = !buttons_ok || !oled_ok;
     g_chassis_fault = !chassis_ok;
     g_chassis_command_failing = false;
@@ -530,6 +558,15 @@ void HRuntime_Update2ms(uint32_t now_ms)
     const HRunState before = g_state.run_state;
     const HAppOutput output =
         HApp_Update(&g_state, &input, &g_config);
+    if (output.gray_calibrate_white ||
+        output.gray_calibrate_black) {
+        const bool captured = HConfig_CaptureGrayscaleSurface(
+            &g_config,
+            SensorHub_GetGrayscaleRaw(),
+            output.gray_calibrate_white);
+        g_gray_calibration_status = captured
+            ? (output.gray_calibrate_white ? 1U : 2U) : 3U;
+    }
     if (output.ball_zero_delta_0p1mm != 0) {
         int32_t zero = static_cast<int32_t>(
             g_config.ball_zero_offset_0p1mm) +
@@ -559,13 +596,16 @@ void HRuntime_Update2ms(uint32_t now_ms)
     }
     if ((before != H_STATE_READY) &&
         (g_state.run_state == H_STATE_READY)) {
-        g_ready_center_enabled = true;
-        g_ready_center_active = false;
-        g_ready_center_retry_ms = now_ms;
+        g_ready_hold_enabled = true;
+        g_ready_hold_active = false;
+        g_ready_hold_retry_ms = now_ms;
         g_suppress_buttons = true;
     }
     if ((before == H_STATE_READY) &&
         (g_state.run_state == H_STATE_RUNNING)) {
+        if (g_state.selected_problem == H_PROBLEM_CAL_GRAY) {
+            g_gray_calibration_status = 0U;
+        }
         g_suppress_buttons = true;
         (void)board::Board_BuzzerOn();
         g_buzzer_off_ms = now_ms + kBuzzerPulseMs;
@@ -613,6 +653,8 @@ void HRuntime_Update50ms(uint32_t now_ms)
         OledText(0U, "CAL ZERO");
     } else if (g_state.selected_problem == H_PROBLEM_CAL_H2_LOOP) {
         OledText(0U, "CAL H2 LOOP");
+    } else if (g_state.selected_problem == H_PROBLEM_CAL_GRAY) {
+        OledText(0U, "CAL GRAY");
     } else {
         OledLine(0U, "H", g_state.selected_problem);
     }
@@ -626,6 +668,11 @@ void HRuntime_Update50ms(uint32_t now_ms)
                    H_PROBLEM_CAL_H2_LOOP) {
             OledLine(1U, "OFFSET mm ",
                      g_config.h2_loop_offset_mm);
+            OledText(2U, g_config_save_pending
+                ? "SAVING FRAM" : "HOLD B1 TO START");
+        } else if (g_state.selected_problem ==
+                   H_PROBLEM_CAL_GRAY) {
+            OledText(1U, "B2=WHITE B3=BLACK");
             OledText(2U, g_config_save_pending
                 ? "SAVING FRAM" : "HOLD B1 TO START");
         } else {
@@ -643,6 +690,10 @@ void HRuntime_Update50ms(uint32_t now_ms)
             OledLine(1U, "OFFSET mm ",
                      g_config.h2_loop_offset_mm);
             OledText(2U, "B2- B3+ B1 EXIT");
+        } else if (g_state.selected_problem ==
+                   H_PROBLEM_CAL_GRAY) {
+            OledText(1U, "B2 CAP WHITE");
+            OledText(2U, "B3 CAP BLACK");
         } else {
             OledTime(1U, now_ms - g_state.run_start_ms);
         }
@@ -650,7 +701,8 @@ void HRuntime_Update50ms(uint32_t now_ms)
             OledLine(2U, "H3 STAGE ", g_state.h3_stage);
         } else if ((g_state.selected_problem != H_PROBLEM_CAL_ZERO) &&
                    (g_state.selected_problem !=
-                    H_PROBLEM_CAL_H2_LOOP)) {
+                    H_PROBLEM_CAL_H2_LOOP) &&
+                   (g_state.selected_problem != H_PROBLEM_CAL_GRAY)) {
             OledLine(2U, "DIST mm ", g_state.course.distance_mm);
         }
     } else {
@@ -664,6 +716,16 @@ void HRuntime_Update50ms(uint32_t now_ms)
             OledLine(3U, "H2 STOP mm ",
                      static_cast<int32_t>(g_config.lap_distance_mm) +
                          g_config.h2_loop_offset_mm);
+        } else if (g_state.selected_problem == H_PROBLEM_CAL_GRAY) {
+            const char *status = "B1 EXIT";
+            if (g_gray_calibration_status == 1U) {
+                status = "WHITE OK";
+            } else if (g_gray_calibration_status == 2U) {
+                status = "BLACK OK";
+            } else if (g_gray_calibration_status == 3U) {
+                status = "CAPTURE ERR";
+            }
+            OledText(3U, status);
         } else {
             const BallState *ball = HRuntime_GetActiveBallState();
             OledLine(3U, "BALL e0.1 ",
@@ -733,7 +795,7 @@ void HRuntime_Select(HProblem problem)
 {
     if ((g_state.run_state == H_STATE_READY) &&
         (problem >= H_PROBLEM_2) &&
-        (problem <= H_PROBLEM_CAL_H2_LOOP)) {
+        (problem <= H_PROBLEM_CAL_GRAY)) {
         g_state.selected_problem = problem;
     }
 }
@@ -818,6 +880,15 @@ void HRuntime_PrintStatus(void)
         g_state.course.h5_commanded_accel_mm_s2);
     services::Shell_Write(" h5_curve=");
     services::Shell_WriteInt(g_state.course.h5_curve_mode);
+    services::Shell_Write(" line_curve_permille=");
+    services::Shell_WriteInt(
+        g_state.course.line_curve_factor_permille);
+    services::Shell_Write(" line_corr=");
+    services::Shell_WriteInt(
+        g_state.course.line_control.last_correction_rpm);
+    services::Shell_Write(" line_d_filtered=");
+    services::Shell_WriteInt(
+        g_state.course.line_control.filtered_derivative_per_s);
     services::Shell_Write(" h5_limit_rpm=");
     services::Shell_WriteInt(
         g_state.course.h5_speed_limit_millirpm / 1000);
@@ -852,9 +923,9 @@ void HRuntime_ClearFault(void)
         HApp_Init(&g_state);
         g_state.selected_problem = selected;
         g_state.h6_target_0p1mm = target;
-        g_ready_center_enabled = true;
-        g_ready_center_active = false;
-        g_ready_center_retry_ms = services::Time_Millis();
+        g_ready_hold_enabled = true;
+        g_ready_hold_active = false;
+        g_ready_hold_retry_ms = services::Time_Millis();
     }
 }
 
@@ -894,8 +965,8 @@ bool HRuntime_BallHold(int16_t target_0p1mm)
     input.vision = app_input.vision;
     input.imu = app_input.imu;
     input.dm = app_input.dm;
-    g_ready_center_enabled = false;
-    g_ready_center_active = false;
+    g_ready_hold_enabled = false;
+    g_ready_hold_active = false;
     g_manual_ball = Ball_StartHold(
         &g_manual_ball_state, target_0p1mm, &input, &g_config);
     return g_manual_ball;
@@ -914,8 +985,8 @@ bool HRuntime_BallMove(int16_t target_0p1mm)
     input.vision = app_input.vision;
     input.imu = app_input.imu;
     input.dm = app_input.dm;
-    g_ready_center_enabled = false;
-    g_ready_center_active = false;
+    g_ready_hold_enabled = false;
+    g_ready_hold_active = false;
     g_manual_ball = Ball_StartMove(
         &g_manual_ball_state, target_0p1mm, 10000U,
         &input, &g_config);
@@ -925,8 +996,8 @@ bool HRuntime_BallMove(int16_t target_0p1mm)
 void HRuntime_BallStopTest(void)
 {
     g_manual_ball = false;
-    g_ready_center_enabled = false;
-    g_ready_center_active = false;
+    g_ready_hold_enabled = false;
+    g_ready_hold_active = false;
     g_dm_bench_control = false;
     Ball_Level(&g_manual_ball_state);
     (void)DmActuator_HoldCurrent();
@@ -938,8 +1009,8 @@ bool HRuntime_DmBenchTakeControl(void)
         return false;
     }
     g_manual_ball = false;
-    g_ready_center_enabled = false;
-    g_ready_center_active = false;
+    g_ready_hold_enabled = false;
+    g_ready_hold_active = false;
     g_dm_bench_control = true;
     return true;
 }
@@ -947,9 +1018,9 @@ bool HRuntime_DmBenchTakeControl(void)
 void HRuntime_DmBenchReleaseControl(void)
 {
     g_dm_bench_control = false;
-    g_ready_center_enabled = true;
-    g_ready_center_active = false;
-    g_ready_center_retry_ms = services::Time_Millis();
+    g_ready_hold_enabled = true;
+    g_ready_hold_active = false;
+    g_ready_hold_retry_ms = services::Time_Millis();
     if ((g_state.run_state == H_STATE_READY) && DmActuator_IsReady()) {
         (void)DmActuator_HoldCurrent();
     }

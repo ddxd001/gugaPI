@@ -178,8 +178,32 @@ void TestConfigRecord()
     assert(config.h5_brake_distance_mm == 5840U);
     assert(config.h5_cruise_rpm == 95U);
     assert(config.h5_approach_rpm == 63U);
+    assert(config.course_straight_line_kp_milli == 18U);
+    assert(config.course_straight_line_kd_milli == 12U);
+    assert(config.course_straight_line_max_correction_rpm == 25U);
+    assert(config.course_straight_line_slew_rpm_s == 400U);
     assert(config.ball_zero_offset_0p1mm == 0);
     assert(config.h2_loop_offset_mm == -100);
+    gugah::HConfig grayscale_config = config;
+    uint16_t white_surface[drivers::GRAYSCALE_CHANNEL_COUNT] = {};
+    uint16_t black_surface[drivers::GRAYSCALE_CHANNEL_COUNT] = {};
+    for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+        white_surface[i] = static_cast<uint16_t>(3000U + i);
+        black_surface[i] = static_cast<uint16_t>(1000U + i);
+    }
+    assert(gugah::HConfig_CaptureGrayscaleSurface(
+        &grayscale_config, white_surface, true));
+    assert(gugah::HConfig_CaptureGrayscaleSurface(
+        &grayscale_config, black_surface, false));
+    for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+        assert(grayscale_config.grayscale.white[i] == white_surface[i]);
+        assert(grayscale_config.grayscale.black[i] == black_surface[i]);
+    }
+    const uint16_t saved_white0 =
+        grayscale_config.grayscale.white[0];
+    assert(!gugah::HConfig_CaptureGrayscaleSurface(
+        &grayscale_config, black_surface, true));
+    assert(grayscale_config.grayscale.white[0] == saved_white0);
     gugah::HConfig h2_limit_config = config;
     h2_limit_config.h2_loop_offset_mm =
         gugah::H_CONFIG_H2_LOOP_OFFSET_LIMIT_MM;
@@ -407,6 +431,30 @@ void TestConfigRecord()
     assert(gugah::HConfig_ParseRecord(&schema22, &parsed));
     assert(parsed.h2_loop_offset_mm == -100);
     assert(parsed.ball_zero_offset_0p1mm == -70);
+
+    /* Schema 23 stored retired finish/approach gates in the four slots now
+     * used by the H5/H6 straight controller.  They must migrate to gains and
+     * limits, never retain the old 5200/5250 mm values. */
+    gugah::HConfigRecord schema23 = {};
+    schema23.magic = gugah::H_CONFIG_MAGIC;
+    schema23.schema_version = 23U;
+    schema23.payload_length = static_cast<uint16_t>(
+        sizeof(gugah::HConfig));
+    schema23.payload = config;
+    schema23.payload.course_straight_line_kp_milli = 5200U;
+    schema23.payload.course_straight_line_kd_milli = 5250U;
+    schema23.payload.course_straight_line_max_correction_rpm = 5200U;
+    schema23.payload.course_straight_line_slew_rpm_s = 5250U;
+    schema23.payload.h2_loop_offset_mm = 80;
+    schema23.payload_crc32 = gugah::HConfig_Crc32(
+        reinterpret_cast<const uint8_t *>(&schema23.payload),
+        schema23.payload_length);
+    assert(gugah::HConfig_ParseRecord(&schema23, &parsed));
+    assert(parsed.course_straight_line_kp_milli == 18U);
+    assert(parsed.course_straight_line_kd_milli == 12U);
+    assert(parsed.course_straight_line_max_correction_rpm == 25U);
+    assert(parsed.course_straight_line_slew_rpm_s == 400U);
+    assert(parsed.h2_loop_offset_mm == 80);
 
     /* Schema 9 stores the launch ramp but predates the H4 soft-stop ramp. */
     gugah::HConfigRecord schema9 = {};
@@ -771,11 +819,45 @@ void TestLineControl()
         &state, &line, 100, 201U, &config));
 }
 
+void TestLineControlDerivativeFilter()
+{
+    const gugah::HConfig config = DefaultConfig();
+    const gugah::LineControlTuning gentle = {
+        0, 50, 500, 65000U, 200U
+    };
+    const gugah::LineControlTuning raw = {
+        0, 50, 500, 65000U, 1000U
+    };
+    drivers::GrayscaleProcessedData line = ValidLine(0);
+
+    gugah::LineControlState gentle_state = {};
+    gugah::LineControl_Init(&gentle_state);
+    assert(gugah::LineControl_UpdateTuned(
+        &gentle_state, &line, 100, 10U, &config, &gentle));
+    line.line_position = 100;
+    assert(gugah::LineControl_UpdateTuned(
+        &gentle_state, &line, 100, 18U, &config, &gentle));
+    assert(gentle_state.raw_derivative_per_s == 12500);
+    assert(gentle_state.filtered_derivative_per_s == 2500);
+    assert(gentle_state.last_correction_rpm == 125);
+
+    line.line_position = 0;
+    gugah::LineControlState raw_state = {};
+    gugah::LineControl_Init(&raw_state);
+    assert(gugah::LineControl_UpdateTuned(
+        &raw_state, &line, 100, 10U, &config, &raw));
+    line.line_position = 100;
+    assert(gugah::LineControl_UpdateTuned(
+        &raw_state, &line, 100, 18U, &config, &raw));
+    assert(raw_state.filtered_derivative_per_s == 12500);
+    assert(raw_state.last_correction_rpm == 500);
+    assert(gentle_state.last_correction_rpm <
+           raw_state.last_correction_rpm);
+}
+
 void TestCourseH2UsesCalibratedAverageOdometryWithoutTimeout()
 {
     gugah::HConfig config = DefaultConfig();
-    config.finish_gate_mm = 100U;
-    config.approach_start_mm = 4000U;
     config.lap_distance_mm = 5000U;
     /* A non-default value proves the H2 target follows the calibrated
      * offset rather than the former compiled -100 mm constant. */
@@ -930,6 +1012,8 @@ void TestH2SearchesRightAfterLineLossAndReacquires()
     assert(command.mode == gugah::MOTION_COMMAND_SPEED);
     assert(command.left_rpm > command.right_rpm);
     assert(command.right_rpm > 0);
+    assert((command.left_rpm + command.right_rpm) / 2 ==
+           config.cruise_rpm);
     assert(state.phase == gugah::COURSE_CRUISE);
 
     /* Repeated valid ADC frames remain recoverable beyond the old grace
@@ -949,6 +1033,68 @@ void TestH2SearchesRightAfterLineLossAndReacquires()
     assert(state.line_control.line_valid);
     assert(!state.line_control.failed);
     assert(state.phase == gugah::COURSE_CRUISE);
+}
+
+void TestH5AndH6SearchRightAfterLineLossAndReacquire()
+{
+    const gugah::CourseKind kinds[] = {
+        gugah::COURSE_H5, gugah::COURSE_H6
+    };
+    for (uint8_t i = 0U; i < 2U; i++) {
+        gugah::HConfig config = DefaultConfig();
+        config.line_lost_grace_ms = 20U;
+        gugah::CourseState state = {};
+        gugah::ChassisFeedback chassis = Chassis(0U, 0, 0, 50);
+        assert(gugah::Course_Start(
+            &state, kinds[i], &chassis, 0U, &config));
+
+        drivers::GrayscaleProcessedData line = ValidLine(0);
+        line.line_detected = false;
+        line.position_valid = false;
+        line.track_state = drivers::GRAYSCALE_TRACK_LOST;
+        const uint32_t first_ms = 1000U;
+        gugah::CourseInput input = {
+            first_ms, &line, &chassis, true, 0
+        };
+        input.now_ms = 8U;
+        chassis.received_ms = input.now_ms;
+        gugah::MotionCommand command =
+            gugah::Course_Update(&state, &input, &config);
+        assert(command.mode == gugah::MOTION_COMMAND_SPEED);
+        assert(command.left_rpm == 0);
+        assert(command.right_rpm == 0);
+        assert(state.phase == gugah::COURSE_CRUISE);
+
+        input.now_ms = first_ms;
+        chassis.received_ms = input.now_ms;
+        command = gugah::Course_Update(&state, &input, &config);
+        const int16_t expected_rpm = static_cast<int16_t>(
+            config.h5_launch_ramp_rpm_s);
+        assert(command.mode == gugah::MOTION_COMMAND_SPEED);
+        assert(command.left_rpm > command.right_rpm);
+        assert(command.right_rpm > 0);
+        assert((command.left_rpm + command.right_rpm) / 2 ==
+               expected_rpm);
+        assert(state.phase == gugah::COURSE_CRUISE);
+
+        /* Valid lost-line frames remain recoverable beyond the old grace
+         * time for H5/H6 as well. */
+        input.now_ms = first_ms + 80U;
+        chassis.received_ms = input.now_ms;
+        command = gugah::Course_Update(&state, &input, &config);
+        assert(command.mode == gugah::MOTION_COMMAND_SPEED);
+        assert(command.left_rpm > command.right_rpm);
+        assert(state.phase == gugah::COURSE_CRUISE);
+
+        line = ValidLine(-500);
+        input.now_ms += 8U;
+        chassis.received_ms = input.now_ms;
+        command = gugah::Course_Update(&state, &input, &config);
+        assert(command.mode == gugah::MOTION_COMMAND_SPEED);
+        assert(state.line_control.line_valid);
+        assert(!state.line_control.failed);
+        assert(state.phase == gugah::COURSE_CRUISE);
+    }
 }
 
 void TestBallControlAndFeedforward()
@@ -1707,6 +1853,64 @@ void TestH3StageDeadlinesAdvanceWithoutFailure()
     assert(state.ball.target_position_0p1mm == -500);
 }
 
+void TestH3ForcedCompletionKeepsNegativeHold()
+{
+    const gugah::HConfig config = DefaultConfig();
+    gugah::HAppState state = {};
+    gugah::HApp_Init(&state);
+    state.selected_problem = gugah::H_PROBLEM_3;
+    gugah::HAppInput input = {};
+    input.now_ms = 100U;
+    const gugah::BallInput ball_input = BallInput(100U, 0);
+    input.vision = ball_input.vision;
+    input.imu = ball_input.imu;
+    input.dm = ball_input.dm;
+    assert(gugah::HApp_Start(&state, &input, &config));
+
+    /* Put the sequence on its final leg without declaring it settled. */
+    state.h3_stage = 2U;
+    state.active_ball_target_0p1mm = -500;
+    state.ball.target_position_0p1mm = -500;
+    state.ball.mode = gugah::BALL_MOVE;
+    state.ball.result = gugah::BALL_RESULT_IDLE;
+
+    input.now_ms = 4898U;
+    input.vision.frame.received_ms = input.now_ms;
+    input.vision.frame.sequence++;
+    input.imu.received_ms = input.now_ms;
+    input.dm.received_ms = input.now_ms;
+    const gugah::HAppOutput before_deadline =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+    assert(!before_deadline.buzzer_pulse);
+
+    /* Start the 80 ms second pulse at 4.8 s, leaving 20 ms margin before
+     * the 4.9-second requirement. */
+    input.now_ms = 4900U;
+    input.vision.frame.received_ms = input.now_ms;
+    input.vision.frame.sequence++;
+    input.imu.received_ms = input.now_ms;
+    input.dm.received_ms = input.now_ms;
+    const gugah::HAppOutput completed =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(completed.result_changed);
+    assert(completed.buzzer_pulse);
+    assert(state.run_state == gugah::H_STATE_PASS);
+    assert(state.result_time_ms == 4800U);
+    assert(state.active_ball_target_0p1mm == -500);
+    assert(state.ball.target_position_0p1mm == -500);
+
+    input.now_ms = 4910U;
+    input.vision.frame.received_ms = input.now_ms;
+    input.vision.frame.sequence++;
+    input.imu.received_ms = input.now_ms;
+    input.dm.received_ms = input.now_ms;
+    const gugah::BallOutput hold_output =
+        gugah::HApp_UpdateBall2ms(&state, &input, &config);
+    assert(hold_output.command_valid);
+    assert(state.ball.target_position_0p1mm == -500);
+}
+
 void TestH3StageStartFailureIsReportedImmediately()
 {
     const gugah::HConfig config = DefaultConfig();
@@ -1963,6 +2167,9 @@ void TestH5CurveSpeedUsesOdometryAndRamps()
     gugah::MotionCommand command =
         gugah::Course_Update(&state, &input, &config);
     assert(!state.h5_curve_mode);
+    assert(state.line_curve_factor_permille == 0U);
+    assert(state.line_control.applied_tuning.kp_milli == 18);
+    assert(state.line_control.applied_tuning.kd_milli == 12);
 
     /* The computed preparation point is about 1231 mm: 219 mm of ideal
      * braking distance plus a 50 mm settling margin before B at 1500 mm. */
@@ -1975,6 +2182,8 @@ void TestH5CurveSpeedUsesOdometryAndRamps()
     input.chassis = &chassis;
     command = gugah::Course_Update(&state, &input, &config);
     assert(state.h5_curve_mode);
+    assert(state.line_curve_factor_permille == 0U);
+    assert(state.line_control.applied_tuning.kp_milli == 18);
     assert(state.h5_speed_limit_millirpm < 95000);
     assert((command.left_rpm + command.right_rpm) / 2 < 95);
     assert(state.h5_commanded_accel_mm_s2 < -100);
@@ -1991,6 +2200,9 @@ void TestH5CurveSpeedUsesOdometryAndRamps()
         command = gugah::Course_Update(&state, &input, &config);
     }
     assert(state.h5_curve_mode);
+    assert(state.line_curve_factor_permille == 1000U);
+    assert(state.line_control.applied_tuning.kp_milli == 25);
+    assert(state.line_control.applied_tuning.kd_milli == 50);
     assert(state.h5_speed_limit_millirpm == 63000);
     assert((command.left_rpm + command.right_rpm) / 2 == 63);
 
@@ -2003,6 +2215,7 @@ void TestH5CurveSpeedUsesOdometryAndRamps()
     input.chassis = &chassis;
     command = gugah::Course_Update(&state, &input, &config);
     assert(state.h5_curve_mode);
+    assert(state.line_curve_factor_permille == 1000U);
 
     /* C is at 1500 + 1571 = 3071 mm; recovery starts by mileage even if
      * the line is already perfectly centred. */
@@ -2013,6 +2226,7 @@ void TestH5CurveSpeedUsesOdometryAndRamps()
     input.chassis = &chassis;
     command = gugah::Course_Update(&state, &input, &config);
     assert(!state.h5_curve_mode);
+    assert(state.line_curve_factor_permille == 1000U);
     assert(state.h5_commanded_accel_mm_s2 > 100);
     assert(state.h5_commanded_accel_mm_s2 < 200);
 
@@ -2028,6 +2242,7 @@ void TestH5CurveSpeedUsesOdometryAndRamps()
     }
     assert(state.h5_speed_limit_millirpm == 95000);
     assert((command.left_rpm + command.right_rpm) / 2 == 95);
+    assert(state.line_curve_factor_permille == 0U);
 
     input.now_ms += 8U;
     const int32_t before_second_curve =
@@ -2048,6 +2263,133 @@ void TestH5CurveSpeedUsesOdometryAndRamps()
     input.chassis = &chassis;
     command = gugah::Course_Update(&state, &input, &config);
     assert(state.h5_curve_mode);
+    assert(state.line_curve_factor_permille == 0U);
+
+    /* Steering gains begin their own 150 mm blend close to the physical
+     * D entry at 4571 mm, independent of the earlier speed reduction. */
+    input.now_ms += 8U;
+    const int32_t steering_transition =
+        CountsForMillimeters(4500, config);
+    chassis = Chassis(input.now_ms,
+                      steering_transition,
+                      steering_transition, 80);
+    input.chassis = &chassis;
+    command = gugah::Course_Update(&state, &input, &config);
+    assert(state.line_curve_factor_permille > 0U);
+    assert(state.line_curve_factor_permille < 1000U);
+    assert(state.line_control.applied_tuning.kp_milli > 18);
+    assert(state.line_control.applied_tuning.kp_milli < 25);
+}
+
+void TestH6MatchesH5ChassisStrategy()
+{
+    gugah::HConfig config = DefaultConfig();
+    /* These retired H6 chassis values deliberately disagree with H5.  The
+     * side-by-side commands below prove they no longer affect H6. */
+    config.h6_cruise_rpm = 7U;
+    config.h6_approach_rpm = 6U;
+    config.h6_finish_gate_mm = 1U;
+    config.h6_approach_start_mm = 1U;
+
+    gugah::CourseState h5 = {};
+    gugah::CourseState h6 = {};
+    gugah::ChassisFeedback start = Chassis(0U, 0, 0, 0);
+    assert(gugah::Course_Start(
+        &h5, gugah::COURSE_H5, &start, 0U, &config));
+    assert(gugah::Course_Start(
+        &h6, gugah::COURSE_H6, &start, 0U, &config));
+    drivers::GrayscaleProcessedData line = ValidLine(100);
+
+    const uint32_t times_ms[] = { 1000U, 2000U, 3000U, 4000U };
+    const int32_t distances_mm[] = { 1100, 1500, 3300, 4500 };
+    for (uint8_t i = 0U; i < 4U; i++) {
+        const int32_t count =
+            CountsForMillimeters(distances_mm[i], config);
+        gugah::ChassisFeedback chassis = Chassis(
+            times_ms[i], count, count, 0);
+        gugah::CourseInput h5_input = {
+            times_ms[i], &line, &chassis, true, 0
+        };
+        gugah::CourseInput h6_input = h5_input;
+        const gugah::MotionCommand h5_command =
+            gugah::Course_Update(&h5, &h5_input, &config);
+        const gugah::MotionCommand h6_command =
+            gugah::Course_Update(&h6, &h6_input, &config);
+        assert(h6_command.mode == h5_command.mode);
+        assert(h6_command.left_rpm == h5_command.left_rpm);
+        assert(h6_command.right_rpm == h5_command.right_rpm);
+        assert(h6.phase == h5.phase);
+        assert(h6.h5_curve_mode == h5.h5_curve_mode);
+        assert(h6.line_curve_factor_permille ==
+               h5.line_curve_factor_permille);
+        assert(h6.h5_speed_limit_millirpm ==
+               h5.h5_speed_limit_millirpm);
+        assert(h6.h5_commanded_accel_mm_s2 ==
+               h5.h5_commanded_accel_mm_s2);
+    }
+
+    /* A wide A marker at 5200 mm is ignored by both tasks. */
+    line.track_state = drivers::GRAYSCALE_TRACK_WIDE;
+    line.active_mask = 0x7EU;
+    int32_t count = CountsForMillimeters(5200, config);
+    gugah::ChassisFeedback chassis = Chassis(5000U, count, count, 63);
+    gugah::CourseInput h5_input = {
+        5000U, &line, &chassis, true, 0
+    };
+    gugah::CourseInput h6_input = h5_input;
+    gugah::MotionCommand h5_command =
+        gugah::Course_Update(&h5, &h5_input, &config);
+    gugah::MotionCommand h6_command =
+        gugah::Course_Update(&h6, &h6_input, &config);
+    assert(!h5.passed_b_or_a);
+    assert(!h6.passed_b_or_a);
+    assert(h6_command.left_rpm == h5_command.left_rpm);
+    assert(h6_command.right_rpm == h5_command.right_rpm);
+
+    /* Both start the same final brake, freeze the score at lap+50 mm and
+     * continue through the same post-finish soft stop. */
+    count = CountsForMillimeters(config.h5_brake_distance_mm, config);
+    chassis = Chassis(6000U, count, count, 63);
+    h5_input.now_ms = 6000U;
+    h5_input.chassis = &chassis;
+    h6_input = h5_input;
+    h5_command = gugah::Course_Update(&h5, &h5_input, &config);
+    h6_command = gugah::Course_Update(&h6, &h6_input, &config);
+    assert(h5.h5_braking && h6.h5_braking);
+    assert(h6_command.left_rpm == h5_command.left_rpm);
+    assert(h6_command.right_rpm == h5_command.right_rpm);
+
+    count = CountsForMillimeters(
+        static_cast<int32_t>(config.lap_distance_mm) + 50, config);
+    chassis = Chassis(7000U, count, count, 20);
+    h5_input.now_ms = 7000U;
+    h5_input.chassis = &chassis;
+    h6_input = h5_input;
+    h5_command = gugah::Course_Update(&h5, &h5_input, &config);
+    h6_command = gugah::Course_Update(&h6, &h6_input, &config);
+    assert(h5.passed_b_or_a && h6.passed_b_or_a);
+    assert(h5.pass_ms == h6.pass_ms);
+    assert(h6_command.left_rpm == h5_command.left_rpm);
+    assert(h6_command.right_rpm == h5_command.right_rpm);
+
+    chassis.received_ms = 8175U;
+    h5_input.now_ms = 8175U;
+    h5_input.line_frame_new = false;
+    h6_input = h5_input;
+    h5_command = gugah::Course_Update(&h5, &h5_input, &config);
+    h6_command = gugah::Course_Update(&h6, &h6_input, &config);
+    assert(h5_command.mode == gugah::MOTION_COMMAND_STOP);
+    assert(h6_command.mode == h5_command.mode);
+    assert(h6.phase == h5.phase);
+
+    chassis = Chassis(8180U, count, count, 0);
+    h5_input.now_ms = 8180U;
+    h5_input.chassis = &chassis;
+    h6_input = h5_input;
+    (void)gugah::Course_Update(&h5, &h5_input, &config);
+    (void)gugah::Course_Update(&h6, &h6_input, &config);
+    assert(h5.phase == gugah::COURSE_COMPLETE);
+    assert(h6.phase == h5.phase);
 }
 
 void TestH5IgnoresAThenSoftStopsAtOdometry()
@@ -2179,45 +2521,52 @@ void TestH4StartsBallAndCourseTogether()
     assert(state.active_ball_target_0p1mm == 0);
 }
 
-void TestH5CourseAccelerationReachesBallFeedforward()
+void TestH5AndH6CourseAccelerationReachesBallFeedforward()
 {
-    gugah::HConfig config = DefaultConfig();
-    gugah::HAppState state = {};
-    gugah::HApp_Init(&state);
-    state.selected_problem = gugah::H_PROBLEM_5;
-    drivers::GrayscaleProcessedData line = ValidLine(0);
-    gugah::HAppInput input = {};
-    input.now_ms = 100U;
-    input.line = &line;
-    input.line_frame_new = true;
-    input.chassis = Chassis(input.now_ms, 0, 0, 0);
-    const gugah::BallInput ball_input = BallInput(input.now_ms, 0);
-    input.vision = ball_input.vision;
-    input.imu = ball_input.imu;
-    input.dm = ball_input.dm;
-    input.dm.position_mrad = -617;
-    assert(gugah::HApp_Start(&state, &input, &config));
+    const gugah::HProblem problems[] = {
+        gugah::H_PROBLEM_5, gugah::H_PROBLEM_6
+    };
+    for (uint8_t i = 0U; i < 2U; i++) {
+        gugah::HConfig config = DefaultConfig();
+        gugah::HAppState state = {};
+        gugah::HApp_Init(&state);
+        state.selected_problem = problems[i];
+        state.h6_target_0p1mm = 300;
+        drivers::GrayscaleProcessedData line = ValidLine(0);
+        gugah::HAppInput input = {};
+        input.now_ms = 100U;
+        input.line = &line;
+        input.line_frame_new = true;
+        input.chassis = Chassis(input.now_ms, 0, 0, 0);
+        const gugah::BallInput ball_input = BallInput(input.now_ms, 0);
+        input.vision = ball_input.vision;
+        input.imu = ball_input.imu;
+        input.dm = ball_input.dm;
+        input.dm.position_mrad = -617;
+        assert(gugah::HApp_Start(&state, &input, &config));
+        assert(state.ball.target_position_0p1mm ==
+               ((problems[i] == gugah::H_PROBLEM_6) ? 300 : 0));
 
-    /* H5's launch, curve-exit, curve-entry and final-stop paths all write
-     * the same signed course acceleration field consumed by the 2 ms ball
-     * loop.  Exercise both polarities at that integration boundary. */
-    state.course.h5_commanded_accel_mm_s2 = 138;
-    input.now_ms = 110U;
-    input.vision.frame.received_ms = input.now_ms;
-    input.vision.frame.sequence++;
-    input.imu.received_ms = input.now_ms;
-    input.dm.received_ms = input.now_ms;
-    (void)gugah::HApp_UpdateBall2ms(&state, &input, &config);
-    assert(state.ball.chassis_feedforward_mdeg > 0);
+        /* H5/H6 share the signed chassis acceleration used by the 2 ms
+         * ball loop; only their held ball target differs. */
+        state.course.h5_commanded_accel_mm_s2 = 138;
+        input.now_ms = 110U;
+        input.vision.frame.received_ms = input.now_ms;
+        input.vision.frame.sequence++;
+        input.imu.received_ms = input.now_ms;
+        input.dm.received_ms = input.now_ms;
+        (void)gugah::HApp_UpdateBall2ms(&state, &input, &config);
+        assert(state.ball.chassis_feedforward_mdeg > 0);
 
-    state.course.h5_commanded_accel_mm_s2 = -138;
-    input.now_ms = 120U;
-    input.vision.frame.received_ms = input.now_ms;
-    input.vision.frame.sequence++;
-    input.imu.received_ms = input.now_ms;
-    input.dm.received_ms = input.now_ms;
-    (void)gugah::HApp_UpdateBall2ms(&state, &input, &config);
-    assert(state.ball.chassis_feedforward_mdeg < 0);
+        state.course.h5_commanded_accel_mm_s2 = -138;
+        input.now_ms = 120U;
+        input.vision.frame.received_ms = input.now_ms;
+        input.vision.frame.sequence++;
+        input.imu.received_ms = input.now_ms;
+        input.dm.received_ms = input.now_ms;
+        (void)gugah::HApp_UpdateBall2ms(&state, &input, &config);
+        assert(state.ball.chassis_feedforward_mdeg < 0);
+    }
 }
 
 void TestH4ReportsEightSecondTimeout()
@@ -2306,25 +2655,32 @@ void TestH6Buttons()
     input.now_ms = 10U;
     drivers::GrayscaleProcessedData line = ValidLine(0);
     input.line = &line;
+    assert(gugah::HApp_ReadyBallTarget0p1mm(&state) == 0);
     for (uint8_t i = 0U; i < 4U; i++) {
         input.buttons.b1_short = true;
         (void)gugah::HApp_Update(&state, &input, &config);
         input.buttons.b1_short = false;
     }
     assert(state.selected_problem == gugah::H_PROBLEM_6);
+    assert(gugah::HApp_ReadyBallTarget0p1mm(&state) == 0);
     input.buttons.b3_increment = true;
     (void)gugah::HApp_Update(&state, &input, &config);
     assert(state.h6_target_0p1mm == 10);
+    assert(gugah::HApp_ReadyBallTarget0p1mm(&state) == 10);
     for (uint16_t i = 0U; i < 200U; i++) {
         (void)gugah::HApp_Update(&state, &input, &config);
     }
     assert(state.h6_target_0p1mm == 1000);
+    assert(gugah::HApp_ReadyBallTarget0p1mm(&state) == 1000);
     input.buttons.b3_increment = false;
     input.buttons.b1_short = true;
     (void)gugah::HApp_Update(&state, &input, &config);
     assert(state.selected_problem == gugah::H_PROBLEM_CAL_ZERO);
+    assert(gugah::HApp_ReadyBallTarget0p1mm(&state) == 0);
     (void)gugah::HApp_Update(&state, &input, &config);
     assert(state.selected_problem == gugah::H_PROBLEM_CAL_H2_LOOP);
+    (void)gugah::HApp_Update(&state, &input, &config);
+    assert(state.selected_problem == gugah::H_PROBLEM_CAL_GRAY);
     (void)gugah::HApp_Update(&state, &input, &config);
     assert(state.selected_problem == gugah::H_PROBLEM_2);
 }
@@ -2419,6 +2775,53 @@ void TestCalH2LoopButtonFlow()
     assert(!exit.timer_running);
 }
 
+void TestCalGrayButtonFlow()
+{
+    const gugah::HConfig config = DefaultConfig();
+    gugah::HAppState state = {};
+    gugah::HApp_Init(&state);
+    state.selected_problem = gugah::H_PROBLEM_CAL_GRAY;
+
+    /* Calibration must start without a valid line, chassis, vision, IMU or
+     * DM because its purpose is to create the missing grayscale reference. */
+    gugah::HAppInput input = {};
+    input.now_ms = 100U;
+    input.chassis_fault = true;
+    assert(gugah::HApp_Start(&state, &input, &config));
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+
+    input.buttons.any_pressed = true;
+    input.buttons.b2_decrement = true;
+    gugah::HAppOutput output =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+    assert(output.gray_calibrate_white);
+    assert(!output.gray_calibrate_black);
+    assert(output.buzzer_pulse);
+    assert(!output.save_config);
+
+    input.buttons.b2_decrement = false;
+    input.buttons.b3_increment = true;
+    output = gugah::HApp_Update(&state, &input, &config);
+    assert(!output.gray_calibrate_white);
+    assert(output.gray_calibrate_black);
+
+    input.buttons.b3_increment = false;
+    input.buttons.b1_pressed = true;
+    output = gugah::HApp_Update(&state, &input, &config);
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+    assert(!output.save_config);
+
+    input.buttons.b1_pressed = false;
+    input.buttons.b1_short = true;
+    output = gugah::HApp_Update(&state, &input, &config);
+    assert(state.run_state == gugah::H_STATE_READY);
+    assert(output.motion.mode == gugah::MOTION_COMMAND_STOP);
+    assert(output.save_config);
+    assert(output.result_changed);
+    assert(!output.timer_running);
+}
+
 } /* namespace */
 
 int main()
@@ -2427,9 +2830,11 @@ int main()
     TestVisionProtocol();
     TestVisionStateKeepsLastBall();
     TestLineControl();
+    TestLineControlDerivativeFilter();
     TestCourseH2UsesCalibratedAverageOdometryWithoutTimeout();
     TestCourseRunsOncePerGrayscaleFrame();
     TestH2SearchesRightAfterLineLossAndReacquires();
+    TestH5AndH6SearchRightAfterLineLossAndReacquire();
     TestBallCameraPositionCalibration();
     TestBallZeroOffsetChangesControlOrigin();
     TestBallImuBeamCompensationIsDisabled();
@@ -2449,22 +2854,25 @@ int main()
     TestH3HasNoVisionAgeTimeout();
     TestH3ReportsDmTimeoutSeparately();
     TestH3StageDeadlinesAdvanceWithoutFailure();
+    TestH3ForcedCompletionKeepsNegativeHold();
     TestH3StageStartFailureIsReportedImmediately();
     TestH4TimeFreezesAtB();
     TestH4SoftLaunchAndHeadingLimit();
     TestH4SoftBrakeBeginsBeforeB();
     TestH5SoftLaunchKeepsCruiseBeforeFinish();
     TestH5CurveSpeedUsesOdometryAndRamps();
+    TestH6MatchesH5ChassisStrategy();
     TestH5IgnoresAThenSoftStopsAtOdometry();
     TestH5OdometryThresholdIsLapPlus50Mm();
     TestH4StartsBallAndCourseTogether();
-    TestH5CourseAccelerationReachesBallFeedforward();
+    TestH5AndH6CourseAccelerationReachesBallFeedforward();
     TestH4ReportsEightSecondTimeout();
     TestPassHoldRecoversTransientDeviceGap();
     TestBallContinuesPastOldEndpointLimit();
     TestH6Buttons();
     TestCalZeroButtonFlow();
     TestCalH2LoopButtonFlow();
+    TestCalGrayButtonFlow();
     puts("gugaH core tests passed");
     return 0;
 }

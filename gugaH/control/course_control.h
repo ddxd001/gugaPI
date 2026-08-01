@@ -61,6 +61,7 @@ struct CourseState {
     int32_t h4_commanded_accel_mm_s2;
     int32_t h5_commanded_accel_mm_s2;
     int32_t h5_speed_limit_millirpm;
+    uint16_t line_curve_factor_permille;
     int16_t h4_heading_correction_rpm;
     int16_t h5_road_ramp_rpm_s;
     uint32_t start_ms;

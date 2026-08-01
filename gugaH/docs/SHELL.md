@@ -5,7 +5,7 @@
 | 命令 | 说明 |
 | --- | --- |
 | `status` | 当前题号、细分失败原因、锁存时间、最大球误差和分设备错误计数 |
-| `task 2..8` | READY 状态选择题目；7 为 CAL_ZERO，8 为 CAL_H2_LOOP |
+| `task 2..9` | READY 状态选择题目；7 为 CAL_ZERO，8 为 CAL_H2_LOOP，9 为 CAL_GRAY |
 | `start` / `stop` | 启动或立即中止 |
 | `fault clear` | 非运行状态清故障并回 READY |
 | `gray raw` | 八路原始 ADC |
@@ -40,11 +40,10 @@
 `h4_heading_max_corr`、`imu_gyro_bias_z`、`ball_chassis_ff`、`h5_speed`、
 `h5_curve_speed`、
 `h5_launch_ramp`、`h5_stop_ramp`、`h5_brake_distance`、
+`course_line_kp`、`course_line_kd`、`course_line_max_corr`、`course_line_slew`、
 `h4_b_distance`、`h4_stop_distance`、
-`h6_speed`、`h6_approach`、`finish_gate`、
-`approach_start`、
-`h6_finish_gate`、`h6_approach_start`、`h2_loop_offset`、`finish_offset`、`line_kp`、
-`line_kd`、`gray_threshold`、`gray_hysteresis`、`gray_position_floor`、
+`h6_speed`、`h6_approach`、`h2_loop_offset`、`finish_offset`、`line_kp`、
+`line_kd`、`line_max_corr`、`line_slew`、`gray_threshold`、`gray_hysteresis`、`gray_position_floor`、
 `gray_min_strength`、`gray_track_mask`、`speed_kp`、`speed_ki`、`speed_kd`、
 `speed_max_duty`、`speed_min_duty`、`speed_accel_rpm_s`、
 `speed_decel_rpm_s`、`position_kp`、`position_ki`、`position_kd`、
@@ -53,10 +52,22 @@
 `ball_kd`、`ball_ki`、`accel_ff`、`max_angle`、
 `vision_invert`、`ball_zero`（0.1 mm）、`beam0..beam4`、`dm0..dm4`。
 
-`finish_gate` 仅为旧配置兼容保留。H2 的停车目标由
-`lap_distance + h2_loop_offset` 和左右轮平均编码器里程决定；`finish_offset`
+H2 的停车目标由 `lap_distance + h2_loop_offset` 和左右轮平均编码器里程决定；`finish_offset`
 是 `h2_loop_offset` 的兼容别名。偏移范围为 ±200 mm，默认 -100 mm；最后
 200 mm继续巡线并从55 RPM降到15 RPM，达到目标后直接停车，H2没有总超时。
+
+H5/H6共用的直道默认参数为 `course_line_kp=18`、`course_line_kd=12`、
+`course_line_max_corr=25 RPM`、`course_line_slew=400 RPM/s`。旧的
+`h5_line_*` 名称仍可作为兼容别名。弯道继续使用全局
+`line_kp/line_kd`、`line_max_corr`和`line_slew`；
+进入和离开物理弯道的150 mm范围内平滑插值。直道D项还使用0.2系数低通，
+随弯道插值逐渐恢复到原始响应。
+
+H6底盘完全复用H5的 `h5_speed`、`h5_curve_speed`、`h5_launch_ramp`、
+`h5_stop_ramp`和`h5_brake_distance`，并同样在 `lap_distance + 50 mm` 冻结成绩后
+缓停，不再识别A线。`h6_speed`和`h6_approach`仅作为修改共用H5速度的兼容别名；
+原 `h6_finish_gate`、`h6_approach_start` 已停用。H5保持球在0 mm，H6保持B2/B3
+设定位置。
 
 面板选择 H6 后的 `CAL ZERO` 可不使用串口完成零位标定：长按 B1 并松手
 启动，B2/B3 每次向负/正半轴移动零位 1 mm，按下 B1 退出。退出后固件会
@@ -66,10 +77,17 @@
 启动，B2 每次减少10 mm，B3每次增加10 mm，长按可连续调整；OLED 同时显示
 偏移和最终停车里程。短按 B1 退出后自动写入 FRAM 并读回校验。
 
+`CAL H2 LOOP` 后的 `CAL GRAY` 用于无串口完成灰度白黑标定：长按 B1 并
+松手启动，将全部探头置于白色底面后短按 B2，再置于黑线或黑色标定面后
+短按 B3。OLED 分别显示 `WHITE OK`、`BLACK OK`；无效采样显示
+`CAPTURE ERR`，并保留上一组有效标定值。短按 B1 退出后自动写入 FRAM
+并读回校验。校准过程中底盘始终停止，也不要求旧灰度标定有效。
+
 MotorDriver 参数在上电或执行 `fault clear` 重新初始化底盘时下发；修改后应
 先 `config save`，再复位或执行 `fault clear`，并从低速悬空测试重新确认。
 
-CSV 字段依次为时间、任务状态、灰度位置/掩码、左右轮速、里程、
-球位置/速度/误差、摆杆目标角、IMU 实测杆角、DM 位置和累计通信错误。
+CSV 原有字段依次为时间、任务状态、灰度位置/掩码、左右轮速、里程、
+球位置/速度/误差、摆杆目标角、IMU 实测杆角、DM 位置和累计通信错误；末尾
+新增H5/H6巡线弯道系数（0–1000）、轮速修正、滤波D项、左右轮目标RPM。
 
 `imu status` 的 `beam_mdeg` 仅保留用于诊断，不再修正 DM 杆角命令。

@@ -55,6 +55,16 @@ static const uint16_t kSchema21PayloadLength =
     kSchema16PayloadLength;
 static const uint16_t kSchema22PayloadLength =
     kSchema16PayloadLength;
+static const uint16_t kSchema23PayloadLength =
+    kSchema16PayloadLength;
+
+void SetCourseStraightLineDefaults(HConfig *config)
+{
+    config->course_straight_line_kp_milli = 18U;
+    config->course_straight_line_kd_milli = 12U;
+    config->course_straight_line_max_correction_rpm = 25U;
+    config->course_straight_line_slew_rpm_s = 400U;
+}
 
 void SetMeasuredDmMapping(HConfig *config)
 {
@@ -186,10 +196,7 @@ void HConfig_Defaults(HConfig *config)
     config->h6_cruise_rpm = 90U;
     config->h6_approach_rpm = 45U;
     config->lap_distance_mm = 6142U;
-    config->finish_gate_mm = 5200U;
-    config->approach_start_mm = 5250U;
-    config->h5_finish_gate_mm = 5200U;
-    config->h5_approach_start_mm = 5250U;
+    SetCourseStraightLineDefaults(config);
     config->h6_finish_gate_mm = 5200U;
     config->h6_approach_start_mm = 5250U;
     config->h4_b_distance_mm = 1500U;
@@ -281,6 +288,7 @@ bool HConfig_Validate(const HConfig *config)
         (config->line_max_correction_rpm < 1) ||
         (config->line_max_correction_rpm > 500) ||
         (config->line_correction_slew_rpm_s < 10U) ||
+        (config->line_correction_slew_rpm_s > 10000U) ||
         (config->line_lost_grace_ms > 1000U) ||
         (config->wheel_radius_um < 10000U) ||
         (config->wheel_radius_um > 100000U) ||
@@ -314,10 +322,12 @@ bool HConfig_Validate(const HConfig *config)
         (config->h6_approach_rpm > config->h6_cruise_rpm) ||
         (config->lap_distance_mm < 5000U) ||
         (config->lap_distance_mm > 8000U) ||
-        (config->finish_gate_mm >= config->lap_distance_mm) ||
-        (config->approach_start_mm >= config->lap_distance_mm) ||
-        (config->h5_finish_gate_mm >= config->lap_distance_mm) ||
-        (config->h5_approach_start_mm >= config->lap_distance_mm) ||
+        (config->course_straight_line_kp_milli > 2000U) ||
+        (config->course_straight_line_kd_milli > 2000U) ||
+        (config->course_straight_line_max_correction_rpm == 0U) ||
+        (config->course_straight_line_max_correction_rpm > 500U) ||
+        (config->course_straight_line_slew_rpm_s < 10U) ||
+        (config->course_straight_line_slew_rpm_s > 10000U) ||
         (config->h6_finish_gate_mm >= config->lap_distance_mm) ||
         (config->h6_approach_start_mm >= config->lap_distance_mm) ||
         (config->h4_b_distance_mm < 1000U) ||
@@ -391,12 +401,33 @@ bool HConfig_Validate(const HConfig *config)
         (config->h5_launch_ramp_rpm_s > 1000U) ||
         (config->h5_stop_ramp_rpm_s < 10U) ||
         (config->h5_stop_ramp_rpm_s > 2000U) ||
-        (config->h5_brake_distance_mm <= config->h5_finish_gate_mm) ||
         (config->h5_brake_distance_mm >= config->lap_distance_mm) ||
         (config->ball_imu_beam_limit_0p1deg > 30U)) {
         return false;
     }
     return MappingValid(config) && HoldTableValid(config);
+}
+
+bool HConfig_CaptureGrayscaleSurface(HConfig *config,
+                                     const uint16_t *raw,
+                                     bool white_surface)
+{
+    if ((config == 0) || (raw == 0)) {
+        return false;
+    }
+    const drivers::GrayscaleCalibration previous = config->grayscale;
+    for (uint8_t i = 0U; i < drivers::GRAYSCALE_CHANNEL_COUNT; i++) {
+        if (white_surface) {
+            config->grayscale.white[i] = raw[i];
+        } else {
+            config->grayscale.black[i] = raw[i];
+        }
+    }
+    if (!HConfig_Validate(config)) {
+        config->grayscale = previous;
+        return false;
+    }
+    return true;
 }
 
 uint32_t HConfig_Crc32(const uint8_t *data, uint16_t length)
@@ -457,6 +488,7 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
     const bool schema20 = record->schema_version == 20U;
     const bool schema21 = record->schema_version == 21U;
     const bool schema22 = record->schema_version == 22U;
+    const bool schema23 = record->schema_version == 23U;
     if ((record->schema_version == H_CONFIG_SCHEMA_VERSION) &&
         (record->payload_length ==
          static_cast<uint16_t>(sizeof(HConfig))) &&
@@ -505,8 +537,12 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
                ((record->schema_version == 21U) &&
                 (record->payload_length == kSchema21PayloadLength)) ||
                ((record->schema_version == 22U) &&
-                (record->payload_length == kSchema22PayloadLength))) {
-        uint16_t legacy_length = schema22
+                (record->payload_length == kSchema22PayloadLength)) ||
+               ((record->schema_version == 23U) &&
+                (record->payload_length == kSchema23PayloadLength))) {
+        uint16_t legacy_length = schema23
+            ? kSchema23PayloadLength
+            : (schema22
             ? kSchema22PayloadLength
             : (schema21
             ? kSchema21PayloadLength
@@ -523,7 +559,7 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
             : (schema12 ? kSchema12PayloadLength
             : ((schema10 || schema11) ? kSchema10PayloadLength
             : (schema9 ? kSchema9PayloadLength
-                       : kSchema6PayloadLength))))))))))));
+                       : kSchema6PayloadLength)))))))))))));
         if (schema2) {
             legacy_length = kSchema2PayloadLength;
         } else if (schema3) {
@@ -598,6 +634,12 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
         /* Schemas <=22 kept an unused sensor/reference offset in this slot.
          * Schema 23 gives it the H2 lap-stop calibration meaning. */
         config->h2_loop_offset_mm = -100;
+    }
+    if (record->schema_version <= 23U) {
+        /* Schema 24 reuses four retired H2/H5 line-gate fields for the H5/H6
+         * straight controller.  Never interpret their old 5200/5250 mm
+         * values as gains or RPM limits. */
+        SetCourseStraightLineDefaults(config);
     }
     if ((record->schema_version < H_CONFIG_SCHEMA_VERSION) &&
         (config->h4_brake_distance_mm == 1100U)) {

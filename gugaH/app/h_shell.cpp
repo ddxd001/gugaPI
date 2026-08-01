@@ -70,7 +70,7 @@ void TaskCommand(int argc, const char * const argv[])
 {
     int32_t value = 0;
     if ((argc != 2) || !ParseInt(argv[1], &value) ||
-        (value < 2) || (value > 8)) {
+        (value < 2) || (value > 9)) {
         Ok(false);
         return;
     }
@@ -122,14 +122,8 @@ void GrayCommand(int argc, const char * const argv[])
         !HApp_IsRunning(HRuntime_GetState())) {
         const uint16_t *raw = SensorHub_GetGrayscaleRaw();
         HConfig *config = HRuntime_GetConfig();
-        for (uint8_t i = 0U; i < 8U; i++) {
-            if (Equal(argv[1], "white")) {
-                config->grayscale.white[i] = raw[i];
-            } else {
-                config->grayscale.black[i] = raw[i];
-            }
-        }
-        Ok(HConfig_Validate(config));
+        Ok(HConfig_CaptureGrayscaleSurface(
+            config, raw, Equal(argv[1], "white")));
         return;
     }
     const drivers::GrayscaleProcessedData *line =
@@ -573,7 +567,7 @@ void PrintConfig(void)
     services::Shell_WriteInt(c->h4_heading_max_correction_rpm);
     services::Shell_Write("/ball_ff=");
     services::Shell_WriteInt(c->ball_chassis_ff_permille);
-    services::Shell_Write(" h5=");
+    services::Shell_Write(" h5_h6=");
     services::Shell_WriteInt(c->h5_cruise_rpm);
     services::Shell_Write("/curve=");
     services::Shell_WriteInt(c->h5_approach_rpm);
@@ -583,14 +577,23 @@ void PrintConfig(void)
     services::Shell_WriteInt(c->h5_stop_ramp_rpm_s);
     services::Shell_Write("/brake_at=");
     services::Shell_WriteInt(c->h5_brake_distance_mm);
-    services::Shell_Write(" h6=");
-    services::Shell_WriteInt(c->h6_cruise_rpm);
+    services::Shell_Write(" course_line=");
+    services::Shell_WriteInt(c->course_straight_line_kp_milli);
     services::Shell_Write("/");
-    services::Shell_WriteInt(c->h6_approach_rpm);
+    services::Shell_WriteInt(c->course_straight_line_kd_milli);
+    services::Shell_Write("/");
+    services::Shell_WriteInt(
+        c->course_straight_line_max_correction_rpm);
+    services::Shell_Write("/");
+    services::Shell_WriteInt(c->course_straight_line_slew_rpm_s);
     services::Shell_Write(" line_kp=");
     services::Shell_WriteInt(c->line_kp_milli);
     services::Shell_Write(" line_kd=");
     services::Shell_WriteInt(c->line_kd_milli);
+    services::Shell_Write(" line_max_corr=");
+    services::Shell_WriteInt(c->line_max_correction_rpm);
+    services::Shell_Write(" line_slew=");
+    services::Shell_WriteInt(c->line_correction_slew_rpm_s);
     services::Shell_Write(" model_roll=");
     services::Shell_WriteInt(c->ball_model_roll_gain_permille);
     services::Shell_Write(" model_tau=");
@@ -741,18 +744,36 @@ bool SetConfigValue(const char *name, int32_t value)
     else if (Equal(name, "h5_brake_distance")) {
         c->h5_brake_distance_mm = value;
     }
-    else if (Equal(name, "h6_speed")) c->h6_cruise_rpm = value;
-    else if (Equal(name, "h6_approach")) c->h6_approach_rpm = value;
-    else if (Equal(name, "finish_gate")) c->finish_gate_mm = value;
-    else if (Equal(name, "approach_start")) c->approach_start_mm = value;
-    else if (Equal(name, "h6_finish_gate")) c->h6_finish_gate_mm = value;
-    else if (Equal(name, "h6_approach_start")) c->h6_approach_start_mm = value;
+    else if (Equal(name, "h6_speed")) c->h5_cruise_rpm = value;
+    else if (Equal(name, "h6_approach")) c->h5_approach_rpm = value;
+    else if (Equal(name, "course_line_kp") ||
+             Equal(name, "h5_line_kp")) {
+        c->course_straight_line_kp_milli = value;
+    }
+    else if (Equal(name, "course_line_kd") ||
+             Equal(name, "h5_line_kd")) {
+        c->course_straight_line_kd_milli = value;
+    }
+    else if (Equal(name, "course_line_max_corr") ||
+             Equal(name, "h5_line_max_corr")) {
+        c->course_straight_line_max_correction_rpm = value;
+    }
+    else if (Equal(name, "course_line_slew") ||
+             Equal(name, "h5_line_slew")) {
+        c->course_straight_line_slew_rpm_s = value;
+    }
     else if (Equal(name, "h2_loop_offset") ||
              Equal(name, "finish_offset")) {
         c->h2_loop_offset_mm = value;
     }
     else if (Equal(name, "line_kp")) c->line_kp_milli = value;
     else if (Equal(name, "line_kd")) c->line_kd_milli = value;
+    else if (Equal(name, "line_max_corr")) {
+        c->line_max_correction_rpm = value;
+    }
+    else if (Equal(name, "line_slew")) {
+        c->line_correction_slew_rpm_s = value;
+    }
     else if (Equal(name, "gray_threshold")) c->grayscale.threshold = value;
     else if (Equal(name, "gray_hysteresis")) c->grayscale.hysteresis = value;
     else if (Equal(name, "gray_position_floor")) c->grayscale.position_floor = value;
@@ -907,7 +928,7 @@ void HShell_Init(void)
 {
     (void)services::Shell_Register("status", "system/task status", StatusCommand);
     (void)services::Shell_Register(
-        "task", "task 2..8 (7=CAL_ZERO 8=CAL_H2_LOOP)", TaskCommand);
+        "task", "task 2..9 (7=ZERO 8=H2_LOOP 9=GRAY)", TaskCommand);
     (void)services::Shell_Register("start", "start selected task", StartCommand);
     (void)services::Shell_Register("stop", "abort and stop", StopCommand);
     (void)services::Shell_Register("fault", "fault clear", FaultCommand);
