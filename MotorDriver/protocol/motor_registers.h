@@ -6,7 +6,7 @@
 namespace protocol {
 
 constexpr uint8_t kDeviceId = 0xA5U;
-constexpr uint8_t kFirmwareVersion = 0x03U;
+constexpr uint8_t kFirmwareVersion = 0x04U;
 constexpr uint8_t kRegisterCount = 0x7FU;
 constexpr uint8_t kMaxPayloadLength = 32U;
 constexpr uint8_t kDefaultI2cAddress = 0x20U;

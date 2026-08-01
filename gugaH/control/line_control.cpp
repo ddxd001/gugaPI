@@ -34,14 +34,6 @@ int32_t StepToward(int32_t current, int32_t target, int32_t step)
     return current;
 }
 
-bool IsUsableTrack(const drivers::GrayscaleProcessedData *line)
-{
-    return (line != 0) && line->line_detected && line->position_valid &&
-           ((line->track_state == drivers::GRAYSCALE_TRACK_VALID) ||
-            (line->track_state == drivers::GRAYSCALE_TRACK_WIDE)) &&
-           (line->calibration_fault_mask == 0U);
-}
-
 } /* namespace */
 
 void LineControl_Init(LineControlState *state)
@@ -51,6 +43,40 @@ void LineControl_Init(LineControlState *state)
     }
     *state = {};
     state->initialized = true;
+}
+
+bool LineControl_IsTrackUsable(
+    const drivers::GrayscaleProcessedData *line)
+{
+    return (line != 0) && line->line_detected && line->position_valid &&
+           ((line->track_state == drivers::GRAYSCALE_TRACK_VALID) ||
+            (line->track_state == drivers::GRAYSCALE_TRACK_WIDE)) &&
+           (line->calibration_fault_mask == 0U);
+}
+
+bool LineControl_SearchRight(LineControlState *state,
+                             int16_t forward_rpm,
+                             uint32_t now_ms)
+{
+    if ((state == 0) || !state->initialized || (forward_rpm <= 0)) {
+        return false;
+    }
+
+    /* Positive wheel RPM means forward.  A faster left wheel therefore
+     * searches along a forward-right arc without pivoting in place. */
+    int32_t turn_rpm = static_cast<int32_t>(forward_rpm) / 3;
+    if (turn_rpm < 1) {
+        turn_rpm = 1;
+    }
+    state->line_valid = false;
+    state->failed = false;
+    state->last_update_ms = now_ms;
+    state->last_correction_rpm = -turn_rpm;
+    state->left_rpm = ClampRpm(
+        static_cast<int32_t>(forward_rpm) + turn_rpm);
+    state->right_rpm = ClampRpm(
+        static_cast<int32_t>(forward_rpm) - turn_rpm);
+    return true;
 }
 
 bool LineControl_Update(LineControlState *state,
@@ -69,7 +95,8 @@ bool LineControl_Update(LineControlState *state,
     }
     state->last_update_ms = now_ms;
 
-    const bool usable = IsUsableTrack(line);
+    const bool was_line_valid = state->line_valid;
+    const bool usable = LineControl_IsTrackUsable(line);
     if (!usable) {
         if (state->invalid_since_ms == 0U) {
             state->invalid_since_ms = now_ms;
@@ -90,6 +117,11 @@ bool LineControl_Update(LineControlState *state,
 
     int32_t requested = state->last_correction_rpm;
     if (usable && (line->track_state == drivers::GRAYSCALE_TRACK_VALID)) {
+        if (!was_line_valid) {
+            /* Reacquisition starts from the new measurement so the first
+             * derivative term cannot kick the vehicle away from the line. */
+            state->last_position = line->line_position;
+        }
         const int32_t derivative =
             static_cast<int32_t>(
                 (static_cast<int64_t>(

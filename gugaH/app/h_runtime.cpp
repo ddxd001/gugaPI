@@ -28,6 +28,8 @@ bool g_chassis_command_failing = false;
 uint32_t g_chassis_command_failure_ms = 0U;
 bool g_telemetry = false;
 bool g_suppress_buttons = false;
+bool g_b1_start_armed = false;
+bool g_config_save_pending = false;
 bool g_manual_chassis = false;
 int16_t g_manual_left_rpm = 0;
 int16_t g_manual_right_rpm = 0;
@@ -40,6 +42,7 @@ bool g_dm_bench_control = false;
 uint32_t g_buzzer_off_ms = 0U;
 uint32_t g_last_vision_print_ms = 0U;
 bool g_vision_trace = false;
+static const uint32_t kBuzzerPulseMs = 80U;
 
 void UpdateBallControl2ms(uint32_t now_ms)
 {
@@ -338,6 +341,40 @@ void OledText(uint8_t row, const char *text)
     (void)board::Board_OledWriteText(row, 0U, padded);
 }
 
+void OledTime(uint8_t row, uint32_t elapsed_ms)
+{
+    char text[22] = {};
+    uint8_t index = 0U;
+    /* Round to the nearest 0.1 s and format without floating point. */
+    const uint32_t deciseconds = (elapsed_ms + 50U) / 100U;
+    AppendText(text, sizeof(text), &index, "TIME ");
+    AppendInt(text, sizeof(text), &index,
+              static_cast<int32_t>(deciseconds / 10U));
+    AppendText(text, sizeof(text), &index, ".");
+    AppendInt(text, sizeof(text), &index,
+              static_cast<int32_t>(deciseconds % 10U));
+    AppendText(text, sizeof(text), &index, "s");
+    OledText(row, text);
+}
+
+void OledSignedMillimeters(uint8_t row,
+                           const char *label,
+                           int32_t value_0p1mm)
+{
+    char text[22] = {};
+    uint8_t index = 0U;
+    AppendText(text, sizeof(text), &index, label);
+    if (value_0p1mm < 0) {
+        AppendText(text, sizeof(text), &index, "-");
+        value_0p1mm = -value_0p1mm;
+    }
+    AppendInt(text, sizeof(text), &index, value_0p1mm / 10);
+    AppendText(text, sizeof(text), &index, ".");
+    AppendInt(text, sizeof(text), &index, value_0p1mm % 10);
+    AppendText(text, sizeof(text), &index, "mm");
+    OledText(row, text);
+}
+
 void OledResult(void)
 {
     char text[22] = {};
@@ -391,6 +428,8 @@ void HRuntime_Init(void)
     g_ready_center_enabled = true;
     g_ready_center_active = false;
     g_ready_center_retry_ms = 0U;
+    g_b1_start_armed = false;
+    g_config_save_pending = false;
     g_hardware_fault = !buttons_ok || !oled_ok;
     g_chassis_fault = !chassis_ok;
     g_chassis_command_failing = false;
@@ -410,6 +449,11 @@ void HRuntime_Service(void)
     services::Shell_Process();
     services::DebugUart_Pump();
     (void)board::Board_OledService();
+    if (g_config_save_pending && !HApp_IsRunning(&g_state) &&
+        !board::Board_OledHasPendingFlush() &&
+        HConfig_Save(&g_config, FramWrite, FramRead)) {
+        g_config_save_pending = false;
+    }
 }
 
 void HRuntime_Update1ms(uint32_t now_ms)
@@ -429,17 +473,37 @@ void HRuntime_Update1ms(uint32_t now_ms)
         board::BOARD_BUTTON_2, drivers::BUTTON_EVENT_ALL);
     const uint32_t b3 = board::Board_ButtonTakeEvents(
         board::BOARD_BUTTON_3, drivers::BUTTON_EVENT_ALL);
+    g_button_events.b1_pressed |=
+        (b1 & drivers::BUTTON_EVENT_PRESSED) != 0U;
     g_button_events.b1_short |=
         (b1 & drivers::BUTTON_EVENT_SHORT_PRESSED) != 0U;
-    g_button_events.b1_long |=
-        (b1 & drivers::BUTTON_EVENT_LONG_PRESSED) != 0U;
+    const bool ready = g_state.run_state == H_STATE_READY;
+    if (ready &&
+        ((b1 & drivers::BUTTON_EVENT_LONG_PRESSED) != 0U)) {
+        /* Arm at the long-press threshold, but expose the start event only
+         * after the debounced B1 release. */
+        g_b1_start_armed = true;
+    }
+    if ((b1 & drivers::BUTTON_EVENT_RELEASED) != 0U) {
+        if (ready && g_b1_start_armed) {
+            g_button_events.b1_long = true;
+        }
+        g_b1_start_armed = false;
+    } else if (!ready) {
+        g_b1_start_armed = false;
+    }
     g_button_events.b2_decrement |=
         (b2 & drivers::BUTTON_EVENT_SHORT_PRESSED) != 0U;
     g_button_events.b3_increment |=
         (b3 & drivers::BUTTON_EVENT_SHORT_PRESSED) != 0U;
     g_button_events.any_pressed |= running &&
         (((b1 | b2 | b3) & drivers::BUTTON_EVENT_PRESSED) != 0U);
-    if ((g_state.run_state == H_STATE_READY) &&
+    const bool calibration_adjustment_active =
+        (g_state.run_state == H_STATE_RUNNING) &&
+        ((g_state.selected_problem == H_PROBLEM_CAL_ZERO) ||
+         (g_state.selected_problem == H_PROBLEM_CAL_H2_LOOP));
+    if (((g_state.run_state == H_STATE_READY) ||
+         calibration_adjustment_active) &&
         ((now_ms % 100U) == 0U)) {
         g_button_events.b2_decrement |=
             board::Board_ButtonIsPressed(board::BOARD_BUTTON_2) &&
@@ -466,27 +530,64 @@ void HRuntime_Update2ms(uint32_t now_ms)
     const HRunState before = g_state.run_state;
     const HAppOutput output =
         HApp_Update(&g_state, &input, &g_config);
+    if (output.ball_zero_delta_0p1mm != 0) {
+        int32_t zero = static_cast<int32_t>(
+            g_config.ball_zero_offset_0p1mm) +
+            output.ball_zero_delta_0p1mm;
+        if (zero < -H_CONFIG_BALL_ZERO_LIMIT_0P1MM) {
+            zero = -H_CONFIG_BALL_ZERO_LIMIT_0P1MM;
+        } else if (zero > H_CONFIG_BALL_ZERO_LIMIT_0P1MM) {
+            zero = H_CONFIG_BALL_ZERO_LIMIT_0P1MM;
+        }
+        g_config.ball_zero_offset_0p1mm =
+            static_cast<int16_t>(zero);
+    }
+    if (output.h2_loop_delta_mm != 0) {
+        int32_t offset = static_cast<int32_t>(
+            g_config.h2_loop_offset_mm) +
+            output.h2_loop_delta_mm;
+        if (offset < -H_CONFIG_H2_LOOP_OFFSET_LIMIT_MM) {
+            offset = -H_CONFIG_H2_LOOP_OFFSET_LIMIT_MM;
+        } else if (offset > H_CONFIG_H2_LOOP_OFFSET_LIMIT_MM) {
+            offset = H_CONFIG_H2_LOOP_OFFSET_LIMIT_MM;
+        }
+        g_config.h2_loop_offset_mm =
+            static_cast<int16_t>(offset);
+    }
+    if (output.save_config) {
+        g_config_save_pending = true;
+    }
     if ((before != H_STATE_READY) &&
         (g_state.run_state == H_STATE_READY)) {
         g_ready_center_enabled = true;
         g_ready_center_active = false;
         g_ready_center_retry_ms = now_ms;
+        g_suppress_buttons = true;
     }
     if ((before == H_STATE_READY) &&
         (g_state.run_state == H_STATE_RUNNING)) {
         g_suppress_buttons = true;
         (void)board::Board_BuzzerOn();
-        g_buzzer_off_ms = now_ms + 80U;
+        g_buzzer_off_ms = now_ms + kBuzzerPulseMs;
     }
     ApplyMotion(output.motion, now_ms);
     if (output.ball.command_valid) {
         /* A busy TX buffer is retried by the next 10 ms ball update. */
         (void)DmActuator_SetPosition(output.ball.dm_target_mrad);
     }
-    if ((g_state.run_state == H_STATE_PASS) ||
-        (g_state.run_state == H_STATE_FAIL) ||
-        (g_state.run_state == H_STATE_ABORTED)) {
+    const bool became_terminal =
+        (before != H_STATE_PASS) &&
+        (before != H_STATE_FAIL) &&
+        (before != H_STATE_ABORTED) &&
+        ((g_state.run_state == H_STATE_PASS) ||
+         (g_state.run_state == H_STATE_FAIL) ||
+         (g_state.run_state == H_STATE_ABORTED));
+    if (output.buzzer_pulse) {
+        (void)board::Board_BuzzerOn();
+        g_buzzer_off_ms = now_ms + kBuzzerPulseMs;
+    } else if (became_terminal) {
         (void)board::Board_BuzzerOff();
+        g_buzzer_off_ms = 0U;
     }
     UpdateBallControl2ms(now_ms);
 }
@@ -508,32 +609,68 @@ void HRuntime_Update50ms(uint32_t now_ms)
         g_last_vision_print_ms = now_ms;
         PrintVisionRx(now_ms);
     }
-    OledLine(0U, "H", g_state.selected_problem);
+    if (g_state.selected_problem == H_PROBLEM_CAL_ZERO) {
+        OledText(0U, "CAL ZERO");
+    } else if (g_state.selected_problem == H_PROBLEM_CAL_H2_LOOP) {
+        OledText(0U, "CAL H2 LOOP");
+    } else {
+        OledLine(0U, "H", g_state.selected_problem);
+    }
     if (g_state.run_state == H_STATE_READY) {
-        OledLine(1U, "TARGET mm ", g_state.h6_target_0p1mm / 10);
-        OledLine(2U, "READY ", g_hardware_fault ? 0 : 1);
+        if (g_state.selected_problem == H_PROBLEM_CAL_ZERO) {
+            OledSignedMillimeters(
+                1U, "ZERO ", g_config.ball_zero_offset_0p1mm);
+            OledText(2U, g_config_save_pending
+                ? "SAVING FRAM" : "HOLD B1 TO START");
+        } else if (g_state.selected_problem ==
+                   H_PROBLEM_CAL_H2_LOOP) {
+            OledLine(1U, "OFFSET mm ",
+                     g_config.h2_loop_offset_mm);
+            OledText(2U, g_config_save_pending
+                ? "SAVING FRAM" : "HOLD B1 TO START");
+        } else {
+            OledLine(1U, "TARGET mm ",
+                     g_state.h6_target_0p1mm / 10);
+            OledLine(2U, "READY ", g_hardware_fault ? 0 : 1);
+        }
     } else if (HApp_IsRunning(&g_state)) {
-        OledLine(1U, "TIME 0.1s ",
-                 static_cast<int32_t>(
-                     (now_ms - g_state.run_start_ms) / 100U));
+        if (g_state.selected_problem == H_PROBLEM_CAL_ZERO) {
+            OledSignedMillimeters(
+                1U, "ZERO ", g_config.ball_zero_offset_0p1mm);
+            OledText(2U, "B2- B3+ B1 EXIT");
+        } else if (g_state.selected_problem ==
+                   H_PROBLEM_CAL_H2_LOOP) {
+            OledLine(1U, "OFFSET mm ",
+                     g_config.h2_loop_offset_mm);
+            OledText(2U, "B2- B3+ B1 EXIT");
+        } else {
+            OledTime(1U, now_ms - g_state.run_start_ms);
+        }
         if (g_state.selected_problem == H_PROBLEM_3) {
             OledLine(2U, "H3 STAGE ", g_state.h3_stage);
-        } else {
+        } else if ((g_state.selected_problem != H_PROBLEM_CAL_ZERO) &&
+                   (g_state.selected_problem !=
+                    H_PROBLEM_CAL_H2_LOOP)) {
             OledLine(2U, "DIST mm ", g_state.course.distance_mm);
         }
     } else {
         OledText(1U, HApp_StateText(g_state.run_state));
-        OledLine(2U, "TIME 0.1s ",
-                 static_cast<int32_t>(g_state.result_time_ms / 100U));
+        OledTime(2U, g_state.result_time_ms);
         OledResult();
     }
     if ((g_state.run_state == H_STATE_READY) ||
         HApp_IsRunning(&g_state)) {
-        const BallState *ball = HRuntime_GetActiveBallState();
-        OledLine(3U, "BALL e0.1 ",
-                 HApp_IsRunning(&g_state)
-                    ? g_state.ball.position_error_0p1mm
-                    : ball->position_error_0p1mm);
+        if (g_state.selected_problem == H_PROBLEM_CAL_H2_LOOP) {
+            OledLine(3U, "H2 STOP mm ",
+                     static_cast<int32_t>(g_config.lap_distance_mm) +
+                         g_config.h2_loop_offset_mm);
+        } else {
+            const BallState *ball = HRuntime_GetActiveBallState();
+            OledLine(3U, "BALL e0.1 ",
+                     HApp_IsRunning(&g_state)
+                        ? g_state.ball.position_error_0p1mm
+                        : ball->position_error_0p1mm);
+        }
     }
     if (g_telemetry) {
         PrintCsv(now_ms);
@@ -595,7 +732,8 @@ void HRuntime_Abort(void)
 void HRuntime_Select(HProblem problem)
 {
     if ((g_state.run_state == H_STATE_READY) &&
-        (problem >= H_PROBLEM_2) && (problem <= H_PROBLEM_6)) {
+        (problem >= H_PROBLEM_2) &&
+        (problem <= H_PROBLEM_CAL_H2_LOOP)) {
         g_state.selected_problem = problem;
     }
 }
@@ -650,6 +788,16 @@ void HRuntime_PrintStatus(void)
     services::Shell_WriteInt(g_state.h3_stage);
     services::Shell_Write(" ball_target0.1=");
     services::Shell_WriteInt(g_state.active_ball_target_0p1mm);
+    services::Shell_Write(" ball_zero0.1=");
+    services::Shell_WriteInt(g_config.ball_zero_offset_0p1mm);
+    services::Shell_Write(" h2_loop_mm=");
+    services::Shell_WriteInt(g_config.h2_loop_offset_mm);
+    services::Shell_Write(" h2_stop_mm=");
+    services::Shell_WriteInt(
+        static_cast<int32_t>(g_config.lap_distance_mm) +
+        g_config.h2_loop_offset_mm);
+    services::Shell_Write(" config_save_pending=");
+    services::Shell_WriteInt(g_config_save_pending ? 1 : 0);
     services::Shell_Write(" course_phase=");
     services::Shell_WriteInt(g_state.course.phase);
     services::Shell_Write(" distance_mm=");

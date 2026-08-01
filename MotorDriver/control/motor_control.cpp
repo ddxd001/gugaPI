@@ -6,7 +6,7 @@
 namespace control {
 namespace {
 
-constexpr uint32_t kSpeedControlPeriodMs = 10U;
+constexpr uint32_t kSpeedControlPeriodMs = 5U;
 constexpr uint32_t kPositionControlPeriodMs = 100U;
 constexpr uint32_t kPidReferencePeriodMs = 100U;
 constexpr uint32_t kMaximumPidElapsedMs = 100U;

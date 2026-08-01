@@ -9,8 +9,10 @@
 namespace gugah {
 
 static const uint32_t H_CONFIG_MAGIC = 0x48475547UL; /* "GUGH" */
-static const uint16_t H_CONFIG_SCHEMA_VERSION = 18U;
+static const uint16_t H_CONFIG_SCHEMA_VERSION = 23U;
 static const uint16_t H_CONFIG_FRAM_ADDRESS = 0x0000U;
+static const int16_t H_CONFIG_BALL_ZERO_LIMIT_0P1MM = 300;
+static const int16_t H_CONFIG_H2_LOOP_OFFSET_LIMIT_MM = 200;
 
 struct HConfig {
     drivers::GrayscaleCalibration grayscale;
@@ -54,7 +56,8 @@ struct HConfig {
     uint16_t h6_approach_start_mm;
     uint16_t h4_b_distance_mm;
     uint16_t h4_stop_distance_mm;
-    int16_t sensor_to_reference_mm;
+    /* Added to lap_distance_mm to form the H2 odometry stop target. */
+    int16_t h2_loop_offset_mm;
 
     int16_t ball_kp_mdeg_per_0p1mm;
     /* Shallow bowl curvature, mdeg of local slope per mm from centre. */
@@ -92,8 +95,9 @@ struct HConfig {
     int16_t ball_pid_ki_mdeg_per_mm_s;
     int16_t ball_pid_kd_mdeg_per_mm_s;
     int16_t ball_pid_integral_limit_mdeg;
-    /* Legacy linear-curvature origin retained for schema-5 migration. */
-    int16_t ball_curve_origin_0p1mm;
+    /* Reuses the retired linear-curvature-origin storage slot.  This is the
+     * physical ball coordinate which the controller treats as O. */
+    int16_t ball_zero_offset_0p1mm;
 
     /* Measured beam angle which statically holds the ball at each position.
      * Positions are strictly increasing; angles may be non-monotonic to

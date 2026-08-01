@@ -1,6 +1,7 @@
 # 杆球模型控制
 
-> 当前台架对比固件暂时整体关闭五点静态保持角补偿。参数表仍被保留，`ball status` 中的 `hold_mdeg` 固定为 0，恢复时无需重新设计配置格式。
+> 当前固件已开启五点静态保持角补偿。`ball status` 中的
+> `hold_mdeg` 是按球当前位置线性插值得到的静态前馈角。
 
 ## 控制结构
 
@@ -28,7 +29,7 @@ theta_effective = theta_actual - theta_hold(x)
 
 | 位置（0.1 mm） | -1000 | -500 | 0 | 500 | 1000 |
 | ---: | ---: | ---: | ---: | ---: | ---: |
-| 保持角（mdeg） | -918 | -518 | -118 | 282 | 682 |
+| 保持角（mdeg） | -918 | -165 | 560 | 986 | 682 |
 
 这些角度是初值，实车应分别把球放在五个位置，手动寻找“球不会持续滚动”的角度后写入。角度不要求单调，因此也能补偿弯曲或安装误差。
 
@@ -39,16 +40,30 @@ theta_effective = theta_actual - theta_hold(x)
 | `model_roll` | 714 | 有效滚动系数，千分数 |
 | `observer_alpha` | 500 | 视觉位置残差对位置状态的校正，千分数 |
 | `observer_beta` | 80 | 位置残差对速度状态的校正，千分数；不是视觉差分速度权重 |
-| `ball_pid_kp` | 40 | 位置外环 P，mdeg/mm |
-| `ball_pid_ki` | 20 | 低速静差补偿 I，mdeg/(mm·s) |
+| `ball_pid_kp` | 55 | 位置外环 P，mdeg/mm |
+| `ball_pid_ki` | 0 | 静态补偿由五点表承担，积分关闭 |
 | `ball_pid_kd` | 20 | 速度阻尼 D，mdeg/(mm/s) |
 | `ball_pid_ilim` | 1500 | 静差补偿最大绝对角，mdeg |
 | `model_breakaway` | 2300 | 静止超过 400 ms 后的最大启滚补偿角，mdeg |
 | `model_rolling_friction` | 0 | 运动时的方向性摩擦前馈，mdeg |
 | `max_angle` | 6000 | 最大摆杆角，mdeg |
 
-旧的 `model_tau`、`model_plan_accel`、`model_vmax`、`model_curvature`、
-`model_curve_origin` 和杆角 IMU 增益字段为 FRAM 兼容保留，不再参与外环命令计算。
+旧的 `model_tau`、`model_plan_accel`、`model_vmax`、`model_curvature` 和杆角
+IMU 增益字段为 FRAM 兼容保留，不再参与外环命令计算。原曲率原点的存储槽
+现用于 `ball_zero` 零位偏移。
+
+## DM—杆角机构映射
+
+IMU 固定在杆上后，以 `DM=-617 mrad` 的读数 `+4.602°` 作为安装零偏。
+去除零偏后的五点实测映射为：
+
+| 杆角（mdeg） | -8836 | -3942 | 0 | 3093 | 6094 |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| DM 位置（mrad） | 300 | -200 | -617 | -1000 | -1382 |
+
+`DM=+704 mrad` 是电机机械端点，但已经越过连杆传动的转折点：杆角从
+`DM=300` 的约 `-8.84°` 回到约 `-8.44°`。为保持角度到电机位置一一对应，
+控制映射只使用 `300～-1382 mrad` 的单调支路，绝不以 `+704` 作为控制结点。
 
 ## 五点表修改
 
@@ -56,11 +71,11 @@ theta_effective = theta_actual - theta_hold(x)
 config set hold_x0 -1000
 config set hold_a0 -918
 config set hold_x1 -500
-config set hold_a1 -518
+config set hold_a1 -165
 config set hold_x2 0
-config set hold_a2 -118
+config set hold_a2 560
 config set hold_x3 500
-config set hold_a3 282
+config set hold_a3 986
 config set hold_x4 1000
 config set hold_a4 682
 config save
@@ -72,9 +87,9 @@ config save
 
 1. 确认水平机械零位对应 DM `-617 mrad`。
 2. 先在 0、±50 mm、±100 mm 标定五个静态保持角。
-3. 先用 `ball_pid_ki=0` 调好 Kp/Kd，再恢复 `ball_pid_ki=20` 消除静差；若低频往返，每次降低 Ki 5。
+3. 保持 `ball_pid_ki=0` 调好 Kp/Kd 和五点表。只有五点表仍无法覆盖的微小重复静差才逐级加入 Ki；一旦出现低频往返就恢复为 0。
 4. 若观测速度追随位置噪声，减小 `observer_beta`；若真实运动明显滞后，再小步增大。
 5. ±10 mm 内不会施加大启滚脉冲，但 P/D 会持续微调；允许球和杆持续小幅动作。
-6. 静态稳定后再测 H3 的 `0 -> +50 mm -> -50 mm`，最后测试底盘加减速前馈。
+6. 静态稳定后再测 H3 的 `+50 mm -> 0 -> -50 mm`：+50 最多等待 1.5 s，O 点最多等待 1 s，最后在 PASS 下持续保持 -50 mm；最后测试底盘加减速前馈。
 
-球位置达到 ±80 mm 时应准备人工停止；固件仍保留 ±115 mm、DM 和 IMU 超时保护。视觉断流后继续使用最后一帧有效球位置，不再因视觉帧龄超时停止。
+球位置达到 ±80 mm 时应准备人工停止。固件不再把机械端部位置视为故障，到达端部后仍会继续输出受限控制量并尝试向目标恢复；DM 和 IMU 超时保护继续保留。视觉断流后继续使用最后一帧有效球位置；视觉帧龄仅用于诊断，不再冻结积分或降低杆角上限。

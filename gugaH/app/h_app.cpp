@@ -8,10 +8,13 @@ static const int16_t kH6Maximum0p1mm = 1000;
 static const int16_t kH3CenterTarget0p1mm = 0;
 static const int16_t kH3PositiveTarget0p1mm = 500;
 static const int16_t kH3NegativeTarget0p1mm = -500;
-/* Five seconds is a performance target, not a reason to release the ball.
- * Keep each transfer alive long enough to diagnose a genuinely stuck plant;
- * after the final transfer BALL_HOLD has no timeout. */
-static const uint32_t kH3StageTimeoutMs = 30000U;
+/* The first two transfers have strategy deadlines, not failure deadlines:
+ * leave +50 after at most 1.5 s and leave O after at most 1 s.  A retarget keeps
+ * the estimator and beam reference continuous.  Only the final -50 transfer
+ * retains the long diagnostic timeout; PASS then holds -50 indefinitely. */
+static const uint32_t kH3PositiveWindowMs = 1500U;
+static const uint32_t kH3CenterWindowMs = 1000U;
+static const uint32_t kH3TransferTimeoutMs = 30000U;
 
 bool LineReady(const HAppInput *input)
 {
@@ -133,9 +136,12 @@ bool StartRunning(HAppState *state,
                   const HConfig *config)
 {
     const bool needs_course =
-        state->selected_problem != H_PROBLEM_3;
+        (state->selected_problem != H_PROBLEM_3) &&
+        (state->selected_problem != H_PROBLEM_CAL_ZERO) &&
+        (state->selected_problem != H_PROBLEM_CAL_H2_LOOP);
     const bool needs_ball =
-        state->selected_problem != H_PROBLEM_2;
+        (state->selected_problem != H_PROBLEM_2) &&
+        (state->selected_problem != H_PROBLEM_CAL_H2_LOOP);
     const bool needs_line =
         (state->selected_problem == H_PROBLEM_2) ||
         (state->selected_problem == H_PROBLEM_5) ||
@@ -161,12 +167,14 @@ bool StartRunning(HAppState *state,
 
     BallInput ball_input = MakeBallInput(state, input);
     if (state->selected_problem == H_PROBLEM_3) {
-        /* Accept any safe initial ball position and settle at O first. */
-        state->active_ball_target_0p1mm = kH3CenterTarget0p1mm;
+        /* READY already holds O.  Start the scored sequence directly at
+         * +50 mm; the strategy deadline below prevents this leg from
+         * consuming the rest of the run if static friction stops it short. */
+        state->active_ball_target_0p1mm = kH3PositiveTarget0p1mm;
         state->h3_stage = 0U;
         if (!Ball_StartMove(&state->ball,
-                            kH3CenterTarget0p1mm,
-                            kH3StageTimeoutMs,
+                            kH3PositiveTarget0p1mm,
+                            kH3TransferTimeoutMs,
                             &ball_input,
                             config)) {
             state->run_state = H_STATE_FAIL;
@@ -212,7 +220,7 @@ void HandleReadyButtons(HAppState *state, const HButtonEvents *buttons)
     if (buttons->b1_short) {
         uint8_t problem =
             static_cast<uint8_t>(state->selected_problem) + 1U;
-        if (problem > static_cast<uint8_t>(H_PROBLEM_6)) {
+        if (problem > static_cast<uint8_t>(H_PROBLEM_CAL_H2_LOOP)) {
             problem = static_cast<uint8_t>(H_PROBLEM_2);
         }
         state->selected_problem = static_cast<HProblem>(problem);
@@ -312,7 +320,34 @@ HAppOutput HApp_Update(HAppState *state,
         return output;
     }
     output.timer_running = true;
-    if (input->buttons.any_pressed) {
+    const bool calibrating_zero =
+        state->selected_problem == H_PROBLEM_CAL_ZERO;
+    const bool calibrating_h2_loop =
+        state->selected_problem == H_PROBLEM_CAL_H2_LOOP;
+    const bool calibrating =
+        calibrating_zero || calibrating_h2_loop;
+    if (calibrating_zero && input->buttons.b1_pressed) {
+        Ball_Level(&state->ball);
+        state->run_state = H_STATE_READY;
+        state->failure = H_FAILURE_NONE;
+        state->result_time_ms = 0U;
+        output.motion.mode = MOTION_COMMAND_STOP;
+        output.timer_running = false;
+        output.result_changed = true;
+        output.save_config = true;
+        return output;
+    }
+    if (calibrating_h2_loop && input->buttons.b1_short) {
+        state->run_state = H_STATE_READY;
+        state->failure = H_FAILURE_NONE;
+        state->result_time_ms = 0U;
+        output.motion.mode = MOTION_COMMAND_STOP;
+        output.timer_running = false;
+        output.result_changed = true;
+        output.save_config = true;
+        return output;
+    }
+    if (!calibrating && input->buttons.any_pressed) {
         return HApp_Abort(state);
     }
     if (input->hardware_fault) {
@@ -322,6 +357,7 @@ HAppOutput HApp_Update(HAppState *state,
         return output;
     }
     if ((state->selected_problem != H_PROBLEM_3) &&
+        !calibrating &&
         input->chassis_fault) {
         SetFailure(state, H_FAILURE_CHASSIS, input->now_ms);
         output.motion.mode = MOTION_COMMAND_STOP;
@@ -330,7 +366,8 @@ HAppOutput HApp_Update(HAppState *state,
     }
 
     BallInput ball_input = MakeBallInput(state, input);
-    if (state->selected_problem != H_PROBLEM_2) {
+    if ((state->selected_problem != H_PROBLEM_2) &&
+        !calibrating_h2_loop) {
         if (state->ball.maximum_abs_error_0p1mm >
             state->maximum_ball_error_0p1mm) {
             state->maximum_ball_error_0p1mm =
@@ -348,11 +385,14 @@ HAppOutput HApp_Update(HAppState *state,
     }
 
     if (state->selected_problem == H_PROBLEM_3) {
+        const uint32_t stage_elapsed_ms =
+            input->now_ms - state->ball.start_ms;
         if ((state->h3_stage == 0U) &&
-            (state->ball.result == BALL_RESULT_SUCCESS)) {
+            ((state->ball.result == BALL_RESULT_SUCCESS) ||
+             (stage_elapsed_ms >= kH3PositiveWindowMs))) {
             if (!Ball_StartMove(&state->ball,
-                                kH3PositiveTarget0p1mm,
-                                kH3StageTimeoutMs,
+                                kH3CenterTarget0p1mm,
+                                kH3TransferTimeoutMs,
                                 &ball_input,
                                 config)) {
                 SetFailure(state, H_FAILURE_BALL, input->now_ms);
@@ -360,13 +400,15 @@ HAppOutput HApp_Update(HAppState *state,
             } else {
                 state->h3_stage = 1U;
                 state->active_ball_target_0p1mm =
-                    kH3PositiveTarget0p1mm;
+                    kH3CenterTarget0p1mm;
+                output.buzzer_pulse = true;
             }
         } else if ((state->h3_stage == 1U) &&
-                   (state->ball.result == BALL_RESULT_SUCCESS)) {
+                   ((state->ball.result == BALL_RESULT_SUCCESS) ||
+                    (stage_elapsed_ms >= kH3CenterWindowMs))) {
             if (!Ball_StartMove(&state->ball,
                                 kH3NegativeTarget0p1mm,
-                                kH3StageTimeoutMs,
+                                kH3TransferTimeoutMs,
                                 &ball_input,
                                 config)) {
                 SetFailure(state, H_FAILURE_BALL, input->now_ms);
@@ -380,9 +422,30 @@ HAppOutput HApp_Update(HAppState *state,
                    (state->ball.result == BALL_RESULT_SUCCESS)) {
             SetPass(state, input->now_ms - state->run_start_ms);
             output.result_changed = true;
+            output.buzzer_pulse = true;
         } else if (state->h3_stage > 2U) {
             SetFailure(state, H_FAILURE_BALL, input->now_ms);
             output.result_changed = true;
+        }
+        output.motion.mode = MOTION_COMMAND_NONE;
+        return output;
+    }
+
+    if (calibrating_zero) {
+        if (input->buttons.b2_decrement !=
+            input->buttons.b3_increment) {
+            output.ball_zero_delta_0p1mm =
+                input->buttons.b2_decrement ? -10 : 10;
+        }
+        output.motion.mode = MOTION_COMMAND_NONE;
+        return output;
+    }
+
+    if (calibrating_h2_loop) {
+        if (input->buttons.b2_decrement !=
+            input->buttons.b3_increment) {
+            output.h2_loop_delta_mm =
+                input->buttons.b2_decrement ? -10 : 10;
         }
         output.motion.mode = MOTION_COMMAND_NONE;
         return output;
@@ -434,7 +497,8 @@ BallOutput HApp_UpdateBall2ms(HAppState *state,
         (state->run_state == H_STATE_ABORTED);
     const bool task_ball =
         (state->run_state == H_STATE_RUNNING) &&
-        (state->selected_problem != H_PROBLEM_2);
+        (state->selected_problem != H_PROBLEM_2) &&
+        (state->selected_problem != H_PROBLEM_CAL_H2_LOOP);
     if (!terminal && !task_ball) {
         return output;
     }
@@ -452,7 +516,7 @@ BallOutput HApp_UpdateBall2ms(HAppState *state,
                        &ball_input,
                        config)) {
         /* A completed task must resume its final hold after a transient
-         * sensor/actuator gap.  Endpoint faults remain latched. */
+         * sensor/actuator gap. */
         return Ball_Update(&state->ball, &ball_input, config);
     }
     return Ball_Update(&state->ball, &ball_input, config);

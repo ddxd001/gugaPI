@@ -6,8 +6,6 @@ namespace gugah {
 namespace {
 
 static const int16_t kMaximumTarget0p1mm = 1000;
-static const int16_t kEndpointLimit0p1mm = 1150;
-static const uint32_t kNormalVisionAgeMs = 60U;
 static const int32_t kMaximumEstimatedVelocity0p1mmS = 8000;
 /* g * rad/mdeg in 0.1 mm/s^2, scaled by 1000. */
 static const int32_t kGravity0p1mmS2PerMdegMilli = 1712;
@@ -29,9 +27,10 @@ static const int32_t kIntegralUnwindVelocity0p1mmS = 150;
 static const int32_t kIntegralDeadband0p1mm = 10;
 static const uint8_t kVelocityHistoryCount = 5U;
 static const int32_t kEstimatorScale = 256;
-/* Temporary bench comparison: keep the calibrated table in FRAM/Shell, but
- * bypass it in both the observer model and the commanded beam angle. */
-static const bool kEnableHoldAngleCompensation = false;
+/* Use the commissioned five-point table in both the observer model and the
+ * commanded beam angle so the warped rail and asymmetric linkage do not have
+ * to be learned from zero by the integral at every target. */
+static const bool kEnableHoldAngleCompensation = true;
 
 int32_t Abs32(int32_t value)
 {
@@ -88,8 +87,7 @@ int32_t ApplyImuBeamCorrection(BallState *state,
 
 void UpdateStaticErrorTrim(BallState *state,
                            const HConfig *config,
-                           uint32_t elapsed_ms,
-                           bool degraded)
+                           uint32_t elapsed_ms)
 {
     const int32_t ki = config->ball_pid_ki_mdeg_per_mm_s;
     const int32_t output_limit =
@@ -120,7 +118,7 @@ void UpdateStaticErrorTrim(BallState *state,
          (trim_error < 0)) ||
         ((state->integral_error_0p1mm_ms < 0) &&
          (trim_error > 0));
-    if (!degraded && (trim_error != 0) &&
+    if ((trim_error != 0) &&
         (captured ||
          (unwinding &&
           (abs_velocity <= kIntegralUnwindVelocity0p1mmS)))) {
@@ -144,9 +142,7 @@ bool InputReady(const BallInput *input)
            input->imu.valid && input->dm.valid &&
            (input->dm.state == 1U) &&
            ((input->now_ms - input->imu.received_ms) <= 100U) &&
-           ((input->now_ms - input->dm.received_ms) <= 100U) &&
-           (Abs32(input->vision.frame.position_0p1mm) <=
-            kEndpointLimit0p1mm);
+           ((input->now_ms - input->dm.received_ms) <= 100U);
 }
 
 int32_t MapDmToBeam(const HConfig *config, int32_t dm_position_mrad)
@@ -186,7 +182,8 @@ int16_t CalibrateCameraPosition0p1mm(int16_t camera_position_0p1mm)
      * physical ruler labels were opposite the controller's required
      * left/right convention, so the measured position signs are reversed
      * here while preserving every camera knot and the centre offset.
-     * Extrapolate end segments so endpoint safety cannot be hidden. */
+     * Extrapolate the end segments so the controller retains the correct
+     * recovery direction after the ball reaches a mechanical endpoint. */
     static const int16_t camera_points[11] = {
         -1028, -887, -713, -554, -360, -154,
         58, 274, 503, 709, 921
@@ -216,12 +213,14 @@ int16_t CalibrateCameraPosition0p1mm(int16_t camera_position_0p1mm)
 
 int16_t ConfiguredPosition(const BallInput *input, const HConfig *config)
 {
-    int16_t value = CalibrateCameraPosition0p1mm(
+    int32_t value = CalibrateCameraPosition0p1mm(
         input->vision.frame.position_0p1mm);
     if (config->vision_position_invert != 0U) {
-        value = static_cast<int16_t>(-value);
+        value = -value;
     }
-    return value;
+    value -= config->ball_zero_offset_0p1mm;
+    return static_cast<int16_t>(
+        Clamp32(value, INT16_MIN, INT16_MAX));
 }
 
 int32_t BeamAcceleration0p1mmS2(int32_t beam_angle_mdeg,
@@ -267,7 +266,10 @@ int32_t ModelAcceleration0p1mmS2(const BallState *state,
     /* The table gives the global angle that produces zero acceleration at
      * this position.  Subtract it before applying the rolling model. */
     int32_t effective_beam_mdeg = global_beam_mdeg -
-        HoldAngleMdeg(state->observer_position_0p1mm, config);
+        HoldAngleMdeg(
+            state->observer_position_0p1mm +
+                config->ball_zero_offset_0p1mm,
+            config);
     const int32_t breakaway_mdeg =
         config->ball_kp_mdeg_per_0p1mm;
     const int32_t rolling_friction_mdeg =
@@ -656,11 +658,8 @@ BallOutput Ball_Update(BallState *state,
         !input->imu.valid) {
         return Fail(state, BALL_RESULT_IMU_STALE, config);
     }
-    if (Abs32(ConfiguredPosition(input, config)) >
-        kEndpointLimit0p1mm) {
-        return Fail(state, BALL_RESULT_ENDPOINT, config);
-    }
-
+    /* A mechanical endpoint is not a latched control fault.  Continue using
+     * position feedback so the bounded PD command can pull the ball inward. */
     UpdateEstimator(state, input, config);
     uint32_t elapsed_ms = input->now_ms - state->last_update_ms;
     if (elapsed_ms == 0U) {
@@ -673,14 +672,14 @@ BallOutput Ball_Update(BallState *state,
         state->target_position_0p1mm -
         state->estimated_position_0p1mm;
     state->rail_compensation_mdeg = HoldAngleMdeg(
-        state->estimated_position_0p1mm, config);
+        state->estimated_position_0p1mm +
+            config->ball_zero_offset_0p1mm,
+        config);
     const int32_t abs_error = Abs32(state->position_error_0p1mm);
     if (abs_error > state->maximum_abs_error_0p1mm) {
         state->maximum_abs_error_0p1mm = abs_error;
     }
 
-    const bool degraded =
-        input->vision.ball_age_ms > kNormalVisionAgeMs;
     state->target_velocity_0p1mm_s = 0;
     state->velocity_error_0p1mm_s =
         -state->estimated_velocity_0p1mm_s;
@@ -690,7 +689,7 @@ BallOutput Ball_Update(BallState *state,
     state->pid_p_mdeg = static_cast<int32_t>(
         (static_cast<int64_t>(state->position_error_0p1mm) *
          config->ball_pid_kp_mdeg_per_mm) / 10LL);
-    UpdateStaticErrorTrim(state, config, elapsed_ms, degraded);
+    UpdateStaticErrorTrim(state, config, elapsed_ms);
     state->pid_d_mdeg = static_cast<int32_t>(
         (-static_cast<int64_t>(state->estimated_velocity_0p1mm_s) *
          config->ball_pid_kd_mdeg_per_mm_s) / 10LL);
@@ -701,9 +700,7 @@ BallOutput Ball_Update(BallState *state,
         kPdCorrectionLimitMdeg);
     state->desired_acceleration_0p1mm_s2 =
         BeamAcceleration0p1mmS2(state->pid_correction_mdeg, config);
-    const int32_t limit = degraded
-        ? config->ball_degraded_angle_mdeg
-        : config->ball_max_angle_mdeg;
+    const int32_t limit = config->ball_max_angle_mdeg;
     int32_t stiction_target_mdeg = 0;
     const bool ball_rolling =
         Abs32(state->measured_velocity_0p1mm_s) >

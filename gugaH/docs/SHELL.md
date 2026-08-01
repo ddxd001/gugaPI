@@ -5,7 +5,7 @@
 | 命令 | 说明 |
 | --- | --- |
 | `status` | 当前题号、细分失败原因、锁存时间、最大球误差和分设备错误计数 |
-| `task 2..6` | READY 状态选择题目 |
+| `task 2..8` | READY 状态选择题目；7 为 CAL_ZERO，8 为 CAL_H2_LOOP |
 | `start` / `stop` | 启动或立即中止 |
 | `fault clear` | 非运行状态清故障并回 READY |
 | `gray raw` | 八路原始 ADC |
@@ -43,7 +43,7 @@
 `h4_b_distance`、`h4_stop_distance`、
 `h6_speed`、`h6_approach`、`finish_gate`、
 `approach_start`、
-`h6_finish_gate`、`h6_approach_start`、`finish_offset`、`line_kp`、
+`h6_finish_gate`、`h6_approach_start`、`h2_loop_offset`、`finish_offset`、`line_kp`、
 `line_kd`、`gray_threshold`、`gray_hysteresis`、`gray_position_floor`、
 `gray_min_strength`、`gray_track_mask`、`speed_kp`、`speed_ki`、`speed_kd`、
 `speed_max_duty`、`speed_min_duty`、`speed_accel_rpm_s`、
@@ -51,7 +51,20 @@
 `position_max_rpm`、`position_tolerance_counts`、
 `motor_output_invert_flags`、`motor_encoder_invert_flags`、`ball_kp`、
 `ball_kd`、`ball_ki`、`accel_ff`、`max_angle`、
-`vision_invert`、`beam0..beam4`、`dm0..dm4`。
+`vision_invert`、`ball_zero`（0.1 mm）、`beam0..beam4`、`dm0..dm4`。
+
+`finish_gate` 仅为旧配置兼容保留。H2 的停车目标由
+`lap_distance + h2_loop_offset` 和左右轮平均编码器里程决定；`finish_offset`
+是 `h2_loop_offset` 的兼容别名。偏移范围为 ±200 mm，默认 -100 mm；最后
+200 mm继续巡线并从55 RPM降到15 RPM，达到目标后直接停车，H2没有总超时。
+
+面板选择 H6 后的 `CAL ZERO` 可不使用串口完成零位标定：长按 B1 并松手
+启动，B2/B3 每次向负/正半轴移动零位 1 mm，按下 B1 退出。退出后固件会
+等待 OLED 总线空闲，自动将新零位写入 FRAM 并读回校验。
+
+`CAL ZERO` 后的 `CAL H2 LOOP` 用于无串口微调 H2 停车点：长按 B1 并松手
+启动，B2 每次减少10 mm，B3每次增加10 mm，长按可连续调整；OLED 同时显示
+偏移和最终停车里程。短按 B1 退出后自动写入 FRAM 并读回校验。
 
 MotorDriver 参数在上电或执行 `fault clear` 重新初始化底盘时下发；修改后应
 先 `config save`，再复位或执行 `fault clear`，并从低速悬空测试重新确认。

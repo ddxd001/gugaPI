@@ -71,7 +71,7 @@ int main()
     assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
     assert(result.active_mask == 0x11U);
     assert(result.selected_mask == 0x10U);
-    assert(result.line_position == -1000);
+    assert(result.line_position == 1000);
 
     /* The new default tracking core includes channels 1 and 6, while the
      * outermost pair remains reserved for road/intersection evidence. */
@@ -84,7 +84,7 @@ int main()
     assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
     assert(result.position_valid);
     assert(result.selected_mask == 0x02U);
-    assert(result.line_position == 2000);
+    assert(result.line_position == -2000);
 
     Fill(raw, 3900U);
     raw[6] = 800U;
@@ -92,7 +92,7 @@ int main()
     assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
     assert(result.position_valid);
     assert(result.selected_mask == 0x40U);
-    assert(result.line_position == -2000);
+    assert(result.line_position == 2000);
 
     Fill(raw, 3900U);
     raw[0] = 800U;
@@ -100,7 +100,7 @@ int main()
     result = Process(raw, six_channel, &state);
     assert(result.active_mask == 0x11U);
     assert(result.selected_mask == 0x10U);
-    assert(result.line_position == -1000);
+    assert(result.line_position == 1000);
 
     /* Continue the established four-channel compatibility regressions. */
     state = {};
@@ -162,7 +162,7 @@ int main()
     assert(result.line_strength == 430U);
     assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
     assert(result.position_valid);
-    assert(result.line_position == -1000);
+    assert(result.line_position == 1000);
     assert(result.position_confidence >= 300U);
 
     /* Two adjacent responses below threshold_off=350 combine through the
@@ -280,7 +280,7 @@ int main()
         result = Process(raw, calibration, &state);
         assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
         assert(result.position_valid);
-        assert(result.line_position == -1000);
+        assert(result.line_position == 1000);
         assert(result.weak_tracking_frames == frame);
         assert(result.invalid_frames == 0U);
         assert(result.position_confidence <= 250U);
@@ -338,7 +338,7 @@ int main()
     result = Process(raw, calibration, &state);
     assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
     assert(result.position_valid);
-    assert(result.line_position == 1000);
+    assert(result.line_position == -1000);
     assert(result.weak_tracking_frames == 3U);
     assert(result.invalid_frames == 0U);
 
@@ -405,7 +405,7 @@ int main()
     raw[4] = 3600U;
     result = Process(raw, inverse, &state);
     assert(result.track_state == drivers::GRAYSCALE_TRACK_VALID);
-    assert(result.line_position == -1000);
+    assert(result.line_position == 1000);
 
     return 0;
 }

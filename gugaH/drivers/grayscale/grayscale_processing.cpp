@@ -3,13 +3,13 @@
 namespace drivers {
 namespace {
 
-/* Preserve the existing coordinate convention: positive is left. Position
- * control intentionally uses only the configured tracking core (normally
- * channels 1..6). The outermost channels remain available in active_mask for
- * road/crossing classification, but can no longer pull the steering centroid
- * away from the physical line. */
+/* Preserve the control coordinate convention: positive is vehicle-left.
+ * The sensor has now been mounted with its electrical channel order reversed,
+ * so channel 0 is physically on the right and channel 7 is on the left.
+ * Per-channel white/black calibration remains attached to the electrical
+ * channel and must not be reordered here. */
 static const int16_t kChannelPosition[GRAYSCALE_CHANNEL_COUNT] = {
-    3000, 2000, 1500, 1000, -1000, -1500, -2000, -3000
+    -3000, -2000, -1500, -1000, 1000, 1500, 2000, 3000
 };
 
 static const uint8_t kWideCoreActiveChannels = 4U;

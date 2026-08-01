@@ -15,7 +15,9 @@ enum HProblem : uint8_t {
     H_PROBLEM_3 = 3U,
     H_PROBLEM_4 = 4U,
     H_PROBLEM_5 = 5U,
-    H_PROBLEM_6 = 6U
+    H_PROBLEM_6 = 6U,
+    H_PROBLEM_CAL_ZERO = 7U,
+    H_PROBLEM_CAL_H2_LOOP = 8U
 };
 
 enum HRunState : uint8_t {
@@ -42,6 +44,7 @@ enum HFailure : uint8_t {
 };
 
 struct HButtonEvents {
+    bool b1_pressed;
     bool b1_short;
     bool b1_long;
     bool b2_decrement;
@@ -67,6 +70,10 @@ struct HAppOutput {
     BallOutput ball;
     bool timer_running;
     bool result_changed;
+    bool buzzer_pulse;
+    int16_t ball_zero_delta_0p1mm;
+    int16_t h2_loop_delta_mm;
+    bool save_config;
 };
 
 struct HAppState {

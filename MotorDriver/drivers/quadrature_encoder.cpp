@@ -6,7 +6,9 @@ namespace drivers {
 namespace {
 
 constexpr uint32_t kCounterLoad = 0xFFFFU;
-constexpr uint8_t kSpeedWindowSamples = 3U;
+/* Six 5 ms samples retain the commissioned ~30 ms velocity window while
+ * publishing a fresh estimate to the 200 Hz speed loop every cycle. */
+constexpr uint8_t kSpeedWindowSamples = 6U;
 
 struct EncoderState {
     volatile int32_t count;

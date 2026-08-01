@@ -9,6 +9,8 @@ static const uint8_t kFinishConfirmFrames = 2U;
 static const uint32_t kChassisMaximumAgeMs = 100U;
 static const uint32_t kImuMaximumAgeMs = 100U;
 static const int32_t kMaximumHeadingErrorMdeg = 90000;
+static const int32_t kH2FinalPositionDistanceMm = 200;
+static const int16_t kH2FinalMinimumRpm = 15;
 static const int32_t kH5OdometryFinishOffsetMm = 50;
 static const int32_t kH5CurvePreparationMarginMm = 50;
 
@@ -34,24 +36,6 @@ int32_t CountsToMillimeters(int32_t counts,
         static_cast<int64_t>(wheel_radius_um);
     const int64_t denominator =
         1000000LL * static_cast<int64_t>(counts_per_rev) * 1000LL;
-    return static_cast<int32_t>(
-        (numerator >= 0)
-            ? ((numerator + denominator / 2LL) / denominator)
-            : ((numerator - denominator / 2LL) / denominator));
-}
-
-int32_t MillimetersToCounts(int32_t millimeters,
-                            uint32_t wheel_radius_um,
-                            uint32_t counts_per_rev)
-{
-    if ((wheel_radius_um == 0U) || (counts_per_rev == 0U)) {
-        return 0;
-    }
-    const int64_t numerator =
-        static_cast<int64_t>(millimeters) *
-        static_cast<int64_t>(counts_per_rev) * 1000000000LL;
-    const int64_t denominator =
-        2LL * 3141593LL * static_cast<int64_t>(wheel_radius_um);
     return static_cast<int32_t>(
         (numerator >= 0)
             ? ((numerator + denominator / 2LL) / denominator)
@@ -90,9 +74,6 @@ void Fail(CourseState *state, CourseFailure failure)
 
 uint32_t TimeoutFor(CourseKind kind)
 {
-    if (kind == COURSE_H2) {
-        return 20000U;
-    }
     if (kind == COURSE_H4) {
         return 8000U;
     }
@@ -512,9 +493,11 @@ MotionCommand Course_Update(CourseState *state,
         return StopCommand();
     }
     const bool score_not_frozen = !state->passed_b_or_a;
-    const bool timed_task_pending =
-        ((state->kind == COURSE_H4) || (state->kind == COURSE_H5))
-        ? score_not_frozen : true;
+    const bool timed_task_pending = (state->kind == COURSE_H2)
+        ? false
+        : (((state->kind == COURSE_H4) ||
+            (state->kind == COURSE_H5))
+            ? score_not_frozen : true);
     if (timed_task_pending &&
         ((input->now_ms - state->start_ms) > TimeoutFor(state->kind))) {
         Fail(state, COURSE_FAILURE_TIMEOUT);
@@ -675,7 +658,17 @@ MotionCommand Course_Update(CourseState *state,
                 -RpmRateToAccelerationMmS2(
                     config->h5_stop_ramp_rpm_s, config);
         }
-    } else if ((state->distance_mm >
+    } else if ((state->kind == COURSE_H2) &&
+               (state->distance_mm >=
+            static_cast<int32_t>(config->lap_distance_mm) +
+                    config->h2_loop_offset_mm)) {
+        /* H2 completion uses average odometry because the inner and outer
+         * wheels necessarily travel different distances around a lap. */
+        state->phase = COURSE_COMPLETE;
+        state->pass_ms = input->now_ms;
+        return StopCommand();
+    } else if ((state->kind == COURSE_H6) &&
+               (state->distance_mm >
                 static_cast<int32_t>(config->lap_distance_mm) + 300) &&
                (state->finish_confirm_frames == 0U)) {
         Fail(state, COURSE_FAILURE_FINISH_NOT_FOUND);
@@ -692,7 +685,8 @@ MotionCommand Course_Update(CourseState *state,
     }
     state->last_line_frame_ms = input->now_ms;
 
-    if (state->kind == COURSE_H5) {
+    if ((state->kind == COURSE_H2) ||
+        (state->kind == COURSE_H5)) {
         state->finish_confirm_frames = 0U;
     } else {
         const bool gate_open = state->distance_mm >=
@@ -704,25 +698,6 @@ MotionCommand Course_Update(CourseState *state,
         } else {
             state->finish_confirm_frames = 0U;
         }
-    }
-
-    if ((state->kind == COURSE_H2) &&
-        (state->finish_confirm_frames >= kFinishConfirmFrames)) {
-        state->final_left_count =
-            input->chassis->left_encoder_count +
-            MillimetersToCounts(config->sensor_to_reference_mm,
-                                 config->wheel_radius_um,
-                                 config->left_counts_per_rev);
-        state->final_right_count =
-            input->chassis->right_encoder_count +
-            MillimetersToCounts(config->sensor_to_reference_mm,
-                                 config->wheel_radius_um,
-                                 config->right_counts_per_rev);
-        state->phase = COURSE_FINAL_POSITION;
-        command.mode = MOTION_COMMAND_POSITION;
-        command.left_position_count = state->final_left_count;
-        command.right_position_count = state->final_right_count;
-        return command;
     }
 
     if ((state->kind == COURSE_H6) &&
@@ -746,11 +721,54 @@ MotionCommand Course_Update(CourseState *state,
         state->h5_commanded_accel_mm_s2 =
             H5CommandedAccelerationMmS2(
                 state, input->now_ms, config);
+    } else if (state->kind == COURSE_H2) {
+        const int32_t target_distance_mm =
+            static_cast<int32_t>(config->lap_distance_mm) +
+            config->h2_loop_offset_mm;
+        const int32_t remaining_mm =
+            target_distance_mm - state->distance_mm;
+        if (remaining_mm <= kH2FinalPositionDistanceMm) {
+            state->phase = COURSE_APPROACH;
+            int32_t maximum_rpm = ApproachFor(COURSE_H2, config);
+            if (maximum_rpm < kH2FinalMinimumRpm) {
+                maximum_rpm = kH2FinalMinimumRpm;
+            }
+            const int32_t bounded_remaining = Clamp32(
+                remaining_mm, 0, kH2FinalPositionDistanceMm);
+            base_rpm = static_cast<int16_t>(
+                kH2FinalMinimumRpm +
+                ((maximum_rpm - kH2FinalMinimumRpm) *
+                 bounded_remaining) /
+                    kH2FinalPositionDistanceMm);
+        }
     } else if (state->distance_mm >=
-        ApproachStartFor(state->kind, config)) {
+               ApproachStartFor(state->kind, config)) {
         state->phase = COURSE_APPROACH;
         base_rpm = static_cast<int16_t>(
             ApproachFor(state->kind, config));
+    }
+    if ((state->kind == COURSE_H2) &&
+        !LineControl_IsTrackUsable(input->line) &&
+        (input->line != 0) &&
+        (input->line->calibration_fault_mask == 0U) &&
+        (input->line->track_state !=
+         drivers::GRAYSCALE_TRACK_SENSOR_FAULT)) {
+        /* A valid ADC frame with no usable line is a recoverable course
+         * condition.  Search forward-right at the conservative H2 approach
+         * speed until a usable line returns.  Missing frames and sensor
+         * faults still take the normal safe-stop paths. */
+        const int16_t search_rpm = static_cast<int16_t>(
+            ApproachFor(COURSE_H2, config));
+        if (!LineControl_SearchRight(&state->line_control,
+                                     search_rpm,
+                                     input->now_ms)) {
+            Fail(state, COURSE_FAILURE_LINE_LOST);
+            return StopCommand();
+        }
+        command.mode = MOTION_COMMAND_SPEED;
+        command.left_rpm = state->line_control.left_rpm;
+        command.right_rpm = state->line_control.right_rpm;
+        return command;
     }
     if (!LineControl_Update(&state->line_control,
                             input->line,
@@ -763,7 +781,9 @@ MotionCommand Course_Update(CourseState *state,
     command.mode = MOTION_COMMAND_SPEED;
     command.left_rpm = state->line_control.left_rpm;
     command.right_rpm = state->line_control.right_rpm;
-    if (state->kind == COURSE_H5) {
+    if ((state->kind == COURSE_H5) ||
+        ((state->kind == COURSE_H2) &&
+         (state->phase == COURSE_APPROACH))) {
         const int32_t correction_limit = base_rpm / 2;
         const int32_t correction = Clamp32(
             state->line_control.last_correction_rpm,

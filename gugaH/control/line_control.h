@@ -22,6 +22,11 @@ struct LineControlState {
 };
 
 void LineControl_Init(LineControlState *state);
+bool LineControl_IsTrackUsable(
+    const drivers::GrayscaleProcessedData *line);
+bool LineControl_SearchRight(LineControlState *state,
+                             int16_t forward_rpm,
+                             uint32_t now_ms);
 bool LineControl_Update(LineControlState *state,
                         const drivers::GrayscaleProcessedData *line,
                         int16_t base_rpm,

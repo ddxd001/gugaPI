@@ -142,25 +142,32 @@ void TestConfigRecord()
     assert(config.ball_model_max_velocity_0p1mm_s == 200U);
     assert(config.ball_observer_alpha_permille == 500U);
     assert(config.ball_observer_beta_permille == 80U);
-    assert(config.ball_pid_kp_mdeg_per_mm == 40);
-    assert(config.ball_pid_ki_mdeg_per_mm_s == 20);
+    assert(config.ball_pid_kp_mdeg_per_mm == 55);
+    assert(config.ball_pid_ki_mdeg_per_mm_s == 0);
     assert(config.ball_pid_kd_mdeg_per_mm_s == 20);
     assert(config.ball_pid_integral_limit_mdeg == 1500);
-    assert(config.ball_curve_origin_0p1mm == 148);
+    assert(config.ball_zero_offset_0p1mm == 0);
     assert(config.ball_hold_position_0p1mm[0] == -1000);
     assert(config.ball_hold_position_0p1mm[4] == 1000);
     assert(config.ball_hold_angle_mdeg[0] == -918);
-    assert(config.ball_hold_angle_mdeg[2] == -118);
+    assert(config.ball_hold_angle_mdeg[1] == -165);
+    assert(config.ball_hold_angle_mdeg[2] == 560);
+    assert(config.ball_hold_angle_mdeg[3] == 986);
     assert(config.ball_hold_angle_mdeg[4] == 682);
     assert(config.ball_accel_ff_mdeg_per_mm_s2 == 0);
-    assert(config.dm_position_mrad[0] == 183);
-    assert(config.dm_position_mrad[1] == -197);
+    assert(config.beam_angle_mdeg[0] == -8836);
+    assert(config.beam_angle_mdeg[1] == -3942);
+    assert(config.beam_angle_mdeg[2] == 0);
+    assert(config.beam_angle_mdeg[3] == 3093);
+    assert(config.beam_angle_mdeg[4] == 6094);
+    assert(config.dm_position_mrad[0] == 300);
+    assert(config.dm_position_mrad[1] == -200);
     assert(config.dm_position_mrad[2] == -617);
-    assert(config.dm_position_mrad[3] == -1117);
-    assert(config.dm_position_mrad[4] == -1537);
-    assert(config.h4_launch_ramp_rpm_s == 60U);
-    assert(config.h4_stop_ramp_rpm_s == 60U);
-    assert(config.h4_brake_distance_mm == 1100U);
+    assert(config.dm_position_mrad[3] == -1000);
+    assert(config.dm_position_mrad[4] == -1382);
+    assert(config.h4_launch_ramp_rpm_s == 40U);
+    assert(config.h4_stop_ramp_rpm_s == 40U);
+    assert(config.h4_brake_distance_mm == 1000U);
     assert(config.h4_stop_distance_mm == 1700U);
     assert(config.h4_heading_kp == 1000);
     assert(config.h4_heading_max_correction_rpm == 30);
@@ -171,11 +178,29 @@ void TestConfigRecord()
     assert(config.h5_brake_distance_mm == 5840U);
     assert(config.h5_cruise_rpm == 95U);
     assert(config.h5_approach_rpm == 63U);
+    assert(config.ball_zero_offset_0p1mm == 0);
+    assert(config.h2_loop_offset_mm == -100);
+    gugah::HConfig h2_limit_config = config;
+    h2_limit_config.h2_loop_offset_mm =
+        gugah::H_CONFIG_H2_LOOP_OFFSET_LIMIT_MM;
+    assert(gugah::HConfig_Validate(&h2_limit_config));
+    h2_limit_config.h2_loop_offset_mm =
+        gugah::H_CONFIG_H2_LOOP_OFFSET_LIMIT_MM + 1;
+    assert(!gugah::HConfig_Validate(&h2_limit_config));
     gugah::HConfigRecord record = {};
     gugah::HConfig_BuildRecord(&config, &record);
     gugah::HConfig parsed = {};
     assert(gugah::HConfig_ParseRecord(&record, &parsed));
     assert(parsed.lap_distance_mm == 6142U);
+
+    gugah::HConfig zero_config = config;
+    zero_config.ball_zero_offset_0p1mm = -70;
+    zero_config.h2_loop_offset_mm = 90;
+    gugah::HConfigRecord zero_record = {};
+    gugah::HConfig_BuildRecord(&zero_config, &zero_record);
+    assert(gugah::HConfig_ParseRecord(&zero_record, &parsed));
+    assert(parsed.ball_zero_offset_0p1mm == -70);
+    assert(parsed.h2_loop_offset_mm == 90);
 
     gugah::HConfig old_speed_config = config;
     old_speed_config.h5_cruise_rpm = 100U;
@@ -196,9 +221,9 @@ void TestConfigRecord()
     gugah::HConfigRecord old_level_record = {};
     gugah::HConfig_BuildRecord(&old_level_config, &old_level_record);
     assert(gugah::HConfig_ParseRecord(&old_level_record, &parsed));
-    assert(parsed.dm_position_mrad[0] == 183);
+    assert(parsed.dm_position_mrad[0] == 300);
     assert(parsed.dm_position_mrad[2] == -617);
-    assert(parsed.dm_position_mrad[4] == -1537);
+    assert(parsed.dm_position_mrad[4] == -1382);
 
     record.payload.cruise_rpm++;
     assert(!gugah::HConfig_ParseRecord(&record, &parsed));
@@ -245,7 +270,7 @@ void TestConfigRecord()
     assert(parsed.ball_pid_ki_mdeg_per_mm_s == 20);
     assert(parsed.ball_pid_kd_mdeg_per_mm_s == 20);
     assert(parsed.ball_pid_integral_limit_mdeg == 1500);
-    assert(parsed.ball_curve_origin_0p1mm == 148);
+    assert(parsed.ball_zero_offset_0p1mm == 0);
 
     /* Schema-5 records receive the new holding-angle table and the new
      * alpha-beta observer/PD gains instead of reusing incompatible values. */
@@ -267,7 +292,7 @@ void TestConfigRecord()
     assert(parsed.ball_observer_beta_permille == 80U);
     assert(parsed.ball_pid_kp_mdeg_per_mm == 40);
     assert(parsed.ball_pid_kd_mdeg_per_mm_s == 20);
-    assert(parsed.ball_hold_angle_mdeg[2] == -118);
+    assert(parsed.ball_hold_angle_mdeg[2] == 560);
 
     /* Schema 6 used the old linear mechanism map.  Loading it preserves all
      * other parameters but installs the measured asymmetric linkage map. */
@@ -288,9 +313,9 @@ void TestConfigRecord()
     memcpy(reinterpret_cast<uint8_t *>(&schema6.payload) + schema6_length,
            &schema6_crc, sizeof(schema6_crc));
     assert(gugah::HConfig_ParseRecord(&schema6, &parsed));
-    assert(parsed.dm_position_mrad[0] == 183);
+    assert(parsed.dm_position_mrad[0] == 300);
     assert(parsed.dm_position_mrad[2] == -617);
-    assert(parsed.dm_position_mrad[4] == -1537);
+    assert(parsed.dm_position_mrad[4] == -1382);
 
     /* Schema 7 commissioned the observer with integral disabled.  Upgrade
      * that exact state to the bounded static-error trim introduced by 8. */
@@ -311,7 +336,7 @@ void TestConfigRecord()
     assert(parsed.ball_pid_integral_limit_mdeg == 1500);
 
     /* Schema 8 predates the H4-only launch ramp.  Preserve all existing
-     * control tuning and append the conservative 60 RPM/s default. */
+     * control tuning and append the conservative 40 RPM/s default. */
     gugah::HConfigRecord schema8 = {};
     schema8.magic = gugah::H_CONFIG_MAGIC;
     schema8.schema_version = 8U;
@@ -327,8 +352,61 @@ void TestConfigRecord()
            config.ball_pid_kp_mdeg_per_mm);
     assert(parsed.ball_pid_ki_mdeg_per_mm_s ==
            config.ball_pid_ki_mdeg_per_mm_s);
-    assert(parsed.h4_launch_ramp_rpm_s == 60U);
-    assert(parsed.h4_stop_ramp_rpm_s == 60U);
+    assert(parsed.h4_launch_ramp_rpm_s == 40U);
+    assert(parsed.h4_stop_ramp_rpm_s == 40U);
+
+    /* Schema 20 used this byte slot as an inactive curvature origin.  It
+     * must migrate to an uncalibrated zero rather than shifting O by 14.8
+     * mm after the firmware update. */
+    gugah::HConfigRecord schema20 = {};
+    schema20.magic = gugah::H_CONFIG_MAGIC;
+    schema20.schema_version = 20U;
+    schema20.payload_length = static_cast<uint16_t>(
+        sizeof(gugah::HConfig));
+    schema20.payload = config;
+    schema20.payload.ball_zero_offset_0p1mm = 148;
+    schema20.payload.h4_brake_distance_mm = 1100U;
+    schema20.payload_crc32 = gugah::HConfig_Crc32(
+        reinterpret_cast<const uint8_t *>(&schema20.payload),
+        schema20.payload_length);
+    assert(gugah::HConfig_ParseRecord(&schema20, &parsed));
+    assert(parsed.ball_zero_offset_0p1mm == 0);
+    assert(parsed.h4_brake_distance_mm == 1000U);
+
+    /* Schema 21 already owns the zero field.  Its calibration survives the
+     * H4 brake-point migration introduced by schema 22. */
+    gugah::HConfigRecord schema21 = {};
+    schema21.magic = gugah::H_CONFIG_MAGIC;
+    schema21.schema_version = 21U;
+    schema21.payload_length = static_cast<uint16_t>(
+        sizeof(gugah::HConfig));
+    schema21.payload = config;
+    schema21.payload.ball_zero_offset_0p1mm = -70;
+    schema21.payload.h4_brake_distance_mm = 1100U;
+    schema21.payload_crc32 = gugah::HConfig_Crc32(
+        reinterpret_cast<const uint8_t *>(&schema21.payload),
+        schema21.payload_length);
+    assert(gugah::HConfig_ParseRecord(&schema21, &parsed));
+    assert(parsed.ball_zero_offset_0p1mm == -70);
+    assert(parsed.h4_brake_distance_mm == 1000U);
+
+    /* Schema 22 still used this storage slot as an inactive sensor offset.
+     * Schema 23 must preserve all other tuning while installing the
+     * commissioned -100 mm H2 lap-stop offset. */
+    gugah::HConfigRecord schema22 = {};
+    schema22.magic = gugah::H_CONFIG_MAGIC;
+    schema22.schema_version = 22U;
+    schema22.payload_length = static_cast<uint16_t>(
+        sizeof(gugah::HConfig));
+    schema22.payload = config;
+    schema22.payload.h2_loop_offset_mm = 0;
+    schema22.payload.ball_zero_offset_0p1mm = -70;
+    schema22.payload_crc32 = gugah::HConfig_Crc32(
+        reinterpret_cast<const uint8_t *>(&schema22.payload),
+        schema22.payload_length);
+    assert(gugah::HConfig_ParseRecord(&schema22, &parsed));
+    assert(parsed.h2_loop_offset_mm == -100);
+    assert(parsed.ball_zero_offset_0p1mm == -70);
 
     /* Schema 9 stores the launch ramp but predates the H4 soft-stop ramp. */
     gugah::HConfigRecord schema9 = {};
@@ -348,7 +426,7 @@ void TestConfigRecord()
     assert(gugah::HConfig_ParseRecord(&schema9, &parsed));
     assert(parsed.h4_launch_ramp_rpm_s == 45U);
     assert(parsed.h4_stop_ramp_rpm_s == 60U);
-    assert(parsed.h4_brake_distance_mm == 1100U);
+    assert(parsed.h4_brake_distance_mm == 1000U);
     assert(parsed.h4_stop_distance_mm == 1700U);
 
     /* Schema 12 has the pre-B brake point but predates H4 yaw hold. */
@@ -365,7 +443,7 @@ void TestConfigRecord()
                schema12.payload_length,
            &schema12_crc, sizeof(schema12_crc));
     assert(gugah::HConfig_ParseRecord(&schema12, &parsed));
-    assert(parsed.h4_brake_distance_mm == 1100U);
+    assert(parsed.h4_brake_distance_mm == 1000U);
     assert(parsed.h4_heading_kp == 1000);
     assert(parsed.h4_heading_max_correction_rpm == 30);
     assert(parsed.imu_gyro_bias_z_mdps == 0);
@@ -445,8 +523,7 @@ void TestConfigRecord()
     assert(parsed.ball_imu_beam_kp_permille == 0);
     assert(parsed.ball_imu_beam_limit_0p1deg == 0U);
 
-    /* Schema 17 preserves a commissioned linkage shape while translating
-     * its centre knot to the newly measured -617 mrad horizontal point. */
+    /* Schema 17/18 maps migrate to the five IMU-measured monotonic knots. */
     gugah::HConfigRecord schema17 = {};
     schema17.magic = gugah::H_CONFIG_MAGIC;
     schema17.schema_version = 17U;
@@ -463,11 +540,41 @@ void TestConfigRecord()
         reinterpret_cast<const uint8_t *>(&schema17.payload),
         schema17.payload_length);
     assert(gugah::HConfig_ParseRecord(&schema17, &parsed));
-    assert(parsed.dm_position_mrad[0] == 193);
-    assert(parsed.dm_position_mrad[1] == -187);
+    assert(parsed.beam_angle_mdeg[0] == -8836);
+    assert(parsed.dm_position_mrad[0] == 300);
+    assert(parsed.dm_position_mrad[1] == -200);
     assert(parsed.dm_position_mrad[2] == -617);
-    assert(parsed.dm_position_mrad[3] == -1087);
-    assert(parsed.dm_position_mrad[4] == -1517);
+    assert(parsed.dm_position_mrad[3] == -1000);
+    assert(parsed.dm_position_mrad[4] == -1382);
+
+    gugah::HConfigRecord schema18 = schema17;
+    schema18.schema_version = 18U;
+    schema18.payload_crc32 = gugah::HConfig_Crc32(
+        reinterpret_cast<const uint8_t *>(&schema18.payload),
+        schema18.payload_length);
+    assert(gugah::HConfig_ParseRecord(&schema18, &parsed));
+    assert(parsed.beam_angle_mdeg[4] == 6094);
+    assert(parsed.dm_position_mrad[0] == 300);
+    assert(parsed.dm_position_mrad[2] == -617);
+    assert(parsed.dm_position_mrad[4] == -1382);
+
+    /* Schema 20 replaces only the exact former H4 defaults. */
+    gugah::HConfigRecord schema19 = {};
+    schema19.magic = gugah::H_CONFIG_MAGIC;
+    schema19.schema_version = 19U;
+    schema19.payload_length = static_cast<uint16_t>(
+        sizeof(gugah::HConfig));
+    schema19.payload = config;
+    schema19.payload.h4_cruise_rpm = 120U;
+    schema19.payload.h4_launch_ramp_rpm_s = 60U;
+    schema19.payload.h4_stop_ramp_rpm_s = 60U;
+    schema19.payload_crc32 = gugah::HConfig_Crc32(
+        reinterpret_cast<const uint8_t *>(&schema19.payload),
+        schema19.payload_length);
+    assert(gugah::HConfig_ParseRecord(&schema19, &parsed));
+    assert(parsed.h4_cruise_rpm == 100U);
+    assert(parsed.h4_launch_ramp_rpm_s == 40U);
+    assert(parsed.h4_stop_ramp_rpm_s == 40U);
 
     /* Schema 10's exact first soft-stop defaults migrate to the gentler
      * symmetric ramp and its longer hard-stop boundary. */
@@ -487,7 +594,7 @@ void TestConfigRecord()
            &schema10_crc, sizeof(schema10_crc));
     assert(gugah::HConfig_ParseRecord(&schema10, &parsed));
     assert(parsed.h4_stop_ramp_rpm_s == 60U);
-    assert(parsed.h4_brake_distance_mm == 1100U);
+    assert(parsed.h4_brake_distance_mm == 1000U);
     assert(parsed.h4_stop_distance_mm == 1700U);
 
     /* Schema 11's gentle ramp still began at B and used a far-away hard
@@ -508,14 +615,13 @@ void TestConfigRecord()
            &schema11_crc, sizeof(schema11_crc));
     assert(gugah::HConfig_ParseRecord(&schema11, &parsed));
     assert(parsed.h4_stop_ramp_rpm_s == 60U);
-    assert(parsed.h4_brake_distance_mm == 1100U);
+    assert(parsed.h4_brake_distance_mm == 1000U);
     assert(parsed.h4_stop_distance_mm == 1700U);
 
-    /* Schema-4 records contain the residual PID but predate the adjustable
-     * curvature origin. */
+    /* Schema-4 records contain the residual PID but predate CAL_ZERO. */
     gugah::HConfigRecord schema4 = {};
     const uint16_t schema4_length = static_cast<uint16_t>(
-        offsetof(gugah::HConfig, ball_curve_origin_0p1mm));
+        offsetof(gugah::HConfig, ball_zero_offset_0p1mm));
     schema4.magic = gugah::H_CONFIG_MAGIC;
     schema4.schema_version = 4U;
     schema4.payload_length = schema4_length;
@@ -526,9 +632,8 @@ void TestConfigRecord()
     memcpy(reinterpret_cast<uint8_t *>(&schema4.payload) + schema4_length,
            &schema4_crc, sizeof(schema4_crc));
     assert(gugah::HConfig_ParseRecord(&schema4, &parsed));
-    assert(parsed.ball_pid_kp_mdeg_per_mm ==
-           config.ball_pid_kp_mdeg_per_mm);
-    assert(parsed.ball_curve_origin_0p1mm == 148);
+    assert(parsed.ball_pid_kp_mdeg_per_mm == 40);
+    assert(parsed.ball_zero_offset_0p1mm == 0);
 
     /* Legacy increasing maps are corrected without discarding other values. */
     gugah::HConfig legacy = config;
@@ -557,9 +662,9 @@ void TestConfigRecord()
     assert(parsed.ball_kd_mdeg_per_0p1mm_s == 8);
     assert(parsed.ball_ki_mdeg_per_0p1mm_s == 1);
     assert(parsed.ball_max_angle_mdeg == 6000);
-    assert(parsed.dm_position_mrad[0] == 183);
+    assert(parsed.dm_position_mrad[0] == 300);
     assert(parsed.dm_position_mrad[2] == -617);
-    assert(parsed.dm_position_mrad[4] == -1537);
+    assert(parsed.dm_position_mrad[4] == -1382);
 }
 
 void TestVisionProtocol()
@@ -666,49 +771,101 @@ void TestLineControl()
         &state, &line, 100, 201U, &config));
 }
 
-void TestCourseH2RequiresMarker()
+void TestCourseH2UsesCalibratedAverageOdometryWithoutTimeout()
 {
     gugah::HConfig config = DefaultConfig();
     config.finish_gate_mm = 100U;
-    config.approach_start_mm = 80U;
+    config.approach_start_mm = 4000U;
     config.lap_distance_mm = 5000U;
-    config.sensor_to_reference_mm = 0;
+    /* A non-default value proves the H2 target follows the calibrated
+     * offset rather than the former compiled -100 mm constant. */
+    config.h2_loop_offset_mm = -80;
     gugah::CourseState state = {};
     gugah::Course_Init(&state);
-    gugah::ChassisFeedback chassis = Chassis(0U, 0, 0, 50);
+    static const int32_t kLeftStart = 100;
+    static const int32_t kRightStart = 200;
+    gugah::ChassisFeedback chassis =
+        Chassis(0U, kLeftStart, kRightStart, 50);
     assert(gugah::Course_Start(
         &state, gugah::COURSE_H2, &chassis, 0U, &config));
     drivers::GrayscaleProcessedData line = ValidLine(0);
+    line.track_state = drivers::GRAYSCALE_TRACK_WIDE;
+    line.active_mask = 0x7EU;
     gugah::CourseInput input = { 100U, &line, &chassis, true, 0 };
-    chassis = Chassis(100U, 10000, 10000, 50);
+    const int32_t before_lap = CountsForMillimeters(4690, config);
+    chassis = Chassis(100U,
+                      kLeftStart + before_lap,
+                      kRightStart + before_lap,
+                      50);
     input.chassis = &chassis;
     gugah::MotionCommand command =
         gugah::Course_Update(&state, &input, &config);
     assert(command.mode == gugah::MOTION_COMMAND_SPEED);
+    assert(state.finish_confirm_frames == 0U);
 
-    line.track_state = drivers::GRAYSCALE_TRACK_WIDE;
-    line.active_mask = 0x7EU;
+    /* Even two valid A-marker frames cannot stop H2 before the configured
+     * encoder lap distance. */
     input.now_ms = 102U;
     chassis.received_ms = 102U;
     (void)gugah::Course_Update(&state, &input, &config);
     input.now_ms = 104U;
     chassis.received_ms = 104U;
     command = gugah::Course_Update(&state, &input, &config);
-    assert(command.mode == gugah::MOTION_COMMAND_POSITION);
-    assert(state.phase == gugah::COURSE_FINAL_POSITION);
+    assert(command.mode == gugah::MOTION_COMMAND_SPEED);
+    assert(command.left_rpm ==
+           static_cast<int16_t>(config.cruise_rpm));
+    assert(command.right_rpm ==
+           static_cast<int16_t>(config.cruise_rpm));
+    assert(state.phase == gugah::COURSE_CRUISE);
 
-    chassis.left_rpm = 0;
-    chassis.right_rpm = 0;
-    chassis.left_encoder_count = state.final_left_count;
-    chassis.right_encoder_count = state.final_right_count;
-    input.now_ms = 110U;
-    chassis.received_ms = 110U;
-    (void)gugah::Course_Update(&state, &input, &config);
-    input.now_ms = 320U;
-    chassis.received_ms = 320U;
+    const int32_t final_approach_start =
+        CountsForMillimeters(4720, config);
+    const int32_t one_lap = CountsForMillimeters(4920, config);
+    /* Enter the final position phase after the former 20 s H2 deadline. */
+    input.now_ms = 20002U;
+    chassis = Chassis(input.now_ms,
+                      kLeftStart + final_approach_start,
+                      kRightStart + final_approach_start,
+                      50);
+    input.chassis = &chassis;
+    input.line_frame_new = true;
     command = gugah::Course_Update(&state, &input, &config);
-    assert(state.phase == gugah::COURSE_COMPLETE);
+    assert(command.mode == gugah::MOTION_COMMAND_SPEED);
+    assert(command.left_rpm ==
+           static_cast<int16_t>(config.approach_rpm));
+    assert(command.right_rpm ==
+           static_cast<int16_t>(config.approach_rpm));
+    assert(state.phase == gugah::COURSE_APPROACH);
+
+    /* Near the target the PD correction is limited to half of the reduced
+     * base speed, so neither wheel reverses and stalls average odometry. */
+    input.now_ms = 20100U;
+    const int32_t near_target = CountsForMillimeters(4910, config);
+    chassis = Chassis(input.now_ms,
+                      kLeftStart + near_target,
+                      kRightStart + near_target,
+                      20);
+    input.chassis = &chassis;
+    line = ValidLine(1000);
+    input.line = &line;
+    input.line_frame_new = true;
+    command = gugah::Course_Update(&state, &input, &config);
+    assert(command.mode == gugah::MOTION_COMMAND_SPEED);
+    assert(command.left_rpm > 0);
+    assert(command.right_rpm > 0);
+    assert((command.left_rpm + command.right_rpm) / 2 == 17);
+
+    input.now_ms = 20220U;
+    chassis = Chassis(input.now_ms,
+                      kLeftStart + one_lap,
+                      kRightStart + one_lap,
+                      15);
+    input.chassis = &chassis;
+    input.line_frame_new = false;
+    command = gugah::Course_Update(&state, &input, &config);
     assert(command.mode == gugah::MOTION_COMMAND_STOP);
+    assert(state.phase == gugah::COURSE_COMPLETE);
+    assert(state.pass_ms == input.now_ms);
 }
 
 void TestCourseRunsOncePerGrayscaleFrame()
@@ -752,6 +909,48 @@ void TestCourseRunsOncePerGrayscaleFrame()
     assert(state.failure == gugah::COURSE_FAILURE_LINE_LOST);
 }
 
+void TestH2SearchesRightAfterLineLossAndReacquires()
+{
+    gugah::HConfig config = DefaultConfig();
+    config.line_lost_grace_ms = 20U;
+    config.lap_distance_mm = 5000U;
+    gugah::CourseState state = {};
+    gugah::ChassisFeedback chassis = Chassis(0U, 0, 0, 50);
+    assert(gugah::Course_Start(
+        &state, gugah::COURSE_H2, &chassis, 0U, &config));
+
+    drivers::GrayscaleProcessedData line = ValidLine(0);
+    line.line_detected = false;
+    line.position_valid = false;
+    line.track_state = drivers::GRAYSCALE_TRACK_LOST;
+    gugah::CourseInput input = { 8U, &line, &chassis, true, 0 };
+    chassis.received_ms = input.now_ms;
+    gugah::MotionCommand command =
+        gugah::Course_Update(&state, &input, &config);
+    assert(command.mode == gugah::MOTION_COMMAND_SPEED);
+    assert(command.left_rpm > command.right_rpm);
+    assert(command.right_rpm > 0);
+    assert(state.phase == gugah::COURSE_CRUISE);
+
+    /* Repeated valid ADC frames remain recoverable beyond the old grace
+     * period; only a stalled scan is still a fault. */
+    input.now_ms = 80U;
+    chassis.received_ms = input.now_ms;
+    command = gugah::Course_Update(&state, &input, &config);
+    assert(command.mode == gugah::MOTION_COMMAND_SPEED);
+    assert(command.left_rpm > command.right_rpm);
+    assert(state.phase == gugah::COURSE_CRUISE);
+
+    line = ValidLine(-1000);
+    input.now_ms = 88U;
+    chassis.received_ms = input.now_ms;
+    command = gugah::Course_Update(&state, &input, &config);
+    assert(command.mode == gugah::MOTION_COMMAND_SPEED);
+    assert(state.line_control.line_valid);
+    assert(!state.line_control.failed);
+    assert(state.phase == gugah::COURSE_CRUISE);
+}
+
 void TestBallControlAndFeedforward()
 {
     gugah::HConfig config = DefaultConfig();
@@ -776,13 +975,17 @@ void TestBallControlAndFeedforward()
     assert(state.target_velocity_0p1mm_s == 0);
     assert(state.velocity_error_0p1mm_s == 0);
     assert(state.desired_acceleration_0p1mm_s2 < 0);
-    assert(state.rail_compensation_mdeg == 0);
-    assert(state.pid_p_mdeg == -2000);
+    assert(state.rail_compensation_mdeg == 986);
+    assert(state.pid_p_mdeg == -2750);
     assert(state.pid_i_mdeg == 0);
     assert(state.beam_target_mdeg < state.rail_compensation_mdeg);
-    assert(gugah::Ball_MapBeamToDm(&config, -2000) == -407);
-    assert(gugah::Ball_HoldAngleMdeg(&config, -750) == 0);
-    assert(gugah::Ball_HoldAngleMdeg(&config, 250) == 0);
+    assert(gugah::Ball_MapBeamToDm(&config, -2000) == -405);
+    assert(gugah::Ball_MapBeamToDm(&config, -8836) == 300);
+    assert(gugah::Ball_MapBeamToDm(&config, 6094) == -1382);
+    assert(gugah::Ball_MapBeamToDm(&config, -10000) == 300);
+    assert(gugah::Ball_MapBeamToDm(&config, 10000) == -1382);
+    assert(gugah::Ball_HoldAngleMdeg(&config, -750) == -542);
+    assert(gugah::Ball_HoldAngleMdeg(&config, 250) == 773);
 
     input.now_ms = 30U;
     input.vision.frame.received_ms = input.now_ms;
@@ -837,6 +1040,30 @@ void TestBallCameraPositionCalibration()
     assert(gugah::Ball_CalibrateCameraPosition0p1mm(20) == 164);
     assert(gugah::Ball_CalibrateCameraPosition0p1mm(-1100) < -1100);
     assert(gugah::Ball_CalibrateCameraPosition0p1mm(1100) > 1100);
+}
+
+void TestBallZeroOffsetChangesControlOrigin()
+{
+    gugah::HConfig config = DefaultConfig();
+    config.vision_position_invert = 0U;
+    config.ball_zero_offset_0p1mm = 200;
+    gugah::BallState state = {};
+    gugah::Ball_Init(&state);
+    gugah::BallInput input = BallInput(10U, 200);
+    input.dm.position_mrad = -617;
+    assert(gugah::Ball_StartHold(&state, 0, &input, &config));
+    assert(state.measured_position_0p1mm == 0);
+    assert(state.estimated_position_0p1mm == 0);
+
+    input.now_ms = 20U;
+    input.vision.frame.received_ms = 20U;
+    input.vision.frame.sequence++;
+    input.imu.received_ms = 20U;
+    input.dm.received_ms = 20U;
+    (void)gugah::Ball_Update(&state, &input, &config);
+    /* Rail compensation remains tied to the physical +20 mm location even
+     * though that point is now controller coordinate zero. */
+    assert(state.rail_compensation_mdeg == 730);
 }
 
 void TestBallRetargetIsBumpless()
@@ -973,7 +1200,7 @@ void TestBallOverspeedUsesFastBrake()
     assert(state.integral_error_0p1mm_ms == 0);
     assert(state.pid_i_mdeg == 0);
     assert(state.pid_d_mdeg < 0);
-    assert(state.beam_target_mdeg < -500);
+    assert(state.beam_target_mdeg < 0);
 }
 
 void TestBallOuterPdHasZeroVelocityTarget()
@@ -993,8 +1220,8 @@ void TestBallOuterPdHasZeroVelocityTarget()
     (void)gugah::Ball_Update(&state, &input, &config);
     assert(state.target_velocity_0p1mm_s == 0);
     assert(state.velocity_error_0p1mm_s == 0);
-    assert(state.pid_p_mdeg == -4000);
-    assert(state.pid_correction_mdeg == -4000);
+    assert(state.pid_p_mdeg == -5500);
+    assert(state.pid_correction_mdeg == -4500);
 }
 
 void TestBallPredictedVelocityDoesNotCancelBreakaway()
@@ -1030,7 +1257,7 @@ void TestBallPredictedVelocityDoesNotCancelBreakaway()
      * measured position.  Breakaway must continue until vision confirms
      * that the ball is genuinely rolling. */
     input.now_ms = 500U;
-    input.dm.position_mrad = -1000;
+    input.dm.position_mrad = -1382;
     input.imu.received_ms = 500U;
     input.dm.received_ms = 500U;
     (void)gugah::Ball_Update(&state, &input, &config);
@@ -1058,7 +1285,7 @@ void TestBallPidCorrectsInsideAcceptedBand()
     (void)gugah::Ball_Update(&state, &input, &config);
     assert(state.position_error_0p1mm == -80);
     assert(state.stiction_compensation_mdeg == 0);
-    assert(state.pid_p_mdeg == -320);
+    assert(state.pid_p_mdeg == -440);
     assert(state.pid_correction_mdeg < 0);
 
     /* A stationary 8 mm error is acceptable for scoring.  Small PD remains
@@ -1097,12 +1324,13 @@ void TestBallImuBeamCompensationIsDisabled()
     const gugah::BallOutput output =
         gugah::Ball_Update(&state, &input, &config);
     assert(output.command_valid);
-    assert(state.beam_target_mdeg == 0);
+    assert(state.beam_target_mdeg == 300);
     assert(state.imu_beam_mdeg == 1000);
-    assert(state.imu_beam_error_mdeg == -1000);
+    assert(state.imu_beam_error_mdeg == -700);
     assert(state.imu_beam_compensation_mdeg == 0);
-    assert(state.beam_command_mdeg == 0);
-    assert(output.dm_target_mrad == -617);
+    assert(state.beam_command_mdeg == 300);
+    assert(output.dm_target_mrad ==
+           gugah::Ball_MapBeamToDm(&config, 300));
 
     config.ball_imu_beam_kp_permille = 2000;
     config.ball_imu_beam_limit_0p1deg = 5U;
@@ -1113,7 +1341,7 @@ void TestBallImuBeamCompensationIsDisabled()
     input.dm.received_ms = input.now_ms;
     (void)gugah::Ball_Update(&state, &input, &config);
     assert(state.imu_beam_compensation_mdeg == 0);
-    assert(state.beam_command_mdeg == 0);
+    assert(state.beam_command_mdeg == 560);
 
 }
 
@@ -1122,6 +1350,7 @@ void TestBallIntegralRemovesStaticErrorWithoutWindup()
     gugah::HConfig config = DefaultConfig();
     config.vision_position_invert = 0U;
     config.ball_observer_alpha_permille = 1000U;
+    config.ball_pid_ki_mdeg_per_mm_s = 20;
     gugah::BallState state = {};
     gugah::Ball_Init(&state);
     gugah::BallInput input = BallInput(10U, 90);
@@ -1167,6 +1396,50 @@ void TestBallIntegralRemovesStaticErrorWithoutWindup()
     assert(state.pid_i_mdeg > -50);
 }
 
+void TestVisionAgeDoesNotChangeIntegralOrAngleLimit()
+{
+    gugah::HConfig config = DefaultConfig();
+    config.vision_position_invert = 0U;
+    config.ball_pid_ki_mdeg_per_mm_s = 20;
+
+    gugah::BallState integral_state = {};
+    gugah::Ball_Init(&integral_state);
+    gugah::BallInput integral_input = BallInput(10U, 100);
+    integral_input.vision.ball_age_ms = 5000U;
+    integral_input.vision.communication_online = false;
+    integral_input.dm.position_mrad = -617;
+    assert(gugah::Ball_StartHold(
+        &integral_state, 0, &integral_input, &config));
+    integral_input.now_ms = 110U;
+    integral_input.vision.ball_age_ms = 5100U;
+    integral_input.imu.received_ms = integral_input.now_ms;
+    integral_input.dm.received_ms = integral_input.now_ms;
+    const gugah::BallOutput integral_output = gugah::Ball_Update(
+        &integral_state, &integral_input, &config);
+    assert(integral_output.command_valid);
+    assert(integral_state.pid_i_mdeg < 0);
+
+    gugah::BallState angle_state = {};
+    gugah::Ball_Init(&angle_state);
+    gugah::BallInput angle_input = BallInput(10U, 1000);
+    angle_input.vision.ball_age_ms = 5000U;
+    angle_input.vision.communication_online = false;
+    angle_input.dm.position_mrad = -617;
+    assert(gugah::Ball_StartHold(
+        &angle_state, -1000, &angle_input, &config));
+    angle_input.now_ms = 110U;
+    angle_input.vision.ball_age_ms = 5100U;
+    angle_input.imu.received_ms = angle_input.now_ms;
+    angle_input.dm.received_ms = angle_input.now_ms;
+    const gugah::BallOutput angle_output = gugah::Ball_Update(
+        &angle_state, &angle_input, &config);
+    assert(angle_output.command_valid);
+    assert(angle_state.beam_target_mdeg <
+           -config.ball_degraded_angle_mdeg);
+    assert(angle_state.beam_target_mdeg >=
+           -config.ball_max_angle_mdeg);
+}
+
 void TestBallDampingWorksAcrossFullTravel()
 {
     gugah::HConfig config = DefaultConfig();
@@ -1194,7 +1467,7 @@ void TestBallDampingWorksAcrossFullTravel()
     assert(state.target_velocity_0p1mm_s == 0);
     assert(state.estimated_velocity_0p1mm_s > 0);
     assert(state.desired_acceleration_0p1mm_s2 < 0);
-    assert(state.rail_compensation_mdeg == 0);
+    assert(state.rail_compensation_mdeg == 662);
     assert(state.pid_p_mdeg > 0);
     assert(state.pid_d_mdeg < 0);
     assert(state.pid_correction_mdeg < 0);
@@ -1228,7 +1501,7 @@ void TestBallDampingWorksNearTarget()
     assert(state.pid_d_mdeg < 0);
 }
 
-void TestH3CentersFromArbitraryInitialPosition()
+void TestH3RunsPositiveCenterNegativeSequence()
 {
     const gugah::HConfig config = DefaultConfig();
     gugah::HAppState state = {};
@@ -1245,7 +1518,7 @@ void TestH3CentersFromArbitraryInitialPosition()
     assert(gugah::HApp_Start(&state, &input, &config));
     assert(state.run_state == gugah::H_STATE_RUNNING);
     assert(state.h3_stage == 0U);
-    assert(state.ball.target_position_0p1mm == 0);
+    assert(state.ball.target_position_0p1mm == 500);
     assert(state.ball.timeout_ms == 30000U);
 
     state.ball.mode = gugah::BALL_HOLD;
@@ -1255,11 +1528,12 @@ void TestH3CentersFromArbitraryInitialPosition()
     input.vision.frame.sequence++;
     input.imu.received_ms = 110U;
     input.dm.received_ms = 110U;
-    const gugah::HAppOutput center_output =
+    const gugah::HAppOutput positive_output =
         gugah::HApp_Update(&state, &input, &config);
-    assert(center_output.motion.mode == gugah::MOTION_COMMAND_NONE);
+    assert(positive_output.motion.mode == gugah::MOTION_COMMAND_NONE);
+    assert(positive_output.buzzer_pulse);
     assert(state.h3_stage == 1U);
-    assert(state.ball.target_position_0p1mm == 500);
+    assert(state.ball.target_position_0p1mm == 0);
 
     state.ball.mode = gugah::BALL_HOLD;
     state.ball.result = gugah::BALL_RESULT_SUCCESS;
@@ -1268,7 +1542,9 @@ void TestH3CentersFromArbitraryInitialPosition()
     input.vision.frame.sequence++;
     input.imu.received_ms = 120U;
     input.dm.received_ms = 120U;
-    (void)gugah::HApp_Update(&state, &input, &config);
+    const gugah::HAppOutput center_output =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(!center_output.buzzer_pulse);
     assert(state.h3_stage == 2U);
     assert(state.ball.target_position_0p1mm == -500);
 
@@ -1279,7 +1555,9 @@ void TestH3CentersFromArbitraryInitialPosition()
     input.vision.frame.sequence++;
     input.imu.received_ms = 130U;
     input.dm.received_ms = 130U;
-    (void)gugah::HApp_Update(&state, &input, &config);
+    const gugah::HAppOutput final_output =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(final_output.buzzer_pulse);
     assert(state.run_state == gugah::H_STATE_PASS);
     assert(state.h3_stage == 2U);
     assert(state.ball.mode == gugah::BALL_HOLD);
@@ -1347,7 +1625,7 @@ void TestH3ReportsDmTimeoutSeparately()
     assert(state.failure == gugah::H_FAILURE_DM);
 }
 
-void TestH3ContinuesBeyondFiveSeconds()
+void TestH3StageDeadlinesAdvanceWithoutFailure()
 {
     const gugah::HConfig config = DefaultConfig();
     gugah::HAppState state = {};
@@ -1361,39 +1639,60 @@ void TestH3ContinuesBeyondFiveSeconds()
     input.dm = ball_input.dm;
     assert(gugah::HApp_Start(&state, &input, &config));
 
-    /* Five seconds is scored performance, not a safety fault.  The sequence
-     * continues and still reaches the final indefinite -50 mm hold. */
-    input.now_ms = 5101U;
+    /* The +50 leg is allowed to use the complete 1.5-second window. */
+    input.now_ms = 1599U;
     input.vision.frame.received_ms = input.now_ms;
     input.vision.frame.sequence++;
     input.imu.received_ms = input.now_ms;
     input.dm.received_ms = input.now_ms;
-    (void)gugah::HApp_Update(&state, &input, &config);
+    const gugah::HAppOutput before_positive_deadline =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(!before_positive_deadline.buzzer_pulse);
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+    assert(state.h3_stage == 0U);
+    assert(state.ball.target_position_0p1mm == 500);
+
+    /* At 1.5 seconds, abandon +50 without declaring failure and target O. */
+    input.now_ms = 1600U;
+    input.vision.frame.received_ms = input.now_ms;
+    input.vision.frame.sequence++;
+    input.imu.received_ms = input.now_ms;
+    input.dm.received_ms = input.now_ms;
+    const gugah::HAppOutput positive_timeout_output =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(positive_timeout_output.buzzer_pulse);
+    assert(state.h3_stage == 1U);
+    assert(state.ball.target_position_0p1mm == 0);
     assert(state.run_state == gugah::H_STATE_RUNNING);
 
-    state.ball.mode = gugah::BALL_HOLD;
-    state.ball.result = gugah::BALL_RESULT_SUCCESS;
-    input.now_ms = 5200U;
+    /* O likewise receives at most one second. */
+    input.now_ms = 2599U;
     input.vision.frame.received_ms = input.now_ms;
     input.vision.frame.sequence++;
     input.imu.received_ms = input.now_ms;
     input.dm.received_ms = input.now_ms;
-    (void)gugah::HApp_Update(&state, &input, &config);
+    const gugah::HAppOutput before_center_deadline =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(!before_center_deadline.buzzer_pulse);
     assert(state.h3_stage == 1U);
+    assert(state.ball.target_position_0p1mm == 0);
 
-    state.ball.mode = gugah::BALL_HOLD;
-    state.ball.result = gugah::BALL_RESULT_SUCCESS;
-    input.now_ms = 5300U;
+    input.now_ms = 2600U;
     input.vision.frame.received_ms = input.now_ms;
     input.vision.frame.sequence++;
     input.imu.received_ms = input.now_ms;
     input.dm.received_ms = input.now_ms;
-    (void)gugah::HApp_Update(&state, &input, &config);
+    const gugah::HAppOutput center_timeout_output =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(!center_timeout_output.buzzer_pulse);
     assert(state.h3_stage == 2U);
+    assert(state.ball.target_position_0p1mm == -500);
+    assert(state.run_state == gugah::H_STATE_RUNNING);
 
+    /* Reaching -50 passes and leaves the final hold controller active. */
     state.ball.mode = gugah::BALL_HOLD;
     state.ball.result = gugah::BALL_RESULT_SUCCESS;
-    input.now_ms = 5400U;
+    input.now_ms = 2700U;
     input.vision.frame.received_ms = input.now_ms;
     input.vision.frame.sequence++;
     input.imu.received_ms = input.now_ms;
@@ -1401,8 +1700,9 @@ void TestH3ContinuesBeyondFiveSeconds()
     const gugah::HAppOutput pass_output =
         gugah::HApp_Update(&state, &input, &config);
     assert(pass_output.result_changed);
+    assert(pass_output.buzzer_pulse);
     assert(state.run_state == gugah::H_STATE_PASS);
-    assert(state.result_time_ms == 5300U);
+    assert(state.result_time_ms == 2600U);
     assert(state.ball.mode == gugah::BALL_HOLD);
     assert(state.ball.target_position_0p1mm == -500);
 }
@@ -1483,23 +1783,31 @@ void TestH4SoftLaunchAndHeadingLimit()
     gugah::MotionCommand command =
         gugah::Course_Update(&state, &input, &config);
     assert(command.mode == gugah::MOTION_COMMAND_SPEED);
-    assert(command.left_rpm == 30);
-    assert(command.right_rpm == 30);
-    assert(state.h4_commanded_accel_mm_s2 > 200);
+    assert(command.left_rpm == 20);
+    assert(command.right_rpm == 20);
+    assert(state.h4_commanded_accel_mm_s2 > 100);
 
     input.now_ms = 1000U;
     imu.received_ms = input.now_ms;
     chassis.received_ms = input.now_ms;
     command = gugah::Course_Update(&state, &input, &config);
-    assert(command.left_rpm == 60);
-    assert(command.right_rpm == 60);
+    assert(command.left_rpm == 40);
+    assert(command.right_rpm == 40);
 
     input.now_ms = 2000U;
     imu.received_ms = input.now_ms;
     chassis.received_ms = input.now_ms;
     command = gugah::Course_Update(&state, &input, &config);
-    assert(command.left_rpm == 120);
-    assert(command.right_rpm == 120);
+    assert(command.left_rpm == 80);
+    assert(command.right_rpm == 80);
+    assert(state.h4_commanded_accel_mm_s2 > 100);
+
+    input.now_ms = 2500U;
+    imu.received_ms = input.now_ms;
+    chassis.received_ms = input.now_ms;
+    command = gugah::Course_Update(&state, &input, &config);
+    assert(command.left_rpm == 100);
+    assert(command.right_rpm == 100);
     assert(state.h4_commanded_accel_mm_s2 == 0);
 
     /* H4 ignores grayscale completely.  A large yaw error at 30 RPM still
@@ -1521,11 +1829,11 @@ void TestH4SoftLaunchAndHeadingLimit()
     imu = Imu(input.now_ms, -30000);
     chassis.received_ms = input.now_ms;
     command = gugah::Course_Update(&state, &input, &config);
-    assert(command.left_rpm == 15);
-    assert(command.right_rpm == 45);
+    assert(command.left_rpm == 10);
+    assert(command.right_rpm == 30);
     assert(state.h4_yaw_error_mdeg == 30000);
-    assert(state.h4_heading_correction_rpm == 15);
-    assert(state.h4_commanded_accel_mm_s2 > 200);
+    assert(state.h4_heading_correction_rpm == 10);
+    assert(state.h4_commanded_accel_mm_s2 > 100);
 }
 
 void TestH4SoftBrakeBeginsBeforeB()
@@ -1535,7 +1843,7 @@ void TestH4SoftBrakeBeginsBeforeB()
     config.h4_brake_distance_mm = 1000U;
     config.h4_stop_distance_mm = 1700U;
     gugah::CourseState state = {};
-    gugah::ChassisFeedback chassis = Chassis(0U, 0, 0, 120);
+    gugah::ChassisFeedback chassis = Chassis(0U, 0, 0, 100);
     assert(gugah::Course_Start(
         &state, gugah::COURSE_H4, &chassis, 0U, &config));
     drivers::GrayscaleProcessedData line = ValidLine(0);
@@ -1543,23 +1851,23 @@ void TestH4SoftBrakeBeginsBeforeB()
     gugah::CourseInput input = {
         3000U, &line, &chassis, true, &imu
     };
-    chassis = Chassis(input.now_ms, 8000, 8000, 120);
+    chassis = Chassis(input.now_ms, 8000, 8000, 100);
     input.chassis = &chassis;
     gugah::MotionCommand command =
         gugah::Course_Update(&state, &input, &config);
     assert(state.h4_braking);
     assert(!state.passed_b_or_a);
     assert(command.mode == gugah::MOTION_COMMAND_SPEED);
-    assert(command.left_rpm == 120);
-    assert(command.right_rpm == 120);
-    assert(state.h4_commanded_accel_mm_s2 < -200);
+    assert(command.left_rpm == 100);
+    assert(command.right_rpm == 100);
+    assert(state.h4_commanded_accel_mm_s2 < -100);
 
     input.now_ms = 3333U;
     imu.received_ms = input.now_ms;
     chassis.received_ms = input.now_ms;
     command = gugah::Course_Update(&state, &input, &config);
-    assert(command.left_rpm == 101);
-    assert(command.right_rpm == 101);
+    assert(command.left_rpm == 87);
+    assert(command.right_rpm == 87);
 
     input.now_ms = 4000U;
     imu.received_ms = input.now_ms;
@@ -1587,11 +1895,11 @@ void TestH4SoftBrakeBeginsBeforeB()
     assert(command.mode == gugah::MOTION_COMMAND_SPEED);
     assert(command.left_rpm == 20);
     assert(command.right_rpm == 20);
-    assert(state.h4_commanded_accel_mm_s2 < -200);
+    assert(state.h4_commanded_accel_mm_s2 < -100);
     assert(state.passed_b_or_a);
     assert(state.pass_ms == 5100U);
 
-    input.now_ms = 5434U;
+    input.now_ms = 5600U;
     imu.received_ms = input.now_ms;
     chassis.received_ms = input.now_ms;
     command = gugah::Course_Update(&state, &input, &config);
@@ -1963,13 +2271,30 @@ void TestPassHoldRecoversTransientDeviceGap()
     assert(state.ball.mode == gugah::BALL_HOLD);
     assert(state.ball.result == gugah::BALL_RESULT_SUCCESS);
     assert(state.ball.target_position_0p1mm == 0);
+}
 
-    /* A physical endpoint fault is intentionally not auto-recovered. */
-    state.ball.mode = gugah::BALL_FAILED;
-    state.ball.result = gugah::BALL_RESULT_ENDPOINT;
-    (void)gugah::HApp_UpdateBall2ms(&state, &input, &config);
-    assert(state.ball.mode == gugah::BALL_FAILED);
-    assert(state.ball.result == gugah::BALL_RESULT_ENDPOINT);
+void TestBallContinuesPastOldEndpointLimit()
+{
+    gugah::HConfig config = DefaultConfig();
+    config.vision_position_invert = 0U;
+    gugah::BallState state = {};
+    gugah::Ball_Init(&state);
+    gugah::BallInput input = BallInput(10U, 1200);
+    input.dm.position_mrad = -617;
+    assert(gugah::Ball_StartHold(&state, 0, &input, &config));
+
+    input.now_ms = 20U;
+    input.vision.frame.received_ms = input.now_ms;
+    input.vision.frame.sequence++;
+    input.imu.received_ms = input.now_ms;
+    input.dm.received_ms = input.now_ms;
+    const gugah::BallOutput output =
+        gugah::Ball_Update(&state, &input, &config);
+    assert(output.command_valid);
+    assert(!output.stop_chassis);
+    assert(state.mode == gugah::BALL_HOLD);
+    assert(state.result == gugah::BALL_RESULT_SUCCESS);
+    assert(state.position_error_0p1mm < 0);
 }
 
 void TestH6Buttons()
@@ -1994,6 +2319,104 @@ void TestH6Buttons()
         (void)gugah::HApp_Update(&state, &input, &config);
     }
     assert(state.h6_target_0p1mm == 1000);
+    input.buttons.b3_increment = false;
+    input.buttons.b1_short = true;
+    (void)gugah::HApp_Update(&state, &input, &config);
+    assert(state.selected_problem == gugah::H_PROBLEM_CAL_ZERO);
+    (void)gugah::HApp_Update(&state, &input, &config);
+    assert(state.selected_problem == gugah::H_PROBLEM_CAL_H2_LOOP);
+    (void)gugah::HApp_Update(&state, &input, &config);
+    assert(state.selected_problem == gugah::H_PROBLEM_2);
+}
+
+void TestCalZeroButtonFlow()
+{
+    const gugah::HConfig config = DefaultConfig();
+    gugah::HAppState state = {};
+    gugah::HApp_Init(&state);
+    state.selected_problem = gugah::H_PROBLEM_CAL_ZERO;
+
+    gugah::HAppInput input = {};
+    input.now_ms = 100U;
+    const gugah::BallInput ball_input = BallInput(100U, 0);
+    input.vision = ball_input.vision;
+    input.imu = ball_input.imu;
+    input.dm = ball_input.dm;
+    input.chassis_fault = true;
+    assert(gugah::HApp_Start(&state, &input, &config));
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+    assert(state.ball.target_position_0p1mm == 0);
+
+    input.buttons.any_pressed = true;
+    input.buttons.b2_decrement = true;
+    const gugah::HAppOutput negative =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+    assert(negative.ball_zero_delta_0p1mm == -10);
+    assert(!negative.save_config);
+
+    input.buttons.b2_decrement = false;
+    input.buttons.b3_increment = true;
+    const gugah::HAppOutput positive =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+    assert(positive.ball_zero_delta_0p1mm == 10);
+
+    input.buttons.b3_increment = false;
+    input.buttons.b1_pressed = true;
+    const gugah::HAppOutput exit =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(state.run_state == gugah::H_STATE_READY);
+    assert(exit.save_config);
+    assert(exit.result_changed);
+    assert(!exit.timer_running);
+}
+
+void TestCalH2LoopButtonFlow()
+{
+    const gugah::HConfig config = DefaultConfig();
+    gugah::HAppState state = {};
+    gugah::HApp_Init(&state);
+    state.selected_problem = gugah::H_PROBLEM_CAL_H2_LOOP;
+
+    gugah::HAppInput input = {};
+    input.now_ms = 100U;
+    input.chassis_fault = true;
+    assert(gugah::HApp_Start(&state, &input, &config));
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+
+    input.buttons.any_pressed = true;
+    input.buttons.b2_decrement = true;
+    const gugah::HAppOutput negative =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+    assert(negative.h2_loop_delta_mm == -10);
+    assert(!negative.save_config);
+
+    input.buttons.b2_decrement = false;
+    input.buttons.b3_increment = true;
+    const gugah::HAppOutput positive =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+    assert(positive.h2_loop_delta_mm == 10);
+
+    /* Pressing B1 alone does not exit; the short-press event arrives on
+     * release and is the requested explicit confirmation. */
+    input.buttons.b3_increment = false;
+    input.buttons.b1_pressed = true;
+    const gugah::HAppOutput pressed =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(state.run_state == gugah::H_STATE_RUNNING);
+    assert(!pressed.save_config);
+
+    input.buttons.b1_pressed = false;
+    input.buttons.b1_short = true;
+    const gugah::HAppOutput exit =
+        gugah::HApp_Update(&state, &input, &config);
+    assert(state.run_state == gugah::H_STATE_READY);
+    assert(exit.save_config);
+    assert(exit.result_changed);
+    assert(!exit.timer_running);
 }
 
 } /* namespace */
@@ -2004,9 +2427,11 @@ int main()
     TestVisionProtocol();
     TestVisionStateKeepsLastBall();
     TestLineControl();
-    TestCourseH2RequiresMarker();
+    TestCourseH2UsesCalibratedAverageOdometryWithoutTimeout();
     TestCourseRunsOncePerGrayscaleFrame();
+    TestH2SearchesRightAfterLineLossAndReacquires();
     TestBallCameraPositionCalibration();
+    TestBallZeroOffsetChangesControlOrigin();
     TestBallImuBeamCompensationIsDisabled();
     TestBallControlAndFeedforward();
     TestBallRetargetIsBumpless();
@@ -2017,12 +2442,13 @@ int main()
     TestBallPredictedVelocityDoesNotCancelBreakaway();
     TestBallPidCorrectsInsideAcceptedBand();
     TestBallIntegralRemovesStaticErrorWithoutWindup();
+    TestVisionAgeDoesNotChangeIntegralOrAngleLimit();
     TestBallDampingWorksAcrossFullTravel();
     TestBallDampingWorksNearTarget();
-    TestH3CentersFromArbitraryInitialPosition();
+    TestH3RunsPositiveCenterNegativeSequence();
     TestH3HasNoVisionAgeTimeout();
     TestH3ReportsDmTimeoutSeparately();
-    TestH3ContinuesBeyondFiveSeconds();
+    TestH3StageDeadlinesAdvanceWithoutFailure();
     TestH3StageStartFailureIsReportedImmediately();
     TestH4TimeFreezesAtB();
     TestH4SoftLaunchAndHeadingLimit();
@@ -2035,7 +2461,10 @@ int main()
     TestH5CourseAccelerationReachesBallFeedforward();
     TestH4ReportsEightSecondTimeout();
     TestPassHoldRecoversTransientDeviceGap();
+    TestBallContinuesPastOldEndpointLimit();
     TestH6Buttons();
+    TestCalZeroButtonFlow();
+    TestCalH2LoopButtonFlow();
     puts("gugaH core tests passed");
     return 0;
 }

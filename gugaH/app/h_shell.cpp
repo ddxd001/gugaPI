@@ -70,7 +70,7 @@ void TaskCommand(int argc, const char * const argv[])
 {
     int32_t value = 0;
     if ((argc != 2) || !ParseInt(argv[1], &value) ||
-        (value < 2) || (value > 6)) {
+        (value < 2) || (value > 8)) {
         Ok(false);
         return;
     }
@@ -549,6 +549,8 @@ void PrintConfig(void)
     services::Shell_WriteInt(c->right_counts_per_rev);
     services::Shell_Write(" lap_mm=");
     services::Shell_WriteInt(c->lap_distance_mm);
+    services::Shell_Write(" h2_loop_offset=");
+    services::Shell_WriteInt(c->h2_loop_offset_mm);
     services::Shell_Write(" cruise=");
     services::Shell_WriteInt(c->cruise_rpm);
     services::Shell_Write(" approach=");
@@ -601,8 +603,6 @@ void PrintConfig(void)
     services::Shell_WriteInt(c->ball_kp_mdeg_per_0p1mm);
     services::Shell_Write(" model_curve=");
     services::Shell_WriteInt(c->ball_kd_mdeg_per_0p1mm_s);
-    services::Shell_Write(" curve_origin0.1=");
-    services::Shell_WriteInt(c->ball_curve_origin_0p1mm);
     services::Shell_Write(" model_rolling_friction=");
     services::Shell_WriteInt(c->ball_accel_ff_mdeg_per_mm_s2);
     services::Shell_Write(" observer=");
@@ -619,6 +619,18 @@ void PrintConfig(void)
     services::Shell_WriteInt(c->ball_pid_integral_limit_mdeg);
     services::Shell_Write(" vision_invert=");
     services::Shell_WriteInt(c->vision_position_invert);
+    services::Shell_Write(" ball_zero0.1=");
+    services::Shell_WriteInt(c->ball_zero_offset_0p1mm);
+    services::Shell_Write("\r\n");
+    services::Shell_Write("ball_hold=");
+    for (uint8_t i = 0U; i < 5U; i++) {
+        if (i != 0U) {
+            services::Shell_Write(",");
+        }
+        services::Shell_WriteInt(c->ball_hold_position_0p1mm[i]);
+        services::Shell_Write("/");
+        services::Shell_WriteInt(c->ball_hold_angle_mdeg[i]);
+    }
     services::Shell_Write("\r\n");
     services::Shell_Write("gray threshold=");
     services::Shell_WriteInt(c->grayscale.threshold);
@@ -735,7 +747,10 @@ bool SetConfigValue(const char *name, int32_t value)
     else if (Equal(name, "approach_start")) c->approach_start_mm = value;
     else if (Equal(name, "h6_finish_gate")) c->h6_finish_gate_mm = value;
     else if (Equal(name, "h6_approach_start")) c->h6_approach_start_mm = value;
-    else if (Equal(name, "finish_offset")) c->sensor_to_reference_mm = value;
+    else if (Equal(name, "h2_loop_offset") ||
+             Equal(name, "finish_offset")) {
+        c->h2_loop_offset_mm = value;
+    }
     else if (Equal(name, "line_kp")) c->line_kp_milli = value;
     else if (Equal(name, "line_kd")) c->line_kd_milli = value;
     else if (Equal(name, "gray_threshold")) c->grayscale.threshold = value;
@@ -785,9 +800,6 @@ bool SetConfigValue(const char *name, int32_t value)
     else if (Equal(name, "model_curvature")) {
         c->ball_kd_mdeg_per_0p1mm_s = value;
     }
-    else if (Equal(name, "model_curve_origin")) {
-        c->ball_curve_origin_0p1mm = value;
-    }
     else if (Equal(name, "model_rolling_friction")) {
         c->ball_accel_ff_mdeg_per_mm_s2 = value;
     }
@@ -812,6 +824,9 @@ bool SetConfigValue(const char *name, int32_t value)
     else if (Equal(name, "accel_ff")) c->ball_accel_ff_mdeg_per_mm_s2 = value;
     else if (Equal(name, "max_angle")) c->ball_max_angle_mdeg = value;
     else if (Equal(name, "vision_invert")) c->vision_position_invert = value;
+    else if (Equal(name, "ball_zero")) {
+        c->ball_zero_offset_0p1mm = value;
+    }
     else if (Equal(name, "beam0")) c->beam_angle_mdeg[0] = value;
     else if (Equal(name, "beam1")) c->beam_angle_mdeg[1] = value;
     else if (Equal(name, "beam2")) c->beam_angle_mdeg[2] = value;
@@ -891,7 +906,8 @@ void TelemetryCommand(int argc, const char * const argv[])
 void HShell_Init(void)
 {
     (void)services::Shell_Register("status", "system/task status", StatusCommand);
-    (void)services::Shell_Register("task", "task 2..6", TaskCommand);
+    (void)services::Shell_Register(
+        "task", "task 2..8 (7=CAL_ZERO 8=CAL_H2_LOOP)", TaskCommand);
     (void)services::Shell_Register("start", "start selected task", StartCommand);
     (void)services::Shell_Register("stop", "abort and stop", StopCommand);
     (void)services::Shell_Register("fault", "fault clear", FaultCommand);
