@@ -214,7 +214,9 @@ void PrintCsv(uint32_t now_ms)
     services::Shell_Write(",");
     services::Shell_WriteInt(ball->beam_target_mdeg);
     services::Shell_Write(",");
-    services::Shell_WriteInt(imu.pitch_mdeg);
+    services::Shell_WriteInt(imu.beam_mdeg);
+    services::Shell_Write(",");
+    services::Shell_WriteInt(ball->imu_beam_compensation_mdeg);
     services::Shell_Write(",");
     services::Shell_WriteInt(dm.position_mrad);
     services::Shell_Write(",");
@@ -666,6 +668,11 @@ void HRuntime_PrintStatus(void)
     services::Shell_Write(" h5_accel=");
     services::Shell_WriteInt(
         g_state.course.h5_commanded_accel_mm_s2);
+    services::Shell_Write(" h5_curve=");
+    services::Shell_WriteInt(g_state.course.h5_curve_mode);
+    services::Shell_Write(" h5_limit_rpm=");
+    services::Shell_WriteInt(
+        g_state.course.h5_speed_limit_millirpm / 1000);
     services::Shell_Write(" err_chassis=");
     WriteUnsigned(Chassis_GetErrorCount());
     services::Shell_Write(" err_dm=");

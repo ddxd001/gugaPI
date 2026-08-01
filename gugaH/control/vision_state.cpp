@@ -45,8 +45,9 @@ VisionFeedback VisionState_Get(const VisionState *state,
            state->ball_frame.source_delay_ms)
         : 0xFFFFFFFFUL;
     result.communication_online = result.frame_age_ms <= 120U;
-    result.ball_usable = result.communication_online &&
-        state->ball_valid && (result.ball_age_ms <= 120U) &&
+    /* Keep the last CRC-checked ball position usable indefinitely.  Online
+     * and age remain diagnostic fields, but they no longer stop control. */
+    result.ball_usable = state->ball_valid &&
         (state->ball_frame.confidence >= minimum_confidence);
     return result;
 }

@@ -60,13 +60,16 @@ struct CourseState {
     int32_t h4_yaw_error_mdeg;
     int32_t h4_commanded_accel_mm_s2;
     int32_t h5_commanded_accel_mm_s2;
+    int32_t h5_speed_limit_millirpm;
     int16_t h4_heading_correction_rpm;
+    int16_t h5_road_ramp_rpm_s;
     uint32_t start_ms;
     uint32_t pass_ms;
     uint32_t h4_brake_start_ms;
     uint32_t h5_brake_start_ms;
     uint32_t settle_start_ms;
     uint32_t last_line_frame_ms;
+    uint32_t h5_speed_limit_update_ms;
     uint8_t finish_confirm_frames;
     uint16_t h4_brake_start_rpm;
     uint16_t h5_brake_start_rpm;
@@ -74,6 +77,7 @@ struct CourseState {
     bool h4_braking;
     bool h5_braking;
     bool h4_heading_locked;
+    bool h5_curve_mode;
 };
 
 void Course_Init(CourseState *state);

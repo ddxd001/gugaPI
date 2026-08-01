@@ -7,6 +7,7 @@ namespace {
 
 static const int16_t kMaximumTarget0p1mm = 1000;
 static const int16_t kEndpointLimit0p1mm = 1150;
+static const uint32_t kNormalVisionAgeMs = 60U;
 static const int32_t kMaximumEstimatedVelocity0p1mmS = 8000;
 /* g * rad/mdeg in 0.1 mm/s^2, scaled by 1000. */
 static const int32_t kGravity0p1mmS2PerMdegMilli = 1712;
@@ -62,6 +63,27 @@ int32_t StepToward(int32_t current, int32_t target, int32_t step)
         return current - ((remaining < step) ? remaining : step);
     }
     return current;
+}
+
+int32_t ApplyImuBeamCorrection(BallState *state,
+                               const BallInput *input,
+                               const HConfig *config,
+                               int32_t desired_beam_mdeg,
+                               int32_t command_limit_mdeg)
+{
+    (void)config;
+    state->imu_beam_mdeg = input->imu.beam_mdeg;
+    state->imu_beam_error_mdeg =
+        desired_beam_mdeg - state->imu_beam_mdeg;
+    /* Beam-mounted IMU correction was found unnecessary on the running
+     * mechanism.  Keep the measurement for diagnostics, but never alter the
+     * DM command with it. */
+    state->imu_beam_compensation_mdeg = 0;
+    state->beam_command_mdeg = Clamp32(
+        desired_beam_mdeg + state->imu_beam_compensation_mdeg,
+        -command_limit_mdeg,
+        command_limit_mdeg);
+    return state->beam_command_mdeg;
 }
 
 void UpdateStaticErrorTrim(BallState *state,
@@ -121,7 +143,6 @@ bool InputReady(const BallInput *input)
     return (input != 0) && input->vision.ball_usable &&
            input->imu.valid && input->dm.valid &&
            (input->dm.state == 1U) &&
-           (input->vision.ball_age_ms <= 60U) &&
            ((input->now_ms - input->imu.received_ms) <= 100U) &&
            ((input->now_ms - input->dm.received_ms) <= 100U) &&
            (Abs32(input->vision.frame.position_0p1mm) <=
@@ -161,13 +182,14 @@ int32_t MapDmToBeam(const HConfig *config, int32_t dm_position_mrad)
 
 int16_t CalibrateCameraPosition0p1mm(int16_t camera_position_0p1mm)
 {
-    /* 2026-08-01 bench calibration.  Both axes use 0.1 mm.  The camera
-     * breakpoints are deliberately non-uniform; interpolate to the measured
-     * physical position, and linearly extrapolate the end segments so the
-     * endpoint safety check cannot be hidden by clamping. */
+    /* 2026-08-01 second bench calibration.  Both axes use 0.1 mm.  The
+     * physical ruler labels were opposite the controller's required
+     * left/right convention, so the measured position signs are reversed
+     * here while preserving every camera knot and the centre offset.
+     * Extrapolate end segments so endpoint safety cannot be hidden. */
     static const int16_t camera_points[11] = {
-        -1000, -853, -664, -500, -300, -89,
-        130, 367, 581, 808, 1000
+        -1028, -887, -713, -554, -360, -154,
+        58, 274, 503, 709, 921
     };
     static const int16_t physical_points[11] = {
         -1000, -800, -600, -400, -200, 0,
@@ -241,11 +263,7 @@ int32_t ModelAcceleration0p1mmS2(const BallState *state,
 {
     const int32_t actual_beam_mdeg =
         MapDmToBeam(config, input->dm.position_mrad);
-    const int32_t global_beam_mdeg = actual_beam_mdeg +
-        static_cast<int32_t>(
-            (static_cast<int64_t>(config->ball_pitch_gain_permille) *
-             input->imu.pitch_mdeg) /
-            1000LL);
+    const int32_t global_beam_mdeg = actual_beam_mdeg;
     /* The table gives the global angle that produces zero acceleration at
      * this position.  Subtract it before applying the rolling model. */
     int32_t effective_beam_mdeg = global_beam_mdeg -
@@ -617,15 +635,17 @@ BallOutput Ball_Update(BallState *state,
     if ((state->mode == BALL_LEVEL) || (state->mode == BALL_FAILED)) {
         state->beam_target_mdeg = StepToward(
             state->beam_target_mdeg, 0, 150);
+        const int32_t beam_command_mdeg = ApplyImuBeamCorrection(
+            state, input, config, state->beam_target_mdeg,
+            config->ball_max_angle_mdeg);
         state->dm_target_mrad =
-            Ball_MapBeamToDm(config, state->beam_target_mdeg);
+            Ball_MapBeamToDm(config, beam_command_mdeg);
         output.command_valid = input->dm.valid;
         output.dm_target_mrad = state->dm_target_mrad;
         output.stop_chassis = (state->mode == BALL_FAILED);
         return output;
     }
-    if (!input->vision.ball_usable ||
-        (input->vision.ball_age_ms > 120U)) {
+    if (!input->vision.ball_usable) {
         return Fail(state, BALL_RESULT_VISION_LOST, config);
     }
     if ((input->now_ms - input->dm.received_ms) > 100U ||
@@ -659,7 +679,8 @@ BallOutput Ball_Update(BallState *state,
         state->maximum_abs_error_0p1mm = abs_error;
     }
 
-    const bool degraded = input->vision.ball_age_ms > 60U;
+    const bool degraded =
+        input->vision.ball_age_ms > kNormalVisionAgeMs;
     state->target_velocity_0p1mm_s = 0;
     state->velocity_error_0p1mm_s =
         -state->estimated_velocity_0p1mm_s;
@@ -733,16 +754,12 @@ BallOutput Ball_Update(BallState *state,
         friction_feedforward_mdeg =
             -config->ball_accel_ff_mdeg_per_mm_s2;
     }
-    const int32_t pitch_compensation_mdeg = static_cast<int32_t>(
-        (static_cast<int64_t>(config->ball_pitch_gain_permille) *
-         input->imu.pitch_mdeg) / 1000LL);
     state->chassis_feedforward_mdeg =
         ChassisFeedforwardMdeg(input, config);
     const int32_t angle = Clamp32(
         state->rail_compensation_mdeg +
         state->pid_correction_mdeg +
-        state->chassis_feedforward_mdeg -
-        pitch_compensation_mdeg +
+        state->chassis_feedforward_mdeg +
         friction_feedforward_mdeg +
         state->stiction_compensation_mdeg,
         -limit,
@@ -765,8 +782,10 @@ BallOutput Ball_Update(BallState *state,
         state->beam_target_mdeg,
         angle,
         slew_step);
+    const int32_t beam_command_mdeg = ApplyImuBeamCorrection(
+        state, input, config, state->beam_target_mdeg, limit);
     state->dm_target_mrad =
-        Ball_MapBeamToDm(config, state->beam_target_mdeg);
+        Ball_MapBeamToDm(config, beam_command_mdeg);
     output.command_valid = true;
     output.dm_target_mrad = state->dm_target_mrad;
 

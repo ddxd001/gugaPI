@@ -19,7 +19,7 @@
 
 ```text
 a_ball = k_roll * (g * theta_effective - a_chassis)
-theta_effective = theta_actual + pitch - theta_hold(x)
+theta_effective = theta_actual - theta_hold(x)
 ```
 
 默认 `k_roll=0.714`。固件每 2 ms 使用 DM 实际反馈角和上式预测位置、速度；新视觉帧到达时，只用位置残差校正两个状态。五点视觉差分速度仅用于诊断和确认钢球是否已克服静摩擦，不直接注入观测速度或电机命令。
@@ -45,10 +45,10 @@ theta_effective = theta_actual + pitch - theta_hold(x)
 | `ball_pid_ilim` | 1500 | 静差补偿最大绝对角，mdeg |
 | `model_breakaway` | 2300 | 静止超过 400 ms 后的最大启滚补偿角，mdeg |
 | `model_rolling_friction` | 0 | 运动时的方向性摩擦前馈，mdeg |
-| `pitch_gain` | 0 | 车体俯仰补偿比例；完成 IMU 零偏标定前保持 0 |
 | `max_angle` | 6000 | 最大摆杆角，mdeg |
 
-旧的 `model_tau`、`model_plan_accel`、`model_vmax`、`model_curvature` 和 `model_curve_origin` 字段为 FRAM 兼容保留，不再参与外环命令计算。
+旧的 `model_tau`、`model_plan_accel`、`model_vmax`、`model_curvature`、
+`model_curve_origin` 和杆角 IMU 增益字段为 FRAM 兼容保留，不再参与外环命令计算。
 
 ## 五点表修改
 
@@ -70,11 +70,11 @@ config save
 
 ## 调试顺序
 
-1. 确认水平机械零位约对应 DM `-570 mrad`。
+1. 确认水平机械零位对应 DM `-617 mrad`。
 2. 先在 0、±50 mm、±100 mm 标定五个静态保持角。
 3. 先用 `ball_pid_ki=0` 调好 Kp/Kd，再恢复 `ball_pid_ki=20` 消除静差；若低频往返，每次降低 Ki 5。
 4. 若观测速度追随位置噪声，减小 `observer_beta`；若真实运动明显滞后，再小步增大。
 5. ±10 mm 内不会施加大启滚脉冲，但 P/D 会持续微调；允许球和杆持续小幅动作。
 6. 静态稳定后再测 H3 的 `0 -> +50 mm -> -50 mm`，最后测试底盘加减速前馈。
 
-球位置达到 ±80 mm 时应准备人工停止；固件的 ±115 mm、视觉、DM 和 IMU 超时保护仍然有效。
+球位置达到 ±80 mm 时应准备人工停止；固件仍保留 ±115 mm、DM 和 IMU 超时保护。视觉断流后继续使用最后一帧有效球位置，不再因视觉帧龄超时停止。

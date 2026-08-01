@@ -21,6 +21,9 @@ struct ChassisFeedback {
 struct ImuFeedback {
     bool valid;
     int32_t pitch_mdeg;
+    /* Beam tilt relative to gravity for the current IMU mounting:
+     * atan2(accel_y, -accel_x).  Positive follows beam_angle_mdeg. */
+    int32_t beam_mdeg;
     int32_t yaw_mdeg;
     int32_t accel_x_mg;
     int32_t accel_y_mg;

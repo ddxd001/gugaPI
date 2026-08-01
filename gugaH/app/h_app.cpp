@@ -84,8 +84,7 @@ HFailure BallPreflightFailure(const HAppState *state,
                               const HAppInput *input)
 {
     BallInput ball_input = MakeBallInput(state, input);
-    if (!ball_input.vision.ball_usable ||
-        (ball_input.vision.ball_age_ms > 60U)) {
+    if (!ball_input.vision.ball_usable) {
         return H_FAILURE_VISION;
     }
     if (!ball_input.imu.valid ||

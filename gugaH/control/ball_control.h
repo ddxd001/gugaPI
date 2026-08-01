@@ -68,6 +68,10 @@ struct BallState {
     int32_t pid_correction_mdeg;
     int32_t chassis_feedforward_mdeg;
     int32_t beam_target_mdeg;
+    int32_t imu_beam_mdeg;
+    int32_t imu_beam_error_mdeg;
+    int32_t imu_beam_compensation_mdeg;
+    int32_t beam_command_mdeg;
     int32_t dm_target_mrad;
     int32_t maximum_abs_error_0p1mm;
     uint32_t start_ms;

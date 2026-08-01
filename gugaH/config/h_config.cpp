@@ -41,11 +41,15 @@ static const uint16_t kSchema14PayloadLength =
 static const uint16_t kSchema15PayloadLength =
     static_cast<uint16_t>(offsetof(
         HConfig, h5_brake_distance_mm));
+static const uint16_t kSchema16PayloadLength =
+    static_cast<uint16_t>(sizeof(HConfig));
+static const uint16_t kSchema17PayloadLength =
+    static_cast<uint16_t>(sizeof(HConfig));
 
 void SetMeasuredDmMapping(HConfig *config)
 {
     static const int16_t positions[5] = {
-        230, -150, -570, -1070, -1490
+        183, -197, -617, -1117, -1537
     };
     for (uint8_t i = 0U; i < 5U; i++) {
         config->dm_position_mrad[i] = positions[i];
@@ -160,8 +164,8 @@ void HConfig_Defaults(HConfig *config)
     config->cruise_rpm = 110U;
     config->approach_rpm = 55U;
     config->h4_cruise_rpm = 120U;
-    config->h5_cruise_rpm = 100U;
-    config->h5_approach_rpm = 50U;
+    config->h5_cruise_rpm = 95U;
+    config->h5_approach_rpm = 63U;
     config->h6_cruise_rpm = 90U;
     config->h6_approach_rpm = 45U;
     config->lap_distance_mm = 6142U;
@@ -180,7 +184,7 @@ void HConfig_Defaults(HConfig *config)
     /* Measured rail ends are slightly higher than the centre. */
     config->ball_kd_mdeg_per_0p1mm_s = 8;
     config->ball_ki_mdeg_per_0p1mm_s = 1;
-    config->ball_pitch_gain_permille = 0;
+    config->ball_imu_beam_kp_permille = 0;
     /* Reused as the identified rolling/static-friction angle. */
     config->ball_accel_ff_mdeg_per_mm_s2 = 0;
     config->ball_max_angle_mdeg = 6000;
@@ -198,17 +202,18 @@ void HConfig_Defaults(HConfig *config)
      * physically meaningful.
      */
     /* 2026-08-01 linkage calibration.  The physical horizontal beam is
-     * about -570 mrad and the linkage ratio is asymmetric about level. */
-    const int16_t positions[5] = { 230, -150, -570, -1070, -1490 };
+     * -617 mrad.  All five motor positions share that measured zero offset,
+     * while retaining the asymmetric linkage ratios about level. */
     for (uint8_t i = 0U; i < 5U; i++) {
         config->beam_angle_mdeg[i] = angles[i];
-        config->dm_position_mrad[i] = positions[i];
     }
+    SetMeasuredDmMapping(config);
 
     /* Bench MaixCAM frames are stable around 0.32 confidence.  CRC, flags and
      * the two-frame startup lock provide the communication safety checks. */
     config->vision_min_confidence = 100U;
     config->vision_position_invert = 1U;
+    config->ball_imu_beam_limit_0p1deg = 0U;
 
     /* Solid rolling sphere: a = 5/7 * g * sin(theta). */
     config->ball_model_roll_gain_permille = 714U;
@@ -239,8 +244,8 @@ void HConfig_Defaults(HConfig *config)
     config->h4_heading_max_correction_rpm = 30;
     config->imu_gyro_bias_z_mdps = 0;
     config->ball_chassis_ff_permille = 1000;
-    config->h5_launch_ramp_rpm_s = 60U;
-    config->h5_stop_ramp_rpm_s = 60U;
+    config->h5_launch_ramp_rpm_s = 40U;
+    config->h5_stop_ramp_rpm_s = 40U;
     config->h5_brake_distance_mm = 5840U;
 }
 
@@ -308,8 +313,8 @@ bool HConfig_Validate(const HConfig *config)
         (config->ball_kd_mdeg_per_0p1mm_s > 1000) ||
         (config->ball_ki_mdeg_per_0p1mm_s < 0) ||
         (config->ball_ki_mdeg_per_0p1mm_s > 1000) ||
-        (config->ball_pitch_gain_permille < 0) ||
-        (config->ball_pitch_gain_permille > 2000) ||
+        (config->ball_imu_beam_kp_permille < 0) ||
+        (config->ball_imu_beam_kp_permille > 2000) ||
         (config->ball_accel_ff_mdeg_per_mm_s2 < 0) ||
         (config->ball_accel_ff_mdeg_per_mm_s2 > 3000) ||
         (config->ball_max_angle_mdeg < 100) ||
@@ -364,7 +369,8 @@ bool HConfig_Validate(const HConfig *config)
         (config->h5_stop_ramp_rpm_s < 10U) ||
         (config->h5_stop_ramp_rpm_s > 2000U) ||
         (config->h5_brake_distance_mm <= config->h5_finish_gate_mm) ||
-        (config->h5_brake_distance_mm >= config->lap_distance_mm)) {
+        (config->h5_brake_distance_mm >= config->lap_distance_mm) ||
+        (config->ball_imu_beam_limit_0p1deg > 30U)) {
         return false;
     }
     return MappingValid(config) && HoldTableValid(config);
@@ -421,6 +427,8 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
     const bool schema13 = record->schema_version == 13U;
     const bool schema14 = record->schema_version == 14U;
     const bool schema15 = record->schema_version == 15U;
+    const bool schema16 = record->schema_version == 16U;
+    const bool schema17 = record->schema_version == 17U;
     if ((record->schema_version == H_CONFIG_SCHEMA_VERSION) &&
         (record->payload_length ==
          static_cast<uint16_t>(sizeof(HConfig))) &&
@@ -455,15 +463,21 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
                ((record->schema_version == 14U) &&
                 (record->payload_length == kSchema14PayloadLength)) ||
                ((record->schema_version == 15U) &&
-                (record->payload_length == kSchema15PayloadLength))) {
-        uint16_t legacy_length = schema15
-            ? kSchema15PayloadLength
+                (record->payload_length == kSchema15PayloadLength)) ||
+               ((record->schema_version == 16U) &&
+                (record->payload_length == kSchema16PayloadLength)) ||
+               ((record->schema_version == 17U) &&
+                (record->payload_length == kSchema17PayloadLength))) {
+        uint16_t legacy_length = schema17
+            ? kSchema17PayloadLength
+            : (schema16 ? kSchema16PayloadLength
+            : (schema15 ? kSchema15PayloadLength
             : (schema14 ? kSchema14PayloadLength
             : (schema13 ? kSchema13PayloadLength
             : (schema12 ? kSchema12PayloadLength
             : ((schema10 || schema11) ? kSchema10PayloadLength
             : (schema9 ? kSchema9PayloadLength
-                       : kSchema6PayloadLength)))));
+                       : kSchema6PayloadLength)))))));
         if (schema2) {
             legacy_length = kSchema2PayloadLength;
         } else if (schema3) {
@@ -492,8 +506,26 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
     if (schema2) {
         config->ball_kp_mdeg_per_0p1mm = 2300;
         config->ball_velocity_tolerance_0p1mm_s = 100;
-        config->ball_pitch_gain_permille = 0;
+        config->ball_imu_beam_kp_permille = 0;
         config->ball_accel_ff_mdeg_per_mm_s2 = 0;
+    }
+    if (schema16) {
+        /* These bytes were pitch_gain and reserved in schema 16.  Schema 17
+         * keeps the storage positions but disables beam-IMU correction. */
+        config->ball_imu_beam_kp_permille = 0;
+        config->ball_imu_beam_limit_0p1deg = 0U;
+    }
+    if (schema17) {
+        /* Schema 18 re-identifies the physical horizontal point.  Translate
+         * every motor knot equally so a commissioned nonlinear linkage shape
+         * is retained while beam angle zero becomes -617 mrad. */
+        const int32_t level_offset =
+            -617 - static_cast<int32_t>(config->dm_position_mrad[2]);
+        for (uint8_t i = 0U; i < 5U; i++) {
+            config->dm_position_mrad[i] = static_cast<int16_t>(
+                static_cast<int32_t>(config->dm_position_mrad[i]) +
+                level_offset);
+        }
     }
     if (schema3) {
         /* Schema 3 is preserved verbatim; the residual PID and estimator
@@ -599,6 +631,28 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
         /* Undo the overly aggressive response experiment. */
         config->ball_angle_slew_mdeg_s = 30000;
     }
+    if (config->h5_launch_ramp_rpm_s == 60U) {
+        /* The first H5 launch profile still displaced the ball too far.
+         * Migrate its exact old default while preserving custom values. */
+        config->h5_launch_ramp_rpm_s = 40U;
+    }
+    if (config->h5_stop_ramp_rpm_s == 60U) {
+        /* Use one continuous 40 RPM/s profile for curve entry and the final
+         * stop.  Migrate only the previous commissioned default. */
+        config->h5_stop_ramp_rpm_s = 40U;
+    }
+    if (config->h5_cruise_rpm == 100U) {
+        config->h5_cruise_rpm = 95U;
+    }
+    if ((config->h5_approach_rpm == 50U) ||
+        (config->h5_approach_rpm == 55U)) {
+        config->h5_approach_rpm = 63U;
+    }
+    if ((config->ball_imu_beam_kp_permille == 350) &&
+        (config->ball_imu_beam_limit_0p1deg == 15U)) {
+        config->ball_imu_beam_kp_permille = 0;
+        config->ball_imu_beam_limit_0p1deg = 0U;
+    }
     if ((config->vision_min_confidence == 500U) ||
         (config->vision_min_confidence == 250U)) {
         /* Bench frames with a valid position and CRC can dip to about 170
@@ -641,8 +695,14 @@ bool HConfig_ParseRecord(const HConfigRecord *record, HConfig *config)
         (config->dm_position_mrad[2] == -500) &&
         (config->dm_position_mrad[3] == -1000) &&
         (config->dm_position_mrad[4] == -1500);
+    const bool old_measured_level_map =
+        (config->dm_position_mrad[0] == 230) &&
+        (config->dm_position_mrad[1] == -150) &&
+        (config->dm_position_mrad[2] == -570) &&
+        (config->dm_position_mrad[3] == -1070) &&
+        (config->dm_position_mrad[4] == -1490);
     if (schema2 || schema3 || schema4 || schema5 || schema6 ||
-        old_linear_map) {
+        old_linear_map || old_measured_level_map) {
         SetMeasuredDmMapping(config);
     }
     return HConfig_Validate(config);

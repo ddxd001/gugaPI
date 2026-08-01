@@ -9,6 +9,8 @@ static const uint8_t kFinishConfirmFrames = 2U;
 static const uint32_t kChassisMaximumAgeMs = 100U;
 static const uint32_t kImuMaximumAgeMs = 100U;
 static const int32_t kMaximumHeadingErrorMdeg = 90000;
+static const int32_t kH5OdometryFinishOffsetMm = 50;
+static const int32_t kH5CurvePreparationMarginMm = 50;
 
 uint8_t CountBits(uint8_t value)
 {
@@ -311,12 +313,110 @@ int16_t H5RequestedRpm(const CourseState *state,
     return static_cast<int16_t>(rpm);
 }
 
+int32_t H5CurveBrakeLeadMm(const HConfig *config)
+{
+    if ((config->h5_cruise_rpm <= config->h5_approach_rpm) ||
+        (config->h5_stop_ramp_rpm_s == 0U)) {
+        return 0;
+    }
+    const int64_t cruise_squared =
+        static_cast<int64_t>(config->h5_cruise_rpm) *
+        config->h5_cruise_rpm;
+    const int64_t curve_squared =
+        static_cast<int64_t>(config->h5_approach_rpm) *
+        config->h5_approach_rpm;
+    const int64_t numerator = 2LL * 3141593LL *
+        config->wheel_radius_um *
+        (cruise_squared - curve_squared);
+    const int64_t denominator = 1000000000LL * 120LL *
+        config->h5_stop_ramp_rpm_s;
+    return static_cast<int32_t>(
+        (numerator + denominator / 2LL) / denominator) +
+        kH5CurvePreparationMarginMm;
+}
+
+bool H5DistanceRequestsCurve(int32_t distance_mm,
+                             const HConfig *config)
+{
+    const int32_t straight_mm = config->h4_b_distance_mm;
+    const int32_t curved_total_mm =
+        static_cast<int32_t>(config->lap_distance_mm) -
+        2 * straight_mm;
+    if (curved_total_mm <= 0) {
+        return false;
+    }
+    const int32_t semicircle_mm = curved_total_mm / 2;
+    const int32_t brake_lead_mm = H5CurveBrakeLeadMm(config);
+    const int32_t first_start_mm =
+        (brake_lead_mm < straight_mm)
+            ? (straight_mm - brake_lead_mm) : 0;
+    const int32_t first_end_mm = straight_mm + semicircle_mm;
+    const int32_t second_start_mm =
+        first_end_mm + straight_mm - brake_lead_mm;
+    return ((distance_mm >= first_start_mm) &&
+            (distance_mm < first_end_mm)) ||
+           ((distance_mm >= second_start_mm) &&
+            (distance_mm < config->lap_distance_mm));
+}
+
+void H5UpdateRoadSpeedLimit(CourseState *state,
+                            uint32_t now_ms,
+                            const HConfig *config)
+{
+    state->h5_curve_mode =
+        H5DistanceRequestsCurve(state->distance_mm, config);
+
+    uint32_t elapsed_ms = now_ms - state->h5_speed_limit_update_ms;
+    state->h5_speed_limit_update_ms = now_ms;
+    if (elapsed_ms > 100U) {
+        elapsed_ms = 100U;
+    }
+    const int32_t target_millirpm = static_cast<int32_t>(
+        state->h5_curve_mode
+            ? config->h5_approach_rpm : config->h5_cruise_rpm) * 1000;
+    if (state->h5_speed_limit_millirpm == target_millirpm) {
+        state->h5_road_ramp_rpm_s = 0;
+        return;
+    }
+    const bool accelerating =
+        state->h5_speed_limit_millirpm < target_millirpm;
+    const int16_t rate_rpm_s = static_cast<int16_t>(
+        accelerating ? config->h5_launch_ramp_rpm_s
+                     : config->h5_stop_ramp_rpm_s);
+    const int32_t maximum_delta = static_cast<int32_t>(
+        static_cast<uint32_t>(rate_rpm_s) * elapsed_ms);
+    const int32_t remaining = accelerating
+        ? (target_millirpm - state->h5_speed_limit_millirpm)
+        : (state->h5_speed_limit_millirpm - target_millirpm);
+    const int32_t delta =
+        (remaining < maximum_delta) ? remaining : maximum_delta;
+    state->h5_speed_limit_millirpm += accelerating ? delta : -delta;
+    state->h5_road_ramp_rpm_s = static_cast<int16_t>(
+        accelerating ? rate_rpm_s : -rate_rpm_s);
+}
+
+int16_t H5RoadLimitedRpm(const CourseState *state, int16_t profile_rpm)
+{
+    const int32_t road_limit_rpm = state->h5_speed_limit_millirpm / 1000;
+    return static_cast<int16_t>(
+        (road_limit_rpm < profile_rpm) ? road_limit_rpm : profile_rpm);
+}
+
 int32_t H5CommandedAccelerationMmS2(const CourseState *state,
                                     uint32_t now_ms,
                                     const HConfig *config)
 {
     const int16_t rpm = H5RequestedRpm(state, now_ms, config);
     if (!state->h5_braking) {
+        if ((state->h5_speed_limit_millirpm <
+             static_cast<int32_t>(rpm) * 1000) &&
+            (state->h5_road_ramp_rpm_s != 0)) {
+            const int32_t magnitude = RpmRateToAccelerationMmS2(
+                static_cast<uint16_t>(Abs32(
+                    state->h5_road_ramp_rpm_s)), config);
+            return (state->h5_road_ramp_rpm_s > 0)
+                ? magnitude : -magnitude;
+        }
         return (rpm < static_cast<int16_t>(config->h5_cruise_rpm))
             ? RpmRateToAccelerationMmS2(
                 config->h5_launch_ramp_rpm_s, config)
@@ -384,6 +484,9 @@ bool Course_Start(CourseState *state,
     state->start_right_count = chassis->right_encoder_count;
     state->start_ms = now_ms;
     state->last_line_frame_ms = now_ms;
+    state->h5_speed_limit_millirpm =
+        static_cast<int32_t>(config->h5_cruise_rpm) * 1000;
+    state->h5_speed_limit_update_ms = now_ms;
     return true;
 }
 
@@ -551,26 +654,26 @@ MotionCommand Course_Update(CourseState *state,
         if (!state->h5_braking &&
             (state->distance_mm >= config->h5_brake_distance_mm)) {
             state->h5_brake_start_rpm = static_cast<uint16_t>(
-                H5RequestedRpm(state, input->now_ms, config));
+                H5RoadLimitedRpm(
+                    state,
+                    H5RequestedRpm(state, input->now_ms, config)));
             state->h5_brake_start_ms = input->now_ms;
             state->h5_braking = true;
         }
         state->h5_commanded_accel_mm_s2 =
             H5CommandedAccelerationMmS2(
                 state, input->now_ms, config);
-        if ((state->distance_mm >
-             static_cast<int32_t>(config->lap_distance_mm) + 300) &&
-            (state->finish_confirm_frames == 0U)) {
-            /* H5 may miss the physical A marker while crawling across it.
-             * Treat one lap plus the 300 mm safety margin as an odometry
-             * fallback completion, then stop while ball hold stays active. */
+        if (state->distance_mm >=
+            static_cast<int32_t>(config->lap_distance_mm) +
+                kH5OdometryFinishOffsetMm) {
+            /* H5 completion is intentionally odometry-only.  Gray data is
+             * still used for tracking, but the physical A marker does not
+             * participate in the finish decision. */
             state->passed_b_or_a = true;
             state->pass_ms = input->now_ms;
             state->h5_commanded_accel_mm_s2 =
                 -RpmRateToAccelerationMmS2(
                     config->h5_stop_ramp_rpm_s, config);
-            state->phase = COURSE_STOPPING;
-            return StopCommand();
         }
     } else if ((state->distance_mm >
                 static_cast<int32_t>(config->lap_distance_mm) + 300) &&
@@ -589,14 +692,18 @@ MotionCommand Course_Update(CourseState *state,
     }
     state->last_line_frame_ms = input->now_ms;
 
-    const bool gate_open = state->distance_mm >=
-        FinishGateFor(state->kind, config);
-    if (gate_open && FinishLineDetected(input->line)) {
-        if (state->finish_confirm_frames < 0xFFU) {
-            state->finish_confirm_frames++;
-        }
-    } else {
+    if (state->kind == COURSE_H5) {
         state->finish_confirm_frames = 0U;
+    } else {
+        const bool gate_open = state->distance_mm >=
+            FinishGateFor(state->kind, config);
+        if (gate_open && FinishLineDetected(input->line)) {
+            if (state->finish_confirm_frames < 0xFFU) {
+                state->finish_confirm_frames++;
+            }
+        } else {
+            state->finish_confirm_frames = 0U;
+        }
     }
 
     if ((state->kind == COURSE_H2) &&
@@ -618,20 +725,7 @@ MotionCommand Course_Update(CourseState *state,
         return command;
     }
 
-    if ((state->kind == COURSE_H5) &&
-        (state->finish_confirm_frames >= kFinishConfirmFrames)) {
-        if (!state->h5_braking) {
-            state->h5_brake_start_rpm = static_cast<uint16_t>(
-                H5RequestedRpm(state, input->now_ms, config));
-            state->h5_brake_start_ms = input->now_ms;
-            state->h5_braking = true;
-        }
-        state->passed_b_or_a = true;
-        state->pass_ms = input->now_ms;
-        state->h5_commanded_accel_mm_s2 =
-            -RpmRateToAccelerationMmS2(
-                config->h5_stop_ramp_rpm_s, config);
-    } else if ((state->kind == COURSE_H6) &&
+    if ((state->kind == COURSE_H6) &&
         (state->finish_confirm_frames >= kFinishConfirmFrames)) {
         state->passed_b_or_a = true;
         state->pass_ms = input->now_ms;
@@ -642,7 +736,13 @@ MotionCommand Course_Update(CourseState *state,
     int16_t base_rpm = static_cast<int16_t>(
         CruiseFor(state->kind, config));
     if (state->kind == COURSE_H5) {
-        base_rpm = H5RequestedRpm(state, input->now_ms, config);
+        const int16_t profile_rpm =
+            H5RequestedRpm(state, input->now_ms, config);
+        if (!state->h5_braking) {
+            H5UpdateRoadSpeedLimit(state, input->now_ms, config);
+        }
+        base_rpm = state->h5_braking
+            ? profile_rpm : H5RoadLimitedRpm(state, profile_rpm);
         state->h5_commanded_accel_mm_s2 =
             H5CommandedAccelerationMmS2(
                 state, input->now_ms, config);

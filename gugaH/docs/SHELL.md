@@ -38,10 +38,11 @@
 可修改参数名：`cruise`、`approach`、`h4_speed`、`h4_launch_ramp`、
 `h4_stop_ramp`、`h4_brake_distance`、`h4_heading_kp`、
 `h4_heading_max_corr`、`imu_gyro_bias_z`、`ball_chassis_ff`、`h5_speed`、
+`h5_curve_speed`、
 `h5_launch_ramp`、`h5_stop_ramp`、`h5_brake_distance`、
 `h4_b_distance`、`h4_stop_distance`、
 `h6_speed`、`h6_approach`、`finish_gate`、
-`approach_start`、`h5_finish_gate`、
+`approach_start`、
 `h6_finish_gate`、`h6_approach_start`、`finish_offset`、`line_kp`、
 `line_kd`、`gray_threshold`、`gray_hysteresis`、`gray_position_floor`、
 `gray_min_strength`、`gray_track_mask`、`speed_kp`、`speed_ki`、`speed_kd`、
@@ -49,11 +50,13 @@
 `speed_decel_rpm_s`、`position_kp`、`position_ki`、`position_kd`、
 `position_max_rpm`、`position_tolerance_counts`、
 `motor_output_invert_flags`、`motor_encoder_invert_flags`、`ball_kp`、
-`ball_kd`、`ball_ki`、`pitch_gain`、`accel_ff`、`max_angle`、
+`ball_kd`、`ball_ki`、`accel_ff`、`max_angle`、
 `vision_invert`、`beam0..beam4`、`dm0..dm4`。
 
 MotorDriver 参数在上电或执行 `fault clear` 重新初始化底盘时下发；修改后应
 先 `config save`，再复位或执行 `fault clear`，并从低速悬空测试重新确认。
 
 CSV 字段依次为时间、任务状态、灰度位置/掩码、左右轮速、里程、
-球位置/速度/误差、摆杆角度、pitch、DM 位置和累计通信错误。
+球位置/速度/误差、摆杆目标角、IMU 实测杆角、DM 位置和累计通信错误。
+
+`imu status` 的 `beam_mdeg` 仅保留用于诊断，不再修正 DM 杆角命令。

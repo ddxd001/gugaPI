@@ -348,6 +348,14 @@ void BallCommand(int argc, const char * const argv[])
         services::Shell_WriteInt(ball->chassis_feedforward_mdeg);
         services::Shell_Write(" beam_mdeg=");
         services::Shell_WriteInt(ball->beam_target_mdeg);
+        services::Shell_Write(" imu_beam_mdeg=");
+        services::Shell_WriteInt(ball->imu_beam_mdeg);
+        services::Shell_Write(" imu_beam_err_mdeg=");
+        services::Shell_WriteInt(ball->imu_beam_error_mdeg);
+        services::Shell_Write(" imu_comp_mdeg=");
+        services::Shell_WriteInt(ball->imu_beam_compensation_mdeg);
+        services::Shell_Write(" beam_cmd_mdeg=");
+        services::Shell_WriteInt(ball->beam_command_mdeg);
         services::Shell_Write(" dm=");
         services::Shell_WriteInt(dm.position_mrad);
         services::Shell_Write("\r\n");
@@ -385,6 +393,8 @@ void ImuCommand(int argc, const char * const argv[])
     services::Shell_WriteInt(imu.temperature_centi_c);
     services::Shell_Write(" pitch_mdeg=");
     services::Shell_WriteInt(imu.pitch_mdeg);
+    services::Shell_Write(" beam_mdeg=");
+    services::Shell_WriteInt(imu.beam_mdeg);
     services::Shell_Write(" yaw_mdeg=");
     services::Shell_WriteInt(imu.yaw_mdeg);
     services::Shell_Write("\r\n");
@@ -563,6 +573,8 @@ void PrintConfig(void)
     services::Shell_WriteInt(c->ball_chassis_ff_permille);
     services::Shell_Write(" h5=");
     services::Shell_WriteInt(c->h5_cruise_rpm);
+    services::Shell_Write("/curve=");
+    services::Shell_WriteInt(c->h5_approach_rpm);
     services::Shell_Write("/ramp=");
     services::Shell_WriteInt(c->h5_launch_ramp_rpm_s);
     services::Shell_Write("/brake=");
@@ -705,6 +717,9 @@ bool SetConfigValue(const char *name, int32_t value)
         c->ball_chassis_ff_permille = value;
     }
     else if (Equal(name, "h5_speed")) c->h5_cruise_rpm = value;
+    else if (Equal(name, "h5_curve_speed")) {
+        c->h5_approach_rpm = value;
+    }
     else if (Equal(name, "h5_launch_ramp")) {
         c->h5_launch_ramp_rpm_s = value;
     }
@@ -718,7 +733,6 @@ bool SetConfigValue(const char *name, int32_t value)
     else if (Equal(name, "h6_approach")) c->h6_approach_rpm = value;
     else if (Equal(name, "finish_gate")) c->finish_gate_mm = value;
     else if (Equal(name, "approach_start")) c->approach_start_mm = value;
-    else if (Equal(name, "h5_finish_gate")) c->h5_finish_gate_mm = value;
     else if (Equal(name, "h6_finish_gate")) c->h6_finish_gate_mm = value;
     else if (Equal(name, "h6_approach_start")) c->h6_approach_start_mm = value;
     else if (Equal(name, "finish_offset")) c->sensor_to_reference_mm = value;
@@ -795,7 +809,6 @@ bool SetConfigValue(const char *name, int32_t value)
     else if (Equal(name, "ball_pid_ilim")) {
         c->ball_pid_integral_limit_mdeg = value;
     }
-    else if (Equal(name, "pitch_gain")) c->ball_pitch_gain_permille = value;
     else if (Equal(name, "accel_ff")) c->ball_accel_ff_mdeg_per_mm_s2 = value;
     else if (Equal(name, "max_angle")) c->ball_max_angle_mdeg = value;
     else if (Equal(name, "vision_invert")) c->vision_position_invert = value;
@@ -864,7 +877,8 @@ void TelemetryCommand(int argc, const char * const argv[])
                 "distance_mm,ball_0p1mm,ball_vel_0p1mm_s,"
                 "ball_target_vel_0p1mm_s,ball_vel_error_0p1mm_s,"
                 "error_0p1mm,"
-                "beam_mdeg,pitch_mdeg,dm_mrad,fault_count");
+                "beam_mdeg,imu_beam_mdeg,imu_comp_mdeg,"
+                "dm_mrad,fault_count");
         }
         Ok(true);
         return;

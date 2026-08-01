@@ -187,6 +187,14 @@ void SensorHub_Update5ms(uint32_t now_ms, const HConfig *config)
         raw.gyro_z, drivers::ICM45686_GYRO_FS_1000DPS) -
         config->imu_gyro_bias_z_mdps;
     g_imu.temperature_centi_c = drivers::Icm45686_TempCentiC(raw.temp);
+    const int32_t beam_mdeg = Atan2MilliDeg(ay, -ax);
+    if (!g_imu.valid) {
+        g_imu.beam_mdeg = beam_mdeg;
+    } else {
+        /* 200 Hz first-order smoothing rejects vibration while retaining
+         * enough bandwidth for the much slower linkage and ball dynamics. */
+        g_imu.beam_mdeg += (beam_mdeg - g_imu.beam_mdeg) / 4;
+    }
     g_imu.valid = true;
     g_imu.pitch_mdeg = Atan2MilliDeg(-ax, az);
     UpdateYaw(now_ms);

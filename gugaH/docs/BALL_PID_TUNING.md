@@ -37,4 +37,4 @@ ball hold 0
 ball status
 ```
 
-若球持续向端部运动，立即执行 `ball stop`，随后用 `dm position -570` 回到机械水平位。
+若球持续向端部运动，立即执行 `ball stop`，随后用 `dm position -617` 回到机械水平位。

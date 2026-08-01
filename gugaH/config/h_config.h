@@ -9,7 +9,7 @@
 namespace gugah {
 
 static const uint32_t H_CONFIG_MAGIC = 0x48475547UL; /* "GUGH" */
-static const uint16_t H_CONFIG_SCHEMA_VERSION = 16U;
+static const uint16_t H_CONFIG_SCHEMA_VERSION = 18U;
 static const uint16_t H_CONFIG_FRAM_ADDRESS = 0x0000U;
 
 struct HConfig {
@@ -60,7 +60,8 @@ struct HConfig {
     /* Shallow bowl curvature, mdeg of local slope per mm from centre. */
     int16_t ball_kd_mdeg_per_0p1mm_s;
     int16_t ball_ki_mdeg_per_0p1mm_s;
-    int16_t ball_pitch_gain_permille;
+    /* Retained for schema compatibility; beam IMU correction is disabled. */
+    int16_t ball_imu_beam_kp_permille;
     int16_t ball_accel_ff_mdeg_per_mm_s2;
     int16_t ball_max_angle_mdeg;
     int16_t ball_degraded_angle_mdeg;
@@ -73,7 +74,8 @@ struct HConfig {
 
     uint16_t vision_min_confidence;
     uint8_t vision_position_invert;
-    uint8_t reserved;
+    /* Retained for schema compatibility; beam IMU correction is disabled. */
+    uint8_t ball_imu_beam_limit_0p1deg;
 
     /* Model-based rod-ball controller.  Legacy ball_kp stores breakaway;
      * ball_kd/ball_ki and the planner fields remain for FRAM compatibility. */
@@ -112,10 +114,12 @@ struct HConfig {
     int32_t imu_gyro_bias_z_mdps;
     /* Chassis-acceleration feedforward; 1000 = model, sign sets polarity. */
     int16_t ball_chassis_ff_permille;
-    /* H5 runs at cruise through A, with symmetric ramps outside the lap. */
+    /* H5 uses encoder distance only for completion and retains symmetric
+     * launch/stop ramps around the one-lap-plus-50-mm target. */
     uint16_t h5_launch_ramp_rpm_s;
     uint16_t h5_stop_ramp_rpm_s;
     uint16_t h5_brake_distance_mm;
+
 };
 
 struct HConfigRecord {
