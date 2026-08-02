@@ -9,8 +9,12 @@ static const int32_t kMaximumHeadingErrorMdeg = 90000;
 static const int32_t kH2FinalPositionDistanceMm = 200;
 static const int16_t kH2FinalMinimumRpm = 15;
 static const int32_t kH5OdometryFinishOffsetMm = 50;
-static const int32_t kH5CurvePreparationMarginMm = 50;
-static const int32_t kCourseLineTransitionMm = 150;
+/* Curve entry is deliberately gentler than launch/final stopping.  Finish
+ * the 95->63 RPM transition early enough to give the 0.8 s ball model time
+ * to settle before steering curvature reaches its full value. */
+static const uint16_t kH5CurveEntryRampRpmS = 30U;
+static const int32_t kH5CurvePreparationMarginMm = 180;
+static const int32_t kCourseLineTransitionMm = 250;
 static const uint16_t kStraightDerivativeFilterPermille = 200U;
 static const uint16_t kCurveDerivativeFilterPermille = 1000U;
 
@@ -53,7 +57,7 @@ void Fail(CourseState *state, CourseFailure failure)
 
 uint32_t TimeoutFor(CourseKind kind)
 {
-    if (kind == COURSE_H4) {
+    if ((kind == COURSE_H4) || (kind == COURSE_H7)) {
         return 8000U;
     }
     return 30000U;
@@ -64,9 +68,14 @@ bool UsesH5ChassisStrategy(CourseKind kind)
     return (kind == COURSE_H5) || (kind == COURSE_H6);
 }
 
+bool UsesH4ChassisStrategy(CourseKind kind)
+{
+    return (kind == COURSE_H4) || (kind == COURSE_H7);
+}
+
 uint16_t CruiseFor(CourseKind kind, const HConfig *config)
 {
-    if (kind == COURSE_H4) {
+    if (UsesH4ChassisStrategy(kind)) {
         return config->h4_cruise_rpm;
     }
     if (UsesH5ChassisStrategy(kind)) {
@@ -266,8 +275,7 @@ int16_t H5RequestedRpm(const CourseState *state,
 
 int32_t H5CurveBrakeLeadMm(const HConfig *config)
 {
-    if ((config->h5_cruise_rpm <= config->h5_approach_rpm) ||
-        (config->h5_stop_ramp_rpm_s == 0U)) {
+    if (config->h5_cruise_rpm <= config->h5_approach_rpm) {
         return 0;
     }
     const int64_t cruise_squared =
@@ -280,7 +288,7 @@ int32_t H5CurveBrakeLeadMm(const HConfig *config)
         config->wheel_radius_um *
         (cruise_squared - curve_squared);
     const int64_t denominator = 1000000000LL * 120LL *
-        config->h5_stop_ramp_rpm_s;
+        kH5CurveEntryRampRpmS;
     return static_cast<int32_t>(
         (numerator + denominator / 2LL) / denominator) +
         kH5CurvePreparationMarginMm;
@@ -439,7 +447,7 @@ void H5UpdateRoadSpeedLimit(CourseState *state,
         state->h5_speed_limit_millirpm < target_millirpm;
     const int16_t rate_rpm_s = static_cast<int16_t>(
         accelerating ? config->h5_launch_ramp_rpm_s
-                     : config->h5_stop_ramp_rpm_s);
+                     : kH5CurveEntryRampRpmS);
     const int32_t maximum_delta = static_cast<int32_t>(
         static_cast<uint32_t>(rate_rpm_s) * elapsed_ms);
     const int32_t remaining = accelerating
@@ -512,7 +520,8 @@ bool Course_Start(CourseState *state,
     if ((state == 0) || (config == 0) ||
         !ChassisFresh(chassis, now_ms) ||
         ((kind != COURSE_H2) && (kind != COURSE_H4) &&
-         (kind != COURSE_H5) && (kind != COURSE_H6))) {
+         (kind != COURSE_H5) && (kind != COURSE_H6) &&
+         (kind != COURSE_H7))) {
         if (state != 0) {
             Fail(state, COURSE_FAILURE_INVALID_INPUT);
         }
@@ -555,7 +564,7 @@ MotionCommand Course_Update(CourseState *state,
     const bool score_not_frozen = !state->passed_b_or_a;
     const bool timed_task_pending = (state->kind == COURSE_H2)
         ? false
-        : (((state->kind == COURSE_H4) ||
+        : ((UsesH4ChassisStrategy(state->kind) ||
             UsesH5ChassisStrategy(state->kind))
             ? score_not_frozen : true);
     if (timed_task_pending &&
@@ -607,7 +616,7 @@ MotionCommand Course_Update(CourseState *state,
 
     if (state->phase == COURSE_STOPPING) {
         command = StopCommand();
-        if (state->kind == COURSE_H4) {
+        if (UsesH4ChassisStrategy(state->kind)) {
             state->h4_commanded_accel_mm_s2 =
                 -RpmRateToAccelerationMmS2(
                     config->h4_stop_ramp_rpm_s, config);
@@ -628,9 +637,9 @@ MotionCommand Course_Update(CourseState *state,
     }
 
     /* Distance, timeout and terminal-stop checks stay responsive at the
-     * 2 ms application rate.  H4 returns through its IMU-yaw straight-drive
+     * 2 ms application rate.  H4/H7 return through the IMU-yaw straight-drive
      * path below; only H2/H5/H6 wait for complete grayscale frames. */
-    if (state->kind == COURSE_H4) {
+    if (UsesH4ChassisStrategy(state->kind)) {
         if (!state->h4_braking &&
             (state->distance_mm >= config->h4_brake_distance_mm)) {
             state->h4_brake_start_rpm = static_cast<uint16_t>(

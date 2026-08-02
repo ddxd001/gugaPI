@@ -14,7 +14,8 @@ enum CourseKind : uint8_t {
     COURSE_H2 = 2U,
     COURSE_H4 = 4U,
     COURSE_H5 = 5U,
-    COURSE_H6 = 6U
+    COURSE_H6 = 6U,
+    COURSE_H7 = 7U
 };
 
 enum CoursePhase : uint8_t {

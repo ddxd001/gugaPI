@@ -677,7 +677,7 @@ void HRuntime_Update50ms(uint32_t now_ms)
                 ? "SAVING FRAM" : "HOLD B1 TO START");
         } else {
             OledLine(1U, "TARGET mm ",
-                     g_state.h6_target_0p1mm / 10);
+                     HApp_ReadyBallTarget0p1mm(&g_state) / 10);
             OledLine(2U, "READY ", g_hardware_fault ? 0 : 1);
         }
     } else if (HApp_IsRunning(&g_state)) {
@@ -850,6 +850,10 @@ void HRuntime_PrintStatus(void)
     services::Shell_WriteInt(g_state.h3_stage);
     services::Shell_Write(" ball_target0.1=");
     services::Shell_WriteInt(g_state.active_ball_target_0p1mm);
+    services::Shell_Write(" h6_target0.1=");
+    services::Shell_WriteInt(g_state.h6_target_0p1mm);
+    services::Shell_Write(" h7_target0.1=");
+    services::Shell_WriteInt(g_state.h7_target_0p1mm);
     services::Shell_Write(" ball_zero0.1=");
     services::Shell_WriteInt(g_config.ball_zero_offset_0p1mm);
     services::Shell_Write(" h2_loop_mm=");
@@ -905,7 +909,8 @@ void HRuntime_ClearFault(void)
 {
     if (!HApp_IsRunning(&g_state)) {
         const HProblem selected = g_state.selected_problem;
-        const int16_t target = g_state.h6_target_0p1mm;
+        const int16_t h6_target = g_state.h6_target_0p1mm;
+        const int16_t h7_target = g_state.h7_target_0p1mm;
         HRuntime_ChassisStopTest();
         HRuntime_BallStopTest();
         const bool buttons_ok =
@@ -922,7 +927,8 @@ void HRuntime_ClearFault(void)
         g_chassis_command_failing = false;
         HApp_Init(&g_state);
         g_state.selected_problem = selected;
-        g_state.h6_target_0p1mm = target;
+        g_state.h6_target_0p1mm = h6_target;
+        g_state.h7_target_0p1mm = h7_target;
         g_ready_hold_enabled = true;
         g_ready_hold_active = false;
         g_ready_hold_retry_ms = services::Time_Millis();

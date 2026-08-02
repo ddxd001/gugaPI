@@ -3,8 +3,8 @@
 namespace gugah {
 namespace {
 
-static const int16_t kH6Minimum0p1mm = -1000;
-static const int16_t kH6Maximum0p1mm = 1000;
+static const int16_t kAdjustableMinimum0p1mm = -1000;
+static const int16_t kAdjustableMaximum0p1mm = 1000;
 static const int16_t kH3CenterTarget0p1mm = 0;
 static const int16_t kH3PositiveTarget0p1mm = 500;
 static const int16_t kH3NegativeTarget0p1mm = -500;
@@ -34,8 +34,10 @@ BallInput MakeBallInput(const HAppState *state, const HAppInput *input)
     ball_input.vision = input->vision;
     ball_input.imu = input->imu;
     ball_input.dm = input->dm;
-    if ((state->selected_problem == H_PROBLEM_4) &&
-        (state->course.kind == COURSE_H4)) {
+    if (((state->selected_problem == H_PROBLEM_4) &&
+         (state->course.kind == COURSE_H4)) ||
+        ((state->selected_problem == H_PROBLEM_7) &&
+         (state->course.kind == COURSE_H7))) {
         ball_input.chassis_accel_mm_s2 =
             state->course.h4_commanded_accel_mm_s2;
     } else if (((state->selected_problem == H_PROBLEM_5) &&
@@ -188,9 +190,15 @@ bool StartRunning(HAppState *state,
             return false;
         }
     } else if (needs_ball) {
-        state->active_ball_target_0p1mm =
-            (state->selected_problem == H_PROBLEM_6)
-                ? state->h6_target_0p1mm : 0;
+        if (state->selected_problem == H_PROBLEM_6) {
+            state->active_ball_target_0p1mm =
+                state->h6_target_0p1mm;
+        } else if (state->selected_problem == H_PROBLEM_7) {
+            state->active_ball_target_0p1mm =
+                state->h7_target_0p1mm;
+        } else {
+            state->active_ball_target_0p1mm = 0;
+        }
         if (!Ball_StartHold(&state->ball,
                             state->active_ball_target_0p1mm,
                             &ball_input,
@@ -233,16 +241,29 @@ void HandleReadyButtons(HAppState *state, const HButtonEvents *buttons)
     }
     if (state->selected_problem == H_PROBLEM_6) {
         if (buttons->b2_decrement &&
-            (state->h6_target_0p1mm > kH6Minimum0p1mm)) {
+            (state->h6_target_0p1mm > kAdjustableMinimum0p1mm)) {
             state->h6_target_0p1mm =
                 static_cast<int16_t>(
                     state->h6_target_0p1mm - 10);
         }
         if (buttons->b3_increment &&
-            (state->h6_target_0p1mm < kH6Maximum0p1mm)) {
+            (state->h6_target_0p1mm < kAdjustableMaximum0p1mm)) {
             state->h6_target_0p1mm =
                 static_cast<int16_t>(
                     state->h6_target_0p1mm + 10);
+        }
+    } else if (state->selected_problem == H_PROBLEM_7) {
+        if (buttons->b2_decrement &&
+            (state->h7_target_0p1mm > kAdjustableMinimum0p1mm)) {
+            state->h7_target_0p1mm =
+                static_cast<int16_t>(
+                    state->h7_target_0p1mm - 10);
+        }
+        if (buttons->b3_increment &&
+            (state->h7_target_0p1mm < kAdjustableMaximum0p1mm)) {
+            state->h7_target_0p1mm =
+                static_cast<int16_t>(
+                    state->h7_target_0p1mm + 10);
         }
     }
 }
@@ -315,9 +336,11 @@ HAppOutput HApp_Update(HAppState *state,
         if (input->buttons.b1_short) {
             const HProblem selected = state->selected_problem;
             const int16_t h6_target = state->h6_target_0p1mm;
+            const int16_t h7_target = state->h7_target_0p1mm;
             HApp_Init(state);
             state->selected_problem = selected;
             state->h6_target_0p1mm = h6_target;
+            state->h7_target_0p1mm = h7_target;
             output.result_changed = true;
         }
         return output;
@@ -583,10 +606,14 @@ BallOutput HApp_UpdateBall2ms(HAppState *state,
 
 int16_t HApp_ReadyBallTarget0p1mm(const HAppState *state)
 {
-    if ((state != 0) &&
-        (state->run_state == H_STATE_READY) &&
-        (state->selected_problem == H_PROBLEM_6)) {
+    if ((state == 0) || (state->run_state != H_STATE_READY)) {
+        return 0;
+    }
+    if (state->selected_problem == H_PROBLEM_6) {
         return state->h6_target_0p1mm;
+    }
+    if (state->selected_problem == H_PROBLEM_7) {
+        return state->h7_target_0p1mm;
     }
     return 0;
 }

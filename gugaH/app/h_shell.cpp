@@ -70,7 +70,7 @@ void TaskCommand(int argc, const char * const argv[])
 {
     int32_t value = 0;
     if ((argc != 2) || !ParseInt(argv[1], &value) ||
-        (value < 2) || (value > 9)) {
+        (value < 2) || (value > 10)) {
         Ok(false);
         return;
     }
@@ -928,7 +928,8 @@ void HShell_Init(void)
 {
     (void)services::Shell_Register("status", "system/task status", StatusCommand);
     (void)services::Shell_Register(
-        "task", "task 2..9 (7=ZERO 8=H2_LOOP 9=GRAY)", TaskCommand);
+        "task", "task 2..10 (7=H7 8=ZERO 9=H2_LOOP 10=GRAY)",
+        TaskCommand);
     (void)services::Shell_Register("start", "start selected task", StartCommand);
     (void)services::Shell_Register("stop", "abort and stop", StopCommand);
     (void)services::Shell_Register("fault", "fault clear", FaultCommand);

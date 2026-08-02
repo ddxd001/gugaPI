@@ -86,7 +86,7 @@ void Shell_Init(void)
         g_commands[i] = {};
     }
     g_length = 0U;
-    Shell_WriteLine("\r\ngugaH H2-H6 ready; type help");
+    Shell_WriteLine("\r\ngugaH H2-H7 ready; type help");
 }
 
 bool Shell_Register(const char *name,

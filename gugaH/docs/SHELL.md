@@ -5,7 +5,7 @@
 | 命令 | 说明 |
 | --- | --- |
 | `status` | 当前题号、细分失败原因、锁存时间、最大球误差和分设备错误计数 |
-| `task 2..9` | READY 状态选择题目；7 为 CAL_ZERO，8 为 CAL_H2_LOOP，9 为 CAL_GRAY |
+| `task 2..10` | READY 状态选择题目；7为H7，8为CAL_ZERO，9为CAL_H2_LOOP，10为CAL_GRAY |
 | `start` / `stop` | 启动或立即中止 |
 | `fault clear` | 非运行状态清故障并回 READY |
 | `gray raw` | 八路原始 ADC |
@@ -60,7 +60,9 @@ H5/H6共用的直道默认参数为 `course_line_kp=18`、`course_line_kd=12`、
 `course_line_max_corr=25 RPM`、`course_line_slew=400 RPM/s`。旧的
 `h5_line_*` 名称仍可作为兼容别名。弯道继续使用全局
 `line_kp/line_kd`、`line_max_corr`和`line_slew`；
-进入和离开物理弯道的150 mm范围内平滑插值。直道D项还使用0.2系数低通，
+进入和离开物理弯道的250 mm范围内平滑插值。入弯速度转换固定使用
+30 RPM/s减速度并预留180 mm稳球距离；`h5_stop_ramp`仍只控制最终停车，
+`h5_launch_ramp`继续控制起步和出弯加速。直道D项还使用0.2系数低通，
 随弯道插值逐渐恢复到原始响应。
 
 H6底盘完全复用H5的 `h5_speed`、`h5_curve_speed`、`h5_launch_ramp`、
@@ -69,7 +71,13 @@ H6底盘完全复用H5的 `h5_speed`、`h5_curve_speed`、`h5_launch_ramp`、
 原 `h6_finish_gate`、`h6_approach_start` 已停用。H5保持球在0 mm，H6保持B2/B3
 设定位置。
 
-面板选择 H6 后的 `CAL ZERO` 可不使用串口完成零位标定：长按 B1 并松手
+H7底盘完全复用H4的直行策略和参数：`h4_speed`、`h4_launch_ramp`、
+`h4_stop_ramp`、`h4_brake_distance`、`h4_b_distance`、`h4_stop_distance`
+以及IMU航向控制均与H4相同，不使用灰度循线。区别仅是H4固定保持0 mm，
+H7在READY下用B2/B3以1 mm步进设置±100 mm钢球目标，并在发车前提前保持
+到位。H7同样在8秒内通过B点、通过后缓停，PASS后继续保持设定目标。
+
+面板选择 H7 后的 `CAL ZERO` 可不使用串口完成零位标定：长按 B1 并松手
 启动，B2/B3 每次向负/正半轴移动零位 1 mm，按下 B1 退出。退出后固件会
 等待 OLED 总线空闲，自动将新零位写入 FRAM 并读回校验。
 

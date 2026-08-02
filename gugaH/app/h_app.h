@@ -16,9 +16,10 @@ enum HProblem : uint8_t {
     H_PROBLEM_4 = 4U,
     H_PROBLEM_5 = 5U,
     H_PROBLEM_6 = 6U,
-    H_PROBLEM_CAL_ZERO = 7U,
-    H_PROBLEM_CAL_H2_LOOP = 8U,
-    H_PROBLEM_CAL_GRAY = 9U
+    H_PROBLEM_7 = 7U,
+    H_PROBLEM_CAL_ZERO = 8U,
+    H_PROBLEM_CAL_H2_LOOP = 9U,
+    H_PROBLEM_CAL_GRAY = 10U
 };
 
 enum HRunState : uint8_t {
@@ -86,6 +87,7 @@ struct HAppState {
     CourseState course;
     BallState ball;
     int16_t h6_target_0p1mm;
+    int16_t h7_target_0p1mm;
     int16_t active_ball_target_0p1mm;
     int32_t chassis_accel_mm_s2;
     int16_t last_average_rpm;
